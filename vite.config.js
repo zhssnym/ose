@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [bridgePlugin()],
   server: {
     port: 5173, strictPort: true, host: '127.0.0.1',
-    watch: { ignored: ['**/host/**', '**/dist-host/**', '**/legacy/**', '**/state.json', '**/node_modules/**'] },
+    watch: { ignored: ['**/host/**', '**/dist-host/**', '**/legacy/**', '**/state.json', '**/node_modules/**', '**/ci/**', '**/src-tauri/target/**', '**/.trash/**'] },
   },
   build: {
     outDir: 'dist', emptyOutDir: true, target: 'es2022', sourcemap: false,

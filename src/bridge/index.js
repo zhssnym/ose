@@ -78,11 +78,13 @@ export const bridge = {
   assetUrl: (path) => (adapter && adapter.assetUrl ? adapter.assetUrl(path) : staticAssetUrl(path)),
 
   claudeInfo: () => call('claudeInfo'),
-  claudeStart: (opts) => call('claudeStart', opts),
-  claudeSend: (id, text) => call('claudeSend', id, text),
-  claudeInterrupt: (id) => call('claudeInterrupt', id),
-  claudeStop: (id) => call('claudeStop', id),
-  claudeTranscript: (sessionId) => call('claudeTranscript', sessionId),
+
+  // A pseudo-terminal per session; the Claude Code CLI runs inside one (CONTRACT.md, batch 6).
+  // `data` out is base64 of the raw bytes, `data` in is a UTF-8 string.
+  ptyStart: (opts) => call('ptyStart', opts),
+  ptyWrite: (id, data) => call('ptyWrite', id, data),
+  ptyResize: (id, cols, rows) => call('ptyResize', id, cols, rows),
+  ptyKill: (id) => call('ptyKill', id),
 
   win: {
     minimize: () => winCall('minimize'),

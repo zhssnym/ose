@@ -23,6 +23,8 @@ export const KEYMAP = [
 const BY_CMD = new Map();
 for (const k of KEYMAP) if (!BY_CMD.has(k.cmd)) BY_CMD.set(k.cmd, k.label);
 const BY_COMBO = new Map(KEYMAP.map((k) => [k.combo, k]));
+// Chords the shell keeps even while the Claude terminal has focus.
+const TERMINAL_SAFE = new Set(['app.palette', 'app.quickopen', 'app.search', 'app.settings', 'app.theme', 'claude.toggle']);
 
 /** The palette and menus read their hints from here so the map has one source. */
 export function shortcutFor(id) { return BY_CMD.get(id) || null; }
@@ -58,6 +60,10 @@ export function initKeys() {
     if (!combo) return;
     const entry = BY_COMBO.get(combo);
     if (!entry) return;
+
+    // Inside the Claude terminal every key belongs to the CLI except the app-wide chords
+    // (CONTRACT.md batch 6). Ctrl+J stays mapped: claude.toggle turns it into a newline there.
+    if (e.target && e.target.closest && e.target.closest('.agent-pane') && !TERMINAL_SAFE.has(entry.cmd)) return;
 
     // Never let the browser act on a mapped combo (Ctrl+P print, Ctrl+S save page).
     e.preventDefault();

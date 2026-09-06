@@ -1,13 +1,12 @@
-// The Claude pane. A conversation with Claude Code running on the vault, not a terminal.
+// The Claude pane. A real terminal running the Claude Code CLI on the vault (CONTRACT batch 6).
 // One long-lived pane element lives in two places: the `agent` view in the main column
 // (claude.mode === 'view', the default) and the shell's right side panel (claude.mode ===
-// 'dock'). It is moved between them, never rebuilt, so a running session survives.
+// 'dock'). It is moved between them, never rebuilt, so the running pty survives.
 // Entry points used by the shell: initClaude(), mountClaudePane(el), unmountClaudePane().
 
-import { commands, store, views } from '../registry.js';
-import { session, readClaudeState, patchClaude } from './session.js';
-import { createTranscript } from './render.js';
-import { createComposer } from './composer.js';
+import { commands, store, views, status as statusBar } from '../registry.js';
+import { bridge } from '../bridge/index.js';
+import { createTerminal } from './terminal.js';
 import { createHeader } from './header.js';
 import './claude.css';
 
@@ -17,7 +16,9 @@ let pane = null;      // built once, kept alive across mount/unmount
 let booted = false;
 let holder = null;    // detached parent: where the pane waits when nothing hosts it
 let viewHost = null;  // the .agent-view wrapper while the agent view is on screen
-const waiting = [];   // actions queued before the pane was mounted anywhere
+let installed = true; // bridge.claudeInfo().path was there
+let started = false;  // the session is started lazily, on the first mount
+const waiting = [];   // actions queued before the pane was built
 
 const mode = () => (store.get('claude.mode') === 'dock' ? 'dock' : 'view');
 const isAgentRoute = (r) => !!r && r.type === 'view' && r.name === VIEW_NAME;
@@ -27,6 +28,49 @@ const shellApi = () => import('../shell/index.js').catch((e) => {
   console.warn('[claude] shell unavailable', e);
   return {};
 });
+
+/* ------------------------------------------------- persisted mode (state.json) */
+
+// state.js belongs to the shell and may load after this module; localStorage is the fallback.
+let statePatch = null;
+async function persistApi() {
+  if (statePatch) return statePatch;
+  try {
+    const m = await import('../shell/state.js');
+    if (typeof m.patchState === 'function') {
+      statePatch = {
+        patch: m.patchState,
+        read: async () => {
+          let c = m.stateCache?.() || {};
+          if (!Object.keys(c).length && typeof m.loadState === 'function') {
+            try { c = await m.loadState(); } catch { c = {}; }
+          }
+          return c.claude || {};
+        },
+      };
+      return statePatch;
+    }
+  } catch { /* not built yet */ }
+  statePatch = {
+    patch: async (partial) => { try { localStorage.setItem('os.claude', JSON.stringify(partial.claude || {})); } catch { } },
+    read: async () => { try { return JSON.parse(localStorage.getItem('os.claude') || '{}'); } catch { return {}; } },
+  };
+  return statePatch;
+}
+
+async function readClaudeState() {
+  const api = await persistApi();
+  return (await api.read()) || {};
+}
+
+/** Merge into the persisted `claude` state. The CLI owns sessions, model and permissions now. */
+async function patchClaude(partial) {
+  const api = await persistApi();
+  const cur = (await api.read()) || {};
+  // keys retired with the stream-json pane
+  const { cwd, sessions, model, permissionMode, ...keep } = cur;
+  await api.patch({ claude: { ...keep, ...partial } });
+}
 
 /** Run fn once the pane exists (it is built on the first mount). */
 function whenPane(fn) {
@@ -38,128 +82,77 @@ function flushWaiting() {
   while (waiting.length) { const fn = waiting.shift(); try { fn(pane); } catch (e) { console.warn('[claude]', e); } }
 }
 
+/* ------------------------------------------------------------------- build */
+
 function build() {
   const el = document.createElement('div');
   el.className = 'agent-pane';
 
   const goto = async (path) => { (await shellApi()).navigate?.({ type: 'page', path }); };
-  const transcript = createTranscript({ onNavigate: goto });
 
-  const composer = createComposer({
-    onSend: (text) => session.send(text),
-    onInterrupt: () => session.interrupt(),
-    lastPrompt: () => session.lastPrompt,
+  const terminal = createTerminal({
+    onStatus: (s) => {
+      store.set('claude.status', s);
+      statusBar.set('claude', s === 'running' ? 'claude running' : s === 'exited' ? 'claude exited' : null);
+      header.refresh();
+    },
+    onNavigate: goto,
+    onRestart: () => commands.run('claude.new'),
   });
 
   const header = createHeader({
-    session,
     mode,
+    status: () => terminal.status,
     onNew: () => commands.run('claude.new'),
     onClose: () => store.set('claude.open', false),
-    onResume: (id) => session.resume(id),
     onToggleMode: () => setMode(mode() === 'dock' ? 'view' : 'dock'),
   });
 
   const body = document.createElement('div');
   body.className = 'c-body';
-  body.append(transcript.el);
-  // the jump button rides with the composer, so it works in both modes (sticky in the view)
-  composer.el.append(transcript.jump);
+  body.append(terminal.el);
 
-  // stderr strip
-  const log = document.createElement('div');
-  log.className = 'c-log';
-  log.hidden = true;
-  const logHead = document.createElement('button');
-  logHead.className = 'c-log-head mono-sm';
-  logHead.type = 'button';
-  const logBody = document.createElement('pre');
-  logBody.className = 'c-log-body c-pre text-select';
-  log.append(logHead, logBody);
-  logHead.addEventListener('click', () => toggleLog());
-  let logOpen = false;
-  function toggleLog() {
-    logOpen = !logOpen;
-    log.hidden = !session.log.length;
-    log.classList.toggle('open', logOpen);
-    renderLog();
-  }
-  function renderLog() {
-    log.hidden = !session.log.length;
-    logHead.textContent = `${logOpen ? '▾' : '▸'} log · ${session.log.length}`;
-    logBody.hidden = !logOpen;
-    if (logOpen) { logBody.textContent = session.log.map(l => l.text).join('\n'); logBody.scrollTop = logBody.scrollHeight; }
-  }
+  // Only shown when the CLI is missing: there is nothing to run, so no terminal is started.
+  const empty = document.createElement('div');
+  empty.className = 'c-empty';
+  empty.innerHTML = `<p class="mono-sm">Claude Code is not installed on this machine.</p>
+    <pre class="c-pre c-install text-select">npm install -g @anthropic-ai/claude-code</pre>
+    <p class="mono-sm faint">Then reopen the app. The pane runs <code>claude</code> from your PATH.</p>`;
+  empty.hidden = true;
+  body.append(empty);
 
-  el.append(header.el, body, log, composer.el);
-
-  function emptyState() {
-    const box = document.createElement('div');
-    box.className = 'c-empty';
-    if (!session.installed) {
-      box.innerHTML = `<p class="mono-sm">Claude Code is not installed on this machine.</p>
-        <pre class="c-pre c-install text-select">npm install -g @anthropic-ai/claude-code</pre>
-        <p class="mono-sm faint">Then reopen the app. The pane runs <code>claude</code> from your PATH.</p>`;
-    } else {
-      box.innerHTML = `<p class="mono-sm">Ask Claude about this vault.</p>
-        <p class="mono-sm faint">It reads and edits files in the vault root, under the CLAUDE.md rules of each folder.</p>`;
-    }
-    return box;
-  }
-
-  function refreshEmpty() {
-    if (!session.items.length) transcript.setEmpty(emptyState());
-  }
+  el.append(header.el, body);
 
   function refresh() {
+    empty.hidden = installed;
+    terminal.el.hidden = !installed;
     header.refresh();
-    composer.setDisabled(session.phase === 'starting' || !session.installed,
-      session.installed ? 'starting claude…' : 'claude code not found on this machine');
-    composer.setRunning(session.phase === 'thinking' || session.phase === 'tool');
-    renderLog();
   }
-
-  session.on((kind, payload) => {
-    if (kind === 'add') {
-      if (session.items.length === 1) transcript.setEmpty(null); // drop the empty state
-      if (payload.kind === 'error' && payload.restart) payload.onRestart = () => commands.run('claude.new');
-      transcript.add(payload);
-      refresh();
-    } else if (kind === 'update') {
-      transcript.update(payload);
-    } else if (kind === 'reset') {
-      transcript.reset();
-      refreshEmpty();
-      refresh();
-    } else if (kind === 'log') {
-      renderLog();
-      header.refresh();
-    } else {
-      refresh();
-      refreshEmpty();   // 'meta' can carry a late claudeInfo: redraw the empty state
-    }
-  });
-
-  refreshEmpty();
   refresh();
 
-  return { el, composer, transcript, refresh, refreshEmpty };
+  return { el, terminal, header, refresh };
 }
-
-/* ------------------------------------------------------------------ hosting */
 
 function ensurePane() {
   if (!pane) pane = build();
   return pane;
 }
 
-/** Park the pane in a detached holder. It keeps running; only its parent changes. */
+/** Start the CLI on first sight of the pane, in the focused folder (or the vault root). */
+function ensureStarted() {
+  if (!installed || started || !pane) return;
+  started = true;
+  pane.terminal.start(store.get('focus') || '');
+}
+
+/* ------------------------------------------------------------------ hosting */
+
+/** Park the pane in a detached holder. The pty keeps running; only its parent changes. */
 function park() {
   if (!pane) return;
   if (!holder) holder = document.createElement('div');
   holder.append(pane.el);
   pane.el.classList.remove('in-view');
-  pane.transcript.setScrollHost(null);
 }
 
 /** The agent view is going away. Do nothing if the side panel already took the pane. */
@@ -198,6 +191,7 @@ async function setMode(next) {
     patchClaude({ mode: to });
     shell.navigate?.({ type: 'view', name: VIEW_NAME });
   }
+  whenPane((p) => p.header.refresh());
 }
 
 /** Bring the pane on screen in whichever mode is current. */
@@ -210,7 +204,7 @@ async function showPane() {
   if (!isAgentRoute(store.get('route'))) (await shellApi()).navigate?.({ type: 'view', name: VIEW_NAME });
 }
 
-/* ------------------------------------------------------------------ boot */
+/* -------------------------------------------------------------------- boot */
 
 export async function initClaude() {
   if (booted) return;
@@ -219,8 +213,16 @@ export async function initClaude() {
   const saved = await readClaudeState();
   store.set('claude.mode', saved.mode === 'dock' ? 'dock' : 'view');
   store.set('claude.open', saved.mode === 'dock' && saved.open !== false);
+  store.set('claude.status', 'off');
 
-  await session.init();
+  try {
+    const info = await bridge.claudeInfo();
+    installed = !!(info && info.path);
+  } catch (e) {
+    // an old host without the command is not a reason to refuse to run
+    console.warn('[claude] claudeInfo', e);
+    installed = true;
+  }
 
   views.register(VIEW_NAME, {
     title: 'Claude',
@@ -235,23 +237,30 @@ export async function initClaude() {
       viewHost.append(pane.el);
       pane.el.classList.add('in-view');
       el.append(viewHost);
-      pane.transcript.setScrollHost(el);
       pane.refresh();
       flushWaiting();
-      pane.composer.focus();
+      ensureStarted();
+      pane.terminal.fit();
+      pane.terminal.focus();
     },
     unmount() { parkFromView(); },
-    refresh() { /* the transcript is live; there is nothing to reread from disk */ },
+    refresh() { /* the terminal is live; there is nothing to reread from disk */ },
   });
 
   commands.register({
     id: 'claude.toggle', title: 'Toggle the agent', group: 'claude', shortcut: 'Ctrl+J',
     run: async () => {
+      // Ctrl+J is the CLI's newline. The shell binds it on window in the capture phase, so the
+      // terminal never sees the keystroke; hand it the line feed here instead of toggling.
+      if (pane && pane.terminal.hasFocus() && pane.terminal.running) {
+        pane.terminal.write('\n');
+        return;
+      }
       if (mode() === 'dock') {
         const open = !store.get('claude.open');
         store.set('claude.open', open);
         patchClaude({ mode: 'dock', open });
-        if (open) { ensureDockHost(); whenPane(p => p.composer.focus()); }
+        if (open) { ensureDockHost(); whenPane((p) => p.terminal.focus()); }
         return;
       }
       const shell = await shellApi();
@@ -259,18 +268,19 @@ export async function initClaude() {
       else shell.navigate?.({ type: 'view', name: VIEW_NAME });
     },
   });
+
   commands.register({
     id: 'claude.new', title: 'New Claude session', group: 'claude',
-    run: async () => { await session.newSession(); await showPane(); whenPane(p => p.composer.focus()); },
+    run: async () => {
+      await showPane();
+      ensurePane();
+      if (!installed) return;          // nothing to run: the pane shows how to install it
+      started = true;
+      await pane.terminal.restart(store.get('focus') || '');
+      pane.terminal.focus();
+    },
   });
-  commands.register({
-    id: 'claude.interrupt', title: 'Interrupt Claude', group: 'claude', hint: 'Esc',
-    when: () => session.running, run: () => session.interrupt(),
-  });
-  commands.register({
-    id: 'claude.stop', title: 'Stop the Claude process', group: 'claude',
-    when: () => !!session.procId, run: () => session.stop(),
-  });
+
   commands.register({
     id: 'claude.ask-page', title: 'Ask Claude about this page', group: 'claude',
     when: () => store.get('route')?.type === 'page',
@@ -280,14 +290,17 @@ export async function initClaude() {
       // asking about a page keeps the page on screen: dock rather than take the column
       if (mode() !== 'dock') await setMode('dock');
       else { store.set('claude.open', true); ensureDockHost(); }
-      whenPane(p => p.composer.prefill(`About the open page \`${path}\`: `));
+      whenPane((p) => {
+        ensureStarted();
+        p.terminal.write(`About the page \`${path}\`: `);
+        p.terminal.focus();
+      });
     },
   });
 
   store.watch('claude.open', (open) => {
-    if (open && mode() === 'dock') { ensureDockHost(); whenPane(p => p.composer.focus()); }
+    if (open && mode() === 'dock') { ensureDockHost(); whenPane((p) => p.terminal.focus()); }
   });
-  if (!store.get('claude.status')) store.set('claude.status', 'off');
 }
 
 /* ------------------------------------------------- side panel host (dock mode) */
@@ -295,18 +308,15 @@ export async function initClaude() {
 export function mountClaudePane(el) {
   ensurePane();
   pane.el.classList.remove('in-view');
-  pane.transcript.setScrollHost(null);
   el.append(pane.el);
   pane.refresh();
   flushWaiting();
+  ensureStarted();
+  pane.terminal.fit();
   return pane.el;
 }
 
 export function unmountClaudePane() {
-  // the pane stays built so a running session survives being hidden
+  // the pane stays built so the running pty survives being hidden
   park();
 }
-
-// exposed for the dev harness in this folder only
-export function __pane() { return pane; }
-export { session };

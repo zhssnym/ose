@@ -1,14 +1,20 @@
-//! Platform integration: opening external URLs, revealing a file in the file manager,
-//! locating the Claude Code CLI, and the folder Claude Code keeps its transcripts in.
+//! Platform integration: opening external URLs, revealing a file in the file manager, and
+//! locating the Claude Code CLI (which `pty.rs` runs and the settings pane reports).
 //!
 //! Ported from `host/Bridge.cs` (`OpenExternal`, `Reveal`) and `host/ClaudeProcess.cs` (`Probe`).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::{arg_str, Ctx};
+
+/// How long `claude --version` may take before the probe gives up.
+const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Windows `CREATE_NO_WINDOW`: no console window for any child process we spawn.
 #[cfg(windows)]
@@ -32,6 +38,7 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
         "openExternal" => Some(cmd_open_external(args)),
         "reveal" => Some(cmd_reveal(ctx, args)),
         "platform" => Some(Ok(platform_info(ctx))),
+        "claudeInfo" => Some(Ok(claude_info())),
         _ => None,
     }
 }
@@ -221,44 +228,63 @@ fn zsh_login_lookup() -> Option<PathBuf> {
     }
 }
 
-// ---- transcripts ----------------------------------------------------------
+// ---- claudeInfo -----------------------------------------------------------
 
-/// `~/.claude/projects/<encoded root>`: Claude Code's own session log folder.
-pub fn transcript_dir(root: &Path) -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".claude").join("projects").join(encode_cwd(root))
+struct Cli {
+    path: PathBuf,
+    version: Option<String>,
 }
 
-/// The absolute path with every non-alphanumeric character replaced by `-`
-/// (`D:\os` -> `D--os`). Windows verbatim prefixes and trailing separators are dropped
-/// first so the result matches what the CLI computes from its own cwd.
-fn encode_cwd(root: &Path) -> String {
-    let mut s = root.to_string_lossy().into_owned();
-    let stripped = s
-        .strip_prefix(r"\\?\UNC\")
-        .or_else(|| s.strip_prefix(r"\\?\"))
-        .map(str::to_string);
-    if let Some(r) = stripped {
-        s = r;
+static CLI: OnceLock<Option<Cli>> = OnceLock::new();
+
+/// Located once per run, `--version` included. `pty.rs` calls `find_claude` directly; this is
+/// only the report the settings pane and the empty state show.
+fn claude_info() -> Value {
+    let cli = CLI.get_or_init(|| {
+        let path = find_claude()?;
+        let version = run_capture(&path, &["--version"], VERSION_TIMEOUT)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        Some(Cli { path, version })
+    });
+    match cli {
+        Some(c) => json!({ "path": c.path.display().to_string(), "version": c.version }),
+        None => json!({ "path": Value::Null, "version": Value::Null }),
     }
-    while s.len() > 1 && (s.ends_with('\\') || s.ends_with('/')) {
-        s.pop();
+}
+
+/// Runs a short command and returns its stdout, or `None` on failure or timeout.
+fn run_capture(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> {
+    let mut child = quiet_command(exe)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let out = child.wait_with_output().ok()?;
+                return status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&out.stdout).into_owned());
+            }
+            Ok(None) => {}
+            Err(_) => return None,
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            return None;
+        }
+        thread::sleep(Duration::from_millis(25));
     }
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn encodes_the_vault_path() {
-        assert_eq!(encode_cwd(Path::new(r"D:\os")), "D--os");
-        assert_eq!(encode_cwd(Path::new(r"\\?\D:\os\")), "D--os");
-        assert_eq!(encode_cwd(Path::new("/Users/h/os")), "-Users-h-os");
-    }
 
     #[test]
     fn refuses_other_schemes() {

@@ -21,3 +21,4 @@ selftest.log
 
 # state written by self-test runs against the fake vault
 ci/fake-vault/.ose/
+ci/fake-vault/.trash/

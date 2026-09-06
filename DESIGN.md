@@ -109,14 +109,11 @@ at low opacity with a 2px left bar in the full colour.
 
 ## Claude pane
 
-A conversation, not a terminal. Messages have no bubbles: user text is prefixed with a 2px
-`--accent` bar on the left, assistant text is plain. Tool calls render as compact one-line rows
-in mono (`READ  Personal/1. Life/profile.md`, `EDIT  ... +3 −1`) that expand on click. Streaming
-text appears in place. The composer is a borderless textarea over a top border, mono hint line
-underneath (`Enter to send · Shift+Enter newline · Esc interrupt`). Status (thinking, running a
-tool, idle) goes in the pane header and the status bar. The one inline indicator is the folded
-`working · N tools` row of the current turn, a mono glyph cycle, never a graphic spinner. Cost
-is never shown.
+A real terminal running the Claude Code CLI, drawn in the app's colours: `--bg` ground, `--fg`
+text, `--accent` cursor, the sixteen ANSI colours mapped to the palette, `--font-mono` 13px,
+square 12px scrollbar. The CLI owns the conversation, its prompts and its slash commands; the
+app adds only the header (name, status chip, new session, dock or full) and clickable vault
+paths in the output. Nothing conversational is drawn by the app.
 
 ## Language
 

@@ -423,7 +423,27 @@ pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
     if !full.exists() {
         return Err(format!("nothing to trash: {rel}"));
     }
-    trash::delete(&full).map_err(|e| format!("{rel}: {e}"))
+    // The Recycle Bin call goes through COM and wants a thread of its own (an apartment already
+    // initialised differently makes the shell abort the operation). If the shell still refuses,
+    // fall back to a hidden `.trash` folder inside the vault: never a permanent delete.
+    let target = full.clone();
+    let shell = std::thread::spawn(move || trash::delete(&target).map_err(|e| e.to_string()))
+        .join()
+        .unwrap_or_else(|_| Err("trash thread panicked".to_string()));
+    match shell {
+        Ok(()) => Ok(()),
+        Err(first) => {
+            let bin = root.join(".trash");
+            std::fs::create_dir_all(&bin).map_err(|e| format!("{rel}: {first}; and .trash: {e}"))?;
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let name = full.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "item".into());
+            let dest = bin.join(format!("{stamp}-{name}"));
+            std::fs::rename(&full, &dest).map_err(|e| format!("{rel}: {first}; and .trash: {e}"))
+        }
+    }
 }
 
 // ---- search ----------------------------------------------------------------

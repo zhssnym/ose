@@ -76,9 +76,9 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
 - Colours, fonts and sizes come from `tokens.css` only. No hex values in module CSS.
 - Both themes, every time. Keyboard reachable, every time.
 - The app is English; file content is never translated.
-- Claude Code runs as a child process of the host in stream-json mode; the pane is a chat,
-  not a terminal. Permission mode defaults to `acceptEdits`; full access is a deliberate choice
-  in the pane header.
+- Claude Code runs interactively in a pseudo-terminal owned by the host; the Claude view is
+  that terminal (xterm.js), themed with the app's tokens. Every CLI feature works as in a
+  terminal: slash commands, permission prompts, resume, plan mode.
 
 ## What is deliberately not here
 
@@ -95,9 +95,7 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
   contain and a red `missing` when it does not exist. Nothing is hard-coded; a missing source
   shows the path and points at settings. Checkboxes outside the todo source are just
   checkboxes in their pages.
-- The Claude view is a viewer of the CLI: transcript, composer, and one menu for the three
-  things the CLI takes as flags (model, permission mode, session). Nothing conversational is
-  reimplemented; resumed sessions are read from Claude Code's own transcript files.
+- The Claude view is the CLI itself in a terminal. Nothing conversational is reimplemented.
 - Views are chronological: Month (goals, systems matrix, computed rates, review), Week (the
   timetable), Day (today's timeline, system check-ins, tasks), Journal (write-once record).
   The Agent view is Claude Code on the vault, full width by default, dockable beside a page.

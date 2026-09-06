@@ -1,6 +1,6 @@
 // Dev bridge: Node implementation of CONTRACT.md for browser development.
-// Filesystem + /vault assets + state + SSE events + fs watcher + Claude Code child processes.
-// Only used by `vite` in dev; the shipped app talks to the .NET host instead (src/bridge/webview.js).
+// Filesystem + /vault assets + state + SSE events + fs watcher + pseudo-terminals.
+// Only used by `vite` in dev; the shipped app talks to the Tauri host instead (src/bridge/tauri.js).
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
@@ -143,8 +143,7 @@ export function bridgePlugin() {
     watcher = null;
   }
 
-  // ---------------------------------------------------------------- claude code
-  const sessions = new Map(); // id -> { proc, cwd, killed }
+  // ---------------------------------------------------------------- claude cli
   let infoCache = null;
 
   const which = (bin) => {
@@ -186,111 +185,83 @@ export function bridgePlugin() {
     return full;
   };
 
-  const claudeStart = async ({ cwd, permissionMode = 'default', resume, model } = {}) => {
-    const info = await claudeInfo();
-    if (!info.path) throw new Error('claude CLI not found (looked on PATH and in ~/.local/bin; set OS_CLAUDE to override)');
+  // ---------------------------------------------------------------- pseudo-terminals
+  // node-pty is an optional dependency (it is prebuilt, but a machine can still fail to
+  // install it); when it is missing every pty command says so instead of crashing the server.
+  const ptys = new Map(); // id -> { proc }
+  let nodePty; // undefined = not tried yet, null = unavailable
+  const PTY_UNAVAILABLE = 'pty unavailable in the dev bridge';
+
+  const loadPty = async () => {
+    if (nodePty !== undefined) return nodePty;
+    try {
+      nodePty = (await import('@homebridge/node-pty-prebuilt-multiarch')).default ?? null;
+    } catch (e) {
+      console.warn('[bridge] node-pty unavailable: ' + (e && e.message ? e.message : e));
+      nodePty = null;
+    }
+    if (!nodePty) throw new Error(PTY_UNAVAILABLE);
+    return nodePty;
+  };
+
+  const ptyStart = async ({ cwd, cols, rows, cmd, args, env } = {}) => {
+    const pty = await loadPty();
+    let file = String(cmd || '').trim();
+    if (!file) {
+      const info = await claudeInfo();
+      if (!info.path) throw new Error('claude CLI not found');
+      file = info.path;
+    }
     const dir = resolveCwd(cwd);
-    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', permissionMode];
-    if (resume) args.push('--resume', String(resume));
-    if (model) args.push('--model', String(model));
-
-    console.log('[bridge] claude ' + args.join(' ') + '  (cwd ' + dir + ')');
-
-    const proc = spawn(info.path, args, {
-      cwd: dir,
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    });
     const id = randomUUID();
-    const sess = { proc, cwd: dir, killed: false };
-    sessions.set(id, sess);
-
-    const send = (event) => emit('claude', { id, event });
-    const lineReader = (stream, onLine) => {
-      let buf = '';
-      stream.setEncoding('utf8');
-      stream.on('data', (chunk) => {
-        buf += chunk;
-        let i;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).replace(/\r$/, '');
-          buf = buf.slice(i + 1);
-          if (line.trim()) onLine(line);
-        }
-      });
-      stream.on('end', () => { const t = buf.trim(); buf = ''; if (t) onLine(t); });
-    };
-
-    lineReader(proc.stdout, (line) => {
-      let obj = null;
-      try { obj = JSON.parse(line); } catch { obj = null; }
-      if (obj && typeof obj === 'object') send(obj);
-      else send({ type: 'stderr', text: line });
+    const proc = pty.spawn(file, Array.isArray(args) ? args.map(String) : [], {
+      name: 'xterm-256color',
+      cols: Math.max(1, Number(cols) || 80),
+      rows: Math.max(1, Number(rows) || 24),
+      cwd: dir,
+      useConpty: true,
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        ...(env && typeof env === 'object' ? env : {}),
+      },
     });
-    lineReader(proc.stderr, (line) => send({ type: 'stderr', text: line }));
+    console.log('[bridge] pty ' + id + ': ' + file + ' ' + (args || []).join(' ') + '  (cwd ' + dir + ')');
+    ptys.set(id, { proc });
 
-    proc.stdin.on('error', (e) => { if (e.code !== 'EPIPE') send({ type: 'stderr', text: 'stdin: ' + e.message }); });
-    proc.on('error', (e) => { send({ type: 'stderr', text: 'spawn: ' + e.message }); });
-    proc.on('close', (code, signal) => {
-      sessions.delete(id);
-      send({ type: 'exit', code: code === null ? (signal ? -1 : 0) : code });
+    // node-pty hands us a string it decoded itself; the contract carries raw bytes as base64,
+    // so it is re-encoded here. The host emits the true bytes; both decode the same on the web
+    // side because the terminal writes UTF-8 either way.
+    proc.onData((data) => emit('pty', { id, data: Buffer.from(data, 'utf8').toString('base64') }));
+    proc.onExit(({ exitCode, signal }) => {
+      ptys.delete(id);
+      emit('pty', { id, exit: exitCode === undefined || exitCode === null ? (signal ? -1 : 0) : exitCode });
     });
     return { id };
   };
 
-  const writeLine = (id, obj) => {
-    const s = sessions.get(id);
-    if (!s) throw new Error('no such claude session: ' + id);
-    if (!s.proc.stdin.writable) throw new Error('claude session stdin closed: ' + id);
-    s.proc.stdin.write(JSON.stringify(obj) + '\n');
+  const usePty = (id) => {
+    if (nodePty === null) throw new Error(PTY_UNAVAILABLE);
+    const s = ptys.get(id);
+    if (!s) throw new Error('no pty ' + id);
+    return s;
   };
 
-  const claudeStop = async (id) => {
-    const s = sessions.get(id);
+  // Killing a pty that has already exited is not an error; killing one when node-pty never
+  // loaded is, so the view says the same thing for every pty command.
+  const ptyKill = async (id) => {
+    if (nodePty === null) throw new Error(PTY_UNAVAILABLE);
+    const s = ptys.get(id);
     if (!s) return;
-    s.killed = true;
-    const pid = s.proc.pid;
-    if (IS_WIN && pid) {
-      await new Promise((resolve) => {
-        execFile('taskkill', ['/T', '/F', '/PID', String(pid)], { windowsHide: true }, () => resolve());
-      });
-    }
-    try { s.proc.kill('SIGKILL'); } catch { }
-  };
-
-  // Claude Code keeps one .jsonl per session under
-  // %USERPROFILE%/.claude/projects/<cwd with every non-alphanumeric character replaced by '-'>/.
-  const transcriptPath = (sessionId) => {
-    const id = String(sessionId || '');
-    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('bad session id');
-    const encoded = root.replace(/[^A-Za-z0-9]/g, '-');
-    return path.join(os.homedir(), '.claude', 'projects', encoded, id + '.jsonl');
-  };
-
-  /** The `user` and `assistant` lines of a session transcript, in file order. Missing file -> []. */
-  const claudeTranscript = async (sessionId) => {
-    let raw;
-    try { raw = await fs.readFile(transcriptPath(sessionId), 'utf8'); } catch { return []; }
-    const out = [];
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      let obj;
-      try { obj = JSON.parse(line); } catch { continue; }
-      if (obj && (obj.type === 'user' || obj.type === 'assistant')) out.push(obj);
-    }
-    return out;
+    ptys.delete(id);
+    try { s.proc.kill(); } catch { }
   };
 
   const killAll = () => {
-    for (const [, s] of sessions) {
-      const pid = s.proc.pid;
-      try {
-        if (IS_WIN && pid) spawn('taskkill', ['/T', '/F', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
-        else s.proc.kill('SIGKILL');
-      } catch { }
-    }
-    sessions.clear();
+    for (const [, s] of ptys) { try { s.proc.kill(); } catch { } }
+    ptys.clear();
   };
 
   // ---------------------------------------------------------------- shell out
@@ -338,11 +309,10 @@ export function bridgePlugin() {
     claudeInfo,
     log: async (text) => { console.log('[selftest]', String(text)); },
     platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, root }),
-    claudeStart: async (opts) => claudeStart(opts || {}),
-    claudeSend: async (id, text) => { writeLine(id, { type: 'user', message: { role: 'user', content: [{ type: 'text', text: String(text ?? '') }] } }); },
-    claudeInterrupt: async (id) => { writeLine(id, { type: 'control_request', request_id: randomUUID(), request: { subtype: 'interrupt' } }); },
-    claudeStop,
-    claudeTranscript,
+    ptyStart: async (opts) => ptyStart(opts || {}),
+    ptyWrite: async (id, data) => { usePty(id).proc.write(String(data ?? '')); },
+    ptyResize: async (id, cols, rows) => { usePty(id).proc.resize(Math.max(1, Number(cols) || 80), Math.max(1, Number(rows) || 24)); },
+    ptyKill,
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },

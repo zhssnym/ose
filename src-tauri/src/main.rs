@@ -10,7 +10,7 @@ use std::time::Duration;
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, WindowEvent};
 
-use ose::{args, claude, log_line, protocol, state, vault, watcher, AppState};
+use ose::{args, log_line, protocol, pty, state, vault, watcher, AppState};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
@@ -172,7 +172,7 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         }
 
         WindowEvent::Destroyed => {
-            claude::kill_all(st.inner());
+            pty::kill_all(st.inner());
             *st.watcher.lock().unwrap_or_else(|p| p.into_inner()) = None;
             log_line(st.inner(), "os editor exited");
         }

@@ -70,7 +70,7 @@ store.get(key) / store.set(key, value) / store.watch(key, fn) -> unsubscribe
     'route'            current route object
     'sidebar.open'     boolean
     'claude.open'      boolean
-    'claude.status'    'off'|'idle'|'thinking'|'tool'|'error'
+    'claude.status'    'off'|'running'|'exited'   (batch 6; was off|idle|thinking|tool|error)
     'root'             {root, name} from bridge.rootInfo()
 
 commands.register({ id, title, group, hint?, shortcut?, when?: () => boolean, run: () => void })
@@ -564,3 +564,59 @@ own row.
 
 **Schema document.** The conventions doc moves with the vault: `<plans>/CLAUDE.md`
 (`1-personal/3-execution/CLAUDE.md`), updated to the new names.
+
+## Batch 6 (2026-09-07): the Claude view is a real terminal
+
+The stream-json viewer is replaced by a pseudo-terminal running the Claude Code CLI
+interactively. The bridge gains a PTY surface; the `claude*` commands and events are removed
+from the host, the adapters and the dev bridge (keep `claudeInfo` for the empty state and the
+settings block).
+
+```
+bridge.ptyStart({ cwd, cols, rows, cmd?, args?, env? })  -> { id }
+      cwd vault-relative ('' = root); cmd defaults to the claude binary (platform::find_claude),
+      args default to [] (interactive), env is a map merged over the inherited environment.
+bridge.ptyWrite(id, data)      data: string (UTF-8) written to the pty input
+bridge.ptyResize(id, cols, rows)
+bridge.ptyKill(id)
+bridge.on('pty', ({ id, data }) => {})      data: base64 of raw output bytes (chunks as they arrive)
+bridge.on('pty', ({ id, exit: code }) => {})
+```
+
+Host (Rust, `src-tauri/src/pty.rs`, crate `portable-pty`): one native pty per id (ConPTY on
+Windows, forkpty on unix), `TERM=xterm-256color`, `COLORTERM=truecolor`, `LANG` inherited or
+`en_US.UTF-8`; a reader thread emits `pty` events with base64 chunks (coalesce to at most one
+event per 8ms); resize through the pty master; kill = terminate the child and drop the master;
+all ptys killed on app exit. Dev bridge (`dev/bridge-plugin.mjs`): the same through
+`@homebridge/node-pty-prebuilt-multiarch` as an optional dependency; if it fails to load, the
+commands reject with `pty unavailable in the dev bridge` and the view shows that.
+
+Web (`src/claude/`): xterm.js (`@xterm/xterm`, `@xterm/addon-fit`) fills the view under a
+`.panel-head` with `Claude`, a status chip (`off` / `running` / `exited`), `new session`,
+`dock`/`full`, and in dock mode `close`. Theme from tokens: background `--bg`, foreground
+`--fg`, cursor `--accent`, selection `--sel`, the sixteen ANSI colours mapped to the palette
+(black/white from `--bg`/`--fg` family, red `--err`, green `--ok`, yellow `--warn`, blue
+`--info`, magenta `--c-hum`, cyan `--info`, bright variants lighter), font `--font-mono` 13px,
+line height 1.3, no bell, scrollback 5000, `cursorBlink` false. Re-themed on the `theme` event.
+The terminal fits its container (fit addon + ResizeObserver, debounced 60ms, then
+`ptyResize`). The session starts lazily on first mount of the view or dock with
+`cwd = store.get('focus') || ''`; `new session` kills and restarts; an exited process shows
+the chip `exited` and a mono line `press Enter or click new session`. `claude.ask-page`
+writes `About the page \`<path>\`: ` into the pty (no newline) and focuses the terminal.
+
+Keys: while the terminal has focus every key goes to the pty except Ctrl+K, Ctrl+P, Ctrl+F,
+Ctrl+comma and Ctrl+Shift+L, which the shell keeps (xterm `attachCustomKeyEventHandler`
+returns false for them); Ctrl+J is the CLI's newline in the terminal and does not toggle the
+view while it is focused. Ctrl+V pastes, Ctrl+Shift+C copies the selection (plain Ctrl+C is
+the CLI's interrupt).
+
+Links: a custom xterm link provider matches vault-relative paths ending in `.md` (with or
+without a line suffix) in the output; hovering underlines, Ctrl+click navigates to the page.
+
+Removed: session.js, render.js, composer.js, protocol.js, the header menu, fixtures, the
+harness, `claudeTranscript`, the `claude` sessions/model/permission state (the CLI owns all of
+it now). Settings keep the read-only "claude" line (path and version).
+
+Self-test: `ptyStart` with `cmd` = `cmd.exe` `/c echo ptyok` on Windows, `/bin/sh -c 'echo ptyok'`
+elsewhere, expecting a `pty` data chunk containing `ptyok` and an exit event; then `claudeInfo`
+as before (skip when absent). CI unchanged otherwise.
