@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>os editor: harness</title>
+<script>
+  try { document.documentElement.dataset.theme = localStorage.getItem('os.theme') || 'light'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="/src/styles/tokens.css">
+<link rel="stylesheet" href="/src/styles/base.css">
+<style>
+  body { overflow: auto; }
+  #bar {
+    position: sticky; top: 0; z-index: 20;
+    height: var(--titlebar-h); display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: var(--fs-chrome);
+  }
+  #bar .grow { flex: 1; }
+  #out { padding: 12px 16px 120px; }
+  #summary { font-family: var(--font-mono); font-size: var(--fs-chrome); margin: 8px 0 16px; }
+  .file { border: 1px solid var(--border); margin-bottom: 8px; }
+  .file > summary {
+    height: var(--row-h); padding: 0 10px; display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: var(--fs-chrome-sm); cursor: pointer;
+  }
+  .file > summary:hover { background: var(--bg-3); }
+  .file pre {
+    margin: 0; padding: 10px; background: var(--bg-2); border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; overflow-x: auto; user-select: text;
+  }
+  .add { color: var(--ok); }
+  .del { color: var(--err); }
+  .ctxln { color: var(--fg-3); }
+  #stage { position: fixed; left: -20000px; top: 0; width: 720px; height: 400px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>round-trip</strong>
+  <span class="grow" id="state">idle</span>
+  <button class="btn" id="run">run all</button>
+  <button class="btn" id="theme">theme</button>
+</div>
+<div id="out"><div id="summary">press "run all"</div><div id="list"></div></div>
+<div id="stage"></div>
+<script type="module" src="/src/editor/harness.js"></script>
+</body>
+</html>

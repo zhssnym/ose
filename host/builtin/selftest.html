@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>os selftest</title>
+<style>
+  body { margin: 0; padding: 12px 16px; background: #1A1917; color: #EDEAE2;
+         font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+  h1 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: #D97757; margin: 0 0 10px; }
+  .row { white-space: pre-wrap; line-height: 1.5; }
+  .pass { color: #8FA05A; } .fail { color: #E06C5B; } .skip { color: #8A867C; } .info { color: #D4A27F; }
+</style>
+</head>
+<body>
+<h1>os host selftest</h1>
+<div id="out"></div>
+<script>
+const wv = window.chrome.webview;
+const out = document.getElementById('out');
+const pending = new Map();
+const claudeEvents = [];
+let seq = 0, pass = 0, fail = 0, skip = 0;
+
+wv.addEventListener('message', e => {
+  const m = e.data;
+  if (!m) return;
+  if (m.event) {
+    if (m.event === 'claude') claudeEvents.push(m.data);
+    if (m.event === 'fs') line('info', 'EVENT fs ' + JSON.stringify(m.data).slice(0, 160));
+    if (m.event === 'window') line('info', 'EVENT window ' + JSON.stringify(m.data));
+    return;
+  }
+  const p = pending.get(m.id);
+  if (!p) return;
+  pending.delete(m.id);
+  m.ok ? p.resolve(m.result) : p.reject(new Error(m.error));
+});
+
+function call(cmd, ...args) {
+  const id = ++seq;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    wv.postMessage({ id, cmd, args });
+    setTimeout(() => { if (pending.delete(id)) reject(new Error('timeout: ' + cmd)); }, 120000);
+  });
+}
+
+function line(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'row ' + cls;
+  d.textContent = text;
+  out.appendChild(d);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function report(cls, text) { line(cls, text); call('log', text).catch(() => {}); }
+
+async function test(name, fn) {
+  try {
+    const detail = await fn();
+    pass++;
+    report('pass', 'PASS  ' + name + (detail ? '  ' + String(detail).slice(0, 200) : ''));
+  } catch (err) {
+    fail++;
+    report('fail', 'FAIL  ' + name + '  ' + (err && err.message ? err.message : String(err)));
+  }
+}
+function skipped(name, why) { skip++; report('skip', 'SKIP  ' + name + '  ' + why); }
+function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const PNG1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const TMP = '.selftest-tmp';
+
+async function run() {
+  let info = null, mutable = false;
+
+  await test('rootInfo', async () => { info = await call('rootInfo'); assert(info && info.root, 'no root'); return info.root; });
+  await test('exists(.selftest marker)', async () => {
+    mutable = await call('exists', '.selftest');
+    return 'mutating tests ' + (mutable ? 'enabled' : 'disabled (read-only root)');
+  });
+  await test('exists(CLAUDE.md)', async () => { assert(await call('exists', 'CLAUDE.md') === true, 'CLAUDE.md missing'); return 'true'; });
+  await test('stat(CLAUDE.md)', async () => { const s = await call('stat', 'CLAUDE.md'); assert(s.exists && s.kind === 'file' && s.size > 0, JSON.stringify(s)); return 'size=' + s.size + ' mtime=' + s.mtime; });
+  await test('stat(missing)', async () => { const s = await call('stat', 'no/such/file.md'); assert(s.exists === false, 'should not exist'); return 'exists=false'; });
+  await test('readText(CLAUDE.md)', async () => { const t = await call('readText', 'CLAUDE.md'); assert(t.length > 10, 'too short'); return t.length + ' chars'; });
+  await test('list(root)', async () => {
+    const l = await call('list', '');
+    assert(Array.isArray(l) && l.length > 0, 'empty');
+    assert(!l.some(n => n.name === 'App' || n.name.startsWith('.')), 'hidden entries leaked');
+    const firstFile = l.findIndex(n => n.kind === 'file');
+    const lastDir = l.map(n => n.kind).lastIndexOf('dir');
+    assert(firstFile === -1 || lastDir === -1 || lastDir < firstFile, 'folders not sorted first');
+    return l.length + ' entries: ' + l.slice(0, 6).map(n => n.kind[0] + ':' + n.name).join(', ');
+  });
+  await test('tree', async () => {
+    const t = await call('tree');
+    assert(t && t.kind === 'dir' && Array.isArray(t.children), 'bad shape');
+    let files = 0, dirs = 0;
+    (function walk(n) { for (const c of n.children || []) { c.kind === 'dir' ? (dirs++, walk(c)) : files++; } })(t);
+    return dirs + ' dirs, ' + files + ' files';
+  });
+  await test('search', async () => {
+    const r = await call('search', 'the', { limit: 25 });
+    assert(Array.isArray(r), 'not an array');
+    assert(r.length <= 25, 'limit not honoured');
+    if (r.length) assert(r[0].path && r[0].line > 0 && typeof r[0].text === 'string', 'bad hit shape');
+    return r.length + ' hits, first=' + (r.length ? r[0].path + ':' + r[0].line : 'none');
+  });
+  await test('path escape rejected', async () => {
+    try { await call('readText', '../outside.md'); } catch (e) { return e.message; }
+    throw new Error('escape was allowed');
+  });
+
+  await test('getState', async () => { const s = await call('getState'); assert(s && typeof s === 'object', 'not an object'); return JSON.stringify(s).slice(0, 120); });
+
+  if (mutable) {
+    await test('setState', async () => {
+      const s = await call('getState');
+      s.selftest = { at: Date.now() };
+      await call('setState', s);
+      const back = await call('getState');
+      assert(back.selftest && back.selftest.at === s.selftest.at, 'round trip failed');
+      return 'round trip ok';
+    });
+    await test('mkdir', async () => { await call('mkdir', TMP); assert(await call('exists', TMP), 'not created'); return TMP; });
+    await test('writeText', async () => {
+      await call('writeText', TMP + '/a.md', '# hi\nline two\n');
+      const t = await call('readText', TMP + '/a.md');
+      assert(t === '# hi\nline two\n', 'content mismatch: ' + JSON.stringify(t));
+      return 'LF preserved, no BOM';
+    });
+    await test('appendText', async () => {
+      await call('appendText', TMP + '/a.md', 'line three\n');
+      const t = await call('readText', TMP + '/a.md');
+      assert(t === '# hi\nline two\nline three\n', 'append mismatch: ' + JSON.stringify(t));
+      return 'ok';
+    });
+    await test('writeText(nested creates dirs)', async () => {
+      await call('writeText', TMP + '/deep/nested/x.md', 'x');
+      assert(await call('exists', TMP + '/deep/nested/x.md'), 'not created');
+      return 'ok';
+    });
+    await test('writeBinary', async () => {
+      await call('writeBinary', TMP + '/b.png', PNG1x1);
+      const s = await call('stat', TMP + '/b.png');
+      assert(s.exists && s.size === 70, 'size=' + s.size);
+      return s.size + ' bytes';
+    });
+    await test('rename', async () => {
+      await call('rename', TMP + '/a.md', TMP + '/c.md');
+      assert(await call('exists', TMP + '/c.md'), 'target missing');
+      assert(!(await call('exists', TMP + '/a.md')), 'source still there');
+      return 'ok';
+    });
+    await test('fs watcher fired', async () => {
+      await sleep(400);
+      return 'see EVENT fs lines above';
+    });
+    await test('trash', async () => {
+      await call('trash', TMP);
+      assert(!(await call('exists', TMP)), 'still present');
+      return 'sent to the recycle bin';
+    });
+  } else {
+    for (const n of ['setState', 'mkdir', 'writeText', 'appendText', 'writeBinary', 'rename', 'trash'])
+      skipped(n, 'root has no .selftest marker; refusing to write to a real vault');
+  }
+
+  // ---- claude ----------------------------------------------------------
+  let cid = null;
+  await test('claudeInfo', async () => {
+    const i = await call('claudeInfo');
+    assert(i && i.path, 'cli not found');
+    return i.path + '  ' + (i.version || '');
+  });
+  await test('claudeStart', async () => {
+    const r = await call('claudeStart', { cwd: '', permissionMode: 'default' });
+    assert(r && r.id, 'no id');
+    cid = r.id;
+    return 'id=' + cid;
+  });
+  if (cid) {
+    await test('claudeSend + result within 90s', async () => {
+      const before = claudeEvents.length;
+      await call('claudeSend', cid, 'Reply with exactly the word pong and nothing else');
+      const deadline = Date.now() + 90000;
+      while (Date.now() < deadline) {
+        const ev = claudeEvents.find(e => e.id === cid && e.event && e.event.type === 'result');
+        if (ev) {
+          const r = ev.event;
+          return 'result after ' + (claudeEvents.length - before) + ' events, is_error=' + r.is_error +
+                 ', duration_ms=' + r.duration_ms + ', text=' + JSON.stringify(String(r.result || '').slice(0, 60));
+        }
+        await sleep(250);
+      }
+      throw new Error('no result event in 90s; ' + (claudeEvents.length - before) + ' events seen: ' +
+                      [...new Set(claudeEvents.map(e => e.event && e.event.type))].join(','));
+    });
+    await test('claude event types seen', async () => [...new Set(claudeEvents.map(e => e.event && e.event.type))].join(','));
+    await test('claudeInterrupt', async () => { await call('claudeInterrupt', cid); return 'sent'; });
+    await sleep(300);
+    await test('claudeStop', async () => { await call('claudeStop', cid); return 'killed'; });
+  }
+
+  // ---- window ----------------------------------------------------------
+  await test('winIsMaximized', async () => String(await call('winIsMaximized')));
+  await test('winSetTheme(dark)', async () => { await call('winSetTheme', 'dark'); return 'ok'; });
+  await test('winSetTheme(light)', async () => { await call('winSetTheme', 'light'); return 'ok'; });
+  await test('winMaximize (toggle on)', async () => { await call('winMaximize'); await sleep(200); assert(await call('winIsMaximized') === true, 'not maximized'); return 'true'; });
+  await test('winMaximize (toggle off)', async () => { await call('winMaximize'); await sleep(200); assert(await call('winIsMaximized') === false, 'still maximized'); return 'false'; });
+  await test('winMinimize', async () => { await call('winMinimize'); await sleep(300); await call('winMaximize'); await sleep(200); await call('winMaximize'); return 'minimised and restored'; });
+  skipped('winStartDrag', 'enters a modal move loop; needs a real mouse-down');
+  skipped('winStartResize', 'enters a modal size loop; needs a real mouse-down');
+
+  await test('openExternal rejects non-web schemes', async () => {
+    try { await call('openExternal', 'file:///C:/'); } catch (e) { return e.message; }
+    throw new Error('file: scheme was allowed');
+  });
+  await test('reveal rejects missing paths', async () => {
+    try { await call('reveal', 'no/such/file.md'); } catch (e) { return e.message; }
+    throw new Error('missing path was allowed');
+  });
+  await test('unknown command errors', async () => {
+    try { await call('nopeNotACommand'); } catch (e) { return e.message; }
+    throw new Error('unknown command did not error');
+  });
+
+  report('info', `SELFTEST DONE  pass=${pass} fail=${fail} skip=${skip}  root=${info && info.root}`);
+  await sleep(3000);
+  call('winClose').catch(() => {});
+}
+
+setTimeout(() => call('winClose').catch(() => {}), 240000);
+run().catch(err => { report('fail', 'RUNNER CRASHED  ' + err.message); setTimeout(() => call('winClose'), 3000); });
+</script>
+</body>
+</html>

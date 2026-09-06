@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>os editor: page preview</title>
+<script>
+  try { document.documentElement.dataset.theme = localStorage.getItem('os.theme') || 'light'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="/src/styles/tokens.css">
+<link rel="stylesheet" href="/src/styles/base.css">
+<style>
+  #app { display: grid; grid-template-rows: var(--titlebar-h) 1fr var(--statusbar-h); height: 100%; }
+  #top {
+    display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    background: var(--bg-2); border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: var(--fs-chrome);
+  }
+  #top .grow { flex: 1; }
+  #mid { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; }
+  #side { background: var(--bg-2); border-right: 1px solid var(--border); overflow: auto; }
+  #main { overflow: auto; }
+  #bar {
+    display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    background: var(--bg-2); border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  }
+  #bar span + span::before { content: " · "; color: var(--fg-3); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <strong>os editor</strong>
+    <span class="grow" id="path"></span>
+    <button class="btn sm" id="theme">theme</button>
+    <button class="btn sm" id="cycle">open 30</button>
+  </div>
+  <div id="mid">
+    <div id="side"></div>
+    <div id="main"><div class="empty">pick a page</div></div>
+  </div>
+  <div id="bar"></div>
+</div>
+<script type="module" src="/src/editor/preview.js"></script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+// One place that builds a Crepe instance. Both the page editor and the round-trip harness
+// use it, so what the harness proves is what the editor actually does.
+
+import { Crepe, CrepeFeature } from '@milkdown/crepe';
+import '@milkdown/crepe/theme/common/style.css';
+import { editorViewCtx, parserCtx, prosePluginsCtx, serializerCtx } from '@milkdown/kit/core';
+import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
+import { configureStringify, postProcess, reconcile } from './stringify.js';
+import { slashPlugin } from './slash.js';
+
+const cssVar = (name, fallback) => {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch { return fallback; }
+};
+
+/**
+ * @param {object} o
+ * @param {HTMLElement} o.root          element the editor mounts into
+ * @param {string} o.markdown           initial body markdown
+ * @param {(src:string)=>string} [o.resolveImage]   markdown src -> displayable url
+ * @param {(file:File)=>Promise<string>} [o.uploadImage]  File -> markdown src
+ * @param {boolean} [o.slashCommands]   false in the round-trip harness: no menu, no DOM
+ */
+export async function makeCrepe(o) {
+  const crepe = new Crepe({
+    root: o.root,
+    defaultValue: o.markdown ?? '',
+    features: {
+      [CrepeFeature.ImageBlock]: true,
+      [CrepeFeature.Toolbar]: true,
+      [CrepeFeature.Placeholder]: true,
+      [CrepeFeature.Table]: true,
+      [CrepeFeature.CodeMirror]: true,
+      [CrepeFeature.LinkTooltip]: true,
+      [CrepeFeature.ListItem]: true,
+      [CrepeFeature.Cursor]: true,
+      // off: Latex (no maths in the vault, and it would rewrite `$` in prose),
+      //      TopBar (a fixed formatting ribbon; the selection toolbar and the slash menu do
+      //      that job), AI (the Claude pane owns Claude), BlockEdit (it is only the gutter
+      //      handle, removed in batch 2, plus a slash menu that cannot be retriggered or
+      //      refiltered through its config; slash.js replaces the menu entirely).
+      [CrepeFeature.Latex]: false,
+      [CrepeFeature.TopBar]: false,
+      [CrepeFeature.AI]: false,
+      [CrepeFeature.BlockEdit]: false,
+    },
+    featureConfigs: {
+      [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
+      [CrepeFeature.Cursor]: { color: cssVar('--accent', '#D97757'), width: 2, virtual: true },
+      [CrepeFeature.LinkTooltip]: { inputPlaceholder: 'Paste or type a link' },
+      [CrepeFeature.ImageBlock]: {
+        proxyDomURL: o.resolveImage,
+        onUpload: o.uploadImage,
+        blockUploadPlaceholderText: 'or paste a link',
+        inlineUploadPlaceholderText: 'or paste a link',
+        blockCaptionPlaceholderText: 'Caption',
+      },
+    },
+  });
+
+  configureStringify(crepe.editor);
+  if (o.slashCommands !== false) installSlash(crepe.editor);
+  if (o.onChange) watchDoc(crepe.editor, o.onChange);
+  if (o.on) crepe.on(o.on);
+
+  await crepe.create();
+  return crepe;
+}
+
+/** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */
+function installSlash(editor) {
+  editor.config((ctx) => {
+    ctx.update(prosePluginsCtx, (plugins) => plugins.concat(slashPlugin(ctx)));
+  });
+}
+
+const DIRTY_KEY = new PluginKey('os-dirty');
+
+/**
+ * Fire `onChange` for every transaction that changes the document.
+ *
+ * Not `listener.updated`: that one is debounced by 200ms and skips any transaction marked
+ * `addToHistory: false`, and in practice it never fires for `setNodeAttribute` — which is
+ * exactly what ticking a task checkbox dispatches. A plugin sees every transaction.
+ */
+function watchDoc(editor, onChange) {
+  editor.config((ctx) => {
+    ctx.update(prosePluginsCtx, (plugins) => plugins.concat(new Plugin({
+      key: DIRTY_KEY,
+      state: {
+        init: () => 0,
+        apply: (tr, n) => {
+          if (!tr.docChanged) return n;
+          queueMicrotask(onChange);   // never call back inside a transaction
+          return n + 1;
+        },
+      },
+    })));
+  });
+}
+
+/**
+ * Body markdown as it would be written to disk.
+ *
+ * `original` is the text currently in the file. The canonical serialisation is reconciled
+ * against it so untouched lines, blank lines and tables keep the shape Hassan wrote, and the
+ * result is then verified: it is only used if re-parsing it gives back the same document.
+ * That verification is what makes the reconciliation safe rather than merely plausible.
+ */
+export function readMarkdown(crepe, original) {
+  return verify(crepe, postProcess(crepe.getMarkdown()), original);
+}
+
+function verify(crepe, canonical, original) {
+  if (!original) return canonical;
+  for (const opt of [{ lines: true }, { lines: false }]) {
+    const candidate = reconcile(canonical, original, opt);
+    if (candidate === canonical) return canonical;
+    if (canonicalise(crepe, candidate) === canonical) return candidate;
+  }
+  return canonical;
+}
+
+/** Parse a markdown string and serialise it straight back, with no view involved. */
+export function canonicalise(crepe, markdown) {
+  return crepe.editor.action((ctx) =>
+    postProcess(ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown))));
+}
+
+/** What the editor would write for `markdown` if it were opened and saved unchanged. */
+export function roundTrip(crepe, markdown) {
+  return verify(crepe, canonicalise(crepe, markdown), markdown);
+}
+
+export function editorView(crepe) {
+  try { return crepe.editor.action((ctx) => ctx.get(editorViewCtx)); } catch { return null; }
+}

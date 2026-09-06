@@ -1,0 +1,409 @@
+/* os editor: the shell. Chrome, layout, overlays. Tokens only, no literal colours.
+   Canonical components (.btn .input .row .chip .kbd .surface .section-label) come from base.css. */
+
+/* ------------------------------------------------------------------ frame */
+
+.shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  background: var(--bg);
+}
+
+.body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ titlebar */
+
+.titlebar {
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-left: 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.tb-mark {
+  width: 16px; height: 16px; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-fg);
+  border-radius: var(--radius);
+}
+.tb-mark span {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: -.02em; line-height: 1;
+}
+
+.tb-crumbs {
+  display: flex; align-items: center; gap: 3px;
+  margin-left: 12px; min-width: 0;
+  font-size: var(--fs-chrome); color: var(--fg-2);
+  white-space: nowrap; overflow: hidden;
+}
+.tb-crumb {
+  height: 20px; padding: 0 4px; line-height: 20px;
+  flex: 0 1 auto; min-width: 0; max-width: 320px;
+  display: inline-block; overflow: hidden; text-overflow: ellipsis;
+  color: inherit; border-radius: var(--radius);
+  font: inherit; white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
+.tb-crumb.cur { color: var(--fg); flex: 0 1 auto; }
+.tb-sep-ch { color: var(--fg-3); flex: none; font-size: 11px; }
+.tb-crumb.focus { color: var(--accent); }
+
+.tb-dirty {
+  width: 6px; height: 6px; flex: none; margin-left: 8px;
+  border-radius: 50%; background: var(--accent);
+}
+
+.tb-drag { flex: 1; align-self: stretch; min-width: 16px; }
+
+.tb-win { display: flex; align-self: stretch; margin-left: auto; flex: none; }
+.tb-btn {
+  width: 46px; align-self: stretch;
+  display: grid; place-items: center;
+  color: var(--fg-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-btn:hover { background: var(--bg-3); color: var(--fg); }
+.tb-btn.close:hover { background: var(--err); color: var(--accent-fg); }
+.tb-win.dim .tb-btn { opacity: .4; pointer-events: none; }
+.glyph {
+  width: 10px; height: 10px;
+  stroke: currentColor; fill: none; stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+/* ------------------------------------------------------------------ sidebar */
+
+.sidebar {
+  width: var(--sidebar-w); flex: none;
+  display: flex; flex-direction: column;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+.shell.no-sidebar .sidebar, .shell.no-sidebar .rs-sidebar { display: none; }
+
+.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 24px; }
+.sb-scroll > .section-label:first-child { padding-top: 10px; }
+
+/* One grid for every sidebar row: 16px chevron slot, 14px glyph, name, optional mono tail.
+   A folder and a page at the same depth put their text at the same x (CONTRACT.md batch 3). */
+.sb-row {
+  width: 100%; text-align: left; cursor: default;
+  display: grid;
+  grid-template-columns: 16px 14px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+  padding-left: calc(8px + var(--d, 0) * 14px);
+  padding-right: 8px;
+}
+.sb-row .tw { width: 16px; height: 16px; display: grid; place-items: center; }
+.sb-row .tw svg { width: 11px; height: 11px; color: var(--fg-3); transition: transform var(--t-fast); }
+.sb-row .tw.open svg { transform: rotate(90deg); }
+.sb-row .gl { width: 14px; height: 14px; display: grid; place-items: center; }
+.sb-row svg { width: 14px; height: 14px; }
+.sb-row .grow { overflow: hidden; text-overflow: ellipsis; }
+/* The parent folder of an ambiguous pin: right-aligned, mono, capped. `width: max-content`
+   is what stops the auto track from collapsing next to the 1fr name column. */
+.sb-row .par {
+  justify-self: end; width: max-content; max-width: 120px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-row.dir { color: var(--fg); }
+.sb-row.file { color: var(--fg-2); }
+.sb-row.file:hover { color: var(--fg); }
+.sb-row.file.other .grow { color: var(--fg-3); }
+.sb-row.archive { color: var(--fg-3); }
+.sb-row.current { color: var(--fg); }
+.sb-row.current .gl svg { color: var(--accent); }
+.sb-view svg { color: var(--fg-3); }
+.sb-view.current svg { color: var(--accent); }
+.sb-empty { padding: 4px 12px 4px calc(8px + 34px); text-align: left; }
+
+/* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
+.sb-row[draggable="true"] { -webkit-user-drag: element; }
+.sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
+.sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* focus mode: the strip above the rooted tree */
+.sb-focus {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 8px 6px;
+  color: var(--fg-3);
+}
+.sb-focus-key { color: var(--accent); flex: none; }
+.sb-focus-sep { flex: none; }
+.sb-focus-path {
+  flex: 1; min-width: 0; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-focus-exit {
+  flex: none; height: 18px; padding: 0 6px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  color: var(--fg-3); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
+
+/* ------------------------------------------------------------------ main */
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.main-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.page-host { min-height: 100%; }
+
+.miss {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding-top: 96px; text-align: center;
+}
+.miss-path { color: var(--fg-2); max-width: 100%; word-break: break-all; }
+
+.fallback .fallback-md {
+  margin: 0; padding: 14px 16px;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------------ claude pane */
+
+.claude-pane {
+  width: var(--claude-w); flex: none;
+  display: flex; overflow: hidden;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+}
+.claude-host { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.claude-host:empty { display: grid; place-items: center; }
+.claude-host:empty::after {
+  content: "claude pane not mounted";
+  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
+}
+.shell.no-claude .claude-pane, .shell.no-claude .rs-claude { display: none; }
+
+/* ------------------------------------------------------------------ resizers */
+
+.rs { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 5; cursor: col-resize; }
+.rs-sidebar { left: calc(var(--sidebar-w) - 3px); }
+.rs-claude { right: calc(var(--claude-w) - 3px); }
+.rs::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px;
+  background: transparent; transition: background var(--t-fast);
+}
+.rs:hover::after, .rs.on::after { background: var(--accent); }
+body.resizing { cursor: col-resize; }
+body.resizing * { cursor: col-resize !important; }
+
+/* ------------------------------------------------------------------ statusbar */
+
+.statusbar {
+  height: var(--statusbar-h);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 10px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  color: var(--fg-3);
+}
+.st-left { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.st-sep { width: 1px; height: 10px; background: var(--border-strong); }
+
+/* ------------------------------------------------------------------ window edges */
+
+.edge { position: fixed; z-index: 300; }
+.edge-top { top: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.edge-bottom { bottom: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.edge-left { left: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.edge-right { right: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.edge-topleft { top: 0; left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+.edge-topright { top: 0; right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.edge-bottomleft { bottom: 0; left: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.edge-bottomright { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+html.maximized .edge { display: none; }
+
+/* ------------------------------------------------------------------ overlays */
+
+.ov {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.ov.ov-dim { background: var(--scrim); }
+.ov.ov-at { align-items: flex-start; justify-content: flex-start; }
+.ov-box { max-height: 76vh; display: flex; flex-direction: column; overflow: hidden; }
+.ov-at .ov-box { position: fixed; }
+
+/* palette */
+.pal-head {
+  height: 44px; flex: none;
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pal-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
+.pal-icon svg {
+  width: 16px; height: 16px;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.pal-input {
+  flex: 1; min-width: 0; height: 100%;
+  border: 0; background: transparent;
+  font-family: var(--font-ui); font-size: 15px;
+  user-select: text; cursor: text;
+}
+.pal-input::placeholder { color: var(--fg-3); }
+.pal-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 6px; }
+.pal-list .section-label { padding: 12px 12px 3px; }
+.pal-list .empty { padding: 28px 16px; }
+.pal-row { cursor: default; padding-right: 10px; }
+.pal-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.pal-row .grow { overflow: hidden; text-overflow: ellipsis; }
+.pal-row b { color: var(--accent); font-weight: 600; }
+.pal-row.active b { color: var(--accent); }
+.pal-hint {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pal-foot {
+  height: 26px; flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-3);
+}
+.pal-foot .grow { flex: 1; }
+.pal-foot .kbd { height: 16px; padding: 0 3px; border-bottom-width: 1px; }
+.pal-mode { color: var(--fg-2); }
+
+/* search overlay (Ctrl+F) */
+.pal.search .pal-list { padding-bottom: 8px; }
+.sr-file {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 10px 12px 2px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  border-top: 1px solid var(--border); margin-top: 6px;
+  overflow: hidden;
+}
+.sr-list .sr-file:first-child { border-top: 0; margin-top: 0; }
+.sr-file .g-name { color: var(--fg); flex: none; }
+.sr-file .g-dir { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-row { height: 24px; cursor: default; padding-right: 10px; }
+.sr-row .grow {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sr-row b { color: var(--accent); font-weight: 700; }
+.sr-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.sr-row.active .grow { color: var(--fg); }
+
+/* folder picker (move to…) */
+.pal.pick .pal-row .grow { font-family: var(--font-mono); font-size: var(--fs-chrome); }
+
+/* dialogs */
+.dlg-head {
+  height: var(--panelhead-h); flex: none;
+  display: flex; align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-2);
+}
+.dlg-body { padding: 14px 12px; overflow-y: auto; }
+.dlg-text { margin: 0 0 10px; font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
+.dlg-foot {
+  height: 46px; flex: none;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+}
+.dlg-foot .grow { flex: 1; text-align: left; }
+
+/* context menu */
+.menu { min-width: 210px; padding: 4px 0; }
+.menu-row { width: 100%; text-align: left; cursor: default; }
+.menu-row.danger { color: var(--err); }
+.menu-row.danger svg { color: var(--err); }
+.menu .divider { margin: 4px 0; }
+
+/* settings */
+.set-body { padding: 4px 14px 14px; overflow-y: auto; }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.set-label { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-ui); }
+.set-note { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.set-ctl { flex: none; }
+.seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg-b {
+  height: 26px; padding: 0 10px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  color: var(--fg-2); background: var(--bg);
+  border-right: 1px solid var(--border);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.seg-b:last-child { border-right: 0; }
+.seg-b:hover { background: var(--bg-3); color: var(--fg); }
+.seg-b.on { background: var(--accent); color: var(--accent-fg); }
+.set-num { width: 92px; height: 26px; text-align: right; }
+/* sources: key, the path it points at, and the two controls */
+.set-head { padding: 0; margin-top: 18px; }
+.set-src-list { border-top: 1px solid var(--border); }
+.set-src {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 4px 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.set-src-name { grid-column: 1; display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-ui); }
+.set-src-name .set-note { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.set-src-path {
+  grid-column: 1; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-src-path.missing { color: var(--err); }
+.set-src-path.missing::after { content: " · missing"; color: var(--err); }
+.set-src-act { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+
+.set-info {
+  margin-top: 16px; padding: 9px 10px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--fg-2); line-height: 1.75;
+}
+.set-info > div { display: flex; gap: 10px; white-space: nowrap; overflow: hidden; }
+.set-info > div > span {
+  width: 48px; flex: none; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+
+/* toasts */
+.toasts {
+  position: fixed; right: 12px; bottom: calc(var(--statusbar-h) + 12px); z-index: 200;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  max-width: 440px; padding: 8px 10px; pointer-events: auto;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.5;
+  color: var(--fg-2); background: var(--bg);
+}
+.toast.err { color: var(--err); border-color: var(--err); }
+.toast.warn { color: var(--warn); border-color: var(--warn); }
+
+/* ------------------------------------------------------------------ tight windows */
+
+@media (max-height: 720px) {
+  .ov-box { max-height: 82vh; }
+  .page-col { padding-top: 56px; }
+}

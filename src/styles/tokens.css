@@ -1,0 +1,136 @@
+/* os editor: design tokens. The only place colours, fonts and sizes are defined.
+   Light is the default. Dark is :root[data-theme="dark"]. See DESIGN.md. */
+
+:root {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg: #FAF9F5;
+  --bg-2: #F3F1EA;
+  --bg-3: #E9E6DC;
+  --bg-4: #DEDACD;
+
+  /* lines */
+  --border: #DDD9CC;
+  --border-strong: #B9B4A4;
+
+  /* text */
+  --fg: #1F1E1D;
+  --fg-2: #5C5952;
+  --fg-3: #8F8B7F;
+
+  /* claude */
+  --accent: #D97757;
+  --accent-hover: #C8664A;
+  --accent-fg: #FFFFFF;
+  --accent-soft: #F6E3DA;
+  --amber: #D4A27F;
+  --amber-soft: #F3E6D6;
+  --sel: rgba(217, 119, 87, .22);
+
+  /* semantic */
+  --ok: #6E8B5A;
+  --ok-soft: #E4EBDA;
+  --warn: #C29A2B;
+  --warn-soft: #F3EAC9;
+  --err: #B5432F;
+  --err-soft: #F2D9D3;
+  --info: #5B7A9E;
+  --info-soft: #DDE6EF;
+
+  /* week grid families (low opacity fills, full colour bars) */
+  --c-class: #5B7A9E;
+  --c-maths: #D97757;
+  --c-nsi: #6E8B5A;
+  --c-hum: #9E6B8E;
+  --c-bilan: #C29A2B;
+  --c-lunch: #D4A27F;
+  --c-work: #7A766B;
+  --c-rest: #B9B4A4;
+  --c-sleep: #8F8B7F;
+
+  /* type */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
+
+  --fs-chrome: 12px;
+  --fs-chrome-sm: 11px;
+  --fs-ui: 13px;
+  --fs-body: 16px;
+  --fs-title: 34px;
+  --lh-body: 1.65;
+
+  /* geometry */
+  --radius: 2px;
+  --titlebar-h: 36px;
+  --statusbar-h: 24px;
+  --panelhead-h: 32px;
+  --row-h: 28px;
+  --ctl-h: 28px;
+  --sidebar-w: 260px;
+  --sidebar-min: 200px;
+  --sidebar-max: 420px;
+  --claude-w: 400px;
+  --claude-min: 320px;
+  --claude-max: 720px;
+  --page-w: 720px;
+  --page-pad-top: 80px;
+  --page-pad-x: 48px;
+
+  /* effects */
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, .18);
+  --scrim: rgba(31, 30, 29, .28);
+  --t-fast: 120ms ease-out;
+  --focus: 0 0 0 1px var(--accent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1A1917;
+  --bg-2: #1F1E1B;
+  --bg-3: #2A2925;
+  --bg-4: #35332E;
+
+  --border: #33312C;
+  --border-strong: #4C493F;
+
+  --fg: #ECE9E1;
+  --fg-2: #A9A497;
+  --fg-3: #77736A;
+
+  --accent: #D97757;
+  --accent-hover: #E38A6C;
+  --accent-fg: #1A1917;
+  --accent-soft: rgba(217, 119, 87, .16);
+  --amber: #D4A27F;
+  --amber-soft: rgba(212, 162, 127, .16);
+  --sel: rgba(217, 119, 87, .30);
+
+  --ok: #8FAE72;
+  --ok-soft: rgba(143, 174, 114, .16);
+  --warn: #D6B44A;
+  --warn-soft: rgba(214, 180, 74, .16);
+  --err: #D6614B;
+  --err-soft: rgba(214, 97, 75, .16);
+  --info: #7E9CC0;
+  --info-soft: rgba(126, 156, 192, .16);
+
+  --c-class: #7E9CC0;
+  --c-maths: #D97757;
+  --c-nsi: #8FAE72;
+  --c-hum: #B58AA8;
+  --c-bilan: #D6B44A;
+  --c-lunch: #D4A27F;
+  --c-work: #8C877A;
+  --c-rest: #5A574F;
+  --c-sleep: #4C493F;
+
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, .5);
+  --scrim: rgba(0, 0, 0, .5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; }
+}

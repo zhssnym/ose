@@ -1,0 +1,266 @@
+/* os editor: the four custom views. Tokens only, both themes, DESIGN.md "Views".
+   Dense data (the week grid, the month matrix) uses mono 11px labels and 1px --border grid
+   lines; colour blocks are the semantic families at low opacity with a 2px left bar in the
+   full colour. The journal view carries its own stylesheet. */
+
+/* The shell's .main-scroll is the scroller; a view must not open a second one. */
+.view-root { min-height: 100%; }
+.view-root:focus { outline: none; }
+
+/* title row with the previous / today / next group on the right */
+.v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.v-nav { display: flex; flex: none; margin-top: 8px; }
+.v-nav .btn + .btn { margin-left: -1px; }
+
+/* a source path in .page-meta, or any path that navigates when clicked */
+.v-link { cursor: default; transition: color var(--t-fast); }
+.v-link:hover { color: var(--accent); }
+
+/* one short line, left aligned, where a whole .empty block would be too loud */
+.dy-note { padding: 10px 0; color: var(--fg-3); }
+
+/* colour families, shared by the week grid, the day timeline and the now dot */
+.wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
+.wk-ev.t-maths, .wk-dot.t-maths, .dy-ev.t-maths { --c: var(--c-maths); }
+.wk-ev.t-nsi, .wk-dot.t-nsi, .dy-ev.t-nsi { --c: var(--c-nsi); }
+.wk-ev.t-hum, .wk-dot.t-hum, .dy-ev.t-hum { --c: var(--c-hum); }
+.wk-ev.t-bilan, .wk-dot.t-bilan, .dy-ev.t-bilan { --c: var(--c-bilan); }
+.wk-ev.t-lunch, .wk-dot.t-lunch, .dy-ev.t-lunch { --c: var(--c-lunch); }
+.wk-ev.t-work, .wk-dot.t-work, .dy-ev.t-work { --c: var(--c-work); }
+.wk-ev.t-rest, .wk-dot.t-rest, .dy-ev.t-rest { --c: var(--c-rest); }
+.wk-ev.t-sleep, .wk-dot.t-sleep, .dy-ev.t-sleep { --c: var(--c-sleep); }
+
+/* ================================================================== week === */
+
+.wk-now {
+  min-height: 60px; margin-bottom: 12px;
+  border: 1px solid var(--border); background: var(--bg-2);
+  padding: 8px 12px;
+}
+.wk-now-row { display: flex; align-items: center; gap: 10px; height: 22px; }
+.wk-k { width: 36px; flex: none; }
+.wk-v { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); }
+.wk-dot { display: inline-block; width: 8px; height: 8px; flex: none; margin-right: 7px; vertical-align: -1px; background: var(--c, var(--c-rest)); }
+
+.wk-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); background: var(--bg); }
+.wk-grid {
+  display: grid;
+  grid-template-columns: 46px repeat(7, minmax(96px, 1fr));
+  grid-template-rows: 36px var(--wk-body, 792px) 26px;
+  min-width: 718px;
+}
+
+.wk-hd {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25;
+  border-bottom: 1px solid var(--border); border-left: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+}
+.wk-corner { border-left: 0; }
+.wk-hd-n { color: var(--fg-3); letter-spacing: 0; }
+.wk-hd.today { color: var(--accent); background: var(--accent-soft); }
+.wk-hd.today .wk-hd-n { color: var(--accent); }
+
+.wk-times { position: relative; border-right: 1px solid var(--border); }
+.wk-t { position: absolute; right: 7px; line-height: 12px; color: var(--fg-3); }
+
+.wk-col { position: relative; border-left: 1px solid var(--border); overflow: hidden; }
+.wk-col.today { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.wk-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
+
+.wk-ev {
+  --c: var(--c-rest);
+  position: absolute; left: 2px; right: 2px;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 3px 5px 3px 6px; overflow: hidden;
+  font-size: 11px; line-height: 1.3;
+  background: color-mix(in srgb, var(--c) 15%, var(--bg));
+  border-left: 2px solid var(--c);
+  transition: opacity var(--t-fast);
+}
+.wk-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev-t, .wk-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev.past { opacity: .45; }
+.wk-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+
+.wk-nowline { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
+.wk-nowdot { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+.wk-ft {
+  display: flex; align-items: center; justify-content: center;
+  border-top: 1px solid var(--border); border-left: 1px solid var(--border);
+  color: var(--fg-2);
+}
+.wk-ft-k {
+  border-left: 0; justify-content: flex-end; padding-right: 7px;
+  color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em;
+}
+.wk-ft.today { color: var(--accent); background: var(--accent-soft); }
+.wk-sum { margin-top: 8px; color: var(--fg-2); min-height: 16px; }
+
+/* ================================================================= month === */
+
+.mo-goals {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px; margin: 6px 0 24px; min-height: 108px;
+}
+.mo-goals .empty { grid-column: 1 / -1; }
+.mo-card { border: 1px solid var(--border); background: var(--bg-2); padding: 12px; }
+.mo-card .label { display: block; padding-bottom: 6px; }
+.mo-card ul { margin: 0; padding-left: 16px; }
+.mo-card li { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); margin-bottom: 5px; }
+.mo-card li:last-child { margin-bottom: 0; }
+
+/* GitHub-contributions matrix: 12px squares, 3px gaps, one row per system */
+.mo-matrix-wrap {
+  overflow-x: auto; margin: 8px 0 0; min-height: 132px;
+  padding-bottom: 30px;   /* room for a data-tip under the last row inside the scroll box */
+}
+.mo-matrix {
+  display: grid;
+  grid-template-columns: 152px repeat(var(--mo-days, 31), 12px);
+  gap: 3px; width: max-content;
+}
+.mo-matrix.is-empty { display: block; width: auto; }
+
+.mo-corner { height: 15px; }
+/* the number is a child, free to overflow the 12px column into the 3px gaps on either side */
+.mo-dh { position: relative; height: 15px; color: var(--fg-3); font-size: 10px; letter-spacing: -.02em; }
+.mo-dh > span, .mo-lab > span {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  white-space: nowrap; line-height: 1.2;
+}
+.mo-dh > span { left: 50%; transform: translate(-50%, -50%); }
+.mo-dh.today { color: var(--accent); }
+.mo-dh.today::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--accent);
+}
+
+.mo-lab {
+  position: relative; height: 12px; padding-right: 12px;
+  font-size: var(--fs-ui); color: var(--fg-2);
+}
+.mo-lab > span { left: 0; right: 12px; overflow: hidden; text-overflow: ellipsis; }
+
+.mo-c { width: 12px; height: 12px; background: var(--bg-3); opacity: .4; }
+/* the tooltip is laid out even when invisible, so keep it out of the scroll width until hover */
+.mo-c[data-tip]::after { max-width: 0; overflow: hidden; }
+.mo-c[data-tip]:hover::after { max-width: none; overflow: visible; }
+.mo-c.skip { background: var(--bg-4); opacity: 1; box-shadow: inset 0 0 0 1px var(--border); }
+.mo-c.on { background: var(--accent); opacity: 1; }
+.mo-c.today { box-shadow: inset 0 0 0 1px var(--accent); opacity: 1; }
+.mo-c.today.on { box-shadow: none; }
+
+.mo-nums {
+  max-width: 440px; margin: 18px 0 26px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+.mo-num {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: 22px; border-bottom: 1px solid var(--border);
+}
+.mo-num-k { min-width: 0; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mo-num-v { flex: none; color: var(--fg); }
+.mo-total { margin-top: 8px; border-top: 1px solid var(--border-strong); border-bottom: 0; }
+.mo-total .mo-num-k { color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em; }
+.mo-total .mo-num-v { color: var(--accent); }
+
+/* intro prose of a plan: the paragraphs before the first label, and the paragraphs of a month
+   written before the schema existed, which are prose and not goals */
+.mo-intro { grid-column: 1 / -1; }
+.mo-intro p { font-size: var(--fs-ui); line-height: 1.65; color: var(--fg-2); margin: 0 0 10px; }
+.mo-intro p:last-child { margin-bottom: 2px; }
+
+.mo-review { margin-top: 6px; min-height: 60px; }
+.mo-review p { font-size: var(--fs-ui); line-height: 1.65; color: var(--fg-2); margin: 0 0 10px; }
+.mo-review p:last-child { margin-bottom: 0; }
+.mo-review em { color: var(--fg-3); }
+/* a `_gap: ..._` line is a marked hole, not prose: mono, muted, italic, never dressed up */
+.mo-gap, .mo-gap em {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.6;
+  font-style: italic; color: var(--fg-3);
+}
+
+/* =================================================================== day === */
+
+.dy-split { display: grid; grid-template-columns: 312px minmax(0, 1fr); gap: 32px; align-items: start; }
+.view-root.narrow .dy-split { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.dy-split .label { display: block; padding-bottom: 6px; }
+.dy-right .label { margin-top: 22px; }
+.dy-right > .label:first-child { margin-top: 0; }
+.view-root.narrow .dy-right .label:first-child { margin-top: 22px; }
+
+.dy-tl {
+  position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr);
+  border: 1px solid var(--border); background: var(--bg);
+}
+.dy-times { position: relative; height: var(--dy-body, 792px); border-right: 1px solid var(--border); }
+.dy-t { position: absolute; right: 7px; top: 0; line-height: 12px; color: var(--fg-3); }
+.dy-track { position: relative; height: var(--dy-body, 792px); overflow: hidden; }
+.dy-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
+.dy-tl-empty { grid-column: 1 / -1; padding: 16px; border-top: 1px solid var(--border); }
+
+.dy-ev {
+  --c: var(--c-rest);
+  position: absolute; left: 3px; right: 3px;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 3px 6px 3px 7px; overflow: hidden;
+  font-size: 12px; line-height: 1.3;
+  background: color-mix(in srgb, var(--c) 15%, var(--bg));
+  border-left: 2px solid var(--c);
+  transition: opacity var(--t-fast);
+}
+.dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dy-ev.past { opacity: .45; }
+.dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+.dy-now { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
+.dy-now-dot { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+.dy-sys { border: 1px solid var(--border); background: var(--bg-2); min-height: 66px; }
+.dy-sys-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--fg-2);
+}
+.dy-sys-head .ok { color: var(--ok); }
+.dy-sys-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 32px; padding: 0 12px; text-align: left;
+  transition: background var(--t-fast);
+}
+.dy-sys-row:hover { background: var(--bg-3); }
+.dy-sys-row .check { width: 18px; height: 18px; }
+.dy-sys-name { flex: 1; min-width: 0; font-size: var(--fs-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dy-sys-row.done .dy-sys-name { color: var(--fg-2); }
+
+.dy-tasks { min-height: 120px; }
+.dy-sec { margin-bottom: 18px; }
+.dy-sec > .label { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.dy-n { color: var(--fg-3); letter-spacing: 0; }
+.dy-more { height: 22px; padding: 0 6px; color: var(--fg-3); transition: color var(--t-fast); }
+.dy-more:hover { color: var(--accent); }
+
+/* task rows, shared with anything that lists tasks. A nested `- [ ]` line in the source keeps
+   its nesting here: one level of indentation per two spaces of source indent. */
+.tk-row {
+  --tk-depth: 0;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 5px 6px 5px 0; border-left: 2px solid transparent;
+  padding-left: calc(var(--tk-depth) * 20px);
+  transition: background var(--t-fast);
+}
+.tk-row:hover { background: var(--bg-3); }
+.tk-row.sub .tk-text { color: var(--fg-2); }
+.tk-check { flex: none; padding: 2px 0 0 6px; }
+.tk-check:hover .check { border-color: var(--accent); }
+.tk-body { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tk-text { font-size: var(--fs-ui); line-height: 1.45; }
+.tk-row.done .tk-text { color: var(--fg-3); text-decoration: line-through; }
+.tk-src {
+  flex: none; max-width: 220px; padding-top: 3px; text-align: right;
+  color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t-fast);
+}
+.tk-src:hover { color: var(--accent); text-decoration: underline; }
+
+/* The journal view owns journal.css (class prefix `jr-`); nothing for it lives here. */

@@ -1,0 +1,157 @@
+/* Journal view. Tokens only, both themes. The journal is distinct by layout, never by colour
+   or font: the same two typefaces, the same borders, the same page column as every other view.
+
+   Class prefix is `jr-` and every rule here is self-contained, so nothing in views.css is
+   needed for this view to look right. */
+
+/* the layout answers to the width of the main column, not the window */
+.jr-root { min-height: 100%; container-type: inline-size; container-name: jr; }
+
+/* ------------------------------------------------------------------ header */
+/* weekday · time · gap line, in the shared .page-meta mono voice */
+
+.page-meta.jr-meta { gap: 0; }
+.jr-meta > span + span::before { content: "·"; margin: 0 8px; color: var(--fg-3); }
+.jr-meta .jr-gap { color: var(--fg-2); }
+
+/* ------------------------------------------------------------------ writing box */
+
+.jr-compose { margin: 0 0 44px; }
+
+/* the box is sized by the view (six lines empty, then whatever the text needs, no ceiling);
+   it never scrolls inside itself, the page scrolls */
+textarea.input.jr-input {
+  display: block; width: 100%;
+  height: auto; max-height: none; resize: none; overflow-y: hidden;
+  padding: 12px 14px;
+  font-family: var(--font-ui); font-size: var(--fs-body); line-height: var(--lh-body);
+  min-height: calc(6 * var(--lh-body) * var(--fs-body) + 26px);
+}
+textarea.input.jr-input::placeholder {
+  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
+}
+
+.jr-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+.jr-hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+
+/* ------------------------------------------------------------------ mode */
+/* two words on the line above the record, the active one in --fg. No borders, no button pair. */
+
+.jr-bar { display: flex; align-items: center; justify-content: flex-end; height: 20px; margin-bottom: 2px; }
+.jr-mode {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+.jr-mode button { color: var(--fg-3); transition: color var(--t-fast); }
+.jr-mode button:hover { color: var(--fg-2); }
+.jr-mode button.on { color: var(--fg); }
+.jr-mode-sep { color: var(--border-strong); }
+
+/* ------------------------------------------------------------------ record */
+
+.jr-day {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0 24px;
+  padding: 22px 0;
+}
+.jr-day:first-child, .jr-day + .jr-day { border-top: 1px solid var(--border); }
+
+/* left margin column: date, weekday, and the hover link (space always reserved) */
+.jr-date {
+  grid-column: 1; align-self: start; padding-top: 3px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.55;
+}
+.jr-d1 { display: block; color: var(--fg-2); white-space: nowrap; }
+.jr-d2 { display: block; color: var(--fg-3); }
+.jr-open {
+  display: block; margin-top: 8px; text-align: left; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  opacity: 0; transition: opacity var(--t-fast), color var(--t-fast);
+}
+.jr-day:hover .jr-open, .jr-open:focus { opacity: 1; }
+.jr-open:hover { color: var(--accent); text-decoration: underline; }
+
+/* right column: the text, body font, nothing around it */
+.jr-body {
+  grid-column: 2; min-width: 0;
+  font-family: var(--font-ui); font-size: var(--fs-body); line-height: var(--lh-body);
+  color: var(--fg); overflow-wrap: break-word;
+}
+.jr-body p { margin: 0 0 10px; }
+.jr-body p:last-child { margin-bottom: 0; }
+.jr-body .jr-h { font-weight: 600; margin: 0 0 8px; }
+.jr-body .jr-h:not(:first-child) { margin-top: 18px; }
+.jr-sep { width: 32px; height: 0; border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+
+/* ---------------------------------------------------------------- compact */
+/* one 28px line per day: date and weekday in mono, the first line in the body font. Clicking
+   the line opens that entry in place, underneath, without leaving the record. */
+
+.jr-c { position: relative; border-top: 1px solid var(--border); }
+.jr-c-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; height: 28px; padding: 0 0 0 4px; text-align: left;
+  border-left: 2px solid transparent;
+  transition: background var(--t-fast);
+}
+.jr-c-row:hover { background: var(--bg-3); }
+.jr-c.open > .jr-c-row { border-left-color: var(--accent); }
+.jr-c-d {
+  flex: none; width: 52px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+}
+.jr-c-w {
+  flex: none; width: 26px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+}
+.jr-c-t {
+  flex: 1; min-width: 0; padding-right: 92px;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jr-c.open .jr-c-t { color: var(--fg-2); }
+.jr-c-open {
+  position: absolute; right: 0; top: 0; height: 28px;
+  display: flex; align-items: center; margin: 0;
+}
+.jr-c:hover .jr-c-open, .jr-c-open:focus { opacity: 1; }
+.jr-c-body { padding: 10px 0 20px 106px; }   /* lines up with the first line in the row above */
+
+/* year marker where the year changes */
+.jr-year {
+  border-top: 1px solid var(--border);
+  padding: 16px 0 0; margin: 0 0 16px;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  letter-spacing: .06em; color: var(--fg-3);
+}
+.jr-year + .jr-day { border-top: 0; padding-top: 0; }
+.jr-year + .jr-c { border-top: 0; }
+
+/* lazy tail */
+.jr-more { padding: 16px 0 0; padding-left: 120px; border-top: 1px solid var(--border); }
+.jr-record.is-compact + .jr-more { padding-left: 106px; }
+.jr-more-btn {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  transition: color var(--t-fast);
+}
+.jr-more-btn:hover { color: var(--accent); }
+
+.jr-empty {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  padding: 24px 0 0;
+}
+
+/* narrow main area (a docked Claude pane, a small window): the date stacks above the text */
+@container jr (max-width: 560px) {
+  .jr-day { grid-template-columns: minmax(0, 1fr); gap: 8px 0; }
+  .jr-date, .jr-body { grid-column: 1; }
+  .jr-date { padding-top: 0; }
+  .jr-d1, .jr-d2 { display: inline; }
+  .jr-d2::before { content: " "; }
+  .jr-open { display: inline-block; margin: 0 0 0 10px; opacity: 1; }
+  .jr-more, .jr-record.is-compact + .jr-more { padding-left: 0; }
+
+  /* compact keeps its one line; only the reserved room and the expanded indent shrink */
+  .jr-c-open { display: flex; margin: 0; }
+  .jr-c-t { padding-right: 84px; }
+  .jr-c-body { padding-left: 4px; }
+}

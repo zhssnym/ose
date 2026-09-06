@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude pane harness</title>
+<script>
+  try { document.documentElement.dataset.theme = localStorage.getItem('os.theme') || 'light'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="/src/styles/tokens.css">
+<link rel="stylesheet" href="/src/styles/base.css">
+<style>
+  .h-wrap { display: flex; height: 100%; }
+  .h-main { flex: 1; min-width: 0; overflow: auto; background: var(--bg); }
+  .h-inner { max-width: 560px; padding: 32px 40px; }
+  .h-inner h1 { font-family: var(--font-title); font-size: 28px; font-weight: 400; margin: 0 0 6px; }
+  .h-inner p { color: var(--fg-2); font-size: var(--fs-ui); line-height: 1.6; margin: 0 0 14px; }
+  .h-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+  .h-pane { width: 400px; flex: none; border-left: 1px solid var(--border); }
+  .h-pane.narrow { width: 320px; }
+  select.input { padding: 0 6px; }
+</style>
+</head>
+<body>
+<div class="h-wrap">
+  <div class="h-main">
+    <div class="h-inner">
+      <h1>claude pane harness</h1>
+      <p>Replays captured <code>stream-json</code> fixtures through the same handler the live bridge
+      uses. Add <code>?replay=1</code> to auto-play the first fixture.</p>
+      <div class="h-row">
+        <select class="input mono" id="fix" style="width:260px"></select>
+        <button class="btn primary" id="play">replay</button>
+        <button class="btn" id="fast">fast</button>
+        <button class="btn" id="clear">clear</button>
+      </div>
+      <div class="h-row">
+        <button class="btn" id="theme">toggle theme</button>
+        <button class="btn" id="width">320px / 400px</button>
+        <button class="btn" id="view">view layout</button>
+        <button class="btn" id="expand">expand all tools</button>
+        <button class="btn" id="stderr">emit stderr</button>
+        <button class="btn" id="crash">crash (exit 1)</button>
+      </div>
+      <p class="mono-sm faint" id="log">ready</p>
+    </div>
+  </div>
+  <div class="h-pane" id="pane"></div>
+</div>
+<script type="module" src="/src/claude/harness.js"></script>
+</body>
+</html>
