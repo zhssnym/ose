@@ -18,7 +18,7 @@ static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 
 const NO_VAULT: &str = "os could not find the vault.\n\n\
 Start it from inside the vault folder, pass --root <folder>, or set OSE_ROOT.\n\
-The vault is the folder that holds CLAUDE.md and Inbox.md.";
+The vault is the folder that holds CLAUDE.md.";
 
 fn main() {
     let opts = args::parse(std::env::args().skip(1));

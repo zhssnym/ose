@@ -76,7 +76,7 @@ calls `getCurrentWindow().destroy()`.
 ## Root resolution
 
 `--root <path>` if it exists; else the folder containing the executable if it holds `CLAUDE.md`
-and `Inbox.md`; else walk up from the executable's folder (on macOS the binary is inside
+(and no `src-tauri`, so the repo itself never counts); else walk up from the executable's folder (on macOS the binary is inside
 `os.app/Contents/MacOS/`, so the walk reaches the folder holding the .app); else `OSE_ROOT`
 env; else exit with a native error dialog (tauri's `MessageDialog` from the dialog plugin is
 allowed for this one use, or print to stderr and exit 2 if the plugin is not wanted).

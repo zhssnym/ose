@@ -25,3 +25,10 @@ try {
 }
 const mb = (fs.statSync(dst).size / 1048576).toFixed(1);
 console.log(`shipped ${dst} (${mb} MB) from ${src} [root from ${rootSource()}]`);
+
+// A MinGW (local) build loads WebView2Loader.dll from beside the exe; the MSVC build from CI
+// links it statically. Carry the DLL when it exists so a local ship runs too.
+{
+  const dll = path.join(path.dirname(src), 'WebView2Loader.dll');
+  if (fs.existsSync(dll)) { fs.copyFileSync(dll, path.join(path.dirname(dst), 'WebView2Loader.dll')); console.log('shipped WebView2Loader.dll (local MinGW build)'); }
+}

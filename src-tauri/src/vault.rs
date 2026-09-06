@@ -41,12 +41,15 @@ pub fn is_hidden(name: &str) -> bool {
 
 // ---- root resolution -------------------------------------------------------
 
+/// A vault is a folder with a `CLAUDE.md` at its root. The source repository has one too, so a
+/// folder that also holds `src-tauri` is the app, not a vault (matters when running from
+/// `src-tauri/target/release` during development).
 fn looks_like_vault(dir: &Path) -> bool {
-    dir.join("CLAUDE.md").is_file() && dir.join("Inbox.md").is_file()
+    dir.join("CLAUDE.md").is_file() && !dir.join("src-tauri").is_dir()
 }
 
 /// `--root` when it exists, else the executable's folder or the nearest ancestor that holds
-/// `CLAUDE.md` and `Inbox.md` (on macOS the walk climbs out of `os.app/Contents/MacOS`),
+/// `CLAUDE.md` (on macOS the walk climbs out of `os.app/Contents/MacOS`),
 /// else `OSE_ROOT`. `None` means the caller must tell the user and exit.
 pub fn resolve_root(explicit: Option<&str>) -> Option<PathBuf> {
     if let Some(r) = explicit.filter(|r| !r.is_empty()) {

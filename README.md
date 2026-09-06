@@ -43,7 +43,7 @@ The dev server and `npm run ship` resolve the vault in this order:
 ```
 
 The built binary resolves its own root differently, at runtime: `--root <path>` if given, else the
-folder holding the executable when that folder contains `CLAUDE.md` and `Inbox.md`, else a walk up
+folder holding the executable when that folder contains `CLAUDE.md`, else a walk up
 from there, else `OSE_ROOT`.
 
 ## Building locally
