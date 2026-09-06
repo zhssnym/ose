@@ -142,6 +142,9 @@ Errors reject with `Error(message)`. Never swallow them silently; surface in the
 
 ## Host protocol (WebView2)
 
+_Historical: the .NET WebView2 host was retired on 2026-09-06 in favour of the Tauri host
+(TAURI.md). The adapter in `src/bridge/webview.js` stays for reference only._
+
 Web to host: `window.chrome.webview.postMessage({ id, cmd, args })` where `cmd` is the bridge
 method name in camelCase (`readText`, `claudeSend`, `winStartDrag`, ...), `args` an array.
 Host to web: `postWebMessageAsJson` of `{ id, ok:true, result }` or `{ id, ok:false, error }`,

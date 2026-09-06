@@ -6,10 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "host:run": "\"%LOCALAPPDATA%\\Microsoft\\dotnet\\dotnet.exe\" run --project host -- --dev http://127.0.0.1:5173",
-    "host:build": "\"%LOCALAPPDATA%\\Microsoft\\dotnet\\dotnet.exe\" build host -c Release",
-    "host:publish": "\"%LOCALAPPDATA%\\Microsoft\\dotnet\\dotnet.exe\" publish host -c Release -r win-x64 -o dist-host",
-    "ship": "npm run build && npm run host:publish && node scripts/ship.mjs",
+    "ship": "npm run tauri:build && node scripts/ship.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "node -e \"import('node:child_process').then(({spawnSync})=>process.exit(spawnSync('npm',['exec','--','tauri','build',...(process.platform==='darwin'?['--bundles','app']:['--no-bundle'])],{stdio:'inherit',shell:true}).status??1))\""

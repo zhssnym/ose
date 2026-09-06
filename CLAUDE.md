@@ -23,7 +23,7 @@ App/
   src/
     main.js           boot order
     registry.js       bus, store, commands, views, status (the shared kernel)
-    bridge/           facade + WebView2 adapter + dev HTTP adapter
+    bridge/           facade + Tauri adapter + dev HTTP adapter
     styles/           tokens.css (all colours, fonts, sizes) and base.css (components)
     shell/            titlebar, sidebar, palette, statusbar, settings, router, dialogs, state
     editor/           Crepe (Milkdown) page editor, autosave, round-trip safe serialisation
@@ -31,8 +31,9 @@ App/
     claude/           the Claude pane: process protocol, rendering, composer, sessions
     lib/              shared parsers (timetable, monthly plan with systems, jsonl, tasks)
   dev/                bridge-plugin.mjs: Node implementation of the bridge for the browser
-  host/               .NET 10 WinForms + WebView2 host, produces os.exe
-  dist/, dist-host/   build outputs, ignored
+  src-tauri/          the Tauri 2 host in Rust: vault fs, watcher, Claude process, state, window
+  ci/fake-vault/      the vault the self-test runs against in CI
+  dist/, src-tauri/target/   build outputs, ignored
 ```
 
 ## How to run it
@@ -57,8 +58,10 @@ Ship (build the UI, embed it, publish the exe, copy to the root):
 npm run ship
 ```
 
-The .NET SDK is installed per user at `%LOCALAPPDATA%\Microsoft\dotnet` and is not on PATH; the
-npm scripts reference it explicitly. No admin rights are needed for anything here.
+The host is Tauri 2 (Rust). On this machine Rust is installed per user (rustup, gnu host) with
+MinGW from winget for the linker tools; no admin rights are needed. Shipped binaries come from
+CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
+`os-macos-arm64.zip` to the rolling `latest` release. See TAURI.md for the host design.
 
 ## Rules for working in this folder
 

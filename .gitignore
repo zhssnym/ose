@@ -1,9 +1,6 @@
 node_modules/
 dist/
-dist-host/
 state.json
-host/bin/
-host/obj/
 
 # Tauri build output and any machine-specific cargo config written by the toolchain.
 src-tauri/target/

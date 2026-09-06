@@ -12,10 +12,9 @@ that lives in a state file inside the vault. There is no sync, no account and no
 apart from the Claude CLI's own.
 
 The web UI is vanilla JavaScript with Vite and Milkdown Crepe. It talks to a host through one
-small bridge API, documented in `CONTRACT.md`, and there are three implementations of that
-bridge: a Node one used by the dev server, the .NET WebView2 host in `host/` (Windows only, the
-current shipping host), and the Tauri 2 host in `src-tauri/` (Windows and macOS, described in
-`TAURI.md`). `DESIGN.md` holds the visual system.
+small bridge API, documented in `CONTRACT.md`, and there are two implementations of that
+bridge: a Node one used by the dev server, and the Tauri 2 host in `src-tauri/` (Windows and
+macOS, described in `TAURI.md`). `DESIGN.md` holds the visual system.
 
 ## Running it in development
 
@@ -49,27 +48,18 @@ from there, else `OSE_ROOT`.
 
 ## Building locally
 
-The .NET host, today's Windows build:
-
-```
-npm run ship
-```
-
-That builds the UI, publishes the host and copies the result to `<root>/os.exe`. The .NET SDK is
-installed per user at `%LOCALAPPDATA%\Microsoft\dotnet` and is not on PATH; the npm scripts
-reference it explicitly, and no admin rights are needed.
-
-The Tauri host, once a Rust toolchain is installed:
+The host is Tauri 2 (Rust). With a Rust toolchain installed (on Windows without admin rights:
+rustup per user with the gnu host, plus MinGW from `winget install BrechtSanders.WinLibs.POSIX.UCRT
+--scope user` for the linker tools):
 
 ```
 npm run tauri:dev      # dev window against the Vite dev server
-npm run tauri:build    # release binary in src-tauri/target/release/
-npm run ship           # copies that binary to <root>/os.exe
+npm run tauri:build    # release binary in src-tauri/target/release/ (os.app on macOS)
+npm run ship           # builds, then copies os.exe to <root>/os.exe
 ```
 
-`ship` prefers the Tauri output and falls back to the .NET one, so the same command works during
-the transition. Without Rust installed, only the .NET path is available, and CI is the way to get
-a Tauri build.
+Local Windows builds link with MinGW; CI builds with MSVC. Both work; CI is the source of the
+shipped binaries.
 
 ## Self-test
 
