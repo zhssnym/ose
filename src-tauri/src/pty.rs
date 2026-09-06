@@ -183,6 +183,9 @@ struct Opts {
     cmd: PathBuf,
     args: Vec<String>,
     env: Vec<(String, String)>,
+    /// True when `cmd` is the Claude Code CLI (defaulted): the session then lives in the vault.
+    claude: bool,
+    root: PathBuf,
     cols: u16,
     rows: u16,
 }
@@ -200,9 +203,12 @@ impl Opts {
             cwd = root.to_path_buf();
         }
 
-        let cmd = match field("cmd").and_then(Value::as_str).map(str::trim) {
-            Some(s) if !s.is_empty() => PathBuf::from(s),
-            _ => platform::find_claude().ok_or_else(|| "claude CLI not found".to_string())?,
+        let (cmd, claude) = match field("cmd").and_then(Value::as_str).map(str::trim) {
+            Some(s) if !s.is_empty() => (PathBuf::from(s), false),
+            _ => (
+                platform::find_claude().ok_or_else(|| "claude CLI not found".to_string())?,
+                true,
+            ),
         };
 
         let args = field("args")
@@ -224,6 +230,8 @@ impl Opts {
             cmd,
             args,
             env,
+            claude,
+            root: root.to_path_buf(),
             cols: dim(field("cols"), 80),
             rows: dim(field("rows"), 24),
         })
@@ -275,6 +283,22 @@ fn open(
         "LANG",
         std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string()),
     );
+    // Claude Code keeps its sessions under its config directory, keyed by the working directory's
+    // absolute path. Pointing the config dir into the vault and pinning the project name makes
+    // every machine that opens this vault share one session folder: <vault>/.claude/projects/vault.
+    // The caller's env may still override both (CONTRACT.md batch 7).
+    if o.claude {
+        // Whatever launched this app may itself be a Claude Code session (its variables mark
+        // children as nested sessions, which turns transcript saving off and changes rendering).
+        // The CLI in the terminal is a fresh, top-level session: drop every inherited CLAUDE* var.
+        for (k, _) in std::env::vars_os() {
+            if k.to_string_lossy().to_ascii_uppercase().starts_with("CLAUDE") {
+                cmd.env_remove(&k);
+            }
+        }
+        cmd.env("CLAUDE_CONFIG_DIR", o.root.join(".claude"));
+        cmd.env("CLAUDE_CODE_PROJECT_DIR_NAME", "vault");
+    }
     for (k, v) in &o.env {
         cmd.env(k, v);
     }
@@ -584,6 +608,8 @@ mod tests {
             cmd: PathBuf::from(cmd),
             args,
             env: Vec::new(),
+            claude: false,
+            root: std::env::temp_dir(),
             cols: 80,
             rows: 24,
         };

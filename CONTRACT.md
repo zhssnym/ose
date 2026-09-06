@@ -620,3 +620,19 @@ it now). Settings keep the read-only "claude" line (path and version).
 Self-test: `ptyStart` with `cmd` = `cmd.exe` `/c echo ptyok` on Windows, `/bin/sh -c 'echo ptyok'`
 elsewhere, expecting a `pty` data chunk containing `ptyok` and an exit event; then `claudeInfo`
 as before (skip when absent). CI unchanged otherwise.
+
+## Batch 7 (2026-09-07): sessions live in the vault
+
+When `ptyStart` runs the Claude CLI (no explicit `cmd`), the host and the dev bridge set
+`CLAUDE_CONFIG_DIR=<vault>/.claude` and `CLAUDE_CODE_PROJECT_DIR_NAME=vault` before the
+caller's `env`. Consequence: Claude Code's user settings, plugins, trust decisions and session
+transcripts for this vault live in `<vault>/.claude/`, and sessions from every machine that
+opens the vault share `<vault>/.claude/projects/vault/`, so `/resume` shows the same list on
+Windows and macOS. Windows stores the login token file there too (`.claude/.credentials.json`);
+macOS keeps it in the Keychain. The first run on each machine asks for `/login` once. Sessions
+started from a plain terminal outside the app keep using `~/.claude` unless the same two
+variables are exported in the shell.
+
+Before starting the CLI, the host and the dev bridge remove every inherited environment
+variable whose name starts with `CLAUDE` (the app may have been launched from a Claude Code
+session, whose child-session marker disables transcript saving), then set the two above.

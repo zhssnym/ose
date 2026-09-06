@@ -207,10 +207,16 @@ export function bridgePlugin() {
   const ptyStart = async ({ cwd, cols, rows, cmd, args, env } = {}) => {
     const pty = await loadPty();
     let file = String(cmd || '').trim();
+    let claudeEnv = {};
+    const inherited = { ...process.env };
     if (!file) {
       const info = await claudeInfo();
       if (!info.path) throw new Error('claude CLI not found');
       file = info.path;
+      // same rule as the host: sessions live in <vault>/.claude/projects/vault on every machine
+      claudeEnv = { CLAUDE_CONFIG_DIR: path.join(root, '.claude'), CLAUDE_CODE_PROJECT_DIR_NAME: 'vault' };
+      // a fresh top-level session: no inherited CLAUDE* variables from whatever runs this server
+      for (const k of Object.keys(process.env)) if (k.toUpperCase().startsWith('CLAUDE')) inherited[k] = undefined;
     }
     const dir = resolveCwd(cwd);
     const id = randomUUID();
@@ -221,10 +227,11 @@ export function bridgePlugin() {
       cwd: dir,
       useConpty: true,
       env: {
-        ...process.env,
+        ...inherited,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         LANG: process.env.LANG || 'en_US.UTF-8',
+        ...claudeEnv,
         ...(env && typeof env === 'object' ? env : {}),
       },
     });
