@@ -6,48 +6,14 @@ import { shortcutFor } from './keys.js';
 import { navigate, recentFiles } from './router.js';
 import { allPages } from './sidebar.js';
 import { icon } from './icons.js';
-import { titleOf, dirName } from './paths.js';
+import { fuzzy, highlight, pageItems } from './fuzzy.js';
 
 const GROUP_ORDER = ['navigate', 'page', 'view', 'claude', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
-/* ------------------------------------------------------------------ matching */
-
-const START = /[\s/\\._\-]/;
-
-/** null when q is not a subsequence of text; otherwise {score, hits:Set<index>}. */
-export function fuzzy(text, q) {
-  if (!q) return { score: 0, hits: null };
-  const t = text.toLowerCase(), n = t.length, m = q.length;
-  if (m > n) return null;
-  const hits = [];
-  let ti = 0, score = 0, streak = 0;
-  for (let qi = 0; qi < m; qi++) {
-    const c = q[qi];
-    let found = -1;
-    for (let i = ti; i < n; i++) { if (t[i] === c) { found = i; break; } }
-    if (found < 0) return null;
-    const gap = found - ti;
-    const wordStart = found === 0 || START.test(t[found - 1]) || (text[found] >= 'A' && text[found] <= 'Z' && text[found - 1] >= 'a');
-    if (found === ti && qi > 0) { streak += 1; score += 8 + streak * 2; }
-    else { streak = 0; score += wordStart ? 10 : 2; score -= Math.min(gap, 12) * 0.4; }
-    if (wordStart) score += 4;
-    hits.push(found);
-    ti = found + 1;
-  }
-  score -= (n - m) * 0.08;
-  return { score, hits: new Set(hits) };
-}
-
-function highlight(text, hits) {
-  if (!hits || !hits.size) return esc(text);
-  let out = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = esc(text[i]);
-    out += hits.has(i) ? `<b>${ch}</b>` : ch;
-  }
-  return out;
-}
+// The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
+// exactly the way Ctrl+P does. Re-exported here because this is where they used to be.
+export { fuzzy };
 
 /* ------------------------------------------------------------------ sources */
 
@@ -73,27 +39,12 @@ function commandItems(q) {
 }
 
 function fileItems(q) {
-  const recent = recentFiles();
-  const rank = new Map(recent.map((p, i) => [p, i]));
-  const paths = allPages();
-  const out = [];
-  for (const p of paths) {
-    const name = titleOf(p);
-    const m = fuzzy(p.toLowerCase(), q.toLowerCase());
-    if (!m) continue;
-    const nm = fuzzy(name.toLowerCase(), q.toLowerCase());
-    const r = rank.has(p) ? rank.get(p) : 999;
-    out.push({
-      kind: 'file', id: p, group: 'pages',
-      title: name, hint: dirName(p), shortcut: '',
-      score: m.score + (nm ? nm.score * 2 : 0) + (r < 999 ? (40 - r) * (q ? 0.4 : 1) : 0),
-      hits: nm ? nm.hits : null,
-      recent: r < 999,
-      run: () => navigate({ type: 'page', path: p }),
-    });
-  }
-  out.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
-  return out.slice(0, 200);
+  return pageItems(allPages(), q, { recent: recentFiles() }).map((it) => ({
+    kind: 'file', id: it.path, group: 'pages',
+    title: it.title, hint: it.hint, shortcut: '',
+    score: it.score, hits: it.hits, recent: it.recent,
+    run: () => navigate({ type: 'page', path: it.path }),
+  }));
 }
 
 /* ------------------------------------------------------------------ ui */

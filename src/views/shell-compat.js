@@ -16,8 +16,13 @@ async function shell() {
   return shellMod;
 }
 
+// `navigate` is async in the router, so a rejection has to be caught on the promise as well as
+// synchronously; otherwise a view clicked outside a running shell (the harness) leaves an
+// unhandled rejection in the console instead of one warning line.
 export function navigate(route) {
-  shell().then((m) => { try { m?.navigate(route); } catch (e) { console.warn('[views] navigate failed', e); } });
+  shell()
+    .then((m) => m?.navigate(route))
+    .catch((e) => console.warn('[views] navigate failed', e));
 }
 
 /**

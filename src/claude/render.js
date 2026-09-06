@@ -160,13 +160,34 @@ function renderTool(item, node, onNavigate) {
   return node;
 }
 
+/** One thinking block, always an entry inside a turn's working row. Collapsed by default. */
+function renderThinking(item, node) {
+  node.className = `c-think${item.open ? ' open' : ''}${item.sub ? ' sub' : ''}`;
+  node.innerHTML = '';
+  const head = el('button', 'c-think-head');
+  head.type = 'button';
+  const chev = el('span', 'c-chev');
+  chev.innerHTML = CHEVRON;
+  const gap = el('span', 'c-think-gap');          // lines the label up with the tool rows' glyph
+  gap.setAttribute('aria-hidden', 'true');
+  head.append(chev, gap, el('span', 'c-think-name', item.streaming ? 'thinking…' : 'thinking'));
+  head.setAttribute('aria-expanded', item.open ? 'true' : 'false');
+  head.addEventListener('click', () => { item.open = !item.open; renderThinking(item, node); });
+  node.append(head);
+  if (item.open) node.append(clipped(item.text, 200, 'c-pre c-think-body'));
+  return node;
+}
+
 /**
- * One turn's tool calls, folded into a single row: `working · N tools` while it runs, the count
- * once it is done. Expanded while running, collapsed when the turn's text arrives; clicking
- * toggles it and then it stays where the user put it.
+ * One turn's work, folded into a single row: its tool calls and its thinking, in arrival order.
+ * The label counts what is inside — `working · 2 tools · thinking` while it runs, the same
+ * without the prefix once it is done. Expanded while running, collapsed when the turn's text
+ * arrives; clicking toggles it and then it stays where the user put it.
  */
 function renderTools(item, node, onNavigate) {
-  const tools = item.tools || [];
+  const entries = item.entries || [];
+  const tools = entries.filter(e => e.kind === 'tool');
+  const thinking = entries.some(e => e.kind === 'thinking');
   const failed = tools.filter(t => t.state === 'error').length;
   node.className = `c-tools${item.open ? ' open' : ''}${item.running ? ' running' : ''}`;
   node.innerHTML = '';
@@ -177,8 +198,11 @@ function renderTools(item, node, onNavigate) {
   chev.innerHTML = CHEVRON;
   head.append(chev);
   if (item.running) head.append(spinner());
-  const count = `${tools.length} tool${tools.length === 1 ? '' : 's'}`;
-  head.append(el('span', 'c-tools-label', item.running ? `working · ${count}` : count));
+  const parts = [];
+  if (tools.length) parts.push(`${tools.length} tool${tools.length === 1 ? '' : 's'}`);
+  if (thinking) parts.push('thinking');
+  const what = parts.join(' · ');
+  head.append(el('span', 'c-tools-label', item.running ? (what ? `working · ${what}` : 'working') : (what || 'working')));
   if (failed) head.append(el('span', 'c-tools-failed', `· ${failed} failed`));
   head.setAttribute('aria-expanded', item.open ? 'true' : 'false');
   head.addEventListener('click', () => {
@@ -190,7 +214,11 @@ function renderTools(item, node, onNavigate) {
 
   if (!item.open) return node;
   const body = el('div', 'c-tools-body');
-  for (const t of tools) body.append(renderTool(t, document.createElement('div'), onNavigate));
+  for (const e of entries) {
+    body.append(e.kind === 'thinking'
+      ? renderThinking(e, document.createElement('div'))
+      : renderTool(e, document.createElement('div'), onNavigate));
+  }
   node.append(body);
   return node;
 }
@@ -210,16 +238,8 @@ function renderItem(item, node, onNavigate) {
       node.innerHTML = md(item.text);
       return node;
     }
-    case 'thinking': {
-      node.className = `c-think${item.open ? ' open' : ''}`;
-      node.innerHTML = '';
-      const head = el('button', 'c-think-head mono-sm', item.open ? 'thinking' : 'thinking…');
-      head.type = 'button';
-      head.addEventListener('click', () => { item.open = !item.open; renderItem(item, node, onNavigate); });
-      node.append(head);
-      if (item.open) node.append(clipped(item.text, 200, 'c-pre c-think-body'));
-      return node;
-    }
+    // thinking is never a row of its own; it only reaches this switch through a group's body
+    case 'thinking': return renderThinking(item, node);
     case 'tool': return renderTool(item, node, onNavigate);
     case 'tools': return renderTools(item, node, onNavigate);
     case 'divider': {

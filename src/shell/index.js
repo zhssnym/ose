@@ -20,8 +20,12 @@ import { loadSources } from '../lib/sources.js';
 
 export { navigate, back, forward, clearRoute };
 // Focus mode is shell state; the editor asks for the folder a new page belongs in, and the
-// claude module reads store 'focus' for its session cwd.
+// claude module reads store 'focus' for its session cwd. `scratchFolder()` is the last fallback
+// of page.new: the scratch source, never a folder name written out in code (CONTRACT.md batch 5).
 export { getFocus, defaultNewFolder };
+export { scratchFolder } from './sidebar.js';
+// The page picker behind the editor's `Link` item and the `page.link` command.
+export { pickPage, pageTitle, copyText } from './dialog.js';
 
 const MIN_MAIN = 340;
 const S_MIN = 200, S_MAX = 420;

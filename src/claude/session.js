@@ -101,7 +101,8 @@ class Session {
     this._msgId = null;
     this._openTools = new Set();
     this._killed = new Set();  // processes we stopped: their late output is not an error
-    this._toolGroup = null;    // the `working · N tools` row of the current turn
+    this._toolGroup = null;    // the `working · N tools · thinking` row of the current turn
+    this._pendingThink = [];   // streamed thinking blocks, held out of the row until they have text
     this._resumeNext = null;   // session to --resume when the next process starts
     this._resumedFrom = null;
     this._sawResult = false;
@@ -170,7 +171,7 @@ class Session {
     this.items = [];
     this.log = [];
     this._byIndex.clear(); this._byToolId.clear(); this._openTools.clear();
-    this._msgId = null; this._sawResult = false; this._toolGroup = null;
+    this._msgId = null; this._sawResult = false; this._toolGroup = null; this._pendingThink = [];
     this.lastDuration = null;
     this.ev.emit('reset');
   }
@@ -291,7 +292,7 @@ class Session {
 
   /**
    * Read the CLI's own transcript file for a session and replay it as transcript items:
-   * user text, assistant text, tool calls folded into their turn's row. Thinking is skipped.
+   * user text, assistant text, tool calls and non-empty thinking folded into their turn's row.
    */
   async loadHistory(sessionId) {
     let lines = [];
@@ -336,16 +337,22 @@ class Session {
           if (!text.trim()) continue;
           group = null;
           out.push({ kind: 'text', text, streaming: false, finalised: true });
+        } else if (b.type === 'thinking' || b.type === 'redacted_thinking') {
+          // same rule as live: empty (or redacted, which carries no text) renders nothing
+          const text = String(b.thinking ?? b.text ?? '');
+          if (!text.trim()) continue;
+          if (!group) { group = { kind: 'tools', entries: [], open: false, running: false }; out.push(group); }
+          group.entries.push({ key: uid(), kind: 'thinking', text, streaming: false, finalised: true, open: false, group });
         } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
-          if (!group) { group = { kind: 'tools', tools: [], open: false, running: false }; out.push(group); }
+          if (!group) { group = { kind: 'tools', entries: [], open: false, running: false }; out.push(group); }
           const it = {
             key: uid(), kind: 'tool', id: b.id || uid(), toolName: b.name || 'Tool',
             input: b.input || {}, state: 'done', result: null, isError: false, group,
           };
-          group.tools.push(it);
+          group.entries.push(it);
           byTool.set(it.id, it);
         }
-        // thinking and every other block type: not part of the record we show
+        // every other block type: not part of the record we show
       }
     }
     // added only once the tool results have been folded in, so nothing renders twice
@@ -456,6 +463,7 @@ class Session {
       case 'message_start': {
         this._msgId = e.message?.id || uid();
         this._byIndex.clear();
+        this._pendingThink = [];
         if (this.phase !== 'tool') this.setPhase('thinking');
         return;
       }
@@ -466,7 +474,9 @@ class Session {
           const it = this.add({ kind: 'text', text: '', streaming: true, msgId: this._msgId, sub });
           this._byIndex.set(e.index, it);
         } else if (b.type === 'thinking' || b.type === 'redacted_thinking') {
-          const it = this.add({ kind: 'thinking', text: '', streaming: true, sub });
+          // held back: it only becomes an entry once it has text (CONTRACT.md batch 5)
+          const it = { key: uid(), kind: 'thinking', text: '', streaming: true, open: false, sub, group: null };
+          this._pendingThink.push(it);
           this._byIndex.set(e.index, it);
         } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
           const it = this.addTool(b.id, b.name, b.input || {}, sub);
@@ -481,7 +491,8 @@ class Session {
         const d = e.delta || {};
         if (d.type === 'text_delta' || d.type === 'thinking_delta') {
           it.text += d.text ?? d.thinking ?? '';
-          this.update(it);
+          if (it.kind === 'thinking') this.showThinking(it);
+          else this.update(it);
         } else if (d.type === 'input_json_delta') {
           it.partial = (it.partial || '') + (d.partial_json || '');
           const parsed = looseJson(it.partial);
@@ -491,22 +502,60 @@ class Session {
       }
       case 'content_block_stop': {
         const it = this._byIndex.get(e.index);
-        if (it && (it.kind === 'text' || it.kind === 'thinking')) { it.streaming = false; this.update(it); }
+        if (!it) return;
+        if (it.kind === 'thinking') { it.streaming = false; this.showThinking(it); }
+        else if (it.kind === 'text') { it.streaming = false; this.update(it); }
         return;
       }
-      case 'message_stop': { this._byIndex.clear(); return; }
+      case 'message_stop': { this._byIndex.clear(); this._pendingThink = []; return; }
       default: return;
     }
   }
 
-  /** The `working · N tools` row of the current turn, created when its first tool appears. */
-  toolGroup() {
-    if (!this._toolGroup) this._toolGroup = this.add({ kind: 'tools', tools: [], open: true, running: true });
-    return this._toolGroup;
+  /**
+   * Put an entry — a tool call or a non-empty thinking block — into the `working` row of the
+   * current turn, creating the row with that entry already inside it (so it is never drawn
+   * empty). `entries` holds both kinds, in arrival order.
+   */
+  pushEntry(it) {
+    let g = this._toolGroup;
+    if (g) {
+      it.group = g;
+      g.entries.push(it);
+      g.running = true;
+      if (!g.userToggled) g.open = true;
+      this.update(g);
+      return g;
+    }
+    g = { kind: 'tools', entries: [it], open: true, running: true };
+    it.group = g;
+    this._toolGroup = this.add(g);
+    return g;
   }
 
   /** A tool row lives inside its group, so redrawing it means redrawing the group. */
   updateTool(it) { this.update(it.group || it); }
+
+  /**
+   * Thinking is only ever an entry in the turn's working row, and only when it has text: empty
+   * or whitespace-only blocks (redacted thinking among them) produce nothing at all.
+   */
+  showThinking(it) {
+    const has = !!it.text.trim();
+    if (!it.group) {
+      if (!has) return;                       // still empty: nothing on screen yet, nothing to draw
+      this.pushEntry(it);
+      return;
+    }
+    if (!has) {                               // text was replaced by an empty final block
+      it.group.entries = it.group.entries.filter(e => e !== it);
+      const g = it.group;
+      it.group = null;
+      this.update(g);
+      return;
+    }
+    this.update(it.group);
+  }
 
   /** Fold the group shut when a turn's text arrives and nothing is still running. */
   foldTools() {
@@ -520,18 +569,14 @@ class Session {
   addTool(id, name, input, sub) {
     let it = id ? this._byToolId.get(id) : null;
     if (it) { it.input = input && Object.keys(input).length ? input : it.input; this.updateTool(it); return it; }
-    const g = this.toolGroup();
     it = {
       key: uid(), kind: 'tool', id: id || uid(), toolName: name || 'Tool',
-      input: input || {}, state: 'running', result: null, isError: false, sub, group: g,
+      input: input || {}, state: 'running', result: null, isError: false, sub, group: null,
     };
-    g.tools.push(it);
-    g.running = true;
-    if (!g.userToggled) g.open = true;
+    this.pushEntry(it);
     this._byToolId.set(it.id, it);
     this._openTools.add(it.id);
     this.setPhase('tool');
-    this.update(g);
     return it;
   }
 
@@ -545,10 +590,12 @@ class Session {
         if (open) { open.text = b.text ?? open.text; open.streaming = false; open.finalised = true; this.update(open); }
         else if ((b.text || '').trim()) { this.foldTools(); this.add({ kind: 'text', text: b.text, streaming: false, finalised: true, msgId, sub }); }
       } else if (b.type === 'thinking' || b.type === 'redacted_thinking') {
-        const open = this.items.find(i => i.kind === 'thinking' && !i.finalised);
-        const text = b.thinking ?? b.text ?? '';
-        if (open) { open.text = text || open.text; open.streaming = false; open.finalised = true; this.update(open); }
-        else if (text) this.add({ kind: 'thinking', text, streaming: false, finalised: true, sub });
+        // finalise the streamed block if we have one, otherwise create it; either way it is an
+        // entry in the working row, and an empty one is not shown at all
+        const open = this._pendingThink.find(i => !i.finalised);
+        const text = String(b.thinking ?? b.text ?? '');
+        if (open) { open.text = text || open.text; open.streaming = false; open.finalised = true; this.showThinking(open); }
+        else if (text.trim()) this.showThinking({ key: uid(), kind: 'thinking', text, streaming: false, finalised: true, open: false, sub, group: null });
       } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
         const it = this.addTool(b.id, b.name, b.input || {}, sub);
         it.toolName = b.name || it.toolName;

@@ -340,6 +340,35 @@
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg); width: 260px;
 }
 
+/* ------------------------------------------------------- selected blocks (blocks.js) */
+
+/* One or more whole blocks selected with Esc / Shift+arrows: DESIGN.md's current-row idiom,
+   `--accent-soft` behind the block and a 2px `--accent` bar on its left edge. The bar is an
+   inset shadow so selecting a block never moves the text by a pixel. */
+.ed .milkdown .ProseMirror .os-block-sel,
+.ed .milkdown .ProseMirror > .ProseMirror-selectednode {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+  border-radius: var(--radius);
+}
+/* hr draws its own line; tint the space around it instead of painting over the rule */
+.ed .milkdown .ProseMirror hr.os-block-sel { border-top-color: var(--accent); }
+/* A block selection is not a text selection: the formatting toolbar has nothing to offer it. */
+.ed .milkdown:has(.ProseMirror.os-blocksel) .milkdown-toolbar { display: none !important; }
+/* While blocks are selected the native text highlight underneath would double the colour. */
+.ed .milkdown .ProseMirror.os-blocksel ::selection,
+.ed .milkdown .ProseMirror.os-blocksel::selection { background: transparent; }
+
+/* ---------------------------------------------------------------- page picker (fallback) */
+
+.ed-pick { display: flex; flex-direction: column; gap: 8px; }
+.ed-pick .input { width: 100%; }
+.ed-pick-list {
+  max-height: 320px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2);
+}
+.ed-pick-list .row { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); cursor: default; }
+
 /* ---------------------------------------------------------------- dialogs (fallback) */
 
 .ed-dialog-scrim {

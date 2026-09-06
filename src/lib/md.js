@@ -59,10 +59,49 @@ export function until(m) {
 
 const stripAccents = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
+/**
+ * Sidebar order, applied to file names: numeric-aware, case- and accent-insensitive.
+ * `1-general-todo.md` before `2-legal-todo.md`, `2026-9.md` before `2026-10.md`.
+ */
+export const naturalCompare = (a, b) =>
+  String(a).localeCompare(String(b), 'fr', { numeric: true, sensitivity: 'base' });
+
+/** The text of the first H1 in a document, or '' when it has none. */
+export function firstH1(text) {
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const m = /^#\s+(.+?)\s*$/.exec(raw);
+    if (m) return m[1].trim();
+  }
+  return '';
+}
+
+/**
+ * The file that stands for a date prefix in a folder listing, per the tolerant-names rule of
+ * CONTRACT.md batch 5: any `<prefix>*.md` is that date's file, the exact `<prefix>.md` wins
+ * when several match, natural order breaks what is left. -> the file name, or null.
+ *   pickDatedFile(['2026-09.md', '2026-09 Monthly Plan.md'], '2026-09') -> '2026-09.md'
+ *   pickDatedFile(['2026-09 Monthly Plan.md'], '2026-09')               -> '2026-09 Monthly Plan.md'
+ * What follows the prefix may not be a digit, with or without a separator in front of it, so
+ * `2026-09` matches `2026-09 Monthly Plan.md` but never `2026-09-12.md` or `2026-091.md`.
+ */
+export function pickDatedFile(names, prefix) {
+  const p = String(prefix);
+  const hits = [];
+  for (const n of names || []) {
+    const name = String(n);
+    if (!/\.md$/i.test(name) || !name.startsWith(p)) continue;
+    if (/^[-_.]?\d/.test(name.slice(p.length))) continue;
+    if (name.length === p.length + 3) return name;      // exactly `<prefix>.md`
+    hits.push(name);
+  }
+  hits.sort(naturalCompare);
+  return hits[0] || null;
+}
+
 /* -------------------------------------------------------------- timetable */
 
 export const TIMETABLE = {
-  PATH: 'Learning/School/0-index/Timetable.md',
+  PATH: '2-learning/1-school/0-index/Timetable.md',
   START: 7,       // first hour drawn
   END: 23.5,      // last hour drawn
   HOUR_H: 48,     // px per hour
@@ -125,18 +164,35 @@ export function parseTimetable(text) {
 
 /* ----------------------------------------------------------- monthly plan */
 
-// Default source paths. They are the fallbacks of `lib/sources.js`; a view asks that module for
-// the current path and passes it in, so nothing here reads configuration.
-/** The folder holding `<year>/<YYYY-MM> Monthly Plan.md`. */
-export const PLAN_DIR = 'Personal/3. Action';
+// Default source paths: the vault's layout as of batch 5. They are the fallbacks of
+// `views/sources-compat.js`; a view asks that module for the current path and passes it in, so
+// nothing here reads configuration.
+/** The folder holding `<year>/<YYYY-MM>.md`. */
+export const PLAN_DIR = '1-personal/3-execution';
 /** One append-only check log for every month. */
-export const SYSTEMS_LOG = `${PLAN_DIR}/systems-log.jsonl`;
-/** The one task file the Day view reads. */
-export const TODO_PATH = 'Personal/1. Life/Todo.md';
+export const SYSTEMS_LOG = `${PLAN_DIR}/systems.jsonl`;
+/** The folder of task lists (one file per list); a single `.md` file works too. */
+export const TODO_PATH = '0-tasks';
+/** The folder of one journal file per day. */
+export const JOURNAL_DIR = '1-personal/4-journal';
+/** The folder the scratch section lists and new pages land in. */
+export const SCRATCH_DIR = '7-scratchpad';
 
-/** The monthly plan for a date, under `dir`: `<dir>/2026/2026-09 Monthly Plan.md`. */
-export const planPath = (d, dir = PLAN_DIR) =>
-  `${String(dir ?? PLAN_DIR).replace(/\/+$/, '')}/${d.getFullYear()}/${ym(d)} Monthly Plan.md`;
+/** The folder a month's plan lives in: `<dir>/2026`. */
+export const planDir = (d, dir = PLAN_DIR) =>
+  `${String(dir ?? PLAN_DIR).replace(/\/+$/, '')}/${d.getFullYear()}`;
+
+/**
+ * The canonical monthly plan path for a date: `<dir>/2026/2026-09.md`. The real file may be
+ * named anything starting with `2026-09` (see `pickDatedFile`); this is what the views fall
+ * back to when the folder cannot be listed, and what they print when nothing matches.
+ */
+export const planPath = (d, dir = PLAN_DIR) => `${planDir(d, dir)}/${ym(d)}.md`;
+
+/** The name a new journal entry is written under. Existing entries may be named anything. */
+export const journalFileName = (d) => `${ymd(d)}.md`;
+/** The H1 a new journal entry opens with. */
+export const journalHeading = (d) => `# ${ymd(d)} - Journal`;
 
 /** Split a document on its H1 headings. The text before the first H1 has `head: null`. */
 function h1Sections(text) {
@@ -192,23 +248,30 @@ function goalSections(lines) {
 }
 
 /**
- * A monthly plan file, exactly as `Personal/3. Action/CLAUDE.md` defines it. Three H1 sections
- * in this order; earlier months have only the first, and a file that does not follow the schema
- * renders as plain text rather than as invented goals.
+ * A monthly plan file, exactly as `<plans>/CLAUDE.md` defines it. Three H1 sections in this
+ * order; earlier months have only the first, and a file that does not follow the schema renders
+ * as plain text rather than as invented goals.
  *   "# YYYY-MM Monthly Plan"  intro prose, then label lines with bullets  -> title, intro, sections
  *   "# Systems"               prose, then one bullet per system            -> systems, hasSystems
  *   "# Monthly Review"        Hassan's prose, never written by the app     -> review
  * The heads are matched exactly: `# 2026-01 Monthly Review` is not `# Monthly Review`, and a
  * file that names it that way keeps its review out of the view until the file is fixed.
+ * One tolerance, because the vault uses it: a `# Goals` section is read as more of the title
+ * section's body, so `2026-09.md` (title, `# Goals`, `# Systems`, `# Monthly Review`) and a
+ * file with its labels directly under the title both give the same goals.
  */
 export function parseMonthlyPlan(text) {
   const secs = h1Sections(text);
   const heads = secs.filter((s) => s.head);
   const titleSec = heads[0] || { head: null, body: [] };
   const find = (re) => heads.find((s) => re.test(s.head));
+  const goalSec = heads.indexOf(titleSec) === 0 ? find(/^goals$/i) : null;
   const sysSec = find(/^systems$/i);
   const revSec = find(/^monthly\s+review$/i);
-  const { sections, intro } = goalSections(titleSec.body);
+  const head = goalSections(titleSec.body);
+  const extra = goalSec ? goalSections(goalSec.body) : { sections: [], intro: '' };
+  const sections = [...head.sections, ...extra.sections];
+  const intro = [head.intro, extra.intro].filter(Boolean).join('\n\n');
   return {
     title: titleSec.head,
     intro,

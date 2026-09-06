@@ -500,3 +500,67 @@ The editor's `page.new` uses `defaultNewFolder()`, then the open page's folder, 
 `Scratchpad/`. Claude's cwd is the focus folder when set. Dropping a folder from Explorer is not
 supported (files only). The January to June 2026 plans were brought to the schema by renaming
 or inserting the `# Monthly Review` heading only; no wording changed.
+
+## Batch 5 (2026-09-06, night): decisions
+
+**Six explicit sources.** `lib/sources.js` keys, defaults (the vault's current layout) and the
+one-sentence description each row shows in settings:
+
+```
+timetable   2-learning/1-school/0-index/Timetable.md
+            "A markdown file with one H1 per weekday (Lundi … Dimanche) and one line per block:
+             - 08h20 à 09h15 Maths · salle 333 [maths]."
+plans       1-personal/3-execution
+            "A folder with one subfolder per year, holding one file per month named YYYY-MM.md
+             (anything after the date is ignored) with the sections Goals, # Systems, # Monthly Review."
+systemsLog  1-personal/3-execution/systems.jsonl
+            "An append-only JSON-lines file; the app adds one line per system check and never edits it."
+todo        0-tasks
+            "A folder (every markdown file in it is one task list) or a single markdown file, with
+             - [ ] items and optional 📅 due dates."
+journal     1-personal/4-journal
+            "A folder of one file per day named YYYY-MM-DD.md (anything after the date is ignored);
+             the app appends, never edits."
+scratch     7-scratchpad
+            "The folder shown as the scratch section; new pages land here unless a folder is focused."
+```
+
+Each settings row: name, the sentence in `--fg-3`, the current path in mono, `missing` in `--err`
+when the path does not exist, `choose…` (pickFile for files, pickFolder for folders; `todo`
+offers both), `reset` when off the default. `SOURCE_INFO[key] = {label, kind: 'file'|'folder'|'either', ext, sentence}`.
+Everything that used to be hard-coded (`Scratchpad`, the journal folder, the plan and journal
+file names) reads a source. The shell's scratch section, empty-space menu and `page.new`
+fallback use `getSource('scratch')`.
+
+**Tolerant names.** A monthly plan is any `YYYY-MM*.md` inside `<plans>/<year>/`; the app
+creates nothing there. A journal entry is any `YYYY-MM-DD*.md` inside the journal folder; a
+new entry is written as `YYYY-MM-DD.md` with the H1 `# YYYY-MM-DD - Journal` as before. The
+date always comes from the file name.
+
+**Todo as a folder.** When the todo source is a folder, every `*.md` directly in it is a list.
+The Day view groups tasks by file, in natural file order, each group labelled with the file's
+first H1 (or its name), each group holding overdue, due that day, undated. Write-back goes to
+the file the task came from. A single-file source behaves as one group without a label.
+
+**Copy path, copy link.** Right-click on any file or folder: `copy path` puts the vault-relative
+path on the clipboard; `copy link` puts `[<name without .md>](<path with spaces as %20>)`.
+`navigator.clipboard.writeText`, with a toast `copied`.
+
+**Link a page.** Slash item `Link` (aliases: link, page, ref) opens `pickPage({title})`
+(new in shell/dialog.js: the quick-open list, fuzzy, Enter) and inserts a markdown link whose
+text is the page's title (first H1, else the file name) and whose URL is the path relative to
+the current page's folder, `%20`-encoded. Palette command `page.link` does the same.
+
+**Block keys (editor).** Esc inside a block selects the whole block (NodeSelection, highlighted
+with `--accent-soft` and a 2px `--accent` left bar). Backspace or Delete on a selected block
+removes it. Shift+Up / Shift+Down extends the selection to the previous or next block. Esc
+again or a click returns to text. Ctrl+Shift+Backspace deletes the current block without
+selecting. Ctrl+Shift+Up / Ctrl+Shift+Down moves the current block (or the selection) up or
+down. None of these fire inside code blocks (CodeMirror keeps its keys) or when a menu is open.
+
+**Thinking.** Empty thinking blocks are not rendered at all. Non-empty thinking folds into the
+turn's `working` row as a `thinking` entry (collapsed by default, mono, `--fg-3`), never as its
+own row.
+
+**Schema document.** The conventions doc moves with the vault: `<plans>/CLAUDE.md`
+(`1-personal/3-execution/CLAUDE.md`), updated to the new names.

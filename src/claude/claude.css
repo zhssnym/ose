@@ -203,12 +203,21 @@
 
 /* ---- thinking, result, error, notes ---------------------------------- */
 
+/* thinking is an entry inside the turn's working row, shaped like the tool rows beside it */
+.c-think { margin: 0; }
 .c-think-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-height: 22px; padding: 2px 4px 2px 2px;
+  text-align: left; border-radius: var(--radius);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  color: var(--fg-3); padding: 1px 2px; text-align: left;
+  color: var(--fg-3);
+  transition: background var(--t-fast), color var(--t-fast);
 }
-.c-think-head:hover { color: var(--fg-2); text-decoration: underline; }
-.c-think-body { margin-top: 4px; color: var(--fg-3); font-style: normal; }
+.c-think-head:hover { background: var(--bg-3); color: var(--fg-2); }
+.c-think-gap { width: 6px; flex: none; }
+.c-think-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-think.open .c-chev svg { transform: rotate(90deg); }
+.c-think-body { margin: 2px 0 6px 8px; color: var(--fg-3); font-style: normal; }
 
 .c-result {
   color: var(--fg-3); padding-top: 7px; margin-top: 2px;

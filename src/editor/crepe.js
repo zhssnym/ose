@@ -7,6 +7,7 @@ import { editorViewCtx, parserCtx, prosePluginsCtx, serializerCtx } from '@milkd
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
+import { blockKeysPlugin } from './blocks.js';
 
 const cssVar = (name, fallback) => {
   try {
@@ -21,7 +22,7 @@ const cssVar = (name, fallback) => {
  * @param {string} o.markdown           initial body markdown
  * @param {(src:string)=>string} [o.resolveImage]   markdown src -> displayable url
  * @param {(file:File)=>Promise<string>} [o.uploadImage]  File -> markdown src
- * @param {boolean} [o.slashCommands]   false in the round-trip harness: no menu, no DOM
+ * @param {boolean} [o.slashCommands]   false in the round-trip harness: no menu, no block keys
  */
 export async function makeCrepe(o) {
   const crepe = new Crepe({
@@ -61,7 +62,7 @@ export async function makeCrepe(o) {
   });
 
   configureStringify(crepe.editor);
-  if (o.slashCommands !== false) installSlash(crepe.editor);
+  if (o.slashCommands !== false) { installSlash(crepe.editor); installBlockKeys(crepe.editor); }
   if (o.onChange) watchDoc(crepe.editor, o.onChange);
   if (o.on) crepe.on(o.on);
 
@@ -73,6 +74,17 @@ export async function makeCrepe(o) {
 function installSlash(editor) {
   editor.config((ctx) => {
     ctx.update(prosePluginsCtx, (plugins) => plugins.concat(slashPlugin(ctx)));
+  });
+}
+
+/**
+ * The block keymap (Esc, Shift+arrows, Ctrl+Shift+arrows). Milkdown builds every keymap into
+ * one plugin appended after `prosePluginsCtx`, so a plugin added here is asked first and can
+ * take Backspace away from the base keymap when whole blocks are selected.
+ */
+function installBlockKeys(editor) {
+  editor.config((ctx) => {
+    ctx.update(prosePluginsCtx, (plugins) => plugins.concat(blockKeysPlugin()));
   });
 }
 

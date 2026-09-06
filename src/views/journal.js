@@ -1,9 +1,12 @@
 // Journal view: write once at the top, read the whole record underneath.
 //
-// The file format is Hassan's and does not change: a new day gets "# YYYY-MM-DD - Journal"
-// then the text; a second thought the same day is appended after a "---" separator. Existing
+// The folder is the `journal` source, so it follows settings and the view re-reads on the
+// `sources` event. Names are tolerant per CONTRACT.md batch 5: an entry is any `YYYY-MM-DD*.md`
+// in that folder and the date always comes from the file name, never from the heading. A new
+// entry is written as `YYYY-MM-DD.md` with the H1 "# YYYY-MM-DD - Journal"; a second thought the
+// same day is appended after a "---" separator to whatever file that day already has. Existing
 // text is never edited by this view; there are no edit controls at all. Older files carry a
-// "# DD-MM-YYYY - Journal" heading instead, so the date always comes from the file name.
+// "# DD-MM-YYYY - Journal" heading, which is why the heading is only ever dropped, not read.
 //
 // Layout: the date as the page title, weekday / time / gap line in mono under it, the writing
 // box, then every entry latest first in one continuous column with the date in a 96px left
@@ -15,12 +18,13 @@
 
 import { esc, status } from '../registry.js';
 import { bridge } from '../bridge/index.js';
+import { journalFileName, journalHeading, naturalCompare } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
+import { getSource, onSources } from './sources-compat.js';
 import './journal.css';
 
 /* --------------------------------------------------------------- constants */
 
-const DEFAULT_DIR = 'Personal/4. Journal';
 const DRAFT = 'os.journal.draft';
 const CHUNK = 30;                 // days rendered per pass
 const MIN_ROWS = 6;               // the empty box is six lines tall; there is no maximum
@@ -30,23 +34,20 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/** The journal folder. Configurable so a harness can point at a scratch copy. */
-let DIR = DEFAULT_DIR;
-export function setJournalDir(dir) { DIR = String(dir || DEFAULT_DIR).replace(/\/+$/, ''); }
-export function getJournalDir() { return DIR; }
+/** The journal folder: the `journal` source, whatever settings (or a test override) points at. */
+const dir = () => getSource('journal');
 
 /* ----------------------------------------------------------------- helpers */
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-const fileFor = (d) => `${ymd(d)} - Journal.md`;
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / 86400000);
 
-/** `2026-09-06 - Journal.md` -> a local Date, or null when the name is not dated. */
+/** `2026-09-06.md`, `2026-09-06 - Journal.md` -> a local Date, or null when it is not dated. */
 function dateFromName(name) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(name);
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?!\d)/.exec(name);
   if (!m) return null;
   const d = new Date(+m[1], +m[2] - 1, +m[3]);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -58,12 +59,24 @@ const lsSet = (v) => { try { v ? localStorage.setItem(DRAFT, v) : localStorage.r
 /* ------------------------------------------------------------ file parsing */
 
 /**
+ * The H1 an entry opens with, which the record drops because the date comes from the file name.
+ * Three shapes exist in the vault: "# 2026-09-06 - Journal" (current), "# 06-12-2024 - Journal"
+ * (older), and a bare "# 2026-09-06". Anything else is the writer's own heading and is kept.
+ */
+function isEntryHeading(line) {
+  const m = /^#\s+(.+?)\s*$/.exec(String(line ?? ''));
+  if (!m) return false;
+  const t = m[1];
+  return /journal\s*$/i.test(t) || /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/.test(t);
+}
+
+/**
  * One file -> the thoughts written that day. The leading "# ... - Journal" heading is dropped
  * (the date comes from the file name) and standalone `---` lines separate thoughts.
  */
 function parseEntry(text) {
   const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
-  if (/^#\s+.*journal\s*$/i.test(lines[0] || '')) lines.shift();
+  if (isEntryHeading(lines[0])) lines.shift();
   const out = [];
   let cur = [];
   for (const ln of lines) {
@@ -92,12 +105,15 @@ function renderThought(text) {
 
 let el = null;                    // the element the shell handed us
 let days = [];                    // [{name, path, date, year, text?, thoughts?}] newest first
+let dirPath = '';                 // the folder this listing came from
+let dirMissing = false;           // that folder could not be listed
 let sig = '';                     // signature of the listing, so refresh() is cheap
 let shown = 0;                    // how many days are in the DOM
 let wantFocus = false;
 let loading = false;
 let clock = null;                 // 30s tick
 let io = null;                    // sentinel observer for lazy rendering
+let offSources = null;            // the `sources` subscription, dropped on unmount
 let scroller = null;              // the element that scrolls this view, watched as a fallback
 let titleYmd = '';                // the date the header is drawn for
 let mode = 'full';                // 'full' | 'compact', persisted in views.journal.mode
@@ -175,7 +191,10 @@ function drawRecord() {
   if (!box) return;
   box.classList.toggle('is-compact', mode === 'compact');
   if (!days.length) {
-    box.innerHTML = '<div class="jr-empty">no entries yet</div>';
+    // a folder that is not there is a different problem from a folder nobody has written in
+    box.innerHTML = dirMissing
+      ? `<div class="jr-empty">no folder at ${esc(dirPath)} · set it in settings (ctrl+,)</div>`
+      : '<div class="jr-empty">no entries yet</div>';
     $('#jrMore').hidden = true;
     return;
   }
@@ -242,14 +261,18 @@ async function load() {
   if (loading || !el) return;
   loading = true;
   try {
-    let items = [];
-    try { items = await bridge.list(DIR); } catch { items = []; }
-    const files = items
+    const folder = dir();
+    let items = null;
+    try { items = await bridge.list(folder); } catch { items = null; }
+    dirPath = folder;
+    dirMissing = items === null;
+    // any `YYYY-MM-DD*.md` is an entry; newest first, and a natural order inside one date
+    const files = (items || [])
       .filter((i) => i.kind === 'file' && /\.md$/i.test(i.name) && dateFromName(i.name))
-      .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+      .sort((a, b) => naturalCompare(b.name, a.name));
 
     const newest = files[0];
-    const next = `${files.map((f) => f.name).join('|')}::${newest ? `${newest.mtime || ''}:${newest.size || ''}` : ''}`;
+    const next = `${folder}::${files.map((f) => f.name).join('|')}::${newest ? `${newest.mtime || ''}:${newest.size || ''}` : ''}`;
     if (next === sig && days.length) { drawHeader(); return; }
     sig = next;
 
@@ -257,9 +280,9 @@ async function load() {
     const keep = new Map(days.map((d) => [d.name, d]));
     days = files.map((f) => {
       const old = keep.get(f.name);
-      if (old) return old;
+      if (old && old.path === `${folder}/${f.name}`) return old;
       const date = dateFromName(f.name);
-      return { name: f.name, path: `${DIR}/${f.name}`, date, year: date.getFullYear() };
+      return { name: f.name, path: `${folder}/${f.name}`, date, year: date.getFullYear() };
     });
     if (days[0]) { days[0].text = undefined; days[0].thoughts = undefined; }
 
@@ -285,13 +308,18 @@ async function save() {
   if (!text) return;
   btn.disabled = true;
   try {
-    const now = new Date(), name = fileFor(now), path = `${DIR}/${name}`;
+    const now = new Date(), folder = dir(), today = ymd(now);
+    // a second thought goes into whatever file today already has, however it is named;
+    // the first one of the day creates the canonical `YYYY-MM-DD.md`
+    const existing = days.find((d) => ymd(d.date) === today);
+    const name = existing ? existing.name : journalFileName(now);
+    const path = `${folder}/${name}`;
     if (await bridge.exists(path)) {
       const cur = await bridge.readText(path);
       const gap = cur.endsWith('\n\n') ? '' : cur.endsWith('\n') ? '\n' : '\n\n';
       await bridge.appendText(path, `${gap}---\n\n${text}\n`);
     } else {
-      await bridge.writeText(path, `# ${ymd(now)} - Journal\n\n${text}\n`);
+      await bridge.writeText(path, `${journalHeading(now)}\n\n${text}\n`);
     }
     ta.value = '';
     persistNow('');
@@ -309,6 +337,7 @@ async function save() {
     }
     day.text = fresh;
     day.thoughts = parseEntry(fresh);
+    dirPath = folder; dirMissing = false;   // writing the file created the folder if it was gone
     sig = '';                     // the next refresh() re-lists and re-signs
     drawHeader();
     drawRecord();
@@ -355,7 +384,13 @@ function onKeydown(e) {
 
 function onClick(ev) {
   const open = ev.target.closest('[data-open]');
-  if (open) { navigate({ type: 'page', path: `${DIR}/${open.dataset.open}` }); return; }
+  if (open) {
+    // the real file name, whatever it is called: `2026-09-03.md`, `2026-09-03 - Journal.md`, …
+    const name = open.dataset.open;
+    const d = days.find((x) => x.name === name);
+    navigate({ type: 'page', path: d ? d.path : `${dir()}/${name}` });
+    return;
+  }
   const m = ev.target.closest('[data-mode]');
   if (m) { setMode(m.dataset.mode); return; }
   const ex = ev.target.closest('[data-expand]');
@@ -460,12 +495,20 @@ export const journal = {
     scroller = scrollParent(el) || window;
     scroller.addEventListener('scroll', maybeMore, { passive: true });
 
+    // the folder moved in settings (or a test pointed it elsewhere): re-list from scratch
+    offSources = onSources((e) => {
+      if (e && e.key && e.key !== 'journal') return;
+      days = []; sig = ''; shown = 0; opened = new Set();
+      load();
+    });
+
     await load();
     if (wantFocus) { wantFocus = false; ta.focus(); }
   },
 
   unmount() {
     clearInterval(clock); clock = null;
+    if (offSources) { offSources(); offSources = null; }
     if (io) { io.disconnect(); io = null; }
     if (scroller) { scroller.removeEventListener('scroll', maybeMore); scroller = null; }
     if (el) el.removeEventListener('click', onClick);

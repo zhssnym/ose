@@ -1,9 +1,14 @@
 // Day view: one day, side by side. Left, the timetable for that weekday drawn 07:00 to 23:30.
 // Right, the systems that apply to the date and the tasks that belong on it.
 // Reads four sources, all of them configurable: the timetable, the month's plan (for
-// `# Systems`), the systems log, and the todo file. Writes: one appended line per system check,
-// and the exact source line of a task. The paths come from `sources-compat.js` and are listed
-// under the title, so what the day is built from is never a guess.
+// `# Systems`), the systems log, and the todo source. Writes: one appended line per system
+// check, and the exact source line of a task, in the file that task came from. The paths come
+// from `sources-compat.js` and the resolved ones are listed under the title, so what the day is
+// built from is never a guess.
+//
+// Tasks are grouped by list, in the file order of the todo folder: each group is headed with
+// the file's first H1 and holds overdue, due that day, undated. A single-file todo source is
+// one group without a heading, which is what the view looked like before batch 5.
 
 import { esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
@@ -13,10 +18,10 @@ import {
 } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
 import {
-  indexTasks, allTasks, tasksForDay, taskRow, taskById, toggleTask,
-  getTaskSource, taskSourceMissing,
+  indexTasks, groupsForDay, taskRow, taskById, toggleTask,
+  getTaskSource, taskSourceMissing, taskFiles,
 } from './tasks-index.js';
-import { getSource, onSources, sourcePlanPath } from './sources-compat.js';
+import { getSource, onSources, resolvePlanPath } from './sources-compat.js';
 
 const { START, END, HOUR_H } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -30,8 +35,8 @@ let cursor = new Date();
 let events = [], systems = [], log = { done: new Map(), first: new Map(), names: [] };
 let plan = null;
 // the source paths this render was built from, and whether each one is actually there
-let ttFile = '', planDir = '', planFile = '', logFile = '';
-let ttMissing = false, dirMissing = false;
+let ttFile = '', plansDir = '', planFile = '', logFile = '';
+let ttMissing = false, dirMissing = false, planMissing = false;
 let expanded = new Set(), busy = false, seq = 0;
 let ro = null, tickTimer = null, offSources = null;
 
@@ -129,9 +134,12 @@ function tick() {
 function renderSystems() {
   const box = $('#dySys');
   const list = systems.filter((s) => applies(s, cursor));
-  if (dirMissing) { box.innerHTML = srcNote(planDir, 'folder'); return; }
+  if (dirMissing) { box.innerHTML = srcNote(plansDir, 'folder'); return; }
   if (!list.length) {
-    box.innerHTML = `<div class="dy-note mono-sm">no system applies on ${esc(ddmm(cursor))}</div>`;
+    // no systems at all and no plan for the month is a different thing from a rest day
+    box.innerHTML = (!systems.length && planMissing)
+      ? `<div class="dy-note mono-sm">no plan for this month at ${esc(planFile)}</div>`
+      : `<div class="dy-note mono-sm">no system applies on ${esc(ddmm(cursor))}</div>`;
     return;
   }
   const k = list.filter((s) => isDone(s.name, cursor)).length;
@@ -172,28 +180,41 @@ async function toggleSystem(name) {
 
 /* ------------------------------------------------------------------ tasks */
 
-function section(key, label, list) {
+function section(key, label, list, short) {
   if (!list.length) return '';
   const open = expanded.has(key);
   const shown = open ? list : list.slice(0, LIMIT);
   const rest = list.length - shown.length;
   return `<div class="dy-sec">
     <div class="label">${esc(label)} <span class="dy-n">${list.length}</span></div>
-    ${shown.map(taskRow).join('')}
+    ${shown.map((t) => taskRow(t, { short })).join('')}
     ${rest ? `<button class="dy-more mono-sm" data-more="${esc(key)}">show all ${list.length}</button>` : ''}
   </div>`;
 }
 
+/** One list: its heading, then overdue / due today / undated inside it. */
+function group(g) {
+  const named = !!g.label;
+  const head = named
+    ? `<button class="dy-grp-head" data-path="${esc(g.path)}" title="${esc(g.path)}">
+         <span class="dy-grp-name">${esc(g.label)}</span><span class="dy-n">${g.count}</span>
+       </button>`
+    : '';
+  const body = [
+    section(`${g.path}|overdue`, 'overdue', g.overdue, named),
+    section(`${g.path}|due`, `due ${ymd(cursor)}`, g.due, named),
+    section(`${g.path}|none`, 'no date', g.undated, named),
+  ].join('');
+  return `<div class="dy-grp${named ? '' : ' bare'}">${head}${body}</div>`;
+}
+
 function renderTasks() {
   const box = $('#dyTasks');
-  if (taskSourceMissing()) { box.innerHTML = srcNote(getTaskSource()); return; }
-  const g = tasksForDay(cursor, allTasks());
-  const body = [
-    section('overdue', 'overdue', g.overdue),
-    section('due', `due ${ymd(cursor)}`, g.due),
-    section('none', 'no date', g.undated),
-  ].filter(Boolean).join('');
-  box.innerHTML = body || '<div class="dy-note mono-sm">nothing due, nothing late</div>';
+  if (taskSourceMissing()) { box.innerHTML = srcNote(getTaskSource(), 'todo source'); return; }
+  const gs = groupsForDay(cursor);
+  box.innerHTML = gs.length
+    ? gs.map(group).join('')
+    : '<div class="dy-note mono-sm">nothing due, nothing late</div>';
 }
 
 async function onToggleTask(id) {
@@ -214,12 +235,22 @@ async function onToggleTask(id) {
 
 /* ----------------------------------------------------------------- render */
 
+/**
+ * The files this day was actually built from, in the order it reads them: the resolved plan
+ * file rather than the folder it sits in, and one entry per task list rather than the todo
+ * folder. Redrawn again once the task index resolves, since that is what names the lists.
+ */
+function renderMeta() {
+  const files = taskFiles();
+  $('#dyMeta').innerHTML = [ttFile, planFile, logFile, ...(files.length ? files : [getTaskSource()])]
+    .filter(Boolean)
+    .map((p) => `<span class="v-link" data-path="${esc(p)}">${esc(p)}</span>`).join('');
+}
+
 function render() {
   if (!el) return;
   $('#dyTitle').textContent = dayTitle(cursor);
-  // the actual source paths, in the order the day is built from them
-  $('#dyMeta').innerHTML = [ttFile, planFile, logFile, getTaskSource()]
-    .map((p) => `<span class="v-link" data-path="${esc(p)}">${esc(p)}</span>`).join('');
+  renderMeta();
   $('#dyToday').hidden = sameDay(cursor, new Date());
   renderTimeline();
   renderSystems();
@@ -233,26 +264,27 @@ async function load() {
   const at = cursor;
   const tt = getSource('timetable');
   const dir = getSource('plans');
-  const file = sourcePlanPath(at);
   const logPath = getSource('systemsLog');
   try {
-    const [hasTt, ttText, hasDir, planText, logText] = await Promise.all([
+    // the month's file is found by listing `<plans>/<year>/`: names after the date are free
+    const [hasTt, ttText, hasDir, found, logText] = await Promise.all([
       bridge.exists(tt),
       bridge.exists(tt).then((y) => (y ? bridge.readText(tt) : '')),
       bridge.exists(dir),
-      bridge.exists(file).then((y) => (y ? bridge.readText(file) : '')),
+      resolvePlanPath(at, dir),
       bridge.exists(logPath).then((y) => (y ? bridge.readText(logPath) : '')),
     ]);
+    const planText = found.exists ? await bridge.readText(found.path) : '';
     if (my !== seq || !el) return;
-    ttFile = tt; planDir = dir; planFile = file; logFile = logPath;
-    ttMissing = !hasTt; dirMissing = !hasDir;
+    ttFile = tt; plansDir = dir; planFile = found.path; logFile = logPath;
+    ttMissing = !hasTt; dirMissing = !hasDir; planMissing = !found.exists;
     events = parseTimetable(ttText);
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);
     systems = systemsFor(plan, log, at);
     render();
     await indexTasks();
-    if (my === seq && el) renderTasks();
+    if (my === seq && el) { renderMeta(); renderTasks(); }
   } catch (e) {
     console.error('[views:day]', e);
     flash(`day: ${e.message || e}`);
@@ -275,8 +307,8 @@ function onClick(ev) {
   if (tg) { onToggleTask(tg.dataset.toggle); return; }
   const more = ev.target.closest('[data-more]');
   if (more) { expanded.add(more.dataset.more); renderTasks(); return; }
-  const src = ev.target.closest('.tk-src');
-  if (src) { navigate({ type: 'page', path: src.dataset.path }); return; }
+  const src = ev.target.closest('.tk-src, .dy-grp-head');
+  if (src && src.dataset.path) { navigate({ type: 'page', path: src.dataset.path }); return; }
   const link = ev.target.closest('.v-link');
   if (link && link.dataset.path) navigate({ type: 'page', path: link.dataset.path });
 }

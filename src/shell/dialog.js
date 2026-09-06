@@ -4,7 +4,8 @@
 import { esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { icon } from './icons.js';
-import { isHiddenName } from './paths.js';
+import { isHiddenName, titleOf } from './paths.js';
+import { highlight, pageItems } from './fuzzy.js';
 
 const stack = [];
 
@@ -308,6 +309,158 @@ export async function pickFile({ title = 'Choose a file…', ext = null, current
     iconName: 'page', mode: exts.length ? exts.map((e) => '.' + e).join(' ') : 'files',
     enterLabel: 'choose', rootLabel: 'vault root', empty: 'no file matches',
   });
+}
+
+/* -------------------------------------------------------------------- page picker */
+
+// The page list and the recent list belong to the sidebar and the router, and both of those
+// import this file. A dynamic import at call time keeps the module graph acyclic and costs
+// nothing: by the time anybody picks a page, both modules are long since evaluated.
+async function quickOpenData() {
+  const [sidebar, router] = await Promise.all([import('./sidebar.js'), import('./router.js')]);
+  let recent = [];
+  try { recent = router.recentFiles(); } catch { /* no history yet */ }
+  return { paths: sidebar.allPages(), recent };
+}
+
+/**
+ * Pick a markdown page: the quick-open list, the quick-open matcher, Enter to confirm.
+ * Resolves to the vault-relative path of the page, or `null` when cancelled.
+ * Used by the editor's `Link` slash item and the `page.link` command (CONTRACT.md batch 5).
+ */
+export async function pickPage({ title = 'Link a page…', current = null } = {}) {
+  const { paths, recent } = await quickOpenData();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
+    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', onClose: () => { if (!done) { done = true; resolve(null); } } });
+    ov.box.innerHTML = `
+      <div class="pal-head">
+        <span class="pal-icon">${icon('page')}</span>
+        <input class="pal-input" type="text" spellcheck="false" autocomplete="off" placeholder="${esc(title)}" aria-label="${esc(title)}">
+      </div>
+      <div class="pal-list" role="listbox"></div>
+      <div class="pal-foot mono-sm">
+        <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
+        <span><span class="kbd">Enter</span> link</span>
+        <span><span class="kbd">Esc</span> cancel</span>
+        <span class="grow"></span>
+        <span class="pal-mode">pages</span>
+      </div>`;
+
+    const input = ov.box.querySelector('.pal-input');
+    const list = ov.box.querySelector('.pal-list');
+    let items = [];
+    let sel = 0;
+
+    function build() {
+      const q = input.value.trim();
+      items = pageItems(paths, q, { recent });
+      const at = current ? items.findIndex((it) => it.path === current) : -1;
+      sel = !q && at > 0 ? at : 0;
+      paint();
+    }
+
+    function paint() {
+      list.textContent = '';
+      if (!items.length) { list.innerHTML = '<div class="empty">no page matches</div>'; return; }
+      const frag = document.createDocumentFragment();
+      items.forEach((it, i) => {
+        const row = document.createElement('div');
+        row.className = 'row pal-row' + (i === sel ? ' active' : '');
+        row.dataset.i = i;
+        row.setAttribute('role', 'option');
+        row.innerHTML = `<span class="grow">${highlight(it.title, it.hits)}</span>`
+          + (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '')
+          + (it.path === current ? '<span class="kbd">current</span>' : '');
+        frag.appendChild(row);
+      });
+      list.appendChild(frag);
+      list.querySelector('.pal-row.active')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function move(d) {
+      if (!items.length) return;
+      sel = (sel + d + items.length) % items.length;
+      paint();
+    }
+
+    input.addEventListener('input', build);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (items.length) finish(items[sel].path); }
+    });
+    list.addEventListener('click', (e) => {
+      const row = e.target.closest('.pal-row');
+      if (!row) return;
+      finish(items[+row.dataset.i].path);
+    });
+    list.addEventListener('mousemove', (e) => {
+      const row = e.target.closest('.pal-row');
+      if (!row || +row.dataset.i === sel) return;
+      sel = +row.dataset.i;
+      list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
+    });
+
+    build();
+    requestAnimationFrame(() => input.focus());
+  });
+}
+
+/**
+ * The title a link to `path` should carry: the file's first H1, else the file name.
+ * One read, no cache: it is called once per inserted link. Never throws — a file that cannot
+ * be read falls back to its name, which is what the old behaviour was anyway.
+ */
+export async function pageTitle(path) {
+  const fallback = titleOf(path);
+  if (!path) return fallback;
+  try {
+    let text = await bridge.readText(path);
+    if (typeof text !== 'string') return fallback;
+    // YAML frontmatter is not content; an H1 inside it would not be one.
+    if (/^---\r?\n/.test(text)) {
+      const end = text.search(/\r?\n---[ \t]*(\r?\n|$)/);
+      if (end >= 0) text = text.slice(text.indexOf('\n', end + 1) + 1);
+    }
+    const m = text.match(/^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/m);
+    const h1 = m && m[1].trim();
+    return h1 || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/* ------------------------------------------------------------------ clipboard */
+
+/**
+ * Put text on the clipboard. `navigator.clipboard` needs a secure context, which both the dev
+ * server (127.0.0.1) and the host give us; the textarea fallback is there so a copy never
+ * silently does nothing. Resolves true when the text went somewhere.
+ */
+export async function copyText(text) {
+  const s = String(text ?? '');
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch { /* fall through to the old way */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return !!ok;
+  } catch (e) {
+    console.error('[shell] copy', e);
+    return false;
+  }
 }
 
 /** Context menu: items are {label, icon?, danger?, sep?, run()}. */

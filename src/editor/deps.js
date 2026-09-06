@@ -26,6 +26,19 @@ export async function confirm(opts) {
   return fallbackConfirm(opts);
 }
 
+/**
+ * CONTRACT: pickPage({title}) -> Promise<path|null>  (the quick-open list, fuzzy, Enter).
+ * Until the shell exports it, `pickFile` is the same surface over `.md`; with no shell at all
+ * the fallback below lists the vault itself.
+ */
+export async function pickPage(opts) {
+  const m = await optional('../shell/dialog.js');
+  const title = (opts && opts.title) || 'Link to page…';
+  if (m && typeof m.pickPage === 'function') return m.pickPage({ ...opts, title });
+  if (m && typeof m.pickFile === 'function') return m.pickFile({ title, ext: 'md' });
+  return fallbackPickPage(title);
+}
+
 /** CONTRACT: patchState(partial) -> Promise<void>. A no-op until shell/state.js exists. */
 export async function patchState(partial) {
   const m = await optional('../shell/state.js');
@@ -82,6 +95,65 @@ function fallbackPrompt({ title, value = '', placeholder = '', ok = 'OK' } = {})
     { label: 'Cancel', value: () => null },
     { label: ok, kind: 'primary', value: () => (input.value.trim() ? input.value.trim() : null) },
   ]);
+}
+
+/** The quick-open list, in miniature: every `.md` in the vault, filtered by substring. */
+async function fallbackPickPage(title) {
+  const { bridge } = await import('../bridge/index.js');
+  const all = [];
+  const walk = (n) => {
+    if (!n) return;
+    if (n.kind === 'file') { if (n.ext === 'md') all.push(n.path); return; }
+    for (const c of n.children || []) walk(c);
+  };
+  try { walk(await bridge.tree()); } catch { /* an empty list still cancels cleanly */ }
+
+  const box = document.createElement('div');
+  box.className = 'ed-pick';
+  const input = document.createElement('input');
+  input.className = 'input';
+  input.placeholder = 'Type to filter';
+  const list = document.createElement('div');
+  list.className = 'ed-pick-list';
+  box.append(input, list);
+
+  let items = all;
+  let sel = 0;
+  const paint = () => {
+    list.textContent = '';
+    for (let i = 0; i < items.length && i < 200; i++) {
+      const row = document.createElement('div');
+      row.className = 'row' + (i === sel ? ' current' : '');
+      row.textContent = items[i];
+      row.dataset.i = String(i);
+      list.append(row);
+    }
+    list.querySelector('.row.current')?.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    items = q ? all.filter((p) => p.toLowerCase().includes(q)) : all;
+    sel = 0;
+    paint();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); sel = Math.min(sel + 1, items.length - 1); paint(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); sel = Math.max(sel - 1, 0); paint(); }
+  });
+  paint();
+
+  const chosen = { path: null };
+  list.addEventListener('click', (e) => {
+    const row = e.target instanceof Element ? e.target.closest('.row') : null;
+    if (!row) return;
+    chosen.path = items[+row.dataset.i] ?? null;
+    box.closest('.ed-dialog')?.querySelector('.btn.primary')?.click();
+  });
+  const value = await surface(title, box, [
+    { label: 'Cancel', value: () => null },
+    { label: 'Link', kind: 'primary', value: () => chosen.path ?? items[sel] ?? null },
+  ]);
+  return value;
 }
 
 function fallbackConfirm({ title, body = '', ok = 'OK', danger = false } = {}) {

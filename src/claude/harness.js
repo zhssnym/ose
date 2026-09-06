@@ -10,6 +10,7 @@ const FIXTURES = [
   ['fixtures/session-2-search.jsonl', 'glob + grep'],
   ['fixtures/session-3-edit.jsonl', 'write, edit, bash, failing read'],
   ['fixtures/demo-thinking-error.jsonl', 'thinking, subagent, error result'],
+  ['fixtures/demo-thinking-empty.jsonl', 'empty + whitespace thinking (renders nothing), one tool'],
 ];
 
 const PROMPTS = {
@@ -17,6 +18,7 @@ const PROMPTS = {
   'fixtures/session-2-search.jsonl': 'Find the markdown files in Projects and count how often Husna appears in Documents.',
   'fixtures/session-3-edit.jsonl': 'Write Scratchpad/claude-test/note.md, edit it, run git status, then read a file that does not exist.',
   'fixtures/demo-thinking-error.jsonl': 'Plan the September paperwork for Husna and start it.',
+  'fixtures/demo-thinking-empty.jsonl': 'What is open in Documents/TASKS.md?',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -53,8 +55,8 @@ async function boot() {
   $('view').addEventListener('click', () => setView(!viewOn));
   $('expand').addEventListener('click', () => {
     for (const it of session.items) {
-      if (it.kind === 'tools') { it.open = true; it.userToggled = true; for (const t of it.tools) t.open = true; session.update(it); }
-      else if (it.kind === 'thinking') { it.open = true; session.update(it); }
+      // tools and thinking are both entries of the turn's working row
+      if (it.kind === 'tools') { it.open = true; it.userToggled = true; for (const e of it.entries) e.open = true; session.update(it); }
     }
   });
   $('stderr').addEventListener('click', () => {

@@ -29,12 +29,13 @@
     <button class="btn sm" data-v="journal">journal</button>
     <span class="grow"></span>
     <label class="mono-sm faint" for="hsrc">todo source</label>
-    <select class="input sm" id="hsrc" style="width:210px">
+    <select class="input sm" id="hsrc" style="width:230px">
       <option value="">default (settings)</option>
-      <option value="Scratchpad/views-test/Todo.md">sandbox copy</option>
-      <option value="Nowhere/Todo.md">missing path</option>
+      <option value="7-scratchpad/views-test/tasks">sandbox folder</option>
+      <option value="7-scratchpad/views-test/tasks/1-general-todo.md">sandbox single file</option>
+      <option value="nowhere/0-tasks">missing path</option>
     </select>
-    <span class="mono-sm faint" id="hstatus">?sandbox writes to Scratchpad/; otherwise writes are redirected to Scratchpad/views-test/</span>
+    <span class="mono-sm faint" id="hstatus">writes outside 7-scratchpad/ are redirected</span>
     <button class="btn sm" id="htheme">theme</button>
   </div>
   <div id="main"></div>
@@ -43,26 +44,28 @@
 import { bridge } from '/src/bridge/index.js';
 import { views, status } from '/src/registry.js';
 import { initViews } from '/src/views/index.js';
-import { setJournalDir } from '/src/views/journal.js';
 import { setTaskSource } from '/src/views/tasks-index.js';
 import { getSource, setSourceOverride, SOURCE_DEFAULTS } from '/src/views/sources-compat.js';
 
-// `?sandbox` points the two writing views at copies under Scratchpad/, so saving a journal
+const SANDBOX_DIR = '7-scratchpad/views-test';
+const SANDBOX_TASKS = `${SANDBOX_DIR}/tasks`;
+const SANDBOX_JOURNAL = `${SANDBOX_DIR}/journal`;
+
+// `?sandbox` points the two writing views at copies under 7-scratchpad/, so saving a journal
 // entry or toggling a task can be exercised end to end without touching the real vault.
 const q = new URLSearchParams(location.search);
-const SANDBOX = q.has('sandbox');
-if (SANDBOX) {
-  setJournalDir('Scratchpad/journal-test');
-  setTaskSource('Scratchpad/tasks-test/Todo.md');
+if (q.has('sandbox')) {
+  setSourceOverride('journal', SANDBOX_JOURNAL);
+  setSourceOverride('todo', SANDBOX_TASKS);
 }
-// ?timetable= / ?plans= / ?systemsLog= / ?todo= point one source elsewhere for this session,
-// which is what the `sources` event does in the app. Empty means the default.
+// ?timetable= / ?plans= / ?systemsLog= / ?todo= / ?journal= / ?scratch= point one source
+// elsewhere for this session, which is what the `sources` event does in the app.
 for (const k of Object.keys(SOURCE_DEFAULTS)) if (q.has(k)) setSourceOverride(k, q.get(k));
 
-// Safety net either way: the files these views write are never written for real from here.
-const REDIR = 'Scratchpad/views-test';
-const guarded = (p) => String(p).startsWith('Personal/') || String(p) === 'Todo.md';
-const guard = (p) => (guarded(p) ? REDIR + '/' + String(p).replace(/[\/ ]/g, '_') : p);
+// Safety net either way: nothing outside the scratch folder is ever written from here.
+const guard = (p) => (String(p).startsWith('7-scratchpad/')
+  ? p
+  : `${SANDBOX_DIR}/redirected/${String(p).replace(/[\/ ]/g, '_')}`);
 for (const m of ['writeText', 'appendText']) {
   const orig = bridge[m].bind(bridge);
   bridge[m] = (p, ...rest) => { const g = guard(p); if (g !== p) console.info('[harness] redirect', m, p, '->', g); return orig(g, ...rest); };
@@ -88,26 +91,40 @@ document.getElementById('htheme').addEventListener('click', () => {
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem('os.theme', next); } catch (e) {}
 });
-// The sandbox copy is written on demand so no fixture is left lying in the vault between runs.
-const SANDBOX_TODO = 'Scratchpad/views-test/Todo.md';
-const SANDBOX_TEXT = `# Todo (views-test copy)
+// The sandbox lists are written on demand so no fixture is left lying in the vault between
+// runs. Two files, so the Day view has two labelled groups to draw.
+const FIXTURE = {
+  '1-general-todo.md': `# General Tasks Todo List
 
 - [ ] Sandbox overdue item \u{1F4C5} 2026-08-30 \u{23EB}
 - [ ] Sandbox item due today \u{1F4C5} ${new Date().toISOString().slice(0, 10)}
   - [ ] A nested sandbox item
 - [ ] Sandbox item with no date
 - [x] Sandbox item already done \u{2705} 2026-09-05
-`;
+`,
+  '2-legal-todo.md': `# Legal Tasks Todo List
+
+- [ ] Sandbox legal item with no date
+- [ ] Sandbox legal item due today \u{1F4C5} ${new Date().toISOString().slice(0, 10)}
+`,
+};
+async function seedTasks() {
+  for (const [name, text] of Object.entries(FIXTURE)) {
+    const p = `${SANDBOX_TASKS}/${name}`;
+    if (!(await bridge.exists(p))) await bridge.writeText(p, text);
+  }
+}
 
 const srcSel = document.getElementById('hsrc');
 srcSel.value = q.get('todo') || '';
 srcSel.addEventListener('change', async () => {
   const v = srcSel.value;
-  if (v === SANDBOX_TODO && !(await bridge.exists(v))) await bridge.writeText(v, SANDBOX_TEXT);
-  setTaskSource(null);                         // drop the ?sandbox override, the source wins
+  if (v.startsWith(SANDBOX_TASKS)) await seedTasks();
+  setTaskSource(null);                         // drop any direct override, the source wins
   setSourceOverride('todo', v || null);
   console.info('[harness] todo source ->', getSource('todo'));
 });
+if (q.has('sandbox')) await seedTasks();
 
 bridge.on('fs', () => { const v = views.get(cur); if (v) v.refresh(); });
 await show((location.hash || '#month').slice(1));

@@ -10,9 +10,10 @@
 
 import { bus, commands, status, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { navigate, clearRoute, defaultNewFolder } from '../shell/index.js';
+import { navigate, clearRoute, defaultNewFolder, scratchFolder } from '../shell/index.js';
 import { prompt, confirm, patchState } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
+import { bindPagePath, insertPageLink } from './link.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, detectLang } from './doc.js';
 import * as P from './paths.js';
@@ -44,6 +45,8 @@ export async function initEditor() {
   if (initialised) return;
   initialised = true;
   registerCommands();
+  // link.js turns a picked page into an href relative to the page being edited.
+  bindPagePath(() => (page ? page.path : null));
   void loadShellKeymap();
 
   // The bridge facade already re-emits 'fs' onto the bus; listening to both would reload twice.
@@ -595,6 +598,23 @@ function registerCommands() {
     id: 'page.reveal', title: 'Reveal in Explorer', group: 'page',
     when: hasPage, run: () => { if (page) void bridge.reveal(page.path); },
   });
+  commands.register({
+    id: 'page.link', title: 'Link a page', group: 'page',
+    when: hasPage, run: () => void linkPage(),
+  });
+}
+
+/**
+ * Insert a link to another page at the caret (CONTRACT.md batch 5). The palette has just
+ * closed, so the editor is focused first: the link goes where the caret was left.
+ */
+async function linkPage() {
+  const p = page;
+  if (!p || !p.crepe) return;
+  const view = editorView(p.crepe);
+  if (!view) return;
+  view.focus();
+  await insertPageLink(view);
 }
 
 /** Free `<folder>/<base>.md`, numbered if taken. */
@@ -609,7 +629,7 @@ async function newPage() {
   // In focus mode a new page belongs to the focus folder; otherwise beside the open page, or
   // in Scratchpad when a view is open (CONTRACT.md batch 4).
   const focused = defaultNewFolder();
-  const folder = focused || (page ? P.dirname(page.path) : 'Scratchpad');
+  const folder = focused || (page ? P.dirname(page.path) : scratchFolder());
   const path = await freePath(folder, 'Untitled');
   await bridge.writeText(path, '# Untitled\n');
   navigate({ type: 'page', path });

@@ -28,9 +28,15 @@ import {
 import { createTable } from '@milkdown/kit/preset/gfm';
 import { imageBlockSchema } from '@milkdown/kit/component/image-block';
 import { today } from './paths.js';
+import { insertPageLink } from './link.js';
 
 const SLASH_KEY = new PluginKey('os-slash');
 const MAX_QUERY = 24;
+
+// Every menu that is currently on screen. The block keymap asks before it acts on a key, so
+// Esc and the arrows belong to the menu while it is open (CONTRACT.md batch 5).
+const openMenus = new Set();
+export const slashMenuOpen = () => openMenus.size > 0;
 
 // ---------------------------------------------------------------------------
 // icons (DESIGN.md: 16px, 1.5px stroke, currentColor; base.css `.row svg` sets the stroke)
@@ -47,6 +53,7 @@ const I = {
   image: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><circle cx="9" cy="10.2" r="1.4"/><path d="m4.2 16.4 4.6-4 3.9 3.4L16 12l4.4 4.4"/>',
   code: '<path d="m9 8-5 4 5 4M15 8l5 4-5 4"/>',
   table: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><path d="M3.5 10.2h17M9.7 10.2v8.3M15.2 10.2v8.3"/>',
+  link: '<path d="M10.6 13.4a3.8 3.8 0 0 0 5.4 0l2.4-2.4a3.8 3.8 0 0 0-5.4-5.4l-1.3 1.3"/><path d="M13.4 10.6a3.8 3.8 0 0 0-5.4 0l-2.4 2.4a3.8 3.8 0 0 0 5.4 5.4l1.3-1.3"/>',
   date: '<rect x="3.5" y="5.5" width="17" height="14" rx="1"/><path d="M3.5 10.2h17M8 3.5v4M16 3.5v4"/>',
   rename: '<path d="m4 20 .8-3.5L15.4 6a1.6 1.6 0 0 1 2.2 0l.5.5a1.6 1.6 0 0 1 0 2.2L7.5 19.2 4 20Z"/>',
   trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.9 13h9.2l.9-13"/>',
@@ -167,6 +174,9 @@ const GROUPS = [
       { key: 'code', label: 'Code', icon: I.code, aliases: ['code', 'pre'], onRun: (c) => putBlock(c, (x) => codeBlockSchema.type(x).createAndFill()) },
       { key: 'table', label: 'Table', icon: I.table, aliases: ['table'], onRun: (c) => putBlock(c, (x) => createTable(x, 3, 3)) },
       { key: 'date', label: 'Date', icon: I.date, aliases: ['date', 'today'], inline: true, onRun: (c) => insertText(c, today()) },
+      // No `inline`: the space in front of the `/` is removed with it and comes back only
+      // when a page is actually chosen, so cancelling the picker leaves no trailing space.
+      { key: 'link', label: 'Link', icon: I.link, aliases: ['link', 'page', 'ref'], onRun: (c, at) => void insertPageLink(c.get(editorViewCtx), at) },
     ],
   },
   {
@@ -357,8 +367,8 @@ class SlashView {
       offset: 8,
       shouldShow: (view) => this.shouldShow(view),
     });
-    this.provider.onShow = () => { this.shown = true; };
-    this.provider.onHide = () => { this.shown = false; this.query = null; };
+    this.provider.onShow = () => { this.shown = true; openMenus.add(this); };
+    this.provider.onHide = () => { this.shown = false; this.query = null; openMenus.delete(this); };
   }
 
   update(view, prevState) { this.provider.update(view, prevState); }
@@ -371,6 +381,7 @@ class SlashView {
   }
 
   destroy() {
+    openMenus.delete(this);
     window.removeEventListener('keydown', this.onKey, true);
     this.dom.removeEventListener('blur', this.onBlur);
     this.provider.destroy();
@@ -455,7 +466,7 @@ class SlashView {
     }
     try {
       if (item.cmd) setTimeout(() => commands.run(item.cmd), 0);   // let the menu close first
-      else item.onRun(this.ctx);
+      else item.onRun(this.ctx, { space: !!(m && m.space) });
     } catch (err) {
       console.error('[slash]', item.key, err);
     }

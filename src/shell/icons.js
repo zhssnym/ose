@@ -32,6 +32,9 @@ const P = {
   pin: '<path d="M6 2.75h4l-.5 4 2.25 2.25h-7.5L6.5 6.75z"/><path d="M8 9v4.25"/>',
   // Tree glyphs: a page and a folder that read the same at 14px, same optical weight.
   page: '<path d="M3.75 2.25h8.5v11.5h-8.5z"/><path d="M6 5.75h4M6 8.25h4M6 10.75h2.5"/>',
+  // Copy: two offset sheets. Link: the two halves of a chain, drawn as open brackets.
+  copy: '<rect x="5.75" y="5.75" width="7.5" height="7.5"/><path d="M10.25 5.75V2.75h-7.5v7.5h3"/>',
+  link: '<path d="M6.75 9.25a2.4 2.4 0 0 1 0-3.4l2-2a2.4 2.4 0 0 1 3.4 3.4l-1 1"/><path d="M9.25 6.75a2.4 2.4 0 0 1 0 3.4l-2 2a2.4 2.4 0 0 1-3.4-3.4l1-1"/>',
 };
 
 export function icon(name) {

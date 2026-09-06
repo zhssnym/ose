@@ -240,6 +240,26 @@
 .dy-more { height: 22px; padding: 0 6px; color: var(--fg-3); transition: color var(--t-fast); }
 .dy-more:hover { color: var(--accent); }
 
+/* One group per file of the todo folder. The heading is the file's first H1 and opens it;
+   a single-file todo source is one `.bare` group and prints no heading at all. */
+.dy-grp + .dy-grp { margin-top: 4px; }
+.dy-grp-head {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  padding: 0 0 8px; margin-bottom: 10px; text-align: left;
+  border-bottom: 1px solid var(--border-strong);
+  transition: color var(--t-fast);
+}
+.dy-grp-head:hover { color: var(--accent); }
+.dy-grp-name {
+  flex: 1; min-width: 0; font-size: var(--fs-ui); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dy-grp-head .dy-n { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
+/* inside a named group the sections are the second level, so they sit in a little */
+.dy-grp:not(.bare) .dy-sec { margin-left: 10px; margin-bottom: 14px; }
+.dy-grp:not(.bare) .dy-sec:last-child { margin-bottom: 22px; }
+.dy-grp:not(.bare) .tk-src { max-width: 64px; }
+
 /* task rows, shared with anything that lists tasks. A nested `- [ ]` line in the source keeps
    its nesting here: one level of indentation per two spaces of source indent. */
 .tk-row {

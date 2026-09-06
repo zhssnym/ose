@@ -137,6 +137,13 @@ html.mac .tb-win { display: none; }
 .sb-view svg { color: var(--fg-3); }
 .sb-view.current svg { color: var(--accent); }
 .sb-empty { padding: 4px 12px 4px calc(8px + 34px); text-align: left; }
+/* The scratch source points at nothing: one line, and clicking it opens settings. */
+.sb-missing {
+  display: block; width: 100%; line-height: 1.5;
+  padding-left: 12px; padding-right: 10px;
+  color: var(--fg-3); transition: color var(--t-fast);
+}
+.sb-missing:hover, .sb-missing:focus-visible { color: var(--accent); }
 
 /* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
 .sb-row[draggable="true"] { -webkit-user-drag: element; }
@@ -363,23 +370,33 @@ html.maximized .edge { display: none; }
 .seg-b:hover { background: var(--bg-3); color: var(--fg); }
 .seg-b.on { background: var(--accent); color: var(--accent-fg); }
 .set-num { width: 92px; height: 26px; text-align: right; }
-/* sources: key, the path it points at, and the two controls */
+/* sources: the name, one sentence about the shape expected there, the path, and the controls */
 .set-head { padding: 0; margin-top: 18px; }
 .set-src-list { border-top: 1px solid var(--border); }
 .set-src {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center; gap: 4px 12px;
-  padding: 9px 0; border-bottom: 1px solid var(--border);
+  align-items: start; gap: 3px 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
 }
-.set-src-name { grid-column: 1; display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-ui); }
-.set-src-name .set-note { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.set-src-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
+.set-src-act {
+  grid-column: 2; grid-row: 1 / span 3;
+  display: flex; gap: 6px; align-items: center; justify-content: flex-end;
+}
+.set-src-note {
+  grid-column: 1; grid-row: 2; max-width: 64ch;
+  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
+}
 .set-src-path {
-  grid-column: 1; color: var(--fg-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  grid-column: 1; grid-row: 3; margin-top: 3px;
+  display: flex; align-items: baseline; gap: 7px; min-width: 0;
+  color: var(--fg-2);
 }
-.set-src-path.missing { color: var(--err); }
-.set-src-path.missing::after { content: " · missing"; color: var(--err); }
-.set-src-act { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.set-src-p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-src-missing {
+  flex: none; font-style: normal; color: var(--err); letter-spacing: .06em;
+}
+.set-src-missing::before { content: "· "; color: var(--fg-3); letter-spacing: 0; }
 
 .set-info {
   margin-top: 16px; padding: 9px 10px;

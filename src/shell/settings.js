@@ -36,42 +36,52 @@ function seg(name, options, value) {
 
 /* ------------------------------------------------------------------ sources */
 
-// One row per source key: what it is, the file it points at, and the two controls. The path is
-// mono because it is a path; a file that is not there says so rather than failing silently in
-// a view (CONTRACT.md batch 4).
+// One row per source key: what it is, one sentence saying what the app expects to find there,
+// the path it points at, and the controls. The path is mono because it is a path; a path that
+// is not there says `missing` rather than failing silently inside a view (CONTRACT.md batch 5).
+// `todo` takes a file or a folder, so it gets both pickers instead of one `choose…`.
 function srcRow(key) {
   const info = SOURCE_INFO[key] || {};
+  const kind = info.kind || 'file';
+  const choose = kind === 'either'
+    ? `<button class="btn" data-src="${esc(key)}" data-act="file">file…</button>`
+      + `<button class="btn" data-src="${esc(key)}" data-act="folder">folder…</button>`
+    : `<button class="btn" data-src="${esc(key)}" data-act="${kind === 'folder' ? 'folder' : 'file'}">choose…</button>`;
   return `<div class="set-src" data-key="${esc(key)}">
-      <div class="set-src-name">${esc(info.title || key)}<span class="set-note">${esc(info.note || '')}</span></div>
-      <div class="set-src-path mono-sm"></div>
+      <div class="set-src-name">${esc(info.label || key)}</div>
       <div class="set-src-act">
-        <button class="btn" data-src="${esc(key)}" data-act="choose">choose…</button>
+        ${choose}
         <button class="btn set-src-reset" data-src="${esc(key)}" data-act="reset" hidden>reset</button>
       </div>
+      <div class="set-src-note">${esc(info.sentence || '')}</div>
+      <div class="set-src-path mono-sm"><span class="set-src-p text-select"></span><i class="set-src-missing" hidden>missing</i></div>
     </div>`;
 }
 
+// Existence is re-read every time the dialog opens and after every change: the vault is a
+// folder on disk, and the point of the row is to say when it has moved out from under us.
 function paintSources(box) {
   for (const key of SOURCE_KEYS) {
-    const el = box.querySelector(`.set-src[data-key="${key}"]`);
+    const el = box.querySelector(`.set-src[data-key="${CSS.escape(key)}"]`);
     if (!el) continue;
     const path = getSource(key);
-    const pathEl = el.querySelector('.set-src-path');
+    const pathEl = el.querySelector('.set-src-p');
+    const missEl = el.querySelector('.set-src-missing');
     pathEl.textContent = path;
-    pathEl.title = path;
-    pathEl.classList.remove('missing');
+    el.querySelector('.set-src-path').title = path;
+    missEl.hidden = true;
     el.querySelector('.set-src-reset').hidden = isDefaultSource(key);
-    bridge.exists(path)
-      .then((ok) => { if (pathEl.textContent === path) pathEl.classList.toggle('missing', !ok); })
-      .catch(() => { });
+    bridge.stat(path)
+      .then((st) => { if (pathEl.textContent === path) missEl.hidden = !!(st && st.exists); })
+      .catch((e) => { console.warn('[shell] stat', path, e.message || e); });
   }
 }
 
-async function chooseSource(key, box) {
+async function chooseSource(key, how, box) {
   const info = SOURCE_INFO[key] || {};
   const current = getSource(key);
-  const title = `${info.title || key}…`;
-  const picked = info.dir
+  const title = `${info.label || key}…`;
+  const picked = how === 'folder'
     ? await pickFolder({ title, current })
     : await pickFile({ title, ext: info.ext, current });
   if (picked === null) return;
@@ -91,7 +101,9 @@ export function toggleSettings() {
 
 export async function openSettings() {
   const s = settings();
-  const ov = openOverlay({ width: 560, top: '12vh', className: 'set', onClose: () => { openOv = null; } });
+  // Six source rows with a sentence each need the width; the body scrolls when the window is
+  // short, so the dialog stays inside 1280x800 without clipping anything.
+  const ov = openOverlay({ width: 620, top: '10vh', className: 'set', onClose: () => { openOv = null; } });
   openOv = ov;
   const root = store.get('root') || {};
 
@@ -118,7 +130,7 @@ export async function openSettings() {
     if (!b) return;
     const key = b.dataset.src;
     if (b.dataset.act === 'reset') { setSource(key, null); paintSources(ov.box); }
-    else void chooseSource(key, ov.box);
+    else void chooseSource(key, b.dataset.act, ov.box);
   });
 
   ov.box.addEventListener('click', (e) => {

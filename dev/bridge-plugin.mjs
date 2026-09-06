@@ -319,7 +319,7 @@ export function bridgePlugin() {
   };
 
   // ---------------------------------------------------------------- commands
-  const statePath = () => path.join(root, 'App', 'state.json');
+  const statePath = () => path.join(root, '.ose', 'state.json'); // same file the Tauri host uses
   const cmds = {
     rootInfo: async () => ({ root, name: path.basename(root) }),
     tree: async () => { const t = await tree(root); t.name = path.basename(root); t.path = ''; return t; },

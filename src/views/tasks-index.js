@@ -1,19 +1,21 @@
 // The task index, used by the Day view. One source: the `todo` key, whatever settings points it
-// at. The file is read on demand and again after the bridge reports a change to that path, so
-// there is no vault walk, no search narrowing and no per-file mtime cache. Nesting in the file
-// (`  - [ ]` under a parent item) is kept as indentation on the row. Toggling rewrites the
-// exact source line after checking it has not moved, and nothing else in the file.
+// at. Since batch 5 that source is either a folder, in which case every `*.md` directly inside
+// it is one task list, or a single markdown file, which is one unlabelled list. The files are
+// read on demand and again after the bridge reports a change under that path, so there is no
+// vault walk, no search narrowing and no per-file mtime cache. Nesting in a file (`  - [ ]`
+// under a parent item) is kept as indentation on the row. Toggling rewrites the exact source
+// line of the file the task came from, after checking it has not moved, and nothing else.
 
 import { esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { parseTasks, toggleTaskLine, ymd, PRIORITY_RANK } from '../lib/md.js';
+import { parseTasks, toggleTaskLine, firstH1, naturalCompare, ymd, PRIORITY_RANK } from '../lib/md.js';
 import { getSource, onSources } from './sources-compat.js';
 
 const INDENT_UNIT = 2;     // spaces per nesting level in the file
 const MAX_DEPTH = 4;       // deeper nesting still renders, it just stops moving right
 
 /**
- * The file the index reads. Normally the `todo` source; `setTaskSource` overrides it for this
+ * The path the index reads. Normally the `todo` source; `setTaskSource` overrides it for this
  * session only, which is how the harness points at a scratch copy without touching settings.
  */
 let OVERRIDE = null;
@@ -23,58 +25,100 @@ export function setTaskSource(path) {
 }
 export function getTaskSource() { return OVERRIDE || getSource('todo'); }
 
-/** Drop what was read: the path changed, or the file did. */
-function forget() { all = []; loaded = false; missing = false; stale = true; }
+/** Drop what was read: the path changed, or a file under it did. */
+function forget() { all = []; groups = []; loaded = false; missing = false; stale = true; }
 
-let all = [];              // every task line of the source file, in file order
-let loaded = false;        // the file has been read at least once
-let missing = false;       // the last read found no file there
-let stale = true;          // the file changed under us (or was never read)
+let all = [];              // every task line of every list, in group then file order
+let groups = [];           // [{ path, name, label, tasks }] in natural file order
+let isFolder = false;      // the last read found a folder rather than a single file
+let loaded = false;        // the source has been read at least once
+let missing = false;       // the last read found nothing at the source path
+let stale = true;          // something changed under us (or it was never read)
 let reading = null;        // the in-flight read, so callers coalesce
 
-// Two subscriptions for the life of the module: the index cares about its own path changing
-// on disk, and about that path being pointed somewhere else in settings.
-bridge.on('fs', (d) => {
+/** A change that touches the source: the path itself, or anything inside it when it is a folder. */
+function touches(p) {
   const src = getTaskSource();
-  const changes = (d && d.changes) || [];
-  if (changes.some((c) => c && (c.path === src || c.to === src))) stale = true;
+  if (!p || !src) return false;
+  return p === src || p.startsWith(`${src}/`);
+}
+
+// Two subscriptions for the life of the module: the index cares about its own files changing
+// on disk, and about the source being pointed somewhere else in settings.
+bridge.on('fs', (d) => {
+  for (const c of (d && d.changes) || []) if (c && (touches(c.path) || touches(c.to))) { stale = true; return; }
 });
 onSources((e) => { if (!e || e.key === 'todo') forget(); });
 
 /* ------------------------------------------------------------------ index */
 
+/** One markdown file -> one group. The label is its first H1, else its name without `.md`. */
+async function readGroup(path, name, labelled) {
+  let text = '';
+  try { text = await bridge.readText(path); }
+  catch (e) { console.warn('[tasks-index] unreadable', path, e); }
+  return {
+    path,
+    name,
+    label: labelled ? (firstH1(text) || name.replace(/\.md$/i, '')) : null,
+    tasks: parseTasks(text, path),
+  };
+}
+
 async function build() {
   const src = getTaskSource();
-  let text = '';
+  groups = [];
+  isFolder = false;
+  missing = true;
   try {
-    if (src && await bridge.exists(src)) { text = await bridge.readText(src); missing = false; }
-    else { missing = true; }
+    const st = src ? await bridge.stat(src) : { exists: false };
+    if (st && st.exists) {
+      missing = false;
+      isFolder = st.kind === 'dir';
+      if (isFolder) {
+        // every markdown file directly in the folder is one list, in natural file order
+        const files = (await bridge.list(src))
+          .filter((n) => n.kind === 'file' && /\.md$/i.test(n.name))
+          .sort((a, b) => naturalCompare(a.name, b.name));
+        groups = await Promise.all(files.map((f) => readGroup(`${src}/${f.name}`, f.name, true)));
+      } else {
+        // a single file is one group without a label: the Day view shows its sections flat
+        groups = [await readGroup(src, src.split('/').pop(), false)];
+      }
+    }
   } catch (e) {
-    console.warn('[tasks-index] unreadable', src, e);
+    console.warn('[tasks-index] unreadable source', src, e);
     missing = true;
+    groups = [];
   }
-  all = missing ? [] : parseTasks(text, src);
+  all = groups.flatMap((g) => g.tasks);
   loaded = true;
   stale = false;
-  return all;
+  return groups;
 }
 
 /**
- * Read the source file when it has never been read or has changed since. Concurrent calls
- * coalesce onto the same read. `{force:true}` re-reads even when nothing looked stale.
+ * Read the source when it has never been read or has changed since. Concurrent calls coalesce
+ * onto the same read. `{force:true}` re-reads even when nothing looked stale.
  */
 export function indexTasks({ force = false } = {}) {
   if (reading) return reading;
-  if (loaded && !stale && !force) return Promise.resolve(all);
+  if (loaded && !stale && !force) return Promise.resolve(groups);
   reading = build().finally(() => { reading = null; });
   return reading;
 }
 
-/** The last indexed set. Empty until `indexTasks()` has resolved once. */
+/** The lists of the last index, in file order. Empty until `indexTasks()` has resolved once. */
+export const taskGroups = () => groups;
+/** Every task of every list, flat. */
 export const allTasks = () => all;
-/** True when the last read found no file at the source path. */
+/** True when the last read found nothing at the source path. */
 export const taskSourceMissing = () => loaded && missing;
-/** Forget what was read, so the next `indexTasks()` reads the file again. */
+/** True when the source is a folder of lists rather than one file. */
+export const taskSourceIsFolder = () => isFolder;
+/** The files actually read, for the Day view's meta line. */
+export const taskFiles = () => groups.map((g) => g.path);
+/** Forget what was read, so the next `indexTasks()` reads again. */
 export const dropSource = () => { stale = true; };
 
 /* ---------------------------------------------------------------- buckets */
@@ -108,6 +152,21 @@ export function tasksForDay(date, list = all) {
   return { overdue, due, undated };
 }
 
+/**
+ * The same split, per list, in file order. A group with nothing on that day is dropped, so a
+ * folder of ten lists does not print ten empty headings.
+ * -> [{ path, label, overdue, due, undated, count }]
+ */
+export function groupsForDay(date, list = groups) {
+  const out = [];
+  for (const g of list) {
+    const b = tasksForDay(date, g.tasks);
+    const count = b.overdue.length + b.due.length + b.undated.length;
+    if (count) out.push({ path: g.path, label: g.label, ...b, count });
+  }
+  return out;
+}
+
 /* ----------------------------------------------------------------- render */
 
 /** The date and priority chips for one task. */
@@ -139,13 +198,18 @@ export function taskDepth(t) {
   return Math.min(MAX_DEPTH, tabs + Math.floor(spaces / INDENT_UNIT));
 }
 
-/** One task row: check, text, chips, source line. The source button navigates to the file. */
-export function taskRow(t) {
+/**
+ * One task row: check, text, chips, source line. The source button navigates to the file.
+ * Inside a labelled group the file name is already the heading, so the row prints the line
+ * number alone and keeps the full path in its tooltip.
+ */
+export function taskRow(t, { short = false } = {}) {
   const depth = taskDepth(t);
+  const src = `${t.path}:${t.line + 1}`;
   return `<div class="tk-row${t.done ? ' done' : ''}${depth ? ' sub' : ''}" data-id="${esc(t.id)}" style="--tk-depth:${depth}">
     <button class="tk-check" data-toggle="${esc(t.id)}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}"><span class="check${t.done ? ' on' : ''}"></span></button>
     <div class="tk-body"><span class="tk-text">${esc(t.text)}</span>${taskChips(t)}</div>
-    <button class="tk-src mono-sm" data-path="${esc(t.path)}" title="${esc(t.path)}:${t.line + 1}">${esc(t.path)}:${t.line + 1}</button>
+    <button class="tk-src mono-sm" data-path="${esc(t.path)}" title="${esc(src)}">${esc(short ? `:${t.line + 1}` : src)}</button>
   </div>`;
 }
 
@@ -155,8 +219,8 @@ export function taskRow(t) {
 export const taskById = (id) => all.find((t) => t.id === id);
 
 /**
- * Flip a task in its source file. Returns 'ok' when the line was rewritten, 'moved' when the
- * file changed underneath us (the index is refreshed and nothing is written). Throws on I/O.
+ * Flip a task in its own source file. Returns 'ok' when the line was rewritten, 'moved' when
+ * the file changed underneath us (the index is refreshed and nothing is written). Throws on I/O.
  */
 export async function toggleTask(t) {
   if (!t) return 'moved';

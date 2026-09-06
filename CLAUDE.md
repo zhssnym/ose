@@ -90,8 +90,11 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
 - Sidebar, top to bottom: pinned (only when something is pinned), agent (Claude), views,
   scratch (the Scratchpad folder, flat), pages. Search is an overlay on Ctrl+F, quick open on
   Ctrl+P, commands on Ctrl+K, settings on Ctrl+comma; the status bar says so.
-- Tasks in the Day view come from Todo.md at the root, nothing else. Checkboxes elsewhere are
-  just checkboxes in their pages.
+- Every path the app reads is a source in settings (timetable, plans folder, systems log, todo
+  file or folder, journal folder, scratch folder), each with a sentence saying what it must
+  contain and a red `missing` when it does not exist. Nothing is hard-coded; a missing source
+  shows the path and points at settings. Checkboxes outside the todo source are just
+  checkboxes in their pages.
 - The Claude view is a viewer of the CLI: transcript, composer, and one menu for the three
   things the CLI takes as flags (model, permission mode, session). Nothing conversational is
   reimplemented; resumed sessions are read from Claude Code's own transcript files.

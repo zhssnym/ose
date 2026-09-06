@@ -1,9 +1,11 @@
 // Month view: the month's goals, the systems activity matrix, the numbers it computes, and
 // Hassan's monthly review. Everything comes from two sources and nothing is written here:
-//   plans      <plans>/<year>/<YYYY-MM> Monthly Plan.md   goals, `# Systems`, `# Monthly Review`
+//   plans      <plans>/<year>/<YYYY-MM>*.md   goals, `# Systems`, `# Monthly Review`
 //   systemsLog the append-only check log
 // Both paths come from `sources-compat.js`, so they follow the settings; the file schema is
-// `Personal/3. Action/CLAUDE.md` and the parsers in `lib/md.js` match it exactly.
+// `<plans>/CLAUDE.md` and the parsers in `lib/md.js` match it exactly. Plan names are tolerant:
+// the year folder is listed and any file starting with the month is that month's plan, the
+// exact `2026-09.md` winning when several match. The app never creates a file there.
 // The cells are read-only on purpose; checking a system is a Day-view action.
 
 import { esc } from '../registry.js';
@@ -14,7 +16,7 @@ import {
   startOfMonth, endOfMonth, addMonths, pad,
 } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
-import { getSource, onSources, sourcePlanPath } from './sources-compat.js';
+import { getSource, onSources, resolvePlanPath } from './sources-compat.js';
 
 let el = null;
 let cursor = startOfMonth(new Date());
@@ -223,16 +225,16 @@ async function load() {
   const at = cursor;
   try {
     const dir = getSource('plans');
-    const file = sourcePlanPath(at);
     const logFile = getSource('systemsLog');
-    const [hasDir, planText, hasLog, logText] = await Promise.all([
+    const [hasDir, found, hasLog, logText] = await Promise.all([
       bridge.exists(dir),
-      bridge.exists(file).then((y) => (y ? bridge.readText(file) : '')),
+      resolvePlanPath(at, dir),
       bridge.exists(logFile),
       bridge.exists(logFile).then((y) => (y ? bridge.readText(logFile) : '')),
     ]);
+    const planText = found.exists ? await bridge.readText(found.path) : '';
     if (my !== seq || !el) return;
-    planDir = dir; path = file; logPath = logFile;
+    planDir = dir; path = found.path; logPath = logFile;
     dirMissing = !hasDir; logMissing = !hasLog;
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);

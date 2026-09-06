@@ -7,8 +7,9 @@ import { bridge } from '../bridge/index.js';
 import { icon, hasIcon } from './icons.js';
 import { patchState, stateCache } from './state.js';
 import { navigate, currentRoute, clearRoute } from './router.js';
-import { prompt, confirm, contextMenu, pickFolder, toast } from './dialog.js';
+import { prompt, confirm, contextMenu, pickFolder, toast, copyText } from './dialog.js';
 import { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder } from './focus.js';
+import { getSource } from '../lib/sources.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isHiddenName, segments } from './paths.js';
 
 let el = null, scrollEl = null;
@@ -17,8 +18,12 @@ let expanded = new Set();
 let pins = [];
 
 const ARCHIVE = '_Archive';
-const SCRATCH = 'Scratchpad';
 const AGENT = 'agent';
+
+// The scratch folder is a source, not a name in the code: `7-scratchpad` today, whatever the
+// user points it at tomorrow (CONTRACT.md batch 5). Everything that used to say 'Scratchpad'
+// asks here, and the sidebar re-renders on the `sources` event.
+export function scratchFolder() { return getSource('scratch'); }
 
 /* ------------------------------------------------------------------ tree data */
 
@@ -228,6 +233,8 @@ function renderViews(frag) {
 
 function renderNode(node, depth, frag, curPath) {
   if (isHiddenName(node.name)) return;
+  // The scratch folder has its own section; it is never drawn twice, wherever it sits.
+  if (node.kind === 'dir' && !getFocus() && node.path === scratchFolder()) return;
   if (node.kind === 'dir') {
     const open = expanded.has(node.path);
     frag.appendChild(rowEl({
@@ -248,12 +255,27 @@ function renderNode(node, depth, frag, curPath) {
   }
 }
 
-/** Scratchpad, flat: its files as rows, its folders expandable in place. */
+/**
+ * The scratch folder, flat: its files as rows, its folders expandable in place. When the source
+ * points at nothing (a renamed vault, a typo in settings) the listing goes away and the section
+ * carries one mono line saying where to fix it, rather than an empty state that lies.
+ */
 function renderScratch(frag, curPath) {
-  const node = findNode(SCRATCH);
-  if (!node || node.kind !== 'dir') return;
+  const dir = scratchFolder();
+  const node = dir ? findNode(dir) : null;
+  if (!node || node.kind !== 'dir') {
+    frag.appendChild(label('scratch'));
+    const miss = document.createElement('button');
+    miss.type = 'button';
+    miss.className = 'empty sb-empty sb-missing mono-sm';
+    miss.textContent = 'scratch folder missing · set it in settings';
+    miss.title = dir ? `${dir} is not in the vault` : 'no scratch folder is set';
+    miss.addEventListener('click', () => commands.run('app.settings'));
+    frag.appendChild(miss);
+    return;
+  }
   const kids = sortChildren(node.children || [], false);
-  frag.appendChild(label('scratch', SCRATCH));
+  frag.appendChild(label('scratch', dir));
   if (!kids.length) {
     const d = document.createElement('div');
     d.className = 'empty sb-empty';
@@ -311,10 +333,7 @@ function renderTree() {
       d.textContent = 'focus folder is gone';
       pages.appendChild(d);
     } else {
-      for (const c of sortChildren((root && root.children) || [], !focus)) {
-        if (!focus && c.kind === 'dir' && c.name === SCRATCH) continue; // it has its own section
-        renderNode(c, 0, pages, curPath);
-      }
+      for (const c of sortChildren((root && root.children) || [], !focus)) renderNode(c, 0, pages, curPath);
     }
     frag.appendChild(pages);
   }
@@ -607,6 +626,23 @@ function bindDnd(host) {
 
 /* ------------------------------------------------------------------ menu */
 
+// Only what a markdown link cannot carry is escaped: a vault path is meant to stay readable, so
+// `1-personal/3-execution` is left alone and a space becomes %20 (CONTRACT.md batch 5).
+const URL_ESCAPES = { ' ': '%20', '(': '%28', ')': '%29', '<': '%3C', '>': '%3E' };
+const linkUrl = (path, dir) => clean(path).replace(/[ ()<>]/g, (c) => URL_ESCAPES[c]) + (dir ? '/' : '');
+
+/** `copy path` and `copy link` (CONTRACT.md batch 5). A folder links as `[name](path/)`. */
+async function copyPath(path) {
+  const ok = await copyText(clean(path));
+  toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
+}
+
+async function copyLink(path, kind) {
+  const dir = kind === 'dir';
+  const ok = await copyText(`[${dir ? baseName(path) : titleOf(path)}](${linkUrl(path, dir)})`);
+  toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
+}
+
 function menuFor(path, kind) {
   const dir = kind === 'dir' ? path : dirName(path);
   const items = [
@@ -625,6 +661,9 @@ function menuFor(path, kind) {
     }
     items.push({ label: 'Rename…', iconSvg: icon('rename'), run: () => renameAt(path, kind) });
     if (kind !== 'dir') items.push({ label: 'Move to…', iconSvg: icon('folder'), run: () => moveTo(path) });
+    items.push({ sep: true });
+    items.push({ label: 'Copy Path', iconSvg: icon('copy'), run: () => copyPath(path) });
+    items.push({ label: 'Copy Link', iconSvg: icon('link'), run: () => copyLink(path, kind) });
     items.push({ label: 'Reveal in Explorer', iconSvg: icon('reveal'), run: () => bridge.reveal(path).catch((e) => toast(e.message || e, 'err')) });
     items.push({ sep: true });
     items.push({ label: 'Move to Trash', iconSvg: icon('trash'), danger: true, run: () => trashAt(path, kind) });
@@ -635,10 +674,10 @@ function menuFor(path, kind) {
   return items;
 }
 
-/** Right-click on the empty space under the tree: create in Scratchpad, or in the focus folder. */
+/** Right-click on the empty space under the tree: create in scratch, or in the focus folder. */
 function emptyMenu() {
-  const dir = getFocus() || SCRATCH;
-  const where = baseName(dir);
+  const dir = getFocus() || scratchFolder();
+  const where = baseName(dir) || 'the vault root';
   return [
     { label: `New Page in ${where}`, iconSvg: icon('plus'), run: () => newPageIn(dir) },
     { label: `New Folder in ${where}`, iconSvg: icon('folderPlus'), run: () => newFolderIn(dir) },
@@ -690,6 +729,8 @@ export function initSidebar(node) {
   bus.on('route', () => { const r = currentRoute(); if (r && r.type === 'page') expandAncestors(r.path); render(); scrollToCurrent(); });
   bus.on('booted', () => render());
   bus.on('focus', () => { render(); scrollToCurrent(); });
+  // The scratch section is a source; repointing it in settings moves the section straight away.
+  bus.on('sources', ({ key }) => { if (key === 'scratch') { render(); scrollToCurrent(); } });
 
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
