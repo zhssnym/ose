@@ -1,0 +1,3 @@
+# Cargo output and the permission/schema files Tauri generates at build time.
+/target
+/gen

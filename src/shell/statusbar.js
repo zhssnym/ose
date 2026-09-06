@@ -20,7 +20,7 @@ function renderRight() {
     `<span class="st-sep"></span>` +
     `<span class="st-item">${esc(resolvedTheme())}</span>` +
     `<span class="st-sep"></span>` +
-    `<span class="st-item">${esc(bridge.kind === 'webview' ? 'webview' : 'dev')}</span>`;
+    `<span class="st-item">${esc(bridge.kind === 'http' ? 'dev' : bridge.kind)}</span>`;
 }
 
 export function initStatusbar(node) {
@@ -42,7 +42,7 @@ export function initStatusbar(node) {
     status.set('watch', 'watch on');
   });
 
-  if (bridge.kind === 'webview') {
+  if (bridge.kind !== 'http') {
     // The host starts its watcher before the first navigation; an idle vault is simply quiet.
     status.set('watch', 'watch on');
   } else {

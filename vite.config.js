@@ -1,5 +1,9 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { bridgePlugin } from './dev/bridge-plugin.mjs';
+
+// Two entries: the app, and the host self-test page the host loads with --selftest (TAURI.md).
+const entry = (name) => fileURLToPath(new URL(name, import.meta.url));
 
 export default defineConfig({
   base: './',
@@ -9,5 +13,8 @@ export default defineConfig({
     port: 5173, strictPort: true, host: '127.0.0.1',
     watch: { ignored: ['**/host/**', '**/dist-host/**', '**/legacy/**', '**/state.json', '**/node_modules/**'] },
   },
-  build: { outDir: 'dist', emptyOutDir: true, target: 'es2022', sourcemap: false },
+  build: {
+    outDir: 'dist', emptyOutDir: true, target: 'es2022', sourcemap: false,
+    rollupOptions: { input: { main: entry('index.html'), selftest: entry('selftest.html') } },
+  },
 });

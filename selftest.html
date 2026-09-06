@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>os selftest</title>
+<script>
+  // Same first-paint contract as index.html, minus the preference: the self-test is always dark.
+  document.documentElement.dataset.theme = 'dark';
+</script>
+<link rel="stylesheet" href="/src/styles/tokens.css">
+<link rel="stylesheet" href="/src/styles/base.css">
+<style>
+  /* base.css locks the body; this page is one long scrolling log. */
+  body { overflow: auto; }
+  #selftest { padding: 14px 18px 40px; }
+  .st-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px;
+    font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+    text-transform: uppercase; letter-spacing: .06em; color: var(--accent);
+  }
+  .st-head .st-sub { color: var(--fg-3); text-transform: none; letter-spacing: 0; }
+  .st-line {
+    font-family: var(--font-mono); font-size: var(--fs-chrome);
+    line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    color: var(--fg-2); user-select: text;
+  }
+  .st-line b { font-weight: 400; display: inline-block; min-width: 44px; }
+  .st-pass b { color: var(--ok); }
+  .st-fail { color: var(--fg); } .st-fail b { color: var(--err); }
+  .st-skip b { color: var(--fg-3); }
+  .st-info { color: var(--fg-3); }
+  .st-done { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="selftest"></div>
+<script type="module" src="/src/selftest.js"></script>
+</body>
+</html>

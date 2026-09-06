@@ -1,0 +1,16 @@
+# Crates watcher.rs, claude.rs and platform.rs need, for merging into Cargo.toml.
+# Everything here already matches the versions in Cargo.toml EXCEPT serde_json, which must
+# gain the "raw_value" feature: claude.rs forwards each Claude Code stdout line into the
+# event JSON by concatenation and hands it to app.emit as a Box<RawValue>, so the CLI's own
+# JSON is never parsed and re-printed. Without the feature the crate does not compile.
+
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+dirs = "5"
+opener = "0.7"
+
+# Not used by these three modules: uuid (claude.rs generates its session ids and the
+# control_request request_id itself, no crate), and no debouncer crate (the 150ms debounce
+# is the watcher thread's own loop). Verified building against tauri 2.11.5, notify 8.2.0,
+# dirs 5.0.1, opener 0.7.2 on x86_64-pc-windows-gnu: cargo clippy clean, tests pass.

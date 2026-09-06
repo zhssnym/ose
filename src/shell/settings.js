@@ -104,7 +104,7 @@ export async function openSettings() {
       <div class="set-src-list">${SOURCE_KEYS.map(srcRow).join('')}</div>
       <div class="set-info mono-sm text-select">
         <div><span>vault</span>${esc(root.root || '—')}</div>
-        <div><span>bridge</span>${esc(bridge.kind === 'webview' ? 'webview (host)' : 'dev (vite)')}</div>
+        <div><span>bridge</span>${esc(bridge.kind === 'http' ? 'dev (vite)' : `${bridge.kind} (host, ${bridge.platform})`)}</div>
         <div><span>claude</span><i class="set-claude">checking…</i></div>
       </div>
     </div>

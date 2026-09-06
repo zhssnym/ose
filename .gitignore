@@ -4,3 +4,23 @@ dist-host/
 state.json
 host/bin/
 host/obj/
+
+# Tauri build output and any machine-specific cargo config written by the toolchain.
+src-tauri/target/
+.cargo/
+
+# Per-machine vault root: {"root": "D:/os"}. Every clone writes its own.
+ose.config.json
+
+# Self-test output, written next to the binary or in the working directory.
+selftest.log
+
+# The CI fixture vault is committed whole, including its png, whatever else is ignored above.
+!ci/fake-vault/**
+
+# CI stages the built binary at the repo root before uploading it.
+/os.exe
+/os-macos-arm64.zip
+
+# state written by self-test runs against the fake vault
+ci/fake-vault/.ose/

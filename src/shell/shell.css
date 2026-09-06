@@ -77,6 +77,12 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
 .tb-btn:hover { background: var(--bg-3); color: var(--fg); }
 .tb-btn.close:hover { background: var(--err); color: var(--accent-fg); }
 .tb-win.dim .tb-btn { opacity: .4; pointer-events: none; }
+
+/* macOS: the window keeps its decorations with an overlay title bar, so the native traffic
+   lights sit on top of ours. Leave them 78px and drop our buttons; the strip still drags. */
+html.mac .titlebar { padding-left: 78px; }
+html.mac .tb-win { display: none; }
+
 .glyph {
   width: 10px; height: 10px;
   stroke: currentColor; fill: none; stroke-width: 1;

@@ -1,0 +1,38 @@
+[package]
+name = "ose"
+version = "0.1.0"
+description = "os editor"
+authors = ["Hassan Shahir"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library holds every module; the binary is a thin entry point so `generate_handler!`
+# can name commands by path (`ose::rpc`).
+[lib]
+name = "ose"
+path = "src/lib.rs"
+
+[[bin]]
+name = "os"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+# raw_value: claude.rs forwards a CLI stdout line into an event without re-serialising it.
+serde_json = { version = "1", features = ["raw_value"] }
+notify = "8"
+trash = "5"
+opener = "0.7"
+percent-encoding = "2"
+base64 = "0.22"
+dirs = "5"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+opt-level = "s"

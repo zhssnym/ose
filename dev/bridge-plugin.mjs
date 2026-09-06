@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { vaultRoot, rootSource } from './root.mjs';
 
 const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space', 'os.exe', 'os.pdb']);
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
@@ -17,7 +18,9 @@ const hiddenSegment = (s) => !s || HIDE.has(s) || s.startsWith('.');
 const hiddenPath = (relPath) => relPath.split(/[\\/]+/).some(hiddenSegment);
 
 export function bridgePlugin() {
-  const root = path.resolve(process.env.OS_ROOT || path.join(process.cwd(), '..'));
+  // OSE_ROOT / OS_ROOT env, else ose.config.json at the repo root, else the parent folder.
+  const root = vaultRoot();
+  console.log(`[bridge] vault root: ${root} (from ${rootSource()})`);
   const abs = (p) => {
     const full = path.resolve(root, String(p ?? '').replace(/^\/+/, ''));
     if (full !== root && !full.startsWith(root + path.sep)) throw new Error('path outside root: ' + p);
@@ -333,6 +336,8 @@ export function bridgePlugin() {
     search: async (q, opts) => search(q, opts),
 
     claudeInfo,
+    log: async (text) => { console.log('[selftest]', String(text)); },
+    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, root }),
     claudeStart: async (opts) => claudeStart(opts || {}),
     claudeSend: async (id, text) => { writeLine(id, { type: 'user', message: { role: 'user', content: [{ type: 'text', text: String(text ?? '') }] } }); },
     claudeInterrupt: async (id) => { writeLine(id, { type: 'control_request', request_id: randomUUID(), request: { subtype: 'interrupt' } }); },

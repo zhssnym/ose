@@ -1,0 +1,188 @@
+# ose on Tauri: the host rewrite (branch `tauri`)
+
+The web UI, CONTRACT.md and DESIGN.md are unchanged and are the application. This document
+describes the second host: Tauri 2 with a Rust backend, replacing `host/` (.NET, Windows only)
+so one codebase ships `os.exe` on Windows and `os.app` on macOS (Apple silicon). The bridge API
+the web side uses is exactly the one in CONTRACT.md; only the adapter and the host change.
+
+## Layout
+
+```
+src-tauri/
+  Cargo.toml              package `ose`, bin `os`, tauri 2, serde, serde_json, notify, trash, walkdir, opener
+  tauri.conf.json         window "main", decorations false, no default menu, min 720x480
+  tauri.macos.conf.json   platform merge: decorations true, titleBarStyle "Overlay", hiddenTitle true
+  capabilities/default.json   core window permissions for the main window
+  icons/                  generated from the terracotta "os" mark (tauri icon)
+  src/main.rs             entry: parse args, build the app, register the `rpc` command and the vault protocol
+  src/lib.rs              modules, AppState, run()
+  src/args.rs             --root <path>, --log <file>, --selftest
+  src/vault.rs            root resolution, paths, fs commands, search, trash, hidden names
+  src/state.rs            <root>/.ose/state.json get/set (atomic write), window bounds, theme
+  src/protocol.rs         `vault` URI scheme serving files read-only from the root with mime types
+  src/watcher.rs          notify + 150ms debounce -> event "fs"
+  src/claude.rs           Claude CLI process per session, stdin/stdout threads -> event "claude"; transcripts
+  src/platform.rs         open_external, reveal, claude binary lookup, transcript folder, encoded cwd
+  src/selftest.rs         (optional) helpers for --selftest logging
+src/bridge/tauri.js       the adapter (invoke + listen + window API)
+src/bridge/index.js       picks tauri.js when window.__TAURI_INTERNALS__ exists, else webview.js, else http.js
+selftest.html             second Vite entry: runs every bridge command, logs PASS/FAIL through `log`, then winClose
+.github/workflows/build.yml   Windows + macOS builds, artifacts, rolling prerelease
+```
+
+## The RPC
+
+One Tauri command, mirroring the .NET Bridge.cs dispatcher so the web adapter stays trivial:
+
+```rust
+#[tauri::command]
+async fn rpc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, cmd: String, args: Vec<serde_json::Value>)
+    -> Result<serde_json::Value, String>
+```
+
+`cmd` is the bridge method name in camelCase exactly as CONTRACT.md lists them: `rootInfo`,
+`tree`, `list`, `stat`, `exists`, `readText`, `writeText`, `appendText`, `writeBinary`, `mkdir`,
+`rename`, `trash`, `search`, `claudeInfo`, `claudeStart`, `claudeSend`, `claudeInterrupt`,
+`claudeStop`, `claudeTranscript`, `openExternal`, `reveal`, `getState`, `setState`, `log`, plus
+`platform` (returns `{os: "windows"|"macos"|"linux", version, exe, root}`). Window commands
+(`winMinimize` ... `winSetTheme`) are NOT routed through rpc: the adapter uses the Tauri window
+API directly. Unknown `cmd` -> `Err("unknown command: <cmd>")`. Every error is a plain string.
+
+Each Rust module exposes `pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>`
+and `main.rs` tries vault, state, claude, platform in that order; `None` means "not mine".
+`Ctx` carries the `AppHandle`, the `Arc<AppState>` (root: PathBuf, log: Option<Mutex<File>>,
+claude sessions map, watcher handle) so modules do not import each other.
+
+Argument shapes and return shapes are those of CONTRACT.md (the .NET host's `Bridge.cs` and
+`Vault.cs` are the reference implementation; port them, do not redesign). Paths in and out are
+vault-relative with forward slashes; anything resolving outside the root is an error
+`path escapes the vault: <p>`. Text is UTF-8 without BOM, line endings preserved. Hidden names:
+`.git .obsidian .claude .vscode .trash node_modules App .tmp.driveupload .makemd .space os.exe
+os.pdb .ose` and any name starting with a dot (`.ose` holds the state file). `_Archive` is not
+hidden. Sorting: folders first then natural numeric (the web side re-sorts anyway).
+
+## Events (app.emit, listened with `listen` in the adapter)
+
+```
+"fs"      { changes: [{ path, kind: "create"|"modify"|"delete"|"rename", to? }] }   debounced 150ms, hidden paths filtered
+"claude"  { id, event }   event = the CLI's stdout line parsed as JSON, or {type:"stderr", text}, or {type:"exit", code}
+```
+
+Window events come from Tauri itself; the adapter turns `onResized`/`onFocusChanged` into the
+contract's `{event:"window", data:{maximized, focused}}` and `onCloseRequested` into
+`{closing:true}`: the adapter prevents the close, dispatches `closing`, waits 400ms, then
+calls `getCurrentWindow().destroy()`.
+
+## Root resolution
+
+`--root <path>` if it exists; else the folder containing the executable if it holds `CLAUDE.md`
+and `Inbox.md`; else walk up from the executable's folder (on macOS the binary is inside
+`os.app/Contents/MacOS/`, so the walk reaches the folder holding the .app); else `OSE_ROOT`
+env; else exit with a native error dialog (tauri's `MessageDialog` from the dialog plugin is
+allowed for this one use, or print to stderr and exit 2 if the plugin is not wanted).
+
+## Vault protocol
+
+`register_uri_scheme_protocol("vault", ...)`: path = the URL path percent-decoded, resolved
+inside the root, GET only, `Content-Type` by extension (png jpg jpeg gif webp svg pdf md txt
+json), 404 otherwise. The adapter's `assetUrl(path)` returns `http://vault.localhost/<encoded>`
+on Windows and `vault://localhost/<encoded>` on macOS and Linux (Tauri's platform rule).
+
+## Claude process
+
+Exactly the argv of CONTRACT.md ("Claude Code process"), `current_dir` = root or the given
+vault-relative cwd, stdin/stdout/stderr piped, no console window on Windows
+(`CREATE_NO_WINDOW`), UTF-8. One thread reads stdout line by line: a line that parses as JSON is
+forwarded verbatim (construct the event JSON by embedding the raw line string, do not
+re-serialise); other lines and stderr lines become `{type:"stderr", text}`; exit becomes
+`{type:"exit", code}`. `claudeStop` kills the process tree (Windows: `taskkill /T /F /PID`;
+unix: kill the process group, spawn with `setsid`/`process_group(0)`). All sessions are killed
+on app exit. Binary lookup: `OSE_CLAUDE` env, then PATH, then `~/.local/bin/claude[.exe]`,
+`/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, `~/.npm-global/bin/claude`; on macOS also
+try `zsh -lc 'command -v claude'` because GUI apps get a minimal PATH. `claudeInfo` runs
+`--version` once and caches. Transcript: `~/.claude/projects/<encoded>/<sessionId>.jsonl` where
+`<encoded>` is the absolute root path with every non-alphanumeric character replaced by `-`;
+return the `user` and `assistant` entries as parsed JSON in order, `[]` if the file is missing.
+
+## Window
+
+Windows and Linux: `decorations: false`, shadow true, our title bar with drag through the
+adapter's `winStartDrag` -> `startDragging()`, resize edges through `startResizeDragging`.
+macOS: `decorations: true`, `titleBarStyle: "Overlay"`, `hiddenTitle: true`: the traffic lights
+stay native and the web title bar leaves 78px free on the left and shows no window buttons
+(the shell reads `bridge.platform` and applies `.mac` on `<html>`). Theme: `setTheme` on the
+window plus the state file; first paint colour comes from `backgroundColor` in tauri.conf set
+from the saved theme at startup (dark `#1A1917`, light `#FAF9F5`). Bounds and maximised state
+restored from `state.json` `window` and saved on close; validated against the available
+monitors. Minimum 720x480.
+
+## Self-test
+
+`os --selftest --root <vault> --log <file>` loads `selftest.html` instead of `index.html`. The
+page imports the bridge facade, runs every command (mutating ones only when
+`<root>/.selftest` exists), reports each as `PASS`/`FAIL` through the `log` command, starts one
+Claude session with permissionMode `default` and a one-word prompt when `claude` is found,
+and finally calls `bridge.win.close()`. CI runs it on both runners against a fake vault
+(`ci/fake-vault/` with CLAUDE.md, Inbox.md, a `.selftest` marker, a few md files and a png)
+and fails the job on any FAIL line.
+
+## Dev, build, ship
+
+- `npm run dev` unchanged (browser + Node bridge). The vault root for dev and for `ship` comes
+  from `OSE_ROOT` or from `ose.config.json` (`{"root": "D:/os"}`, gitignored), default the
+  parent folder as before.
+- `npm run tauri:dev` runs `tauri dev` (needs a local Rust toolchain; may not exist on Hassan's
+  PC), `npm run tauri:build` runs `tauri build --bundles none` on Windows (single `os.exe` in
+  `src-tauri/target/release/`) and `tauri build --bundles app` on macOS (`os.app`).
+- `scripts/ship.mjs` copies `os.exe` from the Tauri output to `<root>/os.exe`.
+
+## CI (.github/workflows/build.yml)
+
+On push to `main` and `tauri`, and on tags `v*`: two jobs. `windows-latest`: setup node 22,
+rust stable, `npm ci`, `npm run build`, `tauri build --bundles none`, run the self-test against
+`ci/fake-vault`, upload `os.exe`. `macos-14`: same with target `aarch64-apple-darwin`,
+`--bundles app`, self-test, `ditto -c -k --keepParent os.app os-macos-arm64.zip`, upload.
+Then a release job: on `main`, update the rolling prerelease `latest` with exactly those two
+assets; on the `tauri` branch, the rolling prerelease `tauri-preview`; on a `v*` tag, a normal
+release. Use `softprops/action-gh-release` with `tag_name` forced to the rolling name and
+`prerelease: true`. Cache cargo and npm.
+
+## Ownership for this batch
+
+- toolchain agent: local Rust build feasibility only (rustup + zig or gnu); reports, installs
+  nothing system-wide, touches no repo file except an optional `.cargo/config.toml`.
+- rust-core agent: `src-tauri/` skeleton, Cargo.toml, tauri.conf*, capabilities, icons,
+  main.rs, lib.rs, args.rs, vault.rs, state.rs, protocol.rs.
+- rust-claude agent: watcher.rs, claude.rs, platform.rs (+ their registration lines are given
+  to the core agent through this file: each module's `handle` and `start` signatures below).
+- web agent: `src/bridge/tauri.js`, `src/bridge/index.js`, `selftest.html`, vite multi-entry,
+  package.json scripts and deps, the `.mac` title bar rule in the shell.
+- ci agent: `.github/workflows/build.yml`, `ci/fake-vault/`, `ose.config.json` support in
+  `dev/bridge-plugin.mjs` and `scripts/ship.mjs`, README.md for the repo.
+
+Shared signatures (so the two Rust agents can work blind of each other):
+
+```rust
+// lib.rs (core agent)
+pub struct AppState { pub root: PathBuf, pub log: Option<Mutex<std::fs::File>>, pub claude: claude::Sessions, pub watcher: Mutex<Option<watcher::Handle>> }
+pub struct Ctx<'a> { pub app: &'a tauri::AppHandle, pub st: &'a AppState }
+pub fn log_line(st: &AppState, s: &str);
+
+// watcher.rs (claude agent)
+pub struct Handle { /* stops on drop */ }
+pub fn start(app: tauri::AppHandle, root: PathBuf) -> Handle;      // emits "fs"
+
+// claude.rs (claude agent)
+pub struct Sessions { /* Mutex<HashMap<String, Session>> */ }   impl Default
+pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>;  // claudeInfo/Start/Send/Interrupt/Stop/Transcript
+pub fn kill_all(st: &AppState);
+
+// platform.rs (claude agent)
+pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>;  // openExternal, reveal, platform
+pub fn find_claude() -> Option<PathBuf>;
+pub fn transcript_dir(root: &Path) -> PathBuf;
+
+// vault.rs / state.rs (core agent)
+pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>;
+pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String>;  // used by claude.rs for cwd
+```

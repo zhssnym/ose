@@ -14,7 +14,8 @@ let dirtyEl = null;
 let maxBtn = null;
 let maximized = false;
 
-const HOST = () => bridge.kind === 'webview';
+// A real window: WebView2 or Tauri. The browser has its own frame and no window control.
+const HOST = () => bridge.kind !== 'http';
 
 function setMaximized(v) {
   maximized = !!v;

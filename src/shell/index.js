@@ -121,7 +121,8 @@ function watchMainWidth(mainEl) {
 const EDGES = ['top', 'right', 'bottom', 'left', 'topleft', 'topright', 'bottomleft', 'bottomright'];
 
 function buildEdges() {
-  if (bridge.kind !== 'webview') return; // the browser has a real frame
+  if (bridge.kind === 'http') return;       // the browser has a real frame
+  if (bridge.platform === 'macos') return;  // decorated window: the OS owns the resize edges
   const frag = document.createDocumentFragment();
   for (const edge of EDGES) {
     const d = document.createElement('div');
@@ -164,6 +165,9 @@ function guardWindowDrops() {
 
 export async function initShell(rootEl) {
   await loadState();
+  // macOS keeps its native traffic lights over the web title bar (TAURI.md "Window"), so the
+  // whole shell shifts the bar's contents right and drops our own window buttons.
+  if (bridge.platform === 'macos') document.documentElement.classList.add('mac');
   initTheme();
   // Both are read by the views on their first mount, and initViews runs after initShell.
   loadSources(stateCache());

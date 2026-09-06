@@ -1,0 +1,272 @@
+# Builds the Tauri host on both platforms, runs the self-test against ci/fake-vault, and
+# publishes the two binaries. See TAURI.md ("CI" and "Self-test") for the contract.
+name: build
+
+on:
+  push:
+    branches: [main, tauri]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One build per ref. A newer push cancels the running one; the rolling release is then written
+# once, by the last run, instead of two runs racing to recreate the same tag.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SELFTEST_TIMEOUT_SECONDS: 240
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the web UI
+        run: npm run build
+
+      # tauri:build resolves to `tauri build --no-bundle` on Windows: one self-contained
+      # src-tauri/target/release/os.exe, no installer.
+      - name: Build the host
+        run: npm run tauri:build
+
+      - name: Stage os.exe
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/os.exe"
+          if (-not (Test-Path $exe)) { throw "no binary at $exe" }
+          Copy-Item $exe "$env:GITHUB_WORKSPACE/os.exe" -Force
+          "{0:N1} MB" -f ((Get-Item $exe).Length / 1MB)
+
+      # `os --selftest --root <vault> --log <file>` loads selftest.html, exercises every bridge
+      # command, writes one PASS/FAIL line each through the `log` command and closes its own
+      # window. The log is the contract: the process exit code is reported but not trusted,
+      # because a GUI host can exit non-zero on teardown after a clean run.
+      - name: Self-test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = "$env:GITHUB_WORKSPACE/selftest.log"
+          if (Test-Path $log) { Remove-Item $log -Force }
+          $cliArgs = @(
+            '--selftest',
+            '--root', "$env:GITHUB_WORKSPACE/ci/fake-vault",
+            '--log', $log
+          )
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/os.exe" -ArgumentList $cliArgs -PassThru
+          $null = $p.Handle   # caching the handle keeps ExitCode readable after the process ends
+          $timedOut = $false
+          if (-not $p.WaitForExit([int]$env:SELFTEST_TIMEOUT_SECONDS * 1000)) {
+            $timedOut = $true
+            Write-Host "::error::self-test did not exit within $env:SELFTEST_TIMEOUT_SECONDS seconds; killing it"
+            try { $p.Kill($true) } catch { }
+          } else {
+            Write-Host "self-test process exit code: $($p.ExitCode)"
+          }
+          Write-Host '--- selftest.log ---'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host '(no log file)' }
+          Write-Host '--- end ---'
+          if ($timedOut) { exit 1 }
+          if (-not (Test-Path $log)) { Write-Host '::error::the self-test wrote no log'; exit 1 }
+          $text = Get-Content $log -Raw
+          # -cmatch is case sensitive on purpose: the uppercase FAIL token marks a failed check,
+          # while the lowercase `fail=` in the summary line is just a counter.
+          if ($text -cmatch 'FAIL') { Write-Host '::error::the self-test reported FAIL'; exit 1 }
+          if ($text -cnotmatch 'SELFTEST DONE') { Write-Host '::error::the self-test did not reach SELFTEST DONE'; exit 1 }
+          if ($text -cmatch 'fail=[1-9]') { Write-Host '::error::the self-test summary counts failures'; exit 1 }
+          if ($text -match '\(hard stop\)') { Write-Host '::error::the self-test hit its hard stop'; exit 1 }
+          Write-Host 'self-test passed'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: os-windows
+          path: |
+            os.exe
+            selftest.log
+          if-no-files-found: warn
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add the Apple silicon target
+        run: rustup target add aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the web UI
+        run: npm run build
+
+      # tauri:build picks the bundle per platform itself (--bundles app on macOS, see
+      # package.json) and does not forward extra argv, so no flags are passed here. The runner is
+      # Apple silicon, so the default host target is aarch64-apple-darwin; the locate step below
+      # accepts both target/release/... and target/<triple>/release/... layouts in case the
+      # script later builds with an explicit --target.
+      - name: Build the host
+        run: npm run tauri:build
+
+      - name: Locate os.app
+        id: app
+        run: |
+          set -euo pipefail
+          app=$(find src-tauri/target -maxdepth 6 -type d -name 'os.app' | head -n 1)
+          if [ -z "$app" ]; then echo "::error::no os.app under src-tauri/target"; exit 1; fi
+          echo "path=$app" >> "$GITHUB_OUTPUT"
+          echo "found $app"
+
+      # Same contract as Windows, driven through the binary inside the bundle so the run is a
+      # plain child process. macOS has no GNU `timeout`, hence the background job and wait loop.
+      - name: Self-test
+        run: |
+          set -uo pipefail
+          log="$GITHUB_WORKSPACE/selftest.log"
+          rm -f "$log"
+          bin="${{ steps.app.outputs.path }}/Contents/MacOS/os"
+          if [ ! -x "$bin" ]; then echo "::error::no executable at $bin"; exit 1; fi
+          "$bin" --selftest --root "$GITHUB_WORKSPACE/ci/fake-vault" --log "$log" &
+          pid=$!
+          timed_out=0
+          waited=0
+          while kill -0 "$pid" 2>/dev/null; do
+            if [ "$waited" -ge "$SELFTEST_TIMEOUT_SECONDS" ]; then
+              timed_out=1
+              echo "::error::self-test did not exit within ${SELFTEST_TIMEOUT_SECONDS}s; killing it"
+              kill -9 "$pid" 2>/dev/null || true
+              break
+            fi
+            sleep 1
+            waited=$((waited + 1))
+          done
+          wait "$pid" 2>/dev/null || echo "self-test process exit code: $?"
+          echo '--- selftest.log ---'
+          cat "$log" 2>/dev/null || echo '(no log file)'
+          echo '--- end ---'
+          if [ "$timed_out" -eq 1 ]; then exit 1; fi
+          if [ ! -f "$log" ]; then echo '::error::the self-test wrote no log'; exit 1; fi
+          if grep -q 'FAIL' "$log"; then echo '::error::the self-test reported FAIL'; exit 1; fi
+          if ! grep -q 'SELFTEST DONE' "$log"; then echo '::error::the self-test did not reach SELFTEST DONE'; exit 1; fi
+          if grep -Eq 'fail=[1-9]' "$log"; then echo '::error::the self-test summary counts failures'; exit 1; fi
+          if grep -q 'hard stop' "$log"; then echo '::error::the self-test hit its hard stop'; exit 1; fi
+          echo 'self-test passed'
+
+      # ditto keeps the bundle structure and the resource forks a plain zip would drop.
+      - name: Package the app
+        run: ditto -c -k --keepParent "${{ steps.app.outputs.path }}" "$GITHUB_WORKSPACE/os-macos-arm64.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: os-macos
+          path: |
+            os-macos-arm64.zip
+            selftest.log
+          if-no-files-found: warn
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: os-windows
+          path: assets/windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: os-macos
+          path: assets/macos
+
+      # main -> the rolling prerelease `latest`; the tauri branch -> `tauri-preview`;
+      # a v* tag -> a normal release on that tag. Anything else publishes nothing.
+      - name: Decide the release
+        id: rel
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              tag="${GITHUB_REF#refs/tags/}"
+              echo "tag=$tag"          >> "$GITHUB_OUTPUT"
+              echo "name=$tag"         >> "$GITHUB_OUTPUT"
+              echo "prerelease=false"  >> "$GITHUB_OUTPUT"
+              echo "rolling=false"     >> "$GITHUB_OUTPUT"
+              ;;
+            refs/heads/main)
+              echo "tag=latest"        >> "$GITHUB_OUTPUT"
+              echo "name=latest"       >> "$GITHUB_OUTPUT"
+              echo "prerelease=true"   >> "$GITHUB_OUTPUT"
+              echo "rolling=true"      >> "$GITHUB_OUTPUT"
+              ;;
+            refs/heads/tauri)
+              echo "tag=tauri-preview" >> "$GITHUB_OUTPUT"
+              echo "name=tauri preview" >> "$GITHUB_OUTPUT"
+              echo "prerelease=true"   >> "$GITHUB_OUTPUT"
+              echo "rolling=true"      >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "skip=true"         >> "$GITHUB_OUTPUT"
+              echo "no release for $GITHUB_REF"
+              ;;
+          esac
+
+      # A release tag cannot be moved through the release API: action-gh-release would reuse the
+      # existing tag and publish assets against the old commit. For the two rolling tags the
+      # release and its tag are deleted first and recreated at this commit. The cost is the loss
+      # of the previous download counts, which is the right trade for a rolling prerelease.
+      - name: Retire the previous rolling release
+        if: steps.rel.outputs.skip != 'true' && steps.rel.outputs.rolling == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag='${{ steps.rel.outputs.tag }}'
+          gh release delete "$tag" --yes --cleanup-tag || echo "no existing release $tag"
+          gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$tag" || echo "no existing tag $tag"
+
+      - name: Publish
+        if: steps.rel.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.name }}
+          prerelease: ${{ steps.rel.outputs.prerelease == 'true' }}
+          target_commitish: ${{ github.sha }}
+          draft: false
+          fail_on_unmatched_files: true
+          files: |
+            assets/windows/os.exe
+            assets/macos/os-macos-arm64.zip
