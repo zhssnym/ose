@@ -16,10 +16,24 @@ function on(event, fn) {
   listeners.get(event).add(fn);
   return () => listeners.get(event)?.delete(fn);
 }
+/**
+ * Fan an event out and hand every handler's return value back to the adapter. The values
+ * matter for one event only: on `window {closing:true}` the Tauri adapter awaits whatever
+ * promises come back (the editor's last save, the router's state flush) before it destroys
+ * the window, and a handler that resolves `false` keeps the window open — the editor does
+ * that when the save needs an answer from the user (CONTRACT.md batch 9, B1/B2). A handler
+ * that throws is logged and counts as done; the close must never hang on a bug.
+ */
 function dispatch({ event, data }) {
+  const results = [];
   const set = listeners.get(event);
-  if (set) for (const fn of [...set]) { try { fn(data); } catch (e) { console.error(`[bridge:${event}]`, e); } }
+  if (set) {
+    for (const fn of [...set]) {
+      try { results.push(fn(data)); } catch (e) { console.error(`[bridge:${event}]`, e); }
+    }
+  }
   if (event === 'fs') bus.emit('fs', data);
+  return results;
 }
 
 let adapter = null;

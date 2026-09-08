@@ -179,7 +179,15 @@ export function bridgePlugin() {
     appendText: async (p, text) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.appendFile(f, text, 'utf8'); },
     writeBinary: async (p, b64) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, Buffer.from(b64, 'base64')); },
     mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
-    rename: async (a, b) => { await fs.mkdir(path.dirname(abs(b)), { recursive: true }); await fs.rename(abs(a), abs(b)); },
+    // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
+    // silently swallow it, and the UI relies on the refusal to report the collision (batch 9, B8).
+    rename: async (a, b) => {
+      const src = abs(a), dst = abs(b);
+      if (!fss.existsSync(src)) throw new Error('nothing to rename: ' + a);
+      if (src !== dst && fss.existsSync(dst)) throw new Error('already exists: ' + b);
+      await fs.mkdir(path.dirname(dst), { recursive: true });
+      await fs.rename(src, dst);
+    },
     trash: async (p) => { const t = path.join(root, '.trash'); await fs.mkdir(t, { recursive: true }); await fs.rename(abs(p), path.join(t, Date.now() + '-' + path.basename(p))); },
     search: async (q, opts) => search(q, opts),
 

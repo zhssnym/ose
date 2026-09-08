@@ -104,6 +104,53 @@ export function parseFrontmatter(raw) {
   return rows;
 }
 
+const FM_KEY_LINE = /^([^\s:#-][^:]*):([ \t]*)(.*)$/;
+
+/**
+ * Find the one `key: value` line in a raw frontmatter block that the properties strip may
+ * rewrite (batch 9, C6). The block is never parsed as YAML — it is preserved verbatim — so
+ * the only edit allowed is a single-line replacement of a value whose line is unambiguous:
+ * the key sits at column 0, appears exactly once, and the next line is not a continuation
+ * (indented text, a `- item`, a `|`/`>` block). Anything else stays read-only rather than
+ * risk truncating a multi-line value to its first line.
+ * Returns {index, key, sep, value} into `raw.split('\n')`, or null.
+ */
+function locateFrontmatterLine(raw, key) {
+  const lines = String(raw || '').split('\n');
+  let found = null;
+  for (let i = 1; i < lines.length; i++) {
+    if (/^---[ \t]*$/.test(lines[i])) break;            // the closing fence
+    const m = FM_KEY_LINE.exec(lines[i]);
+    if (!m || m[1].trim() !== key) continue;
+    if (found) return null;                              // duplicate key: ambiguous
+    const next = lines[i + 1] || '';
+    const multi = (/^\s+\S/.test(next) || /^-\s/.test(next)) && !/^---[ \t]*$/.test(next);
+    if (multi || /^[|>][-+]?\s*$/.test(m[3].trim())) return null;
+    found = { index: i, key: m[1], sep: m[2], value: m[3] };
+  }
+  return found;
+}
+
+/** True when `key` has a value the strip may edit in place. */
+export const frontmatterEditable = (raw, key) => !!locateFrontmatterLine(raw, key);
+
+/**
+ * `raw` with the value of `key` replaced, every other byte untouched (fences, unknown keys,
+ * comments, blank lines, the trailing newline). Null when the line cannot be located; the
+ * caller then leaves the row read-only. Newlines in `value` become spaces: the strip edits
+ * one line, never adds one.
+ */
+export function setFrontmatterValue(raw, key, value) {
+  const loc = locateFrontmatterLine(raw, key);
+  if (!loc) return null;
+  const lines = String(raw).split('\n');
+  const v = String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
+  // Keep the spacing after the colon as written; a value that was empty (`key:`) gets one space.
+  const sep = loc.sep || (v ? ' ' : '');
+  lines[loc.index] = `${loc.key}:${v ? sep : ''}${v}`;
+  return lines.join('\n');
+}
+
 /**
  * Word count over markdown source. Fences, inline code, link targets and markup punctuation
  * are dropped so the number matches what a reader would count on the page.

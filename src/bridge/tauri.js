@@ -29,13 +29,28 @@ export function vaultUrl(path, platform) {
   return platform === 'windows' ? `http://vault.localhost/${p}` : `vault://localhost/${p}`;
 }
 
+// Closing: the window is destroyed once every `closing` handler has settled, but never before
+// CLOSE_FLOOR (a handler that returns nothing, like the router's state flush today, still
+// gets the time the old flat delay gave it) and never later than CLOSE_CEILING (a hung save
+// must not make the window unclosable).
+const CLOSE_FLOOR = 400;
+const CLOSE_CEILING = 3000;
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export async function create() {
   const w = getCurrentWindow();
   const subs = new Set();
+  // Returns the flat list of what the subscribers returned; the facade's dispatch returns its
+  // handlers' results as an array, so the closing path below can await them.
   const fanout = (msg) => {
+    const out = [];
     for (const fn of [...subs]) {
-      try { fn(msg); } catch (e) { console.error('[bridge] subscriber threw', e); }
+      try {
+        const r = fn(msg);
+        if (Array.isArray(r)) out.push(...r); else if (r !== undefined) out.push(r);
+      } catch (e) { console.error('[bridge] subscriber threw', e); }
     }
+    return out;
   };
 
   const rpc = (cmd, args = []) => invoke('rpc', { cmd, args });
@@ -73,15 +88,31 @@ export async function create() {
   w.onFocusChanged(({ payload }) => { focused = !!payload; pushWindow(); })
     .catch((e) => console.error('[bridge] onFocusChanged', e));
 
-  // The app needs a moment to flush pending saves and state, so the first close attempt is
-  // turned into a 'closing' notice and the window is destroyed 400ms later (TAURI.md).
+  // The first close attempt is turned into a 'closing' notice; the window is destroyed once
+  // the handlers' promises have settled (floor and ceiling above). A flat 400ms used to be
+  // the whole wait, and a save that took longer — a slow disk, a sync client holding the
+  // file — was cut off with the process (batch 9, B2). `preventDefault` has to run before the
+  // first await: Tauri reads the flag when the handler returns.
   let closing = false;
-  w.onCloseRequested((e) => {
-    if (closing) return; // a second attempt: let Tauri close it
+  w.onCloseRequested(async (e) => {
+    if (closing) return; // a second attempt while the first is still settling: let Tauri close it
     closing = true;
     e.preventDefault();
-    fanout({ event: 'window', data: { closing: true } });
-    setTimeout(() => { w.destroy().catch((err) => console.error('[bridge] destroy', err)); }, 400);
+    const pending = fanout({ event: 'window', data: { closing: true } })
+      .filter((r) => r && typeof r.then === 'function');
+    const [outcome] = await Promise.all([
+      Promise.race([Promise.allSettled(pending), delay(CLOSE_CEILING).then(() => 'timeout')]),
+      delay(CLOSE_FLOOR),
+    ]);
+    if (outcome === 'timeout') console.warn('[bridge] closing handlers did not settle in time');
+    // A handler that resolved `false` vetoes the close: the editor does this when the last
+    // save needs an answer (the file changed on disk). Its dialog is up; the user answers and
+    // closes again, which starts this over.
+    if (Array.isArray(outcome) && outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
+      closing = false;
+      return;
+    }
+    w.destroy().catch((err) => console.error('[bridge] destroy', err));
   }).catch((e) => console.error('[bridge] onCloseRequested', e));
 
   // ---------------------------------------------------------------- platform

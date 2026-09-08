@@ -12,10 +12,17 @@ export async function create() {
   let closed = false;
   let wasOpen = false;
 
+  // Same shape as the Tauri adapter's fanout: subscriber results come back as a flat list.
+  // Nothing here awaits them (a browser tab has no `closing` notice), but the contract is one.
   const fanout = (msg) => {
+    const out = [];
     for (const fn of [...subs]) {
-      try { fn(msg); } catch (e) { console.error('[bridge] subscriber threw', e); }
+      try {
+        const r = fn(msg);
+        if (Array.isArray(r)) out.push(...r); else if (r !== undefined) out.push(r);
+      } catch (e) { console.error('[bridge] subscriber threw', e); }
     }
+    return out;
   };
 
   const schedule = () => {

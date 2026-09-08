@@ -84,6 +84,16 @@
 .ed-prop-key { color: var(--fg-3); min-width: 128px; flex: none; }
 .ed-prop-key::after { content: ":"; }
 .ed-prop-val { color: var(--fg-2); word-break: break-word; }
+/* an editable value (a plain `key: value` line, batch 9 C6): the text is the field, no box
+   until it is focused, so the strip reads the same whether or not a row can be edited */
+.ed-prop-val.editable {
+  cursor: text; outline: none; flex: 1; min-width: 40px;
+  margin: 0 -4px; padding: 0 4px; border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.ed-prop-val.editable:hover { color: var(--fg); }
+.ed-prop-val.editable:focus { background: var(--bg); color: var(--fg); box-shadow: inset 0 0 0 1px var(--accent); }
+.ed-prop-val.editable:empty::before { content: attr(data-placeholder); color: var(--fg-3); }
 
 /* ---------------------------------------------------------------- the body */
 
@@ -108,11 +118,15 @@
   font-family: var(--font-ui); font-weight: 600; line-height: 1.3;
   margin: 28px 0 6px; color: var(--fg); letter-spacing: -.005em;
 }
-.ed .milkdown h1 { font-family: var(--font-title); font-weight: 400; font-size: 27px; margin-top: 32px; }
-.ed .milkdown h2 { font-size: 22px; }
-.ed .milkdown h3 { font-size: 18px; }
-.ed .milkdown h4 { font-size: 16px; }
-.ed .milkdown h5, .ed .milkdown h6 {
+/* Heading sizes are ratios of the body size, so the "body text" setting (--fs-body, 14 to
+   17px) moves the whole hierarchy and not just the paragraphs (batch 9, B10). At the default
+   16px: h1 27, h2 22, h3 18, h4 16, h5 14; h6 stays a mono section label. */
+.ed .milkdown h1 { font-family: var(--font-title); font-weight: 400; font-size: calc(var(--fs-body) * 1.7); margin-top: 32px; }
+.ed .milkdown h2 { font-size: calc(var(--fs-body) * 1.375); }
+.ed .milkdown h3 { font-size: calc(var(--fs-body) * 1.125); }
+.ed .milkdown h4 { font-size: var(--fs-body); }
+.ed .milkdown h5 { font-size: calc(var(--fs-body) * .875); color: var(--fg-2); }
+.ed .milkdown h6 {
   font-size: var(--fs-chrome); font-family: var(--font-mono); font-weight: 400;
   text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
 }
@@ -135,6 +149,37 @@
   margin: 8px 0; padding: 2px 0 2px 14px;
   border-left: 2px solid var(--border-strong); color: var(--fg-2);
 }
+/* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.js, nothing in the
+   file changes: a box (DESIGN.md: boxes, not rules) with the marker set in mono. No colour per
+   kind — colour means something here, and a note is not a state. */
+.ed .milkdown blockquote.callout {
+  border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
+  border-radius: var(--radius); background: var(--bg-2);
+  padding: 8px 14px; color: var(--fg);
+}
+.ed .milkdown .callout-marker {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  letter-spacing: .02em;
+}
+
+/* GFM footnotes (batch 9, C5): the gfm preset's `sup` reference and `dl` definition. */
+.ed .milkdown sup[data-type="footnote_reference"] {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--accent);
+  line-height: 0; vertical-align: super; padding: 0 1px;
+}
+.ed .milkdown dl[data-type="footnote_definition"] {
+  margin: 8px 0; padding: 4px 0 4px 14px; border-left: 1px solid var(--border);
+  display: grid; grid-template-columns: max-content 1fr; gap: 0 10px;
+  font-size: calc(var(--fs-body) * .9); color: var(--fg-2);
+}
+.ed .milkdown dl[data-type="footnote_definition"] dt {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  line-height: inherit; padding-top: 2px;
+}
+.ed .milkdown dl[data-type="footnote_definition"] dt::before { content: "[^"; }
+.ed .milkdown dl[data-type="footnote_definition"] dt::after { content: "]"; }
+.ed .milkdown dl[data-type="footnote_definition"] dd { margin: 0; }
+.ed .milkdown dl[data-type="footnote_definition"] dd p { margin: 0; }
 .ed .milkdown hr {
   border: 0; border-top: 1px solid var(--border); margin: 24px 0; height: 0;
 }
@@ -385,4 +430,27 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ed .milkdown * { transition-duration: 0ms !important; }
+}
+
+/* ---------------------------------------------------------------- print (batch 9, C14) */
+
+/* `page.print` switches the theme to light for the duration, so --fg is dark on the paper.
+   Chrome is hidden (shell class names; the shell owns them, this only turns them off on
+   paper), the scroll boxes become plain flow, and the page column takes the sheet's width. */
+@media print {
+  .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .os-slash,
+  .ed .page-meta, .ed-add-title, .ed-props-head svg,
+  .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview, .ed .milkdown .milkdown-link-edit,
+  .ed .milkdown .milkdown-block-handle, .ed .milkdown .crepe-placeholder::before { display: none !important; }
+  html, body, .shell, .body, .main, .main-scroll, .page-host {
+    display: block; height: auto; min-height: 0; max-height: none; overflow: visible; background: transparent;
+  }
+  .ed.page-col { max-width: none; margin: 0; padding: 0; color: var(--fg); }
+  .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); }
+  .ed .milkdown .ProseMirror ::selection { background: transparent; }
+  .ed .milkdown .ProseMirror .os-block-sel,
+  .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; }
+  .ed .milkdown .milkdown-code-block, .ed .milkdown pre, .ed .milkdown blockquote,
+  .ed .milkdown .milkdown-image-block, .ed .milkdown .milkdown-table-block { break-inside: avoid; }
+  .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3 { break-after: avoid; }
 }

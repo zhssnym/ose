@@ -45,6 +45,11 @@ const I = {
   text: '<path d="M5 7h14M5 12h10M5 17h7"/>',
   h1: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.5 9.6 19 8.2V18"/>',
   h2: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.2 10a2.1 2.1 0 1 1 3.7 1.4L16.2 18H20"/>',
+  h3: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.2 9h3.6l-2 3.2a2 2 0 1 1-1.8 3.4"/>',
+  h4: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.2 18v-9l-3.4 5.8h4.4"/>',
+  h5: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.6 9h-3.2l-.3 3.6a2.2 2.2 0 1 1 .2 4.4"/>',
+  h6: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.3 9l-2.6 4.2"/><circle cx="18" cy="15.4" r="2.2"/>',
+  duplicate: '<rect x="8.5" y="8.5" width="11" height="11" rx="1"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/>',
   quote: '<path d="M5 5.5v13"/><path d="M10 8h9M10 12h9M10 16h6"/>',
   hr: '<path d="M4 12h16"/>',
   ul: '<path d="M9.5 7h10M9.5 12h10M9.5 17h10"/><circle cx="5" cy="7" r="1.1"/><circle cx="5" cy="12" r="1.1"/><circle cx="5" cy="17" r="1.1"/>',
@@ -156,7 +161,8 @@ function insertText(ctx, text) {
 }
 
 // ---------------------------------------------------------------------------
-// the menu, exactly as CONTRACT.md lists it
+// the menu, exactly as CONTRACT.md lists it (batch 3 order, plus the batch 9 additions:
+// Heading 3 to 6 after Heading 2, Duplicate after Rename)
 
 const GROUPS = [
   {
@@ -164,6 +170,11 @@ const GROUPS = [
       { key: 'text', label: 'Text', icon: I.text, aliases: ['p', 'text', 'paragraph'], onRun: (c) => turnInto(c, paragraphSchema.type) },
       { key: 'h1', label: 'Heading 1', icon: I.h1, aliases: ['h1', 'heading1', 'title'], onRun: (c) => turnInto(c, headingSchema.type, { level: 1 }) },
       { key: 'h2', label: 'Heading 2', icon: I.h2, aliases: ['h2', 'heading2'], onRun: (c) => turnInto(c, headingSchema.type, { level: 2 }) },
+      // H3 to H6 came back in batch 9 (C3): a standard markdown editor reaches every level.
+      { key: 'h3', label: 'Heading 3', icon: I.h3, aliases: ['h3', 'heading3'], onRun: (c) => turnInto(c, headingSchema.type, { level: 3 }) },
+      { key: 'h4', label: 'Heading 4', icon: I.h4, aliases: ['h4', 'heading4'], onRun: (c) => turnInto(c, headingSchema.type, { level: 4 }) },
+      { key: 'h5', label: 'Heading 5', icon: I.h5, aliases: ['h5', 'heading5'], onRun: (c) => turnInto(c, headingSchema.type, { level: 5 }) },
+      { key: 'h6', label: 'Heading 6', icon: I.h6, aliases: ['h6', 'heading6'], onRun: (c) => turnInto(c, headingSchema.type, { level: 6 }) },
       { key: 'quote', label: 'Quote', icon: I.quote, aliases: ['quote', 'blockquote'], onRun: (c) => wrapInto(c, blockquoteSchema.type) },
       { key: 'hr', label: 'Divider', icon: I.hr, aliases: ['hr', 'divider', 'rule', 'line'], onRun: (c) => putBlock(c, (x) => hrSchema.type(x).createAndFill()) },
       { key: 'ul', label: 'Bullet list', icon: I.ul, aliases: ['ul', 'bullet', 'list'], onRun: (c) => wrapInto(c, bulletListSchema.type, null, true) },
@@ -181,6 +192,7 @@ const GROUPS = [
   {
     key: 'page', label: 'page', items: [
       { key: 'rename', label: 'Rename', icon: I.rename, aliases: ['rename'], cmd: 'page.rename' },
+      { key: 'duplicate', label: 'Duplicate', icon: I.duplicate, aliases: ['duplicate', 'copy'], cmd: 'page.duplicate' },
       { key: 'trash', label: 'Move to trash', icon: I.trash, aliases: ['trash', 'delete'], cmd: 'page.trash' },
       { key: 'reveal', label: 'Reveal in Explorer', icon: I.reveal, aliases: ['reveal', 'explorer'], cmd: 'page.reveal' },
     ],

@@ -5,10 +5,59 @@
 
 import { bridge } from '../bridge/index.js';
 import { makeCrepe, roundTrip } from './crepe.js';
-import { parseDoc, composeDoc } from './doc.js';
+import { parseDoc, composeDoc, setFrontmatterValue } from './doc.js';
 
 const $ = (id) => document.getElementById(id);
 const norm = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '') + '\n';
+
+// Synthetic files for constructs the vault may not contain yet (batch 9). Each runs through
+// the same parse / round-trip / compose path as a real file and must come back byte for byte.
+// `expect` is for the one case that is an edit, not a round-trip: the frontmatter value
+// rewrite of C6, checked against the exact text it must produce.
+const FIXTURES = [
+  {
+    path: 'fixture: strikethrough (C4)',
+    raw: '# Strike\n\nDone ~~and dusted~~, about ~10 months, ~2017 or so.\n\n- ~~old item~~ replaced\n- price ~ 40 and ~~50~~\n',
+  },
+  {
+    path: 'fixture: footnotes (C5)',
+    raw: '# Notes\n\nA claim[^1] and another[^note].\n\n[^1]: The first source.\n\n[^note]: A named one, with _emphasis_.\n',
+  },
+  {
+    path: 'fixture: callouts (C15)',
+    raw: '# Callouts\n\n> [!note] Title here\n> Body of the note.\n\n> [!warning]\n> No title, just text.\n\n> a plain quote with [brackets] (kept)\n',
+  },
+  {
+    path: 'fixture: frontmatter edit (C6)',
+    raw: '---\ntitle: Old\ntags:\n  - a\n  - b\n# a comment\nstatus: draft   \n---\n\n# Page\n\nBody.\n',
+    edit: { key: 'status', value: 'final' },
+    expect: '---\ntitle: Old\ntags:\n  - a\n  - b\n# a comment\nstatus: final\n---\n\n# Page\n\nBody.\n',
+  },
+  {
+    path: 'fixture: frontmatter multi-line stays read-only (C6)',
+    raw: '---\ntags:\n  - a\n---\n# P\n',
+    edit: { key: 'tags', value: 'x' },
+    expect: null,   // setFrontmatterValue must refuse: the value spans lines
+  },
+];
+
+/** Run one fixture: the edit check when it has one, else the plain round-trip. */
+function runFixture(f) {
+  if (f.edit) {
+    const doc = parseDoc(f.raw);
+    const raw = setFrontmatterValue(doc.frontmatterRaw, f.edit.key, f.edit.value);
+    if (f.expect === null) return { path: f.path, ok: raw === null, diff: raw === null ? null : ['+' + raw], bytes: f.raw.length };
+    if (raw === null) return { path: f.path, ok: false, diff: ['- (edit refused)'], bytes: f.raw.length };
+    doc.frontmatterRaw = raw;
+    const rebuilt = composeDoc(doc, { title: doc.title, body: doc.body });
+    return { path: f.path, ok: rebuilt === f.expect, diff: rebuilt === f.expect ? null : diff(f.expect, rebuilt, 200), bytes: f.raw.length };
+  }
+  const doc = parseDoc(f.raw);
+  const body = roundTrip(crepe, doc.body);
+  const rebuilt = composeDoc(doc, { title: doc.title, body });
+  const a = norm(f.raw), b = norm(rebuilt);
+  return { path: f.path, ok: a === b, diff: a === b ? null : diff(a, b, 200), bytes: f.raw.length };
+}
 
 function collect(node, out = []) {
   if (!node) return out;
@@ -107,6 +156,10 @@ async function run() {
   const results = [];
   const t0 = performance.now();
 
+  for (const f of FIXTURES) {
+    try { results.push(runFixture(f)); } catch (e) { results.push({ path: f.path, error: String(e.message || e) + '\n' + (e.stack || '') }); }
+  }
+
   for (let i = 0; i < files.length; i++) {
     const path = files[i];
     if (i % 10 === 0) {
@@ -161,6 +214,11 @@ async function run() {
 }
 
 $('run').onclick = run;
+/** Fixtures only, for a quick check from the console: `await __runFixtures()`. */
+window.__runFixtures = async () => {
+  if (!crepe) { crepe = await makeCrepe({ root: $('stage'), markdown: '', slashCommands: false }); window.__crepe = crepe; }
+  return FIXTURES.map((f) => { try { return runFixture(f); } catch (e) { return { path: f.path, error: String(e.message || e) }; } });
+};
 $('theme').onclick = () => {
   const d = document.documentElement.dataset.theme === 'dark';
   document.documentElement.dataset.theme = d ? 'light' : 'dark';

@@ -26,6 +26,72 @@ export async function confirm(opts) {
   return fallbackConfirm(opts);
 }
 
+/**
+ * A choice between more than two actions (batch 9, B1). CONTRACT's `confirm` is two-way and
+ * its cancel button reads "Cancel", so a question like "reload the file or overwrite it"
+ * cannot be asked honestly on it: whichever meaning went on Cancel would be a trap. This
+ * builds the same `.dlg` shell on the overlay stack when the shell is there, so Esc,
+ * click-outside and focus return behave like every other dialog.
+ *
+ * choose({title, body?, options:[{label, value, kind?:'primary'|'danger'}], cancel?})
+ *   -> Promise<value>   Esc or a click outside resolves to `cancel` (null by default).
+ * Put the safest option first: it gets the initial focus.
+ */
+export async function choose(opts) {
+  const m = await optional('../shell/dialog.js');
+  if (m && typeof m.openOverlay === 'function') return shellChoose(m, opts);
+  return fallbackChoose(opts);
+}
+
+function shellChoose(m, { title = '', body = '', options = [], cancel = null } = {}) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
+    const ov = m.openOverlay({
+      width: 460, className: 'dlg-ov',
+      onClose: () => { if (!done) { done = true; resolve(cancel); } },
+    });
+    const box = ov.box;
+    box.classList.add('dlg');
+    const head = document.createElement('div');
+    head.className = 'dlg-head label';
+    head.textContent = title;
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'dlg-body';
+    if (body) {
+      const p = document.createElement('p');
+      p.className = 'dlg-text';
+      p.textContent = body;
+      bodyEl.append(p);
+    }
+    const foot = document.createElement('div');
+    foot.className = 'dlg-foot';
+    for (const o of options) {
+      const b = document.createElement('button');
+      b.className = 'btn' + (o.kind ? ' ' + o.kind : '');
+      b.textContent = o.label;
+      b.addEventListener('click', () => finish(o.value));
+      foot.append(b);
+    }
+    box.append(head, bodyEl, foot);
+    requestAnimationFrame(() => { const first = foot.querySelector('.btn'); if (first) first.focus(); });
+  });
+}
+
+function fallbackChoose({ title = '', body = '', options = [], cancel = null } = {}) {
+  let el = null;
+  if (body) {
+    el = document.createElement('div');
+    el.className = 'ed-dialog-body';
+    el.textContent = body;
+  }
+  // `surface` gives Esc and a click outside to the first button and Enter to the last. The
+  // first option is the safe one by convention (callers put "Cancel" there), so dismissing
+  // answers through it; `cancel` itself is only used when there is nothing to show.
+  if (!options.length) return Promise.resolve(cancel);
+  return surface(title, el, options.map((o) => ({ label: o.label, kind: o.kind, value: () => o.value })));
+}
+
 /** CONTRACT: toast(text, kind?, ms?) -> void. Without the shell, the console. */
 export async function toast(text, kind = 'info', ms) {
   const m = await optional('../shell/dialog.js');

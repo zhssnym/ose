@@ -5,9 +5,11 @@ import { Crepe, CrepeFeature } from '@milkdown/crepe';
 import '@milkdown/crepe/theme/common/style.css';
 import { editorViewCtx, parserCtx, prosePluginsCtx, serializerCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
+import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
+import { calloutPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
 
 const cssVar = (name, fallback) => {
   try {
@@ -62,12 +64,28 @@ export async function makeCrepe(o) {
   });
 
   configureStringify(crepe.editor);
+  await installExtras(crepe.editor);
   if (o.slashCommands !== false) { installSlash(crepe.editor); installBlockKeys(crepe.editor); }
   if (o.onChange) watchDoc(crepe.editor, o.onChange);
   if (o.on) crepe.on(o.on);
 
   await crepe.create();
   return crepe;
+}
+
+/**
+ * The batch-9 plugins (plugins.js). The paste handler goes in front of `prosePluginsCtx`:
+ * ProseMirror asks plugins in order and Milkdown's clipboard plugin, already in the list,
+ * would otherwise paste the URL as text before ours is asked. The callout decoration can go
+ * anywhere. The gfm strikethrough input rule is taken out before `create()` (`remove` only
+ * edits the plugin store at that point) and the `~~`-only rule is used in its place.
+ */
+async function installExtras(editor) {
+  editor.config((ctx) => {
+    ctx.update(prosePluginsCtx, (plugins) => [urlPastePlugin(), ...plugins, calloutPlugin()]);
+  });
+  await editor.remove(strikethroughInputRule);
+  editor.use(strikethroughRule);
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */

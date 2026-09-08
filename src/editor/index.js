@@ -1,25 +1,30 @@
 // The page editor: a markdown file rendered as a Notion-style column.
 //
-//   properties strip   only when the file has YAML frontmatter, read-only, raw text preserved
+//   properties strip   only when the file has YAML frontmatter; raw text preserved, simple
+//                      `key: value` lines editable in place, everything else read-only
 //   title              the file's first H1, editable; the file name when there is no H1
 //   meta               folder, word count, last save
 //   body               Crepe (Milkdown) over everything after the title
 //
 // Markdown is the source of truth. Nothing is written on open; a save happens only after the
 // user has actually typed, and only when the composed text differs from what is on disk.
+// Before every write the file is read again: if it no longer matches the text this page was
+// opened from (or last wrote), the user decides, never the editor (CONTRACT.md batch 9, B1).
 
 import { bus, commands, status, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { navigate, clearRoute, defaultNewFolder, scratchFolder } from '../shell/index.js';
-import { prompt, confirm, patchState, toast } from './deps.js';
+import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText } from '../shell/index.js';
+import { prompt, confirm, choose, patchState, toast } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
-import { parseDoc, composeDoc, countWords, detectLang } from './doc.js';
+import { parseDoc, composeDoc, countWords, detectLang, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
 import './editor.css';
 
 const SAVE_DEBOUNCE = 600;
+/** A file still carrying the name `newPage` gave it: the first real title renames it (C12). */
+const UNTITLED = /^Untitled( \d+)?$/i;
 
 /** @type {null | ReturnType<typeof blankPage>} */
 let page = null;
@@ -30,6 +35,12 @@ const blankPage = () => ({
   path: '', doc: null, title: '', baseline: '',
   el: null, host: null, titleEl: null, metaEl: null, bodyEl: null, crepe: null,
   dirty: false, touched: false, ready: false,
+  // rev counts user edits, so a write can tell whether the document moved on under it.
+  // readOnly: the file is gone from disk; nothing is written again (C18). hold: the user
+  // answered "cancel" to the changed-on-disk question; autosave stays quiet until an explicit
+  // save asks again. warnedDisk: the disk text the last toast was about, so one external
+  // change produces one toast.
+  rev: 0, readOnly: false, hold: false, asking: false, warnedDisk: null, titleToBody: false,
   saveTimer: 0, savedAt: null, selfWriteAt: 0, saving: null,
   cleanups: [],
 });
@@ -51,8 +62,14 @@ export async function initEditor() {
 
   // The bridge facade already re-emits 'fs' onto the bus; listening to both would reload twice.
   bus.on('fs', onFsChange);
-  bridge.on('window', (d) => { if (d && d.closing) void saveNow(); });
-  window.addEventListener('beforeunload', () => { if (page && page.dirty) void saveNow(); });
+  // The returned promise is what the Tauri adapter waits on before destroying the window
+  // (B2). It resolves `false` when the save needs the user (the file changed on disk): the
+  // adapter then keeps the window, the question is on screen, and closing again retries.
+  bridge.on('window', (d) => {
+    if (d && d.closing) return saveNow({ explicit: true, closing: true });
+    return undefined;
+  });
+  window.addEventListener('beforeunload', () => { if (page && page.dirty) void saveNow({ explicit: true }); });
 }
 
 export async function openPage(el, path) {
@@ -119,7 +136,9 @@ export async function closePage() {
   if (!p) return;
   page = null;
   clearTimeout(p.saveTimer);
-  if (p.dirty) await saveDoc(p);
+  // Leaving the page is deliberate: a held changed-on-disk question is asked now, and the
+  // route change waits for the answer.
+  if (p.dirty) await saveDoc(p, { explicit: true });
   for (const fn of p.cleanups) { try { fn(); } catch (e) { console.error(e); } }
   p.cleanups.length = 0;
   if (p.crepe) { try { await p.crepe.destroy(); } catch (e) { console.error('[editor] destroy', e); } }
@@ -130,10 +149,17 @@ export async function closePage() {
   status.set('save', null);
 }
 
-export async function saveNow() {
-  if (!page) return;
+/**
+ * Flush now. `explicit` is a user gesture (Ctrl+S, leaving the page, closing the window):
+ * it lifts a `hold` and asks the changed-on-disk question again. `closing` means the window
+ * is about to go, so the question cannot be awaited: the save resolves `false` instead, the
+ * bridge keeps the window, and the dialog is shown for the user to answer.
+ * Resolves true when nothing stands in the way of closing.
+ */
+export async function saveNow(opts = {}) {
+  if (!page) return true;
   clearTimeout(page.saveTimer);
-  await saveDoc(page);
+  return saveDoc(page, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,11 +217,28 @@ function makeTitleEl(p, text) {
     markDirty(p);
   });
   h1.addEventListener('keydown', onTitleKey);
-  h1.addEventListener('blur', () => { if (p.dirty) void saveNow(); });
+  // Enter and Tab leave the title through focusBody, so blur is the one place a finished
+  // title is handled: save it, then let it name the file if the file is still `Untitled`.
+  h1.addEventListener('blur', () => { void onTitleDone(p); });
   p.titleEl = h1;
   return h1;
 }
 
+async function onTitleDone(p) {
+  // Enter/Tab/Down set this before moving the caret into the body; a rename remounts the
+  // page, and the caret the user just asked for must come back afterwards.
+  const toBody = p.titleToBody;
+  p.titleToBody = false;
+  if (p.dirty) await saveNow();
+  if (await renameUntitledFromTitle(p) && toBody) focusBody();
+}
+
+/**
+ * The YAML block above the title. Every row is shown; a row whose value sits on one plain
+ * `key: value` line is editable in place (C6). The edit rewrites that line only, inside the
+ * raw block that composeDoc writes back verbatim, so unknown keys, comments and multi-line
+ * values are never reformatted — the block is still never parsed as YAML.
+ */
 function propertiesStrip(p) {
   const rows = p.doc.frontmatter || [];
   const box = document.createElement('div');
@@ -220,6 +263,7 @@ function propertiesStrip(p) {
     const v = document.createElement('span');
     v.className = 'ed-prop-val text-select';
     v.textContent = r.value;
+    if (r.key && frontmatterEditable(p.doc.frontmatterRaw, r.key)) wirePropEdit(p, v, r.key);
     row.append(k, v);
     list.append(row);
   }
@@ -231,12 +275,37 @@ function propertiesStrip(p) {
   return box;
 }
 
+/** One editable value: plain text, one line; Enter or Esc leaves, blur saves. */
+function wirePropEdit(p, v, key) {
+  v.contentEditable = 'plaintext-only';
+  v.spellcheck = false;
+  v.classList.add('editable');
+  v.dataset.placeholder = 'empty';
+  v.title = 'Click to edit';
+  v.addEventListener('input', () => {
+    if (p !== page || p.readOnly) return;
+    // After a save `p.doc` is re-parsed from what was written, so the raw block here is always
+    // the current one; a line that stopped being locatable (it cannot, from this edit alone,
+    // but be safe) leaves the file untouched.
+    const raw = setFrontmatterValue(p.doc.frontmatterRaw, key, v.textContent);
+    if (raw === null || raw === p.doc.frontmatterRaw) return;
+    p.doc.frontmatterRaw = raw;
+    p.touched = true;
+    markDirty(p);
+  });
+  v.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); v.blur(); }
+  });
+  v.addEventListener('blur', () => {
+    v.textContent = v.textContent.replace(/[\r\n]+/g, ' ').trim();
+    if (p.dirty) void saveNow();
+  });
+}
+
 function onTitleKey(e) {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' || e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
     e.preventDefault();
-    focusBody();
-  } else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-    e.preventDefault();
+    if (page) page.titleToBody = true;
     focusBody();
   }
 }
@@ -412,11 +481,10 @@ async function followLink(href) {
   if (P.isExternal(href)) { await bridge.openExternal(href); return; }
   const target = P.resolveHref(page.path, href);
   if (!target) return;
-  if (/\.md$/i.test(target)) {
-    if (await bridge.exists(target)) navigate({ type: 'page', path: target });
-    else status.set('save', `no such page: ${target}`);
-    return;
-  }
+  // A page link always navigates, whether or not the file exists: the router draws a
+  // "page not found" screen with a Create button for a missing path, which is both the
+  // explanation and the fix (C8). A status word here was neither.
+  if (/\.md$/i.test(target)) { navigate({ type: 'page', path: target }); return; }
   await bridge.reveal(target);
 }
 
@@ -461,65 +529,207 @@ function markDirty(p) {
   // Editor-internal normalisation (tables, trailing paragraph) is not a user edit: no dirty
   // state, no "unsaved" in the status bar, until the user has actually interacted with the page.
   if (!p.touched) return;
+  p.rev++;
   if (!p.dirty) {
     p.dirty = true;
     bus.emit('doc:dirty', { path: p.path, dirty: true });
-    status.set('save', 'unsaved');
   }
+  status.set('save', p.hold ? 'unsaved · changed on disk' : 'unsaved');
   updateMeta(p);
   clearTimeout(p.saveTimer);
   p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
 }
 
+/** The file exactly as a save would write it. `page.copy-markdown` copies this (C14). */
 function compose(p) {
   const body = readMarkdown(p.crepe, p.doc.body);
   return composeDoc(p.doc, { title: p.title, body });
 }
 
-async function saveDoc(p) {
-  if (!p || !p.crepe) return;
+const clean = (p) => {
+  p.dirty = false;
+  bus.emit('doc:dirty', { path: p.path, dirty: false });
+  status.set('save', p.savedAt ? 'saved ' + p.savedAt : null);
+  updateMeta(p);
+};
+
+/**
+ * Save the page. Resolves `true` when the caller may move on (written, nothing to write,
+ * or nothing that can be written) and `false` when the save is waiting on the user.
+ *
+ * The write is guarded three ways (B1, C18). The file is read back first and must equal
+ * `baseline`, the text this page was opened from or last wrote; otherwise something else
+ * edited it and the user chooses between keeping theirs and reloading. A file that is no
+ * longer there is never recreated from the buffer: the page turns read-only. And the whole
+ * check-then-write runs inside one `saving` promise, so a blur and a debounce firing together
+ * ask one question and write once; edits made while the write was in flight reschedule it
+ * instead of being marked clean by mistake (`rev`).
+ */
+async function saveDoc(p, opts = {}) {
+  if (!p || !p.crepe) return true;
   clearTimeout(p.saveTimer);
   // Never write a file the user has not touched, whatever the editor thinks it changed while
   // mounting node views.
-  if (!p.dirty || !p.touched) return;
-  if (p.saving) { await p.saving; }
+  if (!p.dirty || !p.touched) return true;
+  if (p.readOnly) { status.set('save', 'not saved · file is gone'); return true; }
+  if (p.saving) {
+    // A question already on screen cannot be answered by a window that is closing: veto now.
+    if (opts.closing && p.asking) return false;
+    await p.saving;
+    // Typed during that write, or the question was cancelled: a deliberate save goes again.
+    if (p.dirty && opts.explicit && !p.saving) return saveDoc(p, opts);
+    return !p.hold;
+  }
+  // "Cancel" at the question means "let me keep working": autosave stays quiet, the status
+  // bar keeps saying so, and only a deliberate save (Ctrl+S, leaving, closing) asks again.
+  if (p.hold && !opts.explicit) return true;
+  p.hold = false;
 
+  const rev = p.rev;
   let text;
   try {
     text = compose(p);
   } catch (e) {
     console.error('[editor] serialise', e);
     status.set('save', 'serialise failed, not saved');
-    return;
+    toast('could not serialise the page, nothing was written: ' + (e.message || e), 'err');
+    return true;
   }
-  if (text === p.baseline) {
-    p.dirty = false;
-    bus.emit('doc:dirty', { path: p.path, dirty: false });
-    status.set('save', p.savedAt ? 'saved ' + p.savedAt : null);
-    return;
-  }
+  if (text === p.baseline) { clean(p); return true; }
 
+  let outcome = true;
   p.saving = (async () => {
-    p.selfWriteAt = Date.now();
-    await bridge.writeText(p.path, text);
-    p.baseline = text;
-    p.doc = parseDoc(text);
-    p.title = p.doc.titleLine !== null ? p.doc.title : p.title;
-    p.dirty = false;
-    p.savedAt = P.hhmm();
-    bus.emit('doc:dirty', { path: p.path, dirty: false });
-    bus.emit('doc:saved', { path: p.path });
-    status.set('save', 'saved ' + p.savedAt);
-    updateMeta(p);
+    let onDisk = null;
+    try {
+      onDisk = await bridge.readText(p.path);
+    } catch (e) {
+      // Gone, or unreadable for the moment (a sync client holding it). Only "gone" is final.
+      let there = true;
+      try { there = await bridge.exists(p.path); } catch { /* assume it is */ }
+      if (!there) { fileGone(p); return; }
+      throw e;
+    }
+    if (onDisk !== p.baseline) {
+      if (opts.closing) {
+        // The window is on its way out and a modal cannot be awaited into it. Refuse the
+        // close (the bridge reads `false`), show the question, and let the user close again.
+        outcome = false;
+        void resolveConflict(p, text, rev, onDisk);
+        return;
+      }
+      outcome = await resolveConflict(p, text, rev, onDisk);
+      return;
+    }
+    await writeOut(p, text, rev);
   })();
   try {
     await p.saving;
   } catch (e) {
-    console.error('[editor] save', e);
-    status.set('save', 'save failed: ' + (e.message || e));
+    saveFailed(p, e);
   } finally {
     p.saving = null;
   }
+  return outcome;
+}
+
+/** A write or read-back threw. The buffer stays dirty, so the next autosave tries again. */
+function saveFailed(p, e) {
+  console.error('[editor] save', e);
+  status.set('save', 'save failed');
+  toast(`save failed for ${p.path}: ${e && e.message ? e.message : e}`, 'err');
+}
+
+/** The write itself. `rev` is the edit count `text` was composed at. */
+async function writeOut(p, text, rev) {
+  p.selfWriteAt = Date.now();
+  await bridge.writeText(p.path, text);
+  p.baseline = text;
+  p.warnedDisk = null;
+  p.doc = parseDoc(text);
+  p.title = p.doc.titleLine !== null ? p.doc.title : p.title;
+  p.savedAt = P.hhmm();
+  bus.emit('doc:saved', { path: p.path });
+  if (p.rev === rev) {
+    clean(p);
+  } else if (p === page) {
+    // Typed during the write: still dirty, and the debounce runs again.
+    clearTimeout(p.saveTimer);
+    p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
+  }
+}
+
+/**
+ * The file on disk is not the file this page was opened from. Ask. "Keep mine" writes the
+ * buffer over it; "Reload from disk" drops the buffer and reopens the page (or, when the page
+ * is already being closed, just drops it); "Cancel" keeps both as they are and holds
+ * autosave. Resolves `true` unless the user cancelled.
+ */
+async function resolveConflict(p, text, rev, onDisk) {
+  p.asking = true;
+  let choice;
+  try {
+    choice = await choose({
+      title: 'Changed on disk',
+      body: `${p.path} was modified by something else since this page was opened. `
+        + 'Keep your version and overwrite the file, or reload the file and lose your edits?',
+      options: [
+        { label: 'Cancel', value: 'cancel' },
+        { label: 'Reload from disk', value: 'reload' },
+        { label: 'Keep mine', value: 'keep', kind: 'primary' },
+      ],
+      cancel: 'cancel',
+    });
+  } finally {
+    p.asking = false;
+  }
+  if (choice === 'keep') {
+    try {
+      await writeOut(p, text, rev);
+    } catch (e) {
+      saveFailed(p, e);
+    }
+    return true;
+  }
+  if (choice === 'reload') {
+    p.dirty = false;
+    p.hold = false;
+    bus.emit('doc:dirty', { path: p.path, dirty: false });
+    // An open page is reopened from disk; a page already being closed just lets go of its
+    // buffer (the disk text is what the next open reads anyway).
+    if (p === page) await reopenInPlace(p); else p.baseline = onDisk;
+    return true;
+  }
+  p.hold = true;
+  p.warnedDisk = onDisk;
+  status.set('save', 'unsaved · changed on disk');
+  return false;
+}
+
+/**
+ * The file has left the disk (deleted, or moved somewhere the watcher did not tell us).
+ * Nothing is written again: `writeText` creates parent folders, so a save from the stale
+ * buffer would silently put the file back where the user just removed it (C18). The text is
+ * still on screen; `page.copy-markdown` gets it out.
+ */
+function fileGone(p) {
+  if (p.readOnly) return;
+  p.readOnly = true;
+  clearTimeout(p.saveTimer);
+  try { if (p.crepe) p.crepe.setReadonly(true); } catch (e) { console.error('[editor] readonly', e); }
+  if (p.titleEl) p.titleEl.contentEditable = 'false';
+  for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = 'false';
+  status.set('save', 'file is gone · read-only');
+  toast(`${p.path} was deleted or moved on disk. The page is read-only and nothing was written; copy as markdown keeps your text.`, 'err', 9000);
+}
+
+/** The file is back under its name (recreated, moved back): editing may resume. */
+function fileBack(p) {
+  if (!p.readOnly) return;
+  p.readOnly = false;
+  try { if (p.crepe) p.crepe.setReadonly(false); } catch (e) { console.error('[editor] readonly', e); }
+  if (p.titleEl) p.titleEl.contentEditable = 'plaintext-only';
+  for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = 'plaintext-only';
+  status.set('save', p.dirty ? 'unsaved' : null);
 }
 
 function updateMeta(p) {
@@ -540,22 +750,70 @@ function safeMarkdown(p) {
 // ---------------------------------------------------------------------------
 // external changes
 
+/**
+ * Something touched the open file from outside (the watcher, CONTRACT.md `fs`). Renames of
+ * our own making never arrive here: renamePage and the title rename move `p.path` to the new
+ * name before the event can, so the old path no longer matches (C18).
+ */
 function onFsChange(payload) {
   const p = page;
   if (!p || !payload || !Array.isArray(payload.changes)) return;
   const hit = payload.changes.find((c) => c && c.path === p.path);
   if (!hit) return;
+  if (hit.kind === 'rename') {
+    if (hit.to) void followRename(p, hit.to);
+    else fileGone(p);                 // renamed to somewhere the watcher could not pair
+    return;
+  }
+  if (hit.kind === 'delete') { fileGone(p); return; }
+  // create or modify
+  if (p.readOnly) fileBack(p);
   if (Date.now() - p.selfWriteAt < 2500) return;   // our own write coming back
-  if (hit.kind === 'delete') { status.set('save', 'deleted on disk'); return; }
-  if (p.dirty) { status.set('save', 'changed on disk, not reloaded'); return; }
+  if (p.dirty) { void warnChanged(p); return; }
   void reloadSilently(p);
+}
+
+/**
+ * The file was renamed or moved under us. The page follows: every later save goes to the new
+ * name (the old one must never be recreated), and the route is replaced so the breadcrumb,
+ * the sidebar and back/forward agree. The router remounts, which flushes a dirty buffer to
+ * the new path first — the text survives, the undo history does not.
+ */
+async function followRename(p, to) {
+  if (!/\.md$/i.test(to)) { fileGone(p); return; }
+  const from = p.path;
+  p.path = to;
+  status.set('path', to);
+  updateMeta(p);
+  toast(`moved on disk: ${from} → ${to}`);
+  await navigate({ type: 'page', path: to }, { replace: true });
+}
+
+/**
+ * Modified on disk while the buffer is dirty: the user's version stays, and the next save
+ * will ask (B1). Read first, because a late echo of our own write is not a change at all,
+ * and toast once per distinct disk text rather than once per event.
+ */
+async function warnChanged(p) {
+  let onDisk;
+  try { onDisk = await bridge.readText(p.path); } catch { return; }
+  if (p !== page || onDisk === p.baseline || onDisk === p.warnedDisk) return;
+  p.warnedDisk = onDisk;
+  status.set('save', 'unsaved · changed on disk');
+  toast(`${p.path} changed on disk — your next save will ask what to keep`, 'warn', 6000);
 }
 
 async function reloadSilently(p) {
   let text;
   try { text = await bridge.readText(p.path); } catch { return; }
   if (p !== page || text === p.baseline) return;
-  const host = p.el && p.el.parentNode;
+  await reopenInPlace(p);
+}
+
+/** Reopen the page from disk in the same host, keeping the scroll position. */
+async function reopenInPlace(p) {
+  if (p !== page || !p.el) return;
+  const host = p.el.parentNode;
   const scroller = scrollerOf(host);
   const top = scroller ? scroller.scrollTop : 0;
   await openPage(host, p.path);
@@ -584,7 +842,7 @@ function registerCommands() {
   });
   commands.register({
     id: 'page.save', title: 'Save page', group: 'page', shortcut: 'Ctrl+S',
-    when: hasPage, run: () => void saveNow(),
+    when: hasPage, run: () => void saveExplicit(),
   });
   commands.register({
     id: 'page.rename', title: 'Rename page', group: 'page',
@@ -602,7 +860,22 @@ function registerCommands() {
     id: 'page.link', title: 'Link a page', group: 'page',
     when: hasPage, run: () => void linkPage(),
   });
+  commands.register({
+    id: 'page.duplicate', title: 'Duplicate page', group: 'page',
+    when: hasPage, run: () => void duplicatePage(),
+  });
+  commands.register({
+    id: 'page.copy-markdown', title: 'Copy as markdown', group: 'page',
+    when: hasPage, run: () => void copyMarkdown(),
+  });
+  commands.register({
+    id: 'page.print', title: 'Print page', group: 'page',
+    when: hasPage, run: () => printPage(),
+  });
 }
+
+/** `page.save` from the palette or Ctrl+S is deliberate: it asks a held question again. */
+function saveExplicit() { return saveNow({ explicit: true }); }
 
 /**
  * Insert a link to another page at the caret (CONTRACT.md batch 5). The palette has just
@@ -647,20 +920,108 @@ async function newPage() {
   setTimeout(focusTitle, 40);
 }
 
-async function renamePage() {
-  const p = page;
-  if (!p) return;
-  const name = await prompt({ title: 'Rename page', value: P.basename(p.path), ok: 'Rename' });
-  if (!name) return;
-  const clean = name.replace(/[\\/:*?"<>|]/g, '-').replace(/\.md$/i, '') + '.md';
-  const to = P.joinPath(P.dirname(p.path), clean);
-  if (to === p.path) return;
-  if (await bridge.exists(to)) { toast('a file with that name already exists', 'err'); return; }
-  await saveNow();
+/** A file name from free text: no path separators or Windows-reserved characters, one `.md`. */
+const cleanFileName = (name) =>
+  String(name).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().replace(/\.md$/i, '').replace(/[. ]+$/, '') + '.md';
+
+/**
+ * Move the open page's file to `to` and follow it. The buffer is flushed first; if that
+ * cannot happen (the changed-on-disk question was cancelled) the rename is off, because the
+ * remount would show the disk's text and lose the buffer. `p.path` moves before the watcher
+ * can report the rename, so onFsChange never mistakes our own move for an external one.
+ */
+async function moveOpenPage(p, to) {
+  if (await bridge.exists(to)) { toast(`${P.basename(to)} already exists`, 'err'); return false; }
+  await saveNow({ explicit: true });
+  if (p !== page) return false;
+  if (p.dirty) { toast('not renamed: the page could not be saved first', 'warn'); return false; }
   try {
     await bridge.rename(p.path, to);
-  } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); return; }
+  } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); return false; }
+  p.path = to;
+  await navigate({ type: 'page', path: to }, { replace: true });
+  return true;
+}
+
+async function renamePage() {
+  const p = page;
+  if (!p || p.readOnly) return;
+  const name = await prompt({ title: 'Rename page', value: P.basename(p.path), ok: 'Rename' });
+  if (!name) return;
+  const to = P.joinPath(P.dirname(p.path), cleanFileName(name));
+  if (to === p.path || p !== page) return;
+  await moveOpenPage(p, to);
+}
+
+/**
+ * A new page is `Untitled.md` until it has a title (C12): once the H1 is edited and left,
+ * the file takes the sanitised title as its name. Only files still named `Untitled*` —
+ * a page with a real name keeps it; renaming that is the explicit Rename command's job.
+ */
+async function renameUntitledFromTitle(p) {
+  if (p !== page || p.readOnly || p.doc.titleLine === null) return false;
+  if (!UNTITLED.test(P.stem(p.path))) return false;
+  const title = String(p.title || '').trim();
+  if (!title || UNTITLED.test(title)) return false;
+  const to = P.joinPath(P.dirname(p.path), cleanFileName(title));
+  if (to === p.path) return false;
+  // The title stays as typed either way; only the file name is at stake, so a taken name is
+  // a warning, not an error, and the file keeps its `Untitled` name until Rename.
+  if (await bridge.exists(to)) { toast(`${P.basename(to)} already exists; the file keeps its name`, 'warn'); return false; }
+  if (p !== page) return false;
+  return moveOpenPage(p, to);
+}
+
+/** `Name 2.md` beside the open page, with the file exactly as it would be saved (C11). */
+async function duplicatePage() {
+  const p = page;
+  if (!p) return;
+  const from = p.path;
+  await saveNow({ explicit: true });
+  if (p !== page) return;
+  let text;
+  try {
+    text = await bridge.readText(from);
+  } catch (e) { toast('could not read the page: ' + (e.message || e), 'err'); return; }
+  const to = await freePath(P.dirname(from), P.stem(from));
+  try {
+    await bridge.writeText(to, text);
+  } catch (e) { toast('could not duplicate the page: ' + (e.message || e), 'err'); return; }
   navigate({ type: 'page', path: to });
+}
+
+/** The file text as a save would write it, on the clipboard (C14). */
+async function copyMarkdown() {
+  const p = page;
+  if (!p || !p.crepe) return;
+  let text;
+  try {
+    text = compose(p);
+  } catch (e) { toast('could not serialise the page: ' + (e.message || e), 'err'); return; }
+  const ok = await copyText(text);
+  toast(ok ? 'copied' : 'copy failed', ok ? 'info' : 'err');
+}
+
+/**
+ * Print the page column (C14). Paper is white, so the dark palette would print pale text on
+ * it: the light tokens are borrowed for the dialog. `window.print()` blocks until the dialog
+ * closes in Chromium; `afterprint` covers a host where it does not. The theme attribute is
+ * put back exactly as it was (the shell owns it and is not told).
+ */
+function printPage() {
+  if (!page) return;
+  const root = document.documentElement;
+  const was = root.dataset.theme;
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    window.removeEventListener('afterprint', restore);
+    if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
+  };
+  window.addEventListener('afterprint', restore);
+  root.dataset.theme = 'light';
+  try { window.print(); } finally { setTimeout(restore, 0); }
 }
 
 async function trashPage() {
