@@ -27,6 +27,7 @@ import {
 } from '@milkdown/kit/preset/commonmark';
 import { createTable } from '@milkdown/kit/preset/gfm';
 import { imageBlockSchema } from '@milkdown/kit/component/image-block';
+import { icon } from '../shell/icons.js';
 import { today } from './paths.js';
 import { insertPageLink } from './link.js';
 
@@ -39,35 +40,42 @@ const openMenus = new Set();
 export const slashMenuOpen = () => openMenus.size > 0;
 
 // ---------------------------------------------------------------------------
-// icons (DESIGN.md: 16px, 1.5px stroke, currentColor; base.css `.row svg` sets the stroke)
+// icons. The shell's 16-unit grid (shell/icons.js), so a 16px slot draws the 1.5 stroke from
+// base.css `.row svg` at 1.5px — the same weight as every other glyph in the app. Square
+// corners throughout (DESIGN.md). What the shell already draws is taken from it; the rest is
+// drawn here on the same grid: an `H` with the level beside it, three lines for text, and so
+// on. Each value is a complete <svg>.
+
+const svg16 = (d) => `<svg viewBox="0 0 16 16" aria-hidden="true">${d}</svg>`;
+const H = '<path d="M3 4v8M8 4v8M3 8h5"/>';
 
 const I = {
-  text: '<path d="M5 7h14M5 12h10M5 17h7"/>',
-  h1: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.5 9.6 19 8.2V18"/>',
-  h2: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.2 10a2.1 2.1 0 1 1 3.7 1.4L16.2 18H20"/>',
-  h3: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M16.2 9h3.6l-2 3.2a2 2 0 1 1-1.8 3.4"/>',
-  h4: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.2 18v-9l-3.4 5.8h4.4"/>',
-  h5: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.6 9h-3.2l-.3 3.6a2.2 2.2 0 1 1 .2 4.4"/>',
-  h6: '<path d="M4 6v12M12 6v12M4 12h8"/><path d="M19.3 9l-2.6 4.2"/><circle cx="18" cy="15.4" r="2.2"/>',
-  duplicate: '<rect x="8.5" y="8.5" width="11" height="11" rx="1"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/>',
-  quote: '<path d="M5 5.5v13"/><path d="M10 8h9M10 12h9M10 16h6"/>',
-  hr: '<path d="M4 12h16"/>',
-  ul: '<path d="M9.5 7h10M9.5 12h10M9.5 17h10"/><circle cx="5" cy="7" r="1.1"/><circle cx="5" cy="12" r="1.1"/><circle cx="5" cy="17" r="1.1"/>',
-  ol: '<path d="M10 7h10M10 12h10M10 17h10"/><path d="M4 6 5.6 5v4.2"/><path d="M3.8 13.2a1.3 1.3 0 1 1 2.2 1L3.8 17H6.2"/>',
-  todo: '<rect x="3.5" y="4.5" width="6" height="6" rx="1"/><path d="m5 7.4 1.4 1.4 2.3-2.5"/><rect x="3.5" y="13.5" width="6" height="6" rx="1"/><path d="M13 7.5h7M13 16.5h7"/>',
-  image: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><circle cx="9" cy="10.2" r="1.4"/><path d="m4.2 16.4 4.6-4 3.9 3.4L16 12l4.4 4.4"/>',
-  code: '<path d="m9 8-5 4 5 4M15 8l5 4-5 4"/>',
-  table: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><path d="M3.5 10.2h17M9.7 10.2v8.3M15.2 10.2v8.3"/>',
-  link: '<path d="M10.6 13.4a3.8 3.8 0 0 0 5.4 0l2.4-2.4a3.8 3.8 0 0 0-5.4-5.4l-1.3 1.3"/><path d="M13.4 10.6a3.8 3.8 0 0 0-5.4 0l-2.4 2.4a3.8 3.8 0 0 0 5.4 5.4l1.3-1.3"/>',
-  date: '<rect x="3.5" y="5.5" width="17" height="14" rx="1"/><path d="M3.5 10.2h17M8 3.5v4M16 3.5v4"/>',
-  rename: '<path d="m4 20 .8-3.5L15.4 6a1.6 1.6 0 0 1 2.2 0l.5.5a1.6 1.6 0 0 1 0 2.2L7.5 19.2 4 20Z"/>',
-  trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.9 13h9.2l.9-13"/>',
-  reveal: '<path d="M3.5 6.5h5.6l1.8 2h9.6v11H3.5z"/>',
-  month: '<rect x="3.5" y="3.5" width="17" height="17" rx="1"/><path d="M3.5 9.2h17M3.5 14.8h17M9.2 3.5v17M14.8 3.5v17"/>',
-  week: '<path d="M4 8.5v7M7.2 6.5v11M10.4 8.5v7M13.6 4.5v15M16.8 8.5v7M20 6.5v11"/>',
-  day: '<rect x="3.5" y="3.5" width="17" height="17" rx="1"/><circle cx="12" cy="12" r="1.8"/>',
-  journal: '<path d="M4.5 6a1.5 1.5 0 0 1 1.5-1.5h12v15H6A1.5 1.5 0 0 1 4.5 18Z"/><path d="M8.5 9h7M8.5 13h5"/>',
-  journalNew: '<path d="M4.5 6.5h9M4.5 11.5h6M4.5 16.5h6"/><path d="M16.5 12v8M12.5 16h8"/>',
+  text: svg16('<path d="M3 4.5h10M3 8h7M3 11.5h5"/>'),
+  h1: svg16(H + '<path d="m10.6 6.6 1.6-1.1V11"/>'),
+  h2: svg16(H + '<path d="M10.6 6.6a1.5 1.5 0 1 1 2.6 1.1L10.6 11h3.2"/>'),
+  h3: svg16(H + '<path d="M10.6 5.8h2.7l-1.5 2.3a1.5 1.5 0 1 1-1.4 2.5"/>'),
+  h4: svg16(H + '<path d="M13.2 11V5.8l-2.6 4.3h3.2"/>'),
+  h5: svg16(H + '<path d="M13.3 5.8h-2.4l-.2 2.6a1.6 1.6 0 1 1 .1 3.2"/>'),
+  h6: svg16(H + '<path d="m13.1 5.8-1.9 3"/><circle cx="12.1" cy="10.1" r="1.5"/>'),
+  duplicate: icon('copy'),
+  quote: svg16('<path d="M3.5 3.5v9"/><path d="M6.5 5.5h6M6.5 8h6M6.5 10.5h4"/>'),
+  hr: svg16('<path d="M2.5 8h11"/>'),
+  ul: svg16('<path d="M6.5 4.5h7M6.5 8h7M6.5 11.5h7"/><circle cx="3.25" cy="4.5" r=".75"/><circle cx="3.25" cy="8" r=".75"/><circle cx="3.25" cy="11.5" r=".75"/>'),
+  ol: svg16('<path d="M7 4.5h6.5M7 8h6.5M7 11.5h6.5"/><path d="m2.6 4 1.1-.75V6"/><path d="M2.5 9.4a1.1 1.1 0 1 1 1.9.8L2.5 12.2h2.2"/>'),
+  todo: svg16('<rect x="2.5" y="3" width="4" height="4"/><path d="m3.5 5 1 1 1.5-1.7"/><rect x="2.5" y="9" width="4" height="4"/><path d="M9 5h4.5M9 11h4.5"/>'),
+  image: svg16('<rect x="2.5" y="3.5" width="11" height="9"/><circle cx="6" cy="6.5" r=".9"/><path d="m2.75 11.4 3.1-2.7 2.6 2.3 2.5-2.2 2.55 2.3"/>'),
+  code: svg16('<path d="m6 5.5-3 2.5 3 2.5M10 5.5l3 2.5-3 2.5"/>'),
+  table: svg16('<rect x="2.5" y="3.5" width="11" height="9"/><path d="M2.5 6.5h11M6.5 6.5v6M10 6.5v6"/>'),
+  link: icon('link'),
+  date: svg16('<rect x="2.5" y="3.5" width="11" height="9.5"/><path d="M2.5 6.5h11M5.5 2.25v2.5M10.5 2.25v2.5"/>'),
+  rename: icon('rename'),
+  trash: icon('trash'),
+  reveal: icon('folder'),
+  month: icon('month'),
+  week: icon('week'),
+  day: icon('day'),
+  journal: icon('journal'),
+  journalNew: svg16('<path d="M3 4.5h6M3 8h4M3 11.5h4"/><path d="M11.5 8v5M9 10.5h5"/>'),
 };
 
 // ---------------------------------------------------------------------------
@@ -426,7 +434,7 @@ class SlashView {
         row.className = 'row';
         row.dataset.i = String(i);
         row.setAttribute('role', 'option');
-        row.innerHTML = `<svg viewBox="0 0 24 24">${it.icon}</svg><span class="grow">${esc(it.label)}</span>`;
+        row.innerHTML = `${it.icon}<span class="grow">${esc(it.label)}</span>`;
         frag.append(row);
       }
     }

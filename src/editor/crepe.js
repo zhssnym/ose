@@ -3,15 +3,18 @@
 
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 import '@milkdown/crepe/theme/common/style.css';
-import { editorViewCtx, parserCtx, prosePluginsCtx, serializerCtx } from '@milkdown/kit/core';
+import { editorViewCtx, parserCtx, prosePluginsCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
-import { calloutPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
+import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
 
-const cssVar = (name, fallback) => {
+// A token read at construction time, for the one Crepe option that takes a colour string and
+// not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
+// outside tokens.css).
+const cssVar = (name, fallback = 'currentColor') => {
   try {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
@@ -51,7 +54,7 @@ export async function makeCrepe(o) {
     },
     featureConfigs: {
       [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
-      [CrepeFeature.Cursor]: { color: cssVar('--accent', '#D97757'), width: 2, virtual: true },
+      [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: true },
       [CrepeFeature.LinkTooltip]: { inputPlaceholder: 'Paste or type a link' },
       [CrepeFeature.ImageBlock]: {
         proxyDomURL: o.resolveImage,
@@ -76,13 +79,14 @@ export async function makeCrepe(o) {
 /**
  * The batch-9 plugins (plugins.js). The paste handler goes in front of `prosePluginsCtx`:
  * ProseMirror asks plugins in order and Milkdown's clipboard plugin, already in the list,
- * would otherwise paste the URL as text before ours is asked. The callout decoration can go
- * anywhere. The gfm strikethrough input rule is taken out before `create()` (`remove` only
- * edits the plugin store at that point) and the `~~`-only rule is used in its place.
+ * would otherwise paste the URL as text before ours is asked. The callout and find
+ * decorations can go anywhere. The gfm strikethrough input rule is taken out before
+ * `create()` (`remove` only edits the plugin store at that point) and the `~~`-only rule is
+ * used in its place.
  */
 async function installExtras(editor) {
   editor.config((ctx) => {
-    ctx.update(prosePluginsCtx, (plugins) => [urlPastePlugin(), ...plugins, calloutPlugin()]);
+    ctx.update(prosePluginsCtx, (plugins) => [urlPastePlugin(), ...plugins, calloutPlugin(), findPlugin()]);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);
@@ -162,6 +166,18 @@ export function canonicalise(crepe, markdown) {
 /** What the editor would write for `markdown` if it were opened and saved unchanged. */
 export function roundTrip(crepe, markdown) {
   return verify(crepe, canonicalise(crepe, markdown), markdown);
+}
+
+/**
+ * The canonical markdown of one top-level node, on its own: the node is wrapped in a fresh
+ * `doc` and put through the same serializer and clean-up a save uses. lines.js counts these
+ * to map a source line onto a block (C7); nothing is written from here.
+ */
+export function blockMarkdown(crepe, node) {
+  return crepe.editor.action((ctx) => {
+    const doc = ctx.get(schemaCtx).nodes.doc.create(null, node);
+    return postProcess(ctx.get(serializerCtx)(doc));
+  });
 }
 
 export function editorView(crepe) {

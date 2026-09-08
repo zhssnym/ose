@@ -11,8 +11,11 @@ export const KEYMAP = [
   { combo: 'ctrl+s', cmd: 'page.save', label: 'Ctrl+S' },
   { combo: 'ctrl+\\', cmd: 'app.sidebar', label: 'Ctrl+\\' },
   { combo: 'ctrl+shift+e', cmd: 'app.focus-sidebar', label: 'Ctrl+Shift+E' },
-  { combo: 'ctrl+f', cmd: 'app.search', label: 'Ctrl+F' },
-  { combo: 'ctrl+shift+f', cmd: 'app.search', label: 'Ctrl+Shift+F' }, // old habit, kept as an alias
+  // Ctrl+F is find in the open page, as in every editor a person arrives from; the vault search
+  // moves to Ctrl+Shift+F, where VS Code and Obsidian keep theirs (CONTRACT.md batch 9).
+  { combo: 'ctrl+f', cmd: 'page.find', label: 'Ctrl+F' },
+  { combo: 'ctrl+shift+f', cmd: 'app.search', label: 'Ctrl+Shift+F' },
+  { combo: 'ctrl+shift+o', cmd: 'page.outline', label: 'Ctrl+Shift+O' },
   { combo: 'alt+arrowleft', cmd: 'app.back', label: 'Alt+Left' },
   { combo: 'alt+arrowright', cmd: 'app.forward', label: 'Alt+Right' },
   { combo: 'ctrl+,', cmd: 'app.settings', label: 'Ctrl+,' },

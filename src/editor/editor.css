@@ -1,4 +1,6 @@
-/* The editor page. Tokens only, no literal colours.
+/* The editor page. Tokens only, no literal colours, and no bare pixel padding: every gap is
+   a step of the spacing scale (DESIGN.md, E1). The pixels that remain are sizes — icons,
+   line boxes, column widths — not space.
    Crepe ships its structural CSS keyed to --crepe-* variables; the first block maps those onto
    os tokens so the parts we do not restyle by hand still land in the right palette, and the
    rest overrides Crepe's own look (12px radii, 24px icons, soft shadows) with DESIGN.md. */
@@ -41,44 +43,68 @@
 }
 .ed .page-title.untitled {
   color: var(--fg-2);
-  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap;
 }
 .ed-add-title {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
   text-transform: uppercase; letter-spacing: .06em;
   color: var(--fg-3); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 2px 6px; background: var(--bg);
+  padding: var(--sp-half) var(--sp-2); background: var(--bg); /* --sp-half: a chip's vertical air */
   transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
 }
 .ed-add-title:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-3); }
 
 .ed .page-meta { user-select: none; }
 
+/* ---------------------------------------------------------------- find bar (C1) */
+
+/* One bar at the top of the column, sticky, so the hits scroll under it. A labelled bar like
+   any other (--panelhead-h) with the hairline a bar is allowed at its foot. */
+.ed-find {
+  position: sticky; top: 0; z-index: 20;
+  height: var(--panelhead-h); margin-bottom: var(--sp-4);
+  display: flex; align-items: center; gap: var(--sp-2);
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.ed-find .input { flex: 1; min-width: 0; max-width: calc(var(--page-w) / 2); }
+.ed-find-count { flex: none; min-width: 7ch; text-align: right; color: var(--fg-3); }
+.ed-find-count.none { color: var(--warn); }
+/* every hit on the selection tint; the current one on the accent surface, boxed in accent */
+.ed .milkdown .ProseMirror .find-hit { background: var(--sel); border-radius: var(--radius); }
+.ed .milkdown .ProseMirror .find-hit.current {
+  background: var(--accent-soft); outline: 1px solid var(--accent); outline-offset: 1px; /* 1px: a hairline box */
+}
+
+/* ---------------------------------------------------------------- outline (C2) */
+
+/* The picker is the palette's `.pal.pick` surface; only the indent step is ours. */
+.ed-outline .ed-ol-ind { flex: none; width: var(--sp-4); }
+
 /* ---------------------------------------------------------------- properties */
 
 .ed-props {
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg-2); margin: 0 0 24px;
+  background: var(--bg-2); margin: 0 0 var(--sp-5);
 }
 .ed-props-head {
-  width: 100%; height: 26px; padding: 0 8px;
-  display: flex; align-items: center; gap: 6px;
+  width: 100%; height: var(--panelhead-h); padding: 0 var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-2);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
   text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
   transition: color var(--t-fast);
 }
 .ed-props-head:hover { color: var(--fg-2); }
 .ed-props-head svg {
-  width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor;
+  width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
   transform: rotate(90deg); transition: transform var(--t-fast);
 }
 .ed-props-count { margin-left: auto; color: var(--fg-3); }
 .ed-props.closed .ed-props-head svg { transform: rotate(0deg); }
 .ed-props.closed .ed-props-list { display: none; }
-.ed-props-list { border-top: 1px solid var(--border); padding: 6px 0; }
+.ed-props-list { border-top: 1px solid var(--border); padding: var(--sp-2) 0; }
 .ed-prop {
-  display: flex; gap: 12px; padding: 2px 8px;
+  display: flex; gap: var(--sp-3); padding: var(--sp-half) var(--sp-2); /* --sp-half: rows sit on an 18px line box */
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 18px;
 }
 .ed-prop-key { color: var(--fg-3); min-width: 128px; flex: none; }
@@ -88,7 +114,7 @@
    until it is focused, so the strip reads the same whether or not a row can be edited */
 .ed-prop-val.editable {
   cursor: text; outline: none; flex: 1; min-width: 40px;
-  margin: 0 -4px; padding: 0 4px; border-radius: var(--radius);
+  margin: 0 calc(-1 * var(--sp-1)); padding: 0 var(--sp-1); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .ed-prop-val.editable:hover { color: var(--fg); }
@@ -97,10 +123,10 @@
 
 /* ---------------------------------------------------------------- the body */
 
-.ed-body { margin: 0 -8px; }
+.ed-body { margin: 0 calc(-1 * var(--sp-2)); }
 .ed .milkdown { background: transparent; }
 .ed .milkdown .ProseMirror {
-  padding: 0 8px 40px;
+  padding: 0 var(--sp-2) var(--sp-7);
   font-family: var(--font-ui);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
@@ -112,16 +138,16 @@
 }
 .ed .milkdown .ProseMirror ::selection { background: var(--sel); }
 
-.ed .milkdown p { margin: 4px 0; }
+.ed .milkdown p { margin: var(--sp-1) 0; }
 .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3,
 .ed .milkdown h4, .ed .milkdown h5, .ed .milkdown h6 {
   font-family: var(--font-ui); font-weight: 600; line-height: 1.3;
-  margin: 28px 0 6px; color: var(--fg); letter-spacing: -.005em;
+  margin: var(--sp-6) 0 var(--sp-2); color: var(--fg); letter-spacing: -.005em;
 }
 /* Heading sizes are ratios of the body size, so the "body text" setting (--fs-body, 14 to
    17px) moves the whole hierarchy and not just the paragraphs (batch 9, B10). At the default
    16px: h1 27, h2 22, h3 18, h4 16, h5 14; h6 stays a mono section label. */
-.ed .milkdown h1 { font-family: var(--font-title); font-weight: 400; font-size: calc(var(--fs-body) * 1.7); margin-top: 32px; }
+.ed .milkdown h1 { font-family: var(--font-title); font-weight: 400; font-size: calc(var(--fs-body) * 1.7); margin-top: var(--sp-6); }
 .ed .milkdown h2 { font-size: calc(var(--fs-body) * 1.375); }
 .ed .milkdown h3 { font-size: calc(var(--fs-body) * 1.125); }
 .ed .milkdown h4 { font-size: var(--fs-body); }
@@ -140,13 +166,13 @@
 .ed .milkdown del, .ed .milkdown s { color: var(--fg-3); }
 
 .ed .milkdown code, .ed .milkdown .code-inline {
-  font-family: var(--font-mono); font-size: 13px;
+  font-family: var(--font-mono); font-size: var(--fs-ui);
   background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 0 4px; color: var(--fg);
+  padding: 0 var(--sp-1); color: var(--fg);
 }
 
 .ed .milkdown blockquote {
-  margin: 8px 0; padding: 2px 0 2px 14px;
+  margin: var(--sp-2) 0; padding: var(--sp-half) 0 var(--sp-half) var(--sp-4); /* --sp-half: the bar overshoots the text by a hair */
   border-left: 2px solid var(--border-strong); color: var(--fg-2);
 }
 /* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.js, nothing in the
@@ -155,7 +181,7 @@
 .ed .milkdown blockquote.callout {
   border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
   border-radius: var(--radius); background: var(--bg-2);
-  padding: 8px 14px; color: var(--fg);
+  padding: var(--sp-2) var(--sp-4); color: var(--fg);
 }
 .ed .milkdown .callout-marker {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
@@ -165,41 +191,41 @@
 /* GFM footnotes (batch 9, C5): the gfm preset's `sup` reference and `dl` definition. */
 .ed .milkdown sup[data-type="footnote_reference"] {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--accent);
-  line-height: 0; vertical-align: super; padding: 0 1px;
+  line-height: 0; vertical-align: super; padding: 0;
 }
 .ed .milkdown dl[data-type="footnote_definition"] {
-  margin: 8px 0; padding: 4px 0 4px 14px; border-left: 1px solid var(--border);
-  display: grid; grid-template-columns: max-content 1fr; gap: 0 10px;
+  margin: var(--sp-2) 0; padding: var(--sp-1) 0 var(--sp-1) var(--sp-4); border-left: 1px solid var(--border);
+  display: grid; grid-template-columns: max-content 1fr; gap: 0 var(--sp-3);
   font-size: calc(var(--fs-body) * .9); color: var(--fg-2);
 }
 .ed .milkdown dl[data-type="footnote_definition"] dt {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  line-height: inherit; padding-top: 2px;
+  line-height: inherit; padding-top: var(--sp-half); /* --sp-half: mono label onto the text baseline */
 }
 .ed .milkdown dl[data-type="footnote_definition"] dt::before { content: "[^"; }
 .ed .milkdown dl[data-type="footnote_definition"] dt::after { content: "]"; }
 .ed .milkdown dl[data-type="footnote_definition"] dd { margin: 0; }
 .ed .milkdown dl[data-type="footnote_definition"] dd p { margin: 0; }
 .ed .milkdown hr {
-  border: 0; border-top: 1px solid var(--border); margin: 24px 0; height: 0;
+  border: 0; border-top: 1px solid var(--border); margin: var(--sp-5) 0; height: 0;
 }
 .ed .milkdown hr.ProseMirror-selectednode { border-top-color: var(--accent); }
 
-.ed .milkdown ul, .ed .milkdown ol { margin: 4px 0; padding-left: 0; }
+.ed .milkdown ul, .ed .milkdown ol { margin: var(--sp-1) 0; padding-left: 0; }
 .ed .milkdown li { margin: 0; }
-.ed .milkdown .milkdown-list-item-block { margin: 1px 0; }
+.ed .milkdown .milkdown-list-item-block { margin: 0; }
 /* Crepe gives a list item's paragraph line-height 24px plus 4px of padding, so the marker box
-   is 32px tall with 8px of top padding: that puts the icon on the first line's centre. */
+   is 32px tall with --sp-2 of top padding: that puts the icon on the first line's centre. */
 .ed .milkdown .milkdown-list-item-block li .label-wrapper {
   height: 32px; width: 20px; color: var(--fg-3);
   font-family: var(--font-ui); font-size: var(--fs-body);
 }
 .ed .milkdown .milkdown-list-item-block li .label-wrapper .label {
-  height: 32px; width: 20px; padding: 8px 0 0; line-height: 24px;
+  height: 32px; width: 20px; padding: var(--sp-2) 0 0; line-height: 24px;
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
   display: grid; place-items: center;
 }
-.ed .milkdown .milkdown-list-item-block li { gap: 6px; }
+.ed .milkdown .milkdown-list-item-block li { gap: var(--sp-2); }
 /* the bullet ships as a 24px circle icon; DESIGN.md wants it small and quiet */
 .ed .milkdown .milkdown-list-item-block .label.bullet svg {
   width: 16px; height: 16px; fill: var(--fg-3);
@@ -207,7 +233,7 @@
 
 /* task checkbox: a 16px square, DESIGN.md */
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked) {
-  width: 20px; height: 32px; padding: 8px 0 0; display: grid; place-items: center;
+  width: 20px; height: 32px; padding: var(--sp-2) 0 0; display: grid; place-items: center;
 }
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked) svg { display: none; }
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked)::before {
@@ -221,6 +247,7 @@
   background: var(--accent); border-color: var(--accent);
   background-image: linear-gradient(var(--accent), var(--accent));
 }
+/* the check mark: an 8x4 corner turned 45 degrees, lifted 1px onto the box's optical centre */
 .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::after {
   content: ""; position: absolute; width: 8px; height: 4px;
   border-left: 2px solid var(--accent-fg); border-bottom: 2px solid var(--accent-fg);
@@ -236,12 +263,12 @@
 
 .ed .milkdown .milkdown-code-block {
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
-  margin: 8px 0; padding: 0; overflow: hidden;
+  margin: var(--sp-2) 0; padding: 0; overflow: hidden;
 }
 .ed .milkdown .milkdown-code-block .cm-editor { background: transparent; }
 .ed .milkdown .milkdown-code-block .cm-content,
 .ed .milkdown .milkdown-code-block .cm-line {
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.55; color: var(--fg);
+  font-family: var(--font-mono); font-size: var(--fs-ui); line-height: 1.55; color: var(--fg);
 }
 .ed .milkdown .milkdown-code-block .cm-gutters {
   background: transparent; border-right: 1px solid var(--border); color: var(--fg-3);
@@ -259,24 +286,24 @@
 .ed .milkdown .milkdown-code-block button {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg); color: var(--fg-2); padding: 2px 6px;
+  background: var(--bg); color: var(--fg-2); padding: var(--sp-half) var(--sp-2); /* --sp-half: a chip's vertical air */
 }
 .ed .milkdown .milkdown-code-block button:hover { background: var(--bg-3); }
 .ed .milkdown pre {
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
-  font-family: var(--font-mono); font-size: 13px; padding: 10px 12px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: var(--fs-ui); padding: var(--sp-3); overflow-x: auto;
 }
 .ed .milkdown pre code { background: none; border: 0; padding: 0; }
 
 /* ---------------------------------------------------------------- tables */
 
-.ed .milkdown .milkdown-table-block { margin: 12px 0; }
+.ed .milkdown .milkdown-table-block { margin: var(--sp-3) 0; }
 .ed .milkdown .milkdown-table-block .table-wrapper { overflow-x: auto; }
 .ed .milkdown .milkdown-table-block table {
   border-collapse: collapse; width: 100%; font-size: var(--fs-ui);
 }
 .ed .milkdown .milkdown-table-block :is(th, td) {
-  border: 1px solid var(--border); padding: 5px 10px; vertical-align: top;
+  border: 1px solid var(--border); padding: var(--sp-1) var(--sp-3); vertical-align: top;
 }
 .ed .milkdown .milkdown-table-block th {
   background: var(--bg-2); font-weight: 400; text-align: left;
@@ -298,7 +325,7 @@
 /* ---------------------------------------------------------------- images */
 
 .ed .milkdown .milkdown-image-block {
-  margin: 12px 0;
+  margin: var(--sp-3) 0;
 }
 .ed .milkdown .milkdown-image-block img {
   width: 100%; display: block; border: 1px solid var(--border); border-radius: 0;
@@ -307,14 +334,14 @@
 .ed .milkdown .milkdown-image-block .caption-input,
 .ed .milkdown .milkdown-image-block .caption {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  text-align: left; padding: 6px 0 0; background: transparent; border: 0; width: 100%;
+  text-align: left; padding: var(--sp-2) 0 0; background: transparent; border: 0; width: 100%;
 }
 .ed .milkdown :is(.milkdown-image-block, .milkdown-image-inline) .empty-image,
 .ed .milkdown :is(.milkdown-image-block, .milkdown-image-inline) .image-edit {
   border: 1px dashed var(--border-strong); border-radius: var(--radius);
   background: var(--bg-2); color: var(--fg-3);
   font-family: var(--font-mono); font-size: var(--fs-chrome);
-  padding: 10px 12px; gap: 10px;
+  padding: var(--sp-3); gap: var(--sp-3);
 }
 .ed .milkdown :is(.milkdown-image-block, .milkdown-image-inline) .link-importer,
 .ed .milkdown :is(.milkdown-image-block, .milkdown-image-inline) .placeholder input {
@@ -341,12 +368,12 @@
 .ed .os-slash {
   position: absolute; left: 0; top: 0; z-index: 30;
   width: 260px; max-height: 340px; overflow-y: auto; overscroll-behavior: contain;
-  padding: 0 0 6px;
+  padding: 0 0 var(--sp-2);
   font-family: var(--font-ui); color: var(--fg);
 }
 .ed .os-slash[data-show='false'] { display: none; }
-.ed .os-slash .section-label { padding: 10px 10px 3px; }
-.ed .os-slash > .section-label:first-child { padding-top: 7px; }
+.ed .os-slash .section-label { padding: var(--sp-3) var(--sp-3) var(--sp-1); }
+.ed .os-slash > .section-label:first-child { padding-top: var(--sp-2); }
 .ed .os-slash .row { cursor: default; user-select: none; }
 .ed .os-slash .row.current svg { color: var(--accent); }
 
@@ -355,16 +382,16 @@
   box-shadow: var(--shadow-menu); overflow: hidden;
 }
 .ed .milkdown .milkdown-toolbar .toolbar-item {
-  width: 28px; height: 28px; margin: 3px; padding: 0; border-radius: var(--radius);
+  width: var(--ctl-h); height: var(--ctl-h); margin: var(--sp-1); padding: 0; border-radius: var(--radius);
   display: grid; place-items: center; transition: background var(--t-fast);
 }
 .ed .milkdown .milkdown-toolbar .toolbar-item svg { width: 16px; height: 16px; color: var(--fg-2); fill: var(--fg-2); }
 .ed .milkdown .milkdown-toolbar .toolbar-item:hover { background: var(--bg-3); }
 .ed .milkdown .milkdown-toolbar .toolbar-item.active svg { color: var(--accent); fill: var(--accent); }
-.ed .milkdown .milkdown-toolbar .divider { background: var(--border); height: 18px; margin: 8px 2px; }
+.ed .milkdown .milkdown-toolbar .divider { background: var(--border); height: 18px; margin: var(--sp-2) var(--sp-half); /* --sp-half: hairline breathing room */ }
 
 .ed .milkdown :is(.milkdown-link-preview, .milkdown-link-edit) > :is(.link-preview, .link-edit) {
-  height: var(--ctl-h); padding: 0 8px; gap: 8px; align-items: center;
+  height: var(--ctl-h); padding: 0 var(--sp-2); gap: var(--sp-2); align-items: center;
   background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: var(--shadow-menu);
 }
@@ -406,7 +433,7 @@
 
 /* ---------------------------------------------------------------- page picker (fallback) */
 
-.ed-pick { display: flex; flex-direction: column; gap: 8px; }
+.ed-pick { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ed-pick .input { width: 100%; }
 .ed-pick-list {
   max-height: 320px; overflow-y: auto;
@@ -421,12 +448,12 @@
   background: var(--scrim, rgba(0, 0, 0, .28));
   display: grid; place-items: center;
 }
-.ed-dialog { width: 420px; max-width: calc(100vw - 32px); padding: 14px 16px 12px; }
+.ed-dialog { width: 420px; max-width: calc(100vw - var(--sp-6)); padding: var(--sp-4) var(--sp-4) var(--sp-3); }
 .ed-dialog-title {
-  font-family: var(--font-ui); font-size: 15px; color: var(--fg); margin-bottom: 10px;
+  font-family: var(--font-ui); font-size: var(--fs-content); color: var(--fg); margin-bottom: var(--sp-3);
 }
-.ed-dialog-body { font-size: var(--fs-ui); color: var(--fg-2); margin-bottom: 12px; line-height: 1.5; }
-.ed-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.ed-dialog-body { font-size: var(--fs-ui); color: var(--fg-2); margin-bottom: var(--sp-3); line-height: 1.5; }
+.ed-dialog-foot { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-3); }
 
 @media (prefers-reduced-motion: reduce) {
   .ed .milkdown * { transition-duration: 0ms !important; }
@@ -438,7 +465,7 @@
    Chrome is hidden (shell class names; the shell owns them, this only turns them off on
    paper), the scroll boxes become plain flow, and the page column takes the sheet's width. */
 @media print {
-  .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .os-slash,
+  .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .os-slash, .ed-find,
   .ed .page-meta, .ed-add-title, .ed-props-head svg,
   .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview, .ed .milkdown .milkdown-link-edit,
   .ed .milkdown .milkdown-block-handle, .ed .milkdown .crepe-placeholder::before { display: none !important; }
@@ -448,8 +475,8 @@
   .ed.page-col { max-width: none; margin: 0; padding: 0; color: var(--fg); }
   .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); }
   .ed .milkdown .ProseMirror ::selection { background: transparent; }
-  .ed .milkdown .ProseMirror .os-block-sel,
-  .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; }
+  .ed .milkdown .ProseMirror .os-block-sel, .ed .milkdown .ProseMirror .find-hit,
+  .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; outline: none; }
   .ed .milkdown .milkdown-code-block, .ed .milkdown pre, .ed .milkdown blockquote,
   .ed .milkdown .milkdown-image-block, .ed .milkdown .milkdown-table-block { break-inside: avoid; }
   .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3 { break-after: avoid; }

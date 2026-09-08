@@ -13,14 +13,22 @@
 
 import { bus, commands, status, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText } from '../shell/index.js';
+import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText, icon } from '../shell/index.js';
 import { prompt, confirm, choose, patchState, toast } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
+import { createFind } from './find.js';
+import { pickHeading } from './outline.js';
+import { bodyStartLine, titleLineNo, posForBodyLine } from './lines.js';
+import { caretAt, scrollerOf } from './reveal.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, detectLang, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
 import './editor.css';
+
+// `lib/links.js` (C13, the shell side of a rename) may not be in the tree yet. A glob resolves
+// to nothing at build time when the file is missing, where a literal import() would not build.
+const LINKS_MODULE = import.meta.glob('../lib/links.js');
 
 const SAVE_DEBOUNCE = 600;
 /** A file still carrying the name `newPage` gave it: the first real title renames it (C12). */
@@ -33,7 +41,7 @@ let initialised = false;
 
 const blankPage = () => ({
   path: '', doc: null, title: '', baseline: '',
-  el: null, host: null, titleEl: null, metaEl: null, bodyEl: null, crepe: null,
+  el: null, host: null, titleEl: null, metaEl: null, bodyEl: null, crepe: null, find: null,
   dirty: false, touched: false, ready: false,
   // rev counts user edits, so a write can tell whether the document moved on under it.
   // readOnly: the file is gone from disk; nothing is written again (C18). hold: the user
@@ -72,7 +80,16 @@ export async function initEditor() {
   window.addEventListener('beforeunload', () => { if (page && page.dirty) void saveNow({ explicit: true }); });
 }
 
-export async function openPage(el, path) {
+/**
+ * Mount the file at `path` into `el`. `opts.line` (1-based, a line of the file as the search
+ * overlay counts them) puts the caret in the block that holds that line once the editor is
+ * up (C7). The same path with a new line does not remount: the open page just scrolls.
+ */
+export async function openPage(el, path, opts = {}) {
+  if (opts.line && page && page.path === path && page.crepe && page.el && page.el.parentNode === el) {
+    scrollToLine(opts.line);
+    return;
+  }
   const token = ++openToken;
   await closePage();
   if (token !== openToken) return;
@@ -121,14 +138,56 @@ export async function openPage(el, path) {
 
   wireEditorEvents(p);
   applySpellcheck(p);
+  p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null));
+  p.cleanups.push(() => { if (p.find) p.find.destroy(); p.find = null; });
   // Anything the editor does to the document while it is settling (the trailing plugin adds
   // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
   // normal path; the timer is the fallback, because a hidden window fires no frames at all.
   const ready = () => { p.ready = true; };
   requestAnimationFrame(() => requestAnimationFrame(ready));
   setTimeout(ready, 80);
+  // The line jump waits for the same two frames: node views have to be laid out before a
+  // block has a height to scroll to, and the router puts a remembered scroll back one frame
+  // after the mount — the jump must come after that, not be undone by it.
+  if (opts.line) requestAnimationFrame(() => requestAnimationFrame(() => { if (p === page) scrollToLine(opts.line); }));
 
   void patchState({ editor: { last: path } });
+}
+
+/**
+ * Put the caret in the block holding file line `line` (1-based) and bring it into view. A
+ * line above the body — frontmatter, the title — scrolls to the top, with the caret in the
+ * title when the line is the title's. True when there was a page to scroll.
+ */
+export function scrollToLine(line) {
+  const p = page;
+  const n = Math.floor(Number(line) || 0);
+  if (!p || !p.crepe || !p.el || n < 1) return false;
+  const view = editorView(p.crepe);
+  if (!view) return false;
+  const start = bodyStartLine(p.doc);
+  if (n < start) {
+    const scroller = scrollerOf(p.el);
+    if (scroller) scroller.scrollTop = 0;
+    if (n === titleLineNo(p.doc)) focusTitle(p);
+    return true;
+  }
+  const pos = posForBodyLine(p.crepe, view, p.doc.body, n - start + 1);
+  caretAt(view, pos, { block: 'start', always: true, focus: true });
+  return true;
+}
+
+/** The top of the page, caret at the start of the title (when the file has one). */
+function focusTitle(p) {
+  const scroller = scrollerOf(p.el);
+  if (scroller) scroller.scrollTop = 0;
+  if (!p.titleEl) return;
+  p.titleEl.focus({ preventScroll: true });
+  const range = document.createRange();
+  range.selectNodeContents(p.titleEl);
+  range.collapse(true);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
 }
 
 export async function closePage() {
@@ -248,9 +307,8 @@ function propertiesStrip(p) {
   head.className = 'ed-props-head';
   head.type = 'button';
   head.setAttribute('aria-expanded', 'true');
-  head.innerHTML =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>'
-    + `<span>properties</span><span class="ed-props-count">${rows.length}</span>`;
+  // The shell's chevron, so the fold glyph is the sidebar's (same grid, same weight).
+  head.innerHTML = `${icon('chevron')}<span>properties</span><span class="ed-props-count">${rows.length}</span>`;
 
   const list = document.createElement('div');
   list.className = 'ed-props-list';
@@ -361,8 +419,9 @@ function wireEditorEvents(p) {
   // `touched` means "the user has interacted with this page", and a save needs it as well as
   // a changed document. Mouse counts: ticking a task checkbox or dragging a block never
   // produces a key event. On its own it can never cause a write, because saveDoc also
-  // requires a dirty document and text that differs from what is on disk.
-  const touch = () => { p.touched = true; };
+  // requires a dirty document and text that differs from what is on disk. Typing into the
+  // find bar is not touching the page.
+  const touch = (e) => { if (!(e.target instanceof Element && e.target.closest('.ed-find'))) p.touched = true; };
   for (const ev of ['keydown', 'beforeinput', 'paste', 'drop', 'cut', 'pointerdown']) {
     host.addEventListener(ev, touch, true);
     p.cleanups.push(() => host.removeEventListener(ev, touch, true));
@@ -820,16 +879,6 @@ async function reopenInPlace(p) {
   if (scroller) scroller.scrollTop = top;
 }
 
-function scrollerOf(el) {
-  let n = el;
-  while (n && n !== document.body) {
-    const s = getComputedStyle(n).overflowY;
-    if (s === 'auto' || s === 'scroll') return n;
-    n = n.parentElement;
-  }
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // commands
 
@@ -872,6 +921,28 @@ function registerCommands() {
     id: 'page.print', title: 'Print page', group: 'page',
     when: hasPage, run: () => printPage(),
   });
+  // The chords are the shell's (keys.js): Ctrl+F for find, the outline's is its choice.
+  commands.register({
+    id: 'page.find', title: 'Find in page', group: 'page',
+    when: hasPage, run: () => { if (page && page.find) page.find.open(); },
+  });
+  commands.register({
+    id: 'page.outline', title: 'Go to heading', group: 'page',
+    when: hasPage, run: () => void outlinePage(),
+  });
+}
+
+/** The heading picker (C2). The title row scrolls to the top; a body heading takes the caret. */
+async function outlinePage() {
+  const p = page;
+  if (!p || !p.crepe) return;
+  const view = editorView(p.crepe);
+  if (!view) return;
+  await pickHeading({
+    view,
+    title: p.doc.titleLine !== null ? p.title : null,
+    onTitle: () => { if (p === page) focusTitle(p); },
+  });
 }
 
 /** `page.save` from the palette or Ctrl+S is deliberate: it asks a held question again. */
@@ -908,16 +979,16 @@ async function newPage() {
     await bridge.writeText(path, '# Untitled\n');
   } catch (e) { toast('could not create the page: ' + (e.message || e), 'err'); return; }
   navigate({ type: 'page', path });
-  // The router mounts asynchronously; focus the title once it is there.
-  const focusTitle = () => {
-    if (!page || page.path !== path || !page.titleEl) return void setTimeout(focusTitle, 40);
+  // The router mounts asynchronously; select the title once it is there.
+  const selectNewTitle = () => {
+    if (!page || page.path !== path || !page.titleEl) return void setTimeout(selectNewTitle, 40);
     page.titleEl.focus();
     const r = document.createRange();
     r.selectNodeContents(page.titleEl);
     getSelection().removeAllRanges();
     getSelection().addRange(r);
   };
-  setTimeout(focusTitle, 40);
+  setTimeout(selectNewTitle, 40);
 }
 
 /** A file name from free text: no path separators or Windows-reserved characters, one `.md`. */
@@ -935,12 +1006,35 @@ async function moveOpenPage(p, to) {
   await saveNow({ explicit: true });
   if (p !== page) return false;
   if (p.dirty) { toast('not renamed: the page could not be saved first', 'warn'); return false; }
+  const from = p.path;
   try {
-    await bridge.rename(p.path, to);
+    await bridge.rename(from, to);
   } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); return false; }
   p.path = to;
   await navigate({ type: 'page', path: to }, { replace: true });
+  void rewriteLinks(from, to);
   return true;
+}
+
+/**
+ * Links in other pages that pointed at the old name follow it (C13). The rewrite is the
+ * shell side's (`lib/links.js`, `rewriteInbound(from, to) -> {files, links}`); when the
+ * module is not in the tree the rename is simply not followed, and nothing is said.
+ */
+async function rewriteLinks(from, to) {
+  const load = LINKS_MODULE['../lib/links.js'];
+  if (!load) return;
+  let mod;
+  try { mod = await load(); } catch { return; }
+  if (!mod || typeof mod.rewriteInbound !== 'function') return;
+  try {
+    const r = await mod.rewriteInbound(from, to);
+    const links = Number(r && r.links) || 0;
+    const files = Number(r && r.files) || 0;
+    if (links > 0) toast(`renamed · ${links} link${links === 1 ? '' : 's'} in ${files} page${files === 1 ? '' : 's'} updated`);
+  } catch (e) {
+    toast('renamed, but the links to it could not be updated: ' + (e.message || e), 'warn');
+  }
 }
 
 async function renamePage() {

@@ -184,7 +184,7 @@ function unescapeLine(line) {
  * spaces, whitespace runs, and the three interchangeable spellings of an email or url link
  * (`x@y`, `<x@y>`, `[x@y](mailto:x@y)` all parse to the same thing under GFM autolinks).
  */
-const lineKey = (l) =>
+export const lineKey = (l) =>
   l.replace(/\\/g, '')
     .replace(/&#x20;/g, ' ')
     .replace(/\[([^\]]+)\]\(mailto:[^)]+\)/g, '$1')
