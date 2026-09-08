@@ -289,20 +289,26 @@ function renderScratch(frag, curPath) {
   frag.appendChild(box);
 }
 
-/** The mono `focus · <folder>` strip above the tree, with the only way out besides the command. */
-function renderFocusHead(frag, focus) {
-  const box = document.createElement('div');
-  box.className = 'sb-focus mono-sm';
-  box.innerHTML = `<span class="sb-focus-key">focus</span><span class="sb-focus-sep">·</span>`
-    + `<span class="sb-focus-path" title="${esc(focus)}">${esc(focus)}</span>`;
+/**
+ * In focus mode the `pages` section label *is* the indicator: same row, same baseline, same
+ * padding as every other label, reading `focus · <folder>` with the way out on the right.
+ * It replaces the label rather than sitting under it, so focus mode costs no extra line.
+ */
+function focusLabel(focus) {
+  const d = document.createElement('div');
+  d.className = 'section-label sb-focus-label';
+  d.dataset.drop = focus;
+  d.innerHTML = `<span class="sb-focus-key">focus</span>`
+    + `<span class="sb-focus-path" title="${esc(focus)}">${esc(baseName(focus))}</span>`;
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'sb-focus-exit';
-  b.textContent = 'exit';
+  b.innerHTML = icon('close');
   b.title = 'Leave focus mode';
-  b.addEventListener('click', () => exitFocus());
-  box.appendChild(b);
-  frag.appendChild(box);
+  b.setAttribute('aria-label', 'Leave focus mode');
+  b.addEventListener('click', (e) => { e.stopPropagation(); exitFocus(); });
+  d.appendChild(b);
+  return d;
 }
 
 function renderTree() {
@@ -316,8 +322,7 @@ function renderTree() {
   renderAgent(frag);
   renderViews(frag);
 
-  frag.appendChild(label('pages', focus || ''));
-  if (focus) renderFocusHead(frag, focus);
+  frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));
   if (!tree) {
     const d = document.createElement('div');
     d.className = 'empty';

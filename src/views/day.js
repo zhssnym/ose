@@ -71,7 +71,7 @@ function skeleton() {
       </div>
       <div class="dy-right">
         <div class="label">systems</div>
-        <div class="dy-sys" id="dySys"></div>
+        <div class="dy-box" id="dySys"></div>
         <div class="label">tasks</div>
         <div class="dy-tasks" id="dyTasks"></div>
       </div>
@@ -144,7 +144,7 @@ function renderSystems() {
   }
   const k = list.filter((s) => isDone(s.name, cursor)).length;
   box.innerHTML = `
-    <div class="dy-sys-head">
+    <div class="dy-box-head">
       <span class="mono-sm faint">${esc(ddmm(cursor))}</span>
       <span class="mono-sm${k === list.length ? ' ok' : ''}">${k} / ${list.length}</span>
     </div>
@@ -180,41 +180,35 @@ async function toggleSystem(name) {
 
 /* ------------------------------------------------------------------ tasks */
 
-function section(key, label, list, short) {
+/**
+ * One todo list as one box, built exactly like the systems box: a head row with the list's
+ * name and its count, then the rows. There are no `overdue / due / no date` sub-headings any
+ * more — the rows are ordered late first, then due, then undated, and the date chip on a row
+ * already says which it is (red when late, accent when due today). One box, no rules.
+ */
+function group(g) {
+  const list = [...g.overdue, ...g.due, ...g.undated];
   if (!list.length) return '';
-  const open = expanded.has(key);
+  const open = expanded.has(g.path);
   const shown = open ? list : list.slice(0, LIMIT);
   const rest = list.length - shown.length;
-  return `<div class="dy-sec">
-    <div class="label">${esc(label)} <span class="dy-n">${list.length}</span></div>
-    ${shown.map((t) => taskRow(t, { short })).join('')}
-    ${rest ? `<button class="dy-more mono-sm" data-more="${esc(key)}">show all ${list.length}</button>` : ''}
-  </div>`;
-}
-
-/** One list: its heading, then overdue / due today / undated inside it. */
-function group(g) {
-  const named = !!g.label;
-  const head = named
-    ? `<button class="dy-grp-head" data-path="${esc(g.path)}" title="${esc(g.path)}">
-         <span class="dy-grp-name">${esc(g.label)}</span><span class="dy-n">${g.count}</span>
-       </button>`
+  const head = g.label
+    ? `<div class="dy-box-head">
+         <button class="dy-grp-head" data-path="${esc(g.path)}" title="${esc(g.path)}">${esc(g.label)}</button>
+         <span class="mono-sm faint">${list.length}</span>
+       </div>`
     : '';
-  const body = [
-    section(`${g.path}|overdue`, 'overdue', g.overdue, named),
-    section(`${g.path}|due`, `due ${ymd(cursor)}`, g.due, named),
-    section(`${g.path}|none`, 'no date', g.undated, named),
-  ].join('');
-  return `<div class="dy-grp${named ? '' : ' bare'}">${head}${body}</div>`;
+  return `<div class="dy-box">${head}
+    ${shown.map((t) => taskRow(t, { short: !!g.label })).join('')}
+    ${rest ? `<button class="dy-more mono-sm" data-more="${esc(g.path)}">show all ${list.length}</button>` : ''}
+  </div>`;
 }
 
 function renderTasks() {
   const box = $('#dyTasks');
   if (taskSourceMissing()) { box.innerHTML = srcNote(getTaskSource(), 'todo source'); return; }
-  const gs = groupsForDay(cursor);
-  box.innerHTML = gs.length
-    ? gs.map(group).join('')
-    : '<div class="dy-note mono-sm">nothing due, nothing late</div>';
+  const out = groupsForDay(cursor).map(group).join('');
+  box.innerHTML = out || '<div class="dy-note mono-sm">nothing due, nothing late</div>';
 }
 
 async function onToggleTask(id) {

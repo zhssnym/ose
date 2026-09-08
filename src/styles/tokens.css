@@ -49,9 +49,11 @@
   --c-rest: #B9B4A4;
   --c-sleep: #8F8B7F;
 
-  /* type */
-  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  /* type. The default stack is Windows'; :root[data-os="mac"] below replaces it wholesale
+     rather than relying on fallback, because a Mac with Office installed has Consolas and
+     would otherwise get it instead of SF Mono. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
 
   --fs-chrome: 12px;
@@ -83,6 +85,16 @@
   --scrim: rgba(31, 30, 29, .28);
   --t-fast: 120ms ease-out;
   --focus: 0 0 0 1px var(--accent);
+}
+
+/* macOS: SF (via system-ui) and SF Mono (via ui-monospace), which is what every native mac
+   app uses. Menlo is the fallback on the handful of machines without SF Mono. Mac renders
+   text heavier than Windows, so the body loses the half step Segoe needed. */
+:root[data-os="mac"] {
+  --font-ui: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-title: "New York", Georgia, "Times New Roman", serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 :root[data-theme="dark"] {

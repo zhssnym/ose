@@ -217,12 +217,16 @@
 .dy-now { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
 .dy-now-dot { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 
-.dy-sys { border: 1px solid var(--border); background: var(--bg-2); min-height: 66px; }
-.dy-sys-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--fg-2);
+/* One box. Systems and every todo list are the same component: a bordered panel with a head
+   row and rows under it. Nothing in the day column is a bare rule any more. */
+.dy-box { border: 1px solid var(--border); background: var(--bg-2); min-height: 66px; }
+.dy-box + .dy-box { margin-top: 8px; }
+.dy-box-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 30px; padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--fg-2);
 }
-.dy-sys-head .ok { color: var(--ok); }
+.dy-box-head .ok { color: var(--ok); }
+
 .dy-sys-row {
   display: flex; align-items: center; gap: 10px;
   width: 100%; height: 32px; padding: 0 12px; text-align: left;
@@ -234,31 +238,21 @@
 .dy-sys-row.done .dy-sys-name { color: var(--fg-2); }
 
 .dy-tasks { min-height: 120px; }
-.dy-sec { margin-bottom: 18px; }
-.dy-sec > .label { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
-.dy-n { color: var(--fg-3); letter-spacing: 0; }
-.dy-more { height: 22px; padding: 0 6px; color: var(--fg-3); transition: color var(--t-fast); }
+.dy-more { height: 26px; padding: 0 12px; color: var(--fg-3); transition: color var(--t-fast); }
 .dy-more:hover { color: var(--accent); }
 
-/* One group per file of the todo folder. The heading is the file's first H1 and opens it;
-   a single-file todo source is one `.bare` group and prints no heading at all. */
-.dy-grp + .dy-grp { margin-top: 4px; }
+/* The head of a todo box is the file's first H1 and opens the file. A single-file todo
+   source has no heading, so its box is rows alone. */
 .dy-grp-head {
-  display: flex; align-items: baseline; gap: 8px; width: 100%;
-  padding: 0 0 8px; margin-bottom: 10px; text-align: left;
-  border-bottom: 1px solid var(--border-strong);
+  flex: 1; min-width: 0; text-align: left;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: color var(--t-fast);
 }
 .dy-grp-head:hover { color: var(--accent); }
-.dy-grp-name {
-  flex: 1; min-width: 0; font-size: var(--fs-ui); font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.dy-grp-head .dy-n { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
-/* inside a named group the sections are the second level, so they sit in a little */
-.dy-grp:not(.bare) .dy-sec { margin-left: 10px; margin-bottom: 14px; }
-.dy-grp:not(.bare) .dy-sec:last-child { margin-bottom: 22px; }
-.dy-grp:not(.bare) .tk-src { max-width: 64px; }
+.dy-box .tk-row { padding-left: 6px; padding-right: 6px; }
+.dy-box .tk-src { max-width: 64px; }
 
 /* task rows, shared with anything that lists tasks. A nested `- [ ]` line in the source keeps
    its nesting here: one level of indentation per two spaces of source indent. */

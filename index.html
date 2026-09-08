@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>os</title>
 <script>
-  // Apply the saved theme before first paint so there is no flash.
+  // Apply the saved theme and the platform before first paint so there is no flash and no
+  // reflow when the mac font stack lands (tokens.css :root[data-os="mac"]).
+  try {
+    var ua = navigator.userAgent;
+    document.documentElement.dataset.os = /Mac|iPhone|iPad/.test(ua) ? 'mac'
+      : /Windows/.test(ua) ? 'win' : 'other';
+  } catch (e) {}
   try {
     var t = localStorage.getItem('os.theme');
     if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

@@ -150,24 +150,23 @@ html.mac .tb-win { display: none; }
 .sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
 .sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
 
-/* focus mode: the strip above the rooted tree */
-.sb-focus {
-  display: flex; align-items: center; gap: 6px;
-  padding: 2px 8px 6px;
-  color: var(--fg-3);
+/* focus mode: the `pages` label, replaced. One line, on the label's own baseline. */
+.sb-focus-label {
+  display: flex; align-items: baseline; gap: 6px;
+  padding-right: 6px;
 }
-.sb-focus-key { color: var(--accent); flex: none; }
-.sb-focus-sep { flex: none; }
+.sb-focus-key { flex: none; color: var(--accent); }
 .sb-focus-path {
   flex: 1; min-width: 0; color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sb-focus-exit {
-  flex: none; height: 18px; padding: 0 6px;
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  color: var(--fg-3); border: 1px solid var(--border); border-radius: var(--radius);
+  flex: none; align-self: center;
+  width: 16px; height: 16px; display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
+.sb-focus-exit svg { width: 11px; height: 11px; }
 .sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
 
 /* ------------------------------------------------------------------ main */

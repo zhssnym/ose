@@ -10,7 +10,7 @@ import { day } from './day.js';
 import { journal } from './journal.js';
 import { navigate } from './shell-compat.js';
 
-const ALL = [month, week, day, journal];
+const ALL = [day, week, month, journal];
 
 export async function initViews() {
   for (const v of ALL) {
