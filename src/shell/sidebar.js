@@ -1,4 +1,4 @@
-// Sidebar: pinned, agent, views, pages, scratch. One scrolling column, no search box (search
+// Sidebar: pinned, views, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
@@ -18,7 +18,6 @@ let expanded = new Set();
 let pins = [];
 
 const ARCHIVE = '_Archive';
-const AGENT = 'agent';
 
 // The scratch folder is a source, not a name in the code: `7-scratchpad` today, whatever the
 // user points it at tomorrow (CONTRACT.md batch 5). Everything that used to say 'Scratchpad'
@@ -201,22 +200,8 @@ function renderPinned(frag) {
 }
 
 /** The agent row is its own section above the views, and is never listed among them. */
-function renderAgent(frag) {
-  const v = views.get(AGENT);
-  if (!v) return;
-  const r = currentRoute();
-  frag.appendChild(label('agent'));
-  frag.appendChild(rowEl({
-    cls: 'sb-view sb-agent' + (r && r.type === 'view' && r.name === AGENT ? ' current' : ''),
-    depth: 0,
-    glyphHtml: viewIcon(v),
-    text: 'Claude',
-    data: { view: AGENT },
-  }));
-}
-
 function renderViews(frag) {
-  const list = views.list().filter((v) => v.name !== AGENT);
+  const list = views.list();
   if (!list.length) return;
   frag.appendChild(label('views'));
   const r = currentRoute();
@@ -319,7 +304,6 @@ function renderTree() {
 
   // Focused, the sidebar is one folder and the app's own rows: pins and scratch are noise.
   if (!focus) renderPinned(frag);
-  renderAgent(frag);
   renderViews(frag);
 
   frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));

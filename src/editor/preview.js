@@ -25,11 +25,10 @@ async function boot() {
   store.set('root', await bridge.rootInfo());
   await initEditor();
 
-  // stand-ins for the view / claude commands so the slash menu's "os" group has content
+  // stand-ins for the view commands so the slash menu's "os" group has content
   for (const [id, title, group] of [
     ['view.month', 'Month', 'view'], ['view.week', 'Week', 'view'],
     ['view.day', 'Day', 'view'], ['view.journal', 'Journal', 'view'],
-    ['claude.toggle', 'Claude', 'claude'],
   ]) commands.register({ id, title, group, run: () => console.log('run', id) });
 
   files = collect(await bridge.tree()).sort();

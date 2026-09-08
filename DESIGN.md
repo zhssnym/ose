@@ -75,15 +75,15 @@ Key tokens (see the file for the full list):
 ## Layout
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ titlebar 36px  [os] path/breadcrumb              ─  ☐  ✕      │
-├──────────┬────────────────────────────────┬──────────────────┤
-│ sidebar  │ main                           │ claude pane      │
-│ 260px    │ page (editor) or view          │ 380px, closable  │
-│ resizable│                                │ resizable        │
-├──────────┴────────────────────────────────┴──────────────────┤
-│ statusbar 24px  READY · path · 412 words · saved 00:12       │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ titlebar 36px  [os] path/breadcrumb    ─  ☐  ✕   │
+├──────────┬──────────────────────────────────────┤
+│ sidebar  │ main                                 │
+│ 260px    │ page (editor) or view                │
+│ resizable│                                      │
+├──────────┴──────────────────────────────────────┤
+│ statusbar 24px  READY · path · 412 words · saved │
+└─────────────────────────────────────────────────┘
 ```
 
 The window has no native frame. The title bar is ours and must feel like part of the app: same
@@ -107,18 +107,10 @@ does not feel like changing app. Dense data (the week grid, the habit matrix) us
 labels and 1px grid lines in `--border`. Colour blocks in the week grid use the semantic tokens
 at low opacity with a 2px left bar in the full colour.
 
-## Claude pane
-
-A real terminal running the Claude Code CLI, drawn in the app's colours: `--bg` ground, `--fg`
-text, `--accent` cursor, the sixteen ANSI colours mapped to the palette, `--font-mono` 13px,
-square 12px scrollbar. The CLI owns the conversation, its prompts and its slash commands; the
-app adds only the header (name, status chip, new session, dock or full) and clickable vault
-paths in the output. Nothing conversational is drawn by the app.
-
 ## Language
 
 The UI is in English. Hassan's files are in French and English; never translate file content.
-Labels are short and lowercase in chrome ("pages", "views", "claude"), Title Case in dialogs.
+Labels are short and lowercase in chrome ("pages", "views", "scratch"), Title Case in dialogs.
 
 ## Checklist before you say a module is done
 

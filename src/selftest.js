@@ -9,7 +9,6 @@
 import { bridge } from './bridge/index.js';
 
 const out = document.getElementById('selftest');
-const PTY_WAIT_MS = 20000;
 const CALL_TIMEOUT_MS = 60000;
 const HARD_STOP_MS = 200000; // under the CI job's own 240s kill, so the FAIL line still gets written
 
@@ -50,8 +49,6 @@ const info = (text) => { paint('info', '', text); send(text); };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
-// pty chunks arrive as base64 of raw bytes; latin1 is enough to look for an ascii word in them
-const decodeB64 = (b64) => { try { return atob(String(b64)); } catch { return ''; } };
 const trim = (v, n = 200) => String(v == null ? '' : v).replace(/\s+/g, ' ').slice(0, n);
 
 function withTimeout(promise, ms, what) {
@@ -80,8 +77,6 @@ function skipped(name, why) { skip++; report('skip', 'SKIP', name, why); }
 const PNG1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const DIR = 'selftest';
 
-const ptyEvents = [];
-bridge.on('pty', (d) => ptyEvents.push(d));
 bridge.on('fs', (d) => info(`event fs ${trim(JSON.stringify(d), 160)}`));
 bridge.on('window', (d) => info(`event window ${trim(JSON.stringify(d), 160)}`));
 
@@ -235,54 +230,6 @@ async function run() {
       skipped(n, 'no .selftest marker at the vault root; refusing to write');
     }
   }
-
-  /* ------------------------------------------------------------------ pty */
-
-  // A pty that echoes one word and exits: it proves start, the data event, the base64 payload
-  // and the exit event without needing the Claude CLI on the machine (CONTRACT batch 6).
-  let ptyId = null;
-  const win = bridge.platform === 'windows';
-  await test('ptyStart', async () => {
-    const spec = win
-      ? { cmd: 'cmd.exe', args: ['/c', 'echo ptyok'] }
-      : { cmd: '/bin/sh', args: ['-c', 'echo ptyok'] };
-    const r = await bridge.ptyStart({ cwd: '', cols: 80, rows: 24, ...spec });
-    assert(r && r.id, 'no pty id: ' + JSON.stringify(r));
-    ptyId = r.id;
-    return `id=${ptyId} (${spec.cmd} ${spec.args.join(' ')})`;
-  });
-
-  if (ptyId) {
-    await test('pty data + exit within 20s', async () => {
-      const deadline = Date.now() + PTY_WAIT_MS;
-      let sawData = false, chunks = 0;
-      while (Date.now() < deadline) {
-        const mine = ptyEvents.filter((e) => e && e.id === ptyId);
-        chunks = mine.filter((e) => e.data != null).length;
-        if (!sawData) {
-          const text = mine.filter((e) => e.data != null).map((e) => decodeB64(e.data)).join('');
-          if (text.includes('ptyok')) sawData = true;
-        }
-        const done = mine.find((e) => 'exit' in e);
-        if (sawData && done) return `${chunks} chunk(s), exit=${done.exit}`;
-        if (done && !sawData) throw new Error('the process exited without a chunk containing ptyok');
-        await sleep(100);
-      }
-      throw new Error(`no ${sawData ? 'exit event' : 'ptyok chunk'} in ${PTY_WAIT_MS}ms (${chunks} chunks seen)`);
-    });
-    await test('ptyKill after exit', async () => { await bridge.ptyKill(ptyId); return 'accepted'; });
-  } else {
-    for (const n of ['pty data + exit within 20s', 'ptyKill after exit']) skipped(n, 'ptyStart failed');
-  }
-
-  /* --------------------------------------------------------------- claude */
-
-  await test('claudeInfo', async () => {
-    const cli = await bridge.claudeInfo();
-    assert(cli && typeof cli === 'object', 'bad shape: ' + JSON.stringify(cli));
-    // A machine without the CLI (CI runners) is a note, not a failure: the command itself worked.
-    return cli.path ? `${cli.path} ${cli.version || ''}` : 'no claude CLI on this machine';
-  });
 
   /* --------------------------------------------------------------- window */
 

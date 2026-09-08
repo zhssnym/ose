@@ -7,9 +7,8 @@ import { themePref, setTheme } from './theme.js';
 import { SOURCE_KEYS, SOURCE_INFO, getSource, setSource, isDefaultSource } from '../lib/sources.js';
 
 const FONT_SIZES = [14, 15, 16, 17];
-// claudeWidth is not a settings row any more; it is where the pane's drag handle stores its
-// width. The dialog shows theme, body text, and the read-only block, nothing else.
-const DEFAULTS = { fontSize: 16, claudeWidth: 400 };
+// The dialog shows theme, body text, the sources, and the read-only block, nothing else.
+const DEFAULTS = { fontSize: 16 };
 
 let openOv = null;
 
@@ -117,7 +116,6 @@ export async function openSettings() {
       <div class="set-info mono-sm text-select">
         <div><span>vault</span>${esc(root.root || '—')}</div>
         <div><span>bridge</span>${esc(bridge.kind === 'http' ? 'dev (vite)' : `${bridge.kind} (host, ${bridge.platform})`)}</div>
-        <div><span>claude</span><i class="set-claude">checking…</i></div>
       </div>
     </div>
     <div class="dlg-foot"><span class="grow mono-sm faint">changes apply immediately</span><button class="btn primary" data-act="done">Done</button></div>`;
@@ -142,11 +140,6 @@ export async function openSettings() {
     if (group === 'theme') setTheme(v);
     else if (group === 'font') save({ fontSize: +v });
   });
-
-  const claudeEl = ov.box.querySelector('.set-claude');
-  bridge.claudeInfo()
-    .then((info) => { claudeEl.textContent = info && info.path ? `${info.version || 'installed'} · ${info.path}` : 'not found on PATH'; })
-    .catch((e) => { claudeEl.textContent = 'unavailable: ' + (e.message || e); });
 
   requestAnimationFrame(() => ov.box.querySelector('.seg-b')?.focus());
 }

@@ -140,7 +140,7 @@ textarea.input.jr-input::placeholder {
   padding: 24px 0 0;
 }
 
-/* narrow main area (a docked Claude pane, a small window): the date stacks above the text */
+/* narrow main area (a small window): the date stacks above the text */
 @container jr (max-width: 560px) {
   .jr-day { grid-template-columns: minmax(0, 1fr); gap: 8px 0; }
   .jr-date, .jr-body { grid-column: 1; }

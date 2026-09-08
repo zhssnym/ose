@@ -1,20 +1,12 @@
-//! Platform integration: opening external URLs, revealing a file in the file manager, and
-//! locating the Claude Code CLI (which `pty.rs` runs and the settings pane reports).
-//!
-//! Ported from `host/Bridge.cs` (`OpenExternal`, `Reveal`) and `host/ClaudeProcess.cs` (`Probe`).
+//! Platform integration: opening external URLs and revealing a file in the file manager.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 use std::thread;
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::{arg_str, Ctx};
-
-/// How long `claude --version` may take before the probe gives up.
-const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Windows `CREATE_NO_WINDOW`: no console window for any child process we spawn.
 #[cfg(windows)]
@@ -38,7 +30,6 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
         "openExternal" => Some(cmd_open_external(args)),
         "reveal" => Some(cmd_reveal(ctx, args)),
         "platform" => Some(Ok(platform_info(ctx))),
-        "claudeInfo" => Some(Ok(claude_info())),
         _ => None,
     }
 }
@@ -145,140 +136,6 @@ fn os_name() -> &'static str {
         "macos"
     } else {
         "linux"
-    }
-}
-
-// ---- claude binary lookup -------------------------------------------------
-
-/// `OSE_CLAUDE`, then PATH, then the usual install locations, then (macOS only) a login
-/// shell, because a bundled .app inherits a minimal PATH from launchd.
-pub fn find_claude() -> Option<PathBuf> {
-    if let Some(v) = std::env::var_os("OSE_CLAUDE") {
-        let p = PathBuf::from(v);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    if let Some(p) = find_on_path("claude") {
-        return Some(p);
-    }
-    if let Some(p) = fallback_candidates().into_iter().find(|c| c.is_file()) {
-        return Some(p);
-    }
-    #[cfg(target_os = "macos")]
-    if let Some(p) = zsh_login_lookup() {
-        return Some(p);
-    }
-    None
-}
-
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    // On Windows only .exe is useful: CreateProcess cannot run a .cmd or .bat shim directly,
-    // which is why the .NET host preferred the .exe out of `where claude` too.
-    let exts: &[&str] = if cfg!(windows) { &[".exe"] } else { &[""] };
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        for ext in exts {
-            let cand = dir.join(format!("{name}{ext}"));
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    None
-}
-
-fn fallback_candidates() -> Vec<PathBuf> {
-    let exe = if cfg!(windows) { "claude.exe" } else { "claude" };
-    let mut v = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        v.push(home.join(".local").join("bin").join(exe));
-        if !cfg!(windows) {
-            v.push(PathBuf::from("/opt/homebrew/bin/claude"));
-            v.push(PathBuf::from("/usr/local/bin/claude"));
-        }
-        v.push(home.join(".npm-global").join("bin").join(exe));
-    } else if !cfg!(windows) {
-        v.push(PathBuf::from("/opt/homebrew/bin/claude"));
-        v.push(PathBuf::from("/usr/local/bin/claude"));
-    }
-    v
-}
-
-#[cfg(target_os = "macos")]
-fn zsh_login_lookup() -> Option<PathBuf> {
-    let out = Command::new("zsh")
-        .args(["-lc", "command -v claude"])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let p = PathBuf::from(line);
-    if p.is_file() {
-        Some(p)
-    } else {
-        None
-    }
-}
-
-// ---- claudeInfo -----------------------------------------------------------
-
-struct Cli {
-    path: PathBuf,
-    version: Option<String>,
-}
-
-static CLI: OnceLock<Option<Cli>> = OnceLock::new();
-
-/// Located once per run, `--version` included. `pty.rs` calls `find_claude` directly; this is
-/// only the report the settings pane and the empty state show.
-fn claude_info() -> Value {
-    let cli = CLI.get_or_init(|| {
-        let path = find_claude()?;
-        let version = run_capture(&path, &["--version"], VERSION_TIMEOUT)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        Some(Cli { path, version })
-    });
-    match cli {
-        Some(c) => json!({ "path": c.path.display().to_string(), "version": c.version }),
-        None => json!({ "path": Value::Null, "version": Value::Null }),
-    }
-}
-
-/// Runs a short command and returns its stdout, or `None` on failure or timeout.
-fn run_capture(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> {
-    let mut child = quiet_command(exe)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let out = child.wait_with_output().ok()?;
-                return status
-                    .success()
-                    .then(|| String::from_utf8_lossy(&out.stdout).into_owned());
-            }
-            Ok(None) => {}
-            Err(_) => return None,
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            return None;
-        }
-        thread::sleep(Duration::from_millis(25));
     }
 }
 

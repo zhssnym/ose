@@ -1,9 +1,8 @@
-// The shell: window chrome, the three-column body, and the wiring that holds the app together.
+// The shell: window chrome, the sidebar-and-page body, and the wiring that holds the app together.
 // Everything else plugs into this. See CONTRACT.md "Module entry points".
 import './shell.css';
 import { bus, store, commands } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { mountClaudePane } from '../claude/index.js';
 import { loadState, stateCache, patchState, flushState } from './state.js';
 import { initTheme } from './theme.js';
 import { initTitlebar } from './titlebar.js';
@@ -12,16 +11,16 @@ import { initStatusbar } from './statusbar.js';
 import { initRouter, navigate, back, forward, canBack, canForward, clearRoute } from './router.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
-import { initSettings, settings } from './settings.js';
+import { initSettings } from './settings.js';
 import { initKeys } from './keys.js';
 import { icon } from './icons.js';
 import { initFocus, loadFocus, getFocus, defaultNewFolder } from './focus.js';
 import { loadSources } from '../lib/sources.js';
 
 export { navigate, back, forward, clearRoute };
-// Focus mode is shell state; the editor asks for the folder a new page belongs in, and the
-// claude module reads store 'focus' for its session cwd. `scratchFolder()` is the last fallback
-// of page.new: the scratch source, never a folder name written out in code (CONTRACT.md batch 5).
+// Focus mode is shell state; the editor asks for the folder a new page belongs in.
+// `scratchFolder()` is the last fallback of page.new: the scratch source, never a folder name
+// written out in code (CONTRACT.md batch 5).
 export { getFocus, defaultNewFolder };
 export { scratchFolder } from './sidebar.js';
 // The page picker behind the editor's `Link` item and the `page.link` command.
@@ -29,33 +28,23 @@ export { pickPage, pageTitle, copyText } from './dialog.js';
 
 const MIN_MAIN = 340;
 const S_MIN = 200, S_MAX = 420;
-const C_MIN = 320, C_MAX = 720;
 
-let shell = null, claudeHost = null;
-let wantS = 260, wantC = 400;
-let claudeMounted = false;
+let shell = null;
+let wantS = 260;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /* ------------------------------------------------------------------ layout */
 
-/** The right side panel exists only in dock mode; in view mode the pane lives in the main column. */
-function claudeDocked() {
-  return store.get('claude.mode') === 'dock' && !!store.get('claude.open');
-}
-
+/** The sidebar gives way before the page column does: the page keeps MIN_MAIN on a narrow window. */
 function fit() {
   if (!shell) return;
   const avail = window.innerWidth;
   const sOpen = !!store.get('sidebar.open');
-  const cOpen = claudeDocked();
   let s = sOpen ? wantS : 0;
-  let c = cOpen ? wantC : 0;
-  let over = s + c + MIN_MAIN - avail;
-  if (over > 0 && c > 0) { const cut = clamp(over, 0, Math.max(0, c - C_MIN)); c -= cut; over -= cut; }
+  const over = s + MIN_MAIN - avail;
   if (over > 0 && s > 0) { const cut = clamp(over, 0, Math.max(0, s - S_MIN)); s -= cut; }
   shell.style.setProperty('--sidebar-w', (sOpen ? s : wantS) + 'px');
-  shell.style.setProperty('--claude-w', (cOpen ? c : wantC) + 'px');
   measureMain();
 }
 
@@ -180,7 +169,6 @@ export async function initShell(rootEl) {
   const st = stateCache();
   const sb = st.sidebar || {};
   wantS = clamp(+sb.width || 260, S_MIN, S_MAX);
-  wantC = clamp(+(st.settings || {}).claudeWidth || 400, C_MIN, C_MAX);
 
   rootEl.textContent = '';
   shell = document.createElement('div');
@@ -191,8 +179,6 @@ export async function initShell(rootEl) {
       <aside class="sidebar"></aside>
       <div class="rs rs-sidebar" data-reset="260" title="Drag to resize"></div>
       <main class="main"></main>
-      <div class="rs rs-claude" data-reset="400" title="Drag to resize"></div>
-      <section class="claude-pane"><div class="claude-host"></div></section>
     </div>
     <footer class="statusbar"></footer>`;
   rootEl.appendChild(shell);
@@ -203,29 +189,12 @@ export async function initShell(rootEl) {
     main: shell.querySelector('.main'),
     statusbar: shell.querySelector('.statusbar'),
   };
-  claudeHost = shell.querySelector('.claude-host');
 
-  // Panels track the store; widths are CSS variables so nothing re-lays-out in JS.
+  // The sidebar tracks the store; its width is a CSS variable so nothing re-lays-out in JS.
   store.set('sidebar.open', sb.open !== false);
   const syncSidebar = (v) => { shell.classList.toggle('no-sidebar', !v); fit(); };
-  // The pane element is long-lived: the claude module moves it between this host and the main
-  // column. The shell only decides whether the side panel is on screen.
-  const syncClaude = () => {
-    const docked = claudeDocked();
-    shell.classList.toggle('no-claude', !docked);
-    if (docked) {
-      // mountClaudePane moves the one long-lived pane element; it is idempotent, and it must run
-      // every time the dock shows because the element may have been in the Agent view meanwhile.
-      claudeMounted = true;
-      try { mountClaudePane(claudeHost); } catch (e) { console.error('[shell] mountClaudePane', e); }
-    }
-    fit();
-  };
   store.watch('sidebar.open', (v) => { syncSidebar(v); patchState({ sidebar: { ...(stateCache().sidebar || {}), open: !!v } }); });
-  store.watch('claude.open', syncClaude);
-  store.watch('claude.mode', syncClaude);
   syncSidebar(store.get('sidebar.open'));
-  syncClaude();
 
   makeResizer(shell.querySelector('.rs-sidebar'), {
     min: S_MIN, max: S_MAX,
@@ -233,13 +202,6 @@ export async function initShell(rootEl) {
     set: (v) => { wantS = v; fit(); },
     done: (v) => patchState({ sidebar: { ...(stateCache().sidebar || {}), width: v } }),
   });
-  makeResizer(shell.querySelector('.rs-claude'), {
-    min: C_MIN, max: C_MAX, invert: true,
-    get: () => wantC,
-    set: (v) => { wantC = v; fit(); },
-    done: (v) => patchState({ settings: { ...settings(), claudeWidth: v } }),
-  });
-
   initTitlebar(els.titlebar);
   initSidebar(els.sidebar);
   initStatusbar(els.statusbar);
@@ -261,7 +223,7 @@ export async function initShell(rootEl) {
   window.addEventListener('beforeunload', () => flushState());
   fit();
 
-  // The claude module may set claude.open before the pane is asked for; keep them in step.
+  // Modules registered after the shell may change what is on screen; measure once more.
   bus.on('booted', () => { fit(); });
 }
 

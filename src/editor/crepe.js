@@ -39,7 +39,7 @@ export async function makeCrepe(o) {
       [CrepeFeature.Cursor]: true,
       // off: Latex (no maths in the vault, and it would rewrite `$` in prose),
       //      TopBar (a fixed formatting ribbon; the selection toolbar and the slash menu do
-      //      that job), AI (the Claude pane owns Claude), BlockEdit (it is only the gutter
+      //      that job), AI (no AI surface in the app), BlockEdit (it is only the gutter
       //      handle, removed in batch 2, plus a slash menu that cannot be retriggered or
       //      refiltered through its config; slash.js replaces the menu entirely).
       [CrepeFeature.Latex]: false,

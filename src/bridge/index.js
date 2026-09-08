@@ -77,15 +77,6 @@ export const bridge = {
   search: (query, opts = {}) => call('search', query, opts),
   assetUrl: (path) => (adapter && adapter.assetUrl ? adapter.assetUrl(path) : staticAssetUrl(path)),
 
-  claudeInfo: () => call('claudeInfo'),
-
-  // A pseudo-terminal per session; the Claude Code CLI runs inside one (CONTRACT.md, batch 6).
-  // `data` out is base64 of the raw bytes, `data` in is a UTF-8 string.
-  ptyStart: (opts) => call('ptyStart', opts),
-  ptyWrite: (id, data) => call('ptyWrite', id, data),
-  ptyResize: (id, cols, rows) => call('ptyResize', id, cols, rows),
-  ptyKill: (id) => call('ptyKill', id),
-
   win: {
     minimize: () => winCall('minimize'),
     maximize: () => winCall('maximize'),

@@ -57,7 +57,7 @@ export const views = {
   list: () => [...viewMap.values()],
 };
 
-const STATUS_ORDER = ['mode', 'path', 'doc', 'save', 'watch', 'claude'];
+const STATUS_ORDER = ['mode', 'path', 'doc', 'save', 'watch'];
 const statusData = new Map();
 const statusWatchers = makeEmitter();
 export const status = {

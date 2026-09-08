@@ -19,7 +19,7 @@
   --fg-2: #5C5952;
   --fg-3: #767264;
 
-  /* claude */
+  /* accent */
   --accent: #D97757;
   --accent-hover: #C8664A;
   --accent-fg: #FFFFFF;
@@ -80,9 +80,6 @@
   --sidebar-w: 260px;
   --sidebar-min: 200px;
   --sidebar-max: 420px;
-  --claude-w: 400px;
-  --claude-min: 320px;
-  --claude-max: 720px;
   --page-w: 720px;
   --page-pad-top: 80px;
   --page-pad-x: 48px;

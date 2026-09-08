@@ -63,7 +63,6 @@ const I = {
   day: '<rect x="3.5" y="3.5" width="17" height="17" rx="1"/><circle cx="12" cy="12" r="1.8"/>',
   journal: '<path d="M4.5 6a1.5 1.5 0 0 1 1.5-1.5h12v15H6A1.5 1.5 0 0 1 4.5 18Z"/><path d="M8.5 9h7M8.5 13h5"/>',
   journalNew: '<path d="M4.5 6.5h9M4.5 11.5h6M4.5 16.5h6"/><path d="M16.5 12v8M12.5 16h8"/>',
-  claude: '<path d="M12 3a9 9 0 0 1 0 18 9 9 0 0 1-8-4.8L3 21l1.9-4.2A9 9 0 0 1 12 3Z"/>',
 };
 
 // ---------------------------------------------------------------------------
@@ -193,7 +192,6 @@ const GROUPS = [
       { key: 'day', label: 'Day', icon: I.day, aliases: ['day'], cmd: 'view.day' },
       { key: 'journal', label: 'Journal', icon: I.journal, aliases: ['journal'], cmd: 'view.journal' },
       { key: 'journal-new', label: 'New journal entry', icon: I.journalNew, aliases: ['entry'], cmd: 'journal.new' },
-      { key: 'ask', label: 'Ask Claude about this page', icon: I.claude, aliases: ['ask', 'claude'], cmd: 'claude.ask-page' },
     ],
   },
 ];

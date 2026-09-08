@@ -1,12 +1,10 @@
 // Dev bridge: Node implementation of CONTRACT.md for browser development.
-// Filesystem + /vault assets + state + SSE events + fs watcher + pseudo-terminals.
+// Filesystem + /vault assets + state + SSE events + fs watcher.
 // Only used by `vite` in dev; the shipped app talks to the Tauri host instead (src/bridge/tauri.js).
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { spawn, execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { vaultRoot, rootSource } from './root.mjs';
 
 const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space', 'os.exe', 'os.pdb']);
@@ -143,134 +141,6 @@ export function bridgePlugin() {
     watcher = null;
   }
 
-  // ---------------------------------------------------------------- claude cli
-  let infoCache = null;
-
-  const which = (bin) => {
-    const exts = IS_WIN ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : [''];
-    const dirs = [
-      ...(process.env.OS_CLAUDE ? [path.dirname(process.env.OS_CLAUDE)] : []),
-      path.join(os.homedir(), '.local', 'bin'),
-      ...String(process.env.PATH || '').split(path.delimiter),
-    ];
-    for (const d of dirs) {
-      if (!d) continue;
-      for (const ext of exts) {
-        const f = path.join(d, bin + ext);
-        try { if (fss.statSync(f).isFile()) return f; } catch { }
-      }
-    }
-    return null;
-  };
-
-  const claudeInfo = async () => {
-    if (infoCache) return infoCache;
-    const bin = (process.env.OS_CLAUDE && fss.existsSync(process.env.OS_CLAUDE) ? process.env.OS_CLAUDE : null) || which('claude');
-    if (!bin) return (infoCache = { path: null });
-    const version = await new Promise((resolve) => {
-      execFile(bin, ['--version'], { windowsHide: true, timeout: 15000, encoding: 'utf8' }, (err, stdout) => {
-        if (err) return resolve(null);
-        const m = String(stdout).trim().match(/\d+\.\d+\.\d+[^\s]*/);
-        resolve(m ? m[0] : String(stdout).trim().split(/\r?\n/)[0] || null);
-      });
-    });
-    if (!version) return (infoCache = { path: null });
-    return (infoCache = { path: bin, version });
-  };
-
-  const resolveCwd = (c) => {
-    if (!c) return root;
-    const full = path.isAbsolute(String(c)) ? path.resolve(String(c)) : abs(c);
-    if (full !== root && !full.startsWith(root + path.sep)) throw new Error('cwd outside root: ' + c);
-    return full;
-  };
-
-  // ---------------------------------------------------------------- pseudo-terminals
-  // node-pty is an optional dependency (it is prebuilt, but a machine can still fail to
-  // install it); when it is missing every pty command says so instead of crashing the server.
-  const ptys = new Map(); // id -> { proc }
-  let nodePty; // undefined = not tried yet, null = unavailable
-  const PTY_UNAVAILABLE = 'pty unavailable in the dev bridge';
-
-  const loadPty = async () => {
-    if (nodePty !== undefined) return nodePty;
-    try {
-      nodePty = (await import('@homebridge/node-pty-prebuilt-multiarch')).default ?? null;
-    } catch (e) {
-      console.warn('[bridge] node-pty unavailable: ' + (e && e.message ? e.message : e));
-      nodePty = null;
-    }
-    if (!nodePty) throw new Error(PTY_UNAVAILABLE);
-    return nodePty;
-  };
-
-  const ptyStart = async ({ cwd, cols, rows, cmd, args, env } = {}) => {
-    const pty = await loadPty();
-    let file = String(cmd || '').trim();
-    let claudeEnv = {};
-    const inherited = { ...process.env };
-    if (!file) {
-      const info = await claudeInfo();
-      if (!info.path) throw new Error('claude CLI not found');
-      file = info.path;
-      // same rule as the host: sessions live in <vault>/.claude/projects/vault on every machine
-      claudeEnv = { CLAUDE_CONFIG_DIR: path.join(root, '.claude'), CLAUDE_CODE_PROJECT_DIR_NAME: 'vault' };
-      // a fresh top-level session: no inherited CLAUDE* variables from whatever runs this server
-      for (const k of Object.keys(process.env)) if (k.toUpperCase().startsWith('CLAUDE')) inherited[k] = undefined;
-    }
-    const dir = resolveCwd(cwd);
-    const id = randomUUID();
-    const proc = pty.spawn(file, Array.isArray(args) ? args.map(String) : [], {
-      name: 'xterm-256color',
-      cols: Math.max(1, Number(cols) || 80),
-      rows: Math.max(1, Number(rows) || 24),
-      cwd: dir,
-      useConpty: true,
-      env: {
-        ...inherited,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        LANG: process.env.LANG || 'en_US.UTF-8',
-        ...claudeEnv,
-        ...(env && typeof env === 'object' ? env : {}),
-      },
-    });
-    console.log('[bridge] pty ' + id + ': ' + file + ' ' + (args || []).join(' ') + '  (cwd ' + dir + ')');
-    ptys.set(id, { proc });
-
-    // node-pty hands us a string it decoded itself; the contract carries raw bytes as base64,
-    // so it is re-encoded here. The host emits the true bytes; both decode the same on the web
-    // side because the terminal writes UTF-8 either way.
-    proc.onData((data) => emit('pty', { id, data: Buffer.from(data, 'utf8').toString('base64') }));
-    proc.onExit(({ exitCode, signal }) => {
-      ptys.delete(id);
-      emit('pty', { id, exit: exitCode === undefined || exitCode === null ? (signal ? -1 : 0) : exitCode });
-    });
-    return { id };
-  };
-
-  const usePty = (id) => {
-    if (nodePty === null) throw new Error(PTY_UNAVAILABLE);
-    const s = ptys.get(id);
-    if (!s) throw new Error('no pty ' + id);
-    return s;
-  };
-
-  // Killing a pty that has already exited is not an error; killing one when node-pty never
-  // loaded is, so the view says the same thing for every pty command.
-  const ptyKill = async (id) => {
-    if (nodePty === null) throw new Error(PTY_UNAVAILABLE);
-    const s = ptys.get(id);
-    if (!s) return;
-    ptys.delete(id);
-    try { s.proc.kill(); } catch { }
-  };
-
-  const killAll = () => {
-    for (const [, s] of ptys) { try { s.proc.kill(); } catch { } }
-    ptys.clear();
-  };
-
   // ---------------------------------------------------------------- shell out
   const openExternal = async (url) => {
     let u;
@@ -313,13 +183,8 @@ export function bridgePlugin() {
     trash: async (p) => { const t = path.join(root, '.trash'); await fs.mkdir(t, { recursive: true }); await fs.rename(abs(p), path.join(t, Date.now() + '-' + path.basename(p))); },
     search: async (q, opts) => search(q, opts),
 
-    claudeInfo,
     log: async (text) => { console.log('[selftest]', String(text)); },
     platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, root }),
-    ptyStart: async (opts) => ptyStart(opts || {}),
-    ptyWrite: async (id, data) => { usePty(id).proc.write(String(data ?? '')); },
-    ptyResize: async (id, cols, rows) => { usePty(id).proc.resize(Math.max(1, Number(cols) || 80), Math.max(1, Number(rows) || 24)); },
-    ptyKill,
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
@@ -333,7 +198,7 @@ export function bridgePlugin() {
     name: 'os-dev-bridge',
     configureServer(server) {
       startWatch();
-      const shutdown = () => { stopWatch(); killAll(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
+      const shutdown = () => { stopWatch(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
       server.httpServer?.on('close', shutdown);
       process.once('exit', shutdown);
       process.once('SIGINT', () => { shutdown(); process.exit(0); });

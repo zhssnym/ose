@@ -330,7 +330,7 @@ function wireEditorEvents(p) {
 let SHELL_KEYMAP = [
   { combo: 'ctrl+k', cmd: 'app.palette' }, { combo: 'ctrl+p', cmd: 'app.quickopen' },
   { combo: 'ctrl+n', cmd: 'page.new' }, { combo: 'ctrl+s', cmd: 'page.save' },
-  { combo: 'ctrl+\\', cmd: 'app.sidebar' }, { combo: 'ctrl+j', cmd: 'claude.toggle' },
+  { combo: 'ctrl+\\', cmd: 'app.sidebar' },
   { combo: 'ctrl+shift+f', cmd: 'app.search' }, { combo: 'ctrl+,', cmd: 'app.settings' },
   { combo: 'ctrl+shift+l', cmd: 'app.theme' },
   { combo: 'alt+arrowleft', cmd: 'app.back' }, { combo: 'alt+arrowright', cmd: 'app.forward' },

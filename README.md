@@ -1,15 +1,15 @@
 # ose
 
-ose is the desktop editor for a personal file tree. One window: a sidebar with the vault, a page
-column that is either a markdown file in a block editor or a custom view, and a pane that runs
-Claude Code on the same folder. It ships as a single binary placed at the root of the vault, so
-moving the folder moves the editor with it.
+ose is a markdown viewer and editor for a personal file tree. It parses certain files and builds
+a graphical view from them, while leaving every file ordinary prose, so an agent can read and
+edit the same vault with no adapter. One window: a sidebar with the vault, and a page column
+that is either a markdown file in a block editor or one of the views. It ships as a single
+binary placed at the root of the vault, so moving the folder moves the editor with it.
 
 The files are the database. Every page is a plain markdown file on disk, edited in place, with
 line endings and formatting preserved; the editor keeps no index, no cache and no second copy of
-anything. The only state it owns is its own (window bounds, theme, last route, sessions), and
-that lives in a state file inside the vault. There is no sync, no account and no network call
-apart from the Claude CLI's own.
+anything. The only state it owns is its own (window bounds, theme, last route), and that lives
+in a state file inside the vault. There is no sync, no account and no network call.
 
 The web UI is vanilla JavaScript with Vite and Milkdown Crepe. It talks to a host through one
 small bridge API, documented in `CONTRACT.md`, and there are two implementations of that

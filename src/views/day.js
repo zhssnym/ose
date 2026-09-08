@@ -333,8 +333,8 @@ export const day = {
     $('#dyNext').addEventListener('click', () => go(1));
     $('#dyToday').addEventListener('click', () => go(0));
 
-    // the layout follows the main column, not the window: the sidebar and the Claude pane
-    // both change how much room there is.
+    // the layout follows the main column, not the window: the sidebar changes how much room
+    // there is.
     const fit = (w) => { if (root) root.classList.toggle('narrow', w < NARROW); };
     fit(el.clientWidth);              // right on the first paint, before the observer fires
     ro = new ResizeObserver((entries) => fit(entries[0].contentRect.width));

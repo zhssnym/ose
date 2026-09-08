@@ -3,7 +3,7 @@
 //!
 //! Each module exposes
 //! `handle(ctx, cmd, args) -> Option<Result<Value, String>>`, where `None` means "not mine",
-//! and `rpc` tries vault, state, pty, platform in that order.
+//! and `rpc` tries vault, state, platform in that order.
 
 use std::fs::File;
 use std::io::Write;
@@ -16,7 +16,6 @@ use serde_json::Value;
 pub mod args;
 pub mod platform;
 pub mod protocol;
-pub mod pty;
 pub mod state;
 pub mod vault;
 pub mod watcher;
@@ -25,7 +24,6 @@ pub mod watcher;
 pub struct AppState {
     pub root: PathBuf,
     pub log: Option<Mutex<File>>,
-    pub ptys: pty::Ptys,
     pub watcher: Mutex<Option<watcher::Handle>>,
 }
 
@@ -34,13 +32,12 @@ impl AppState {
         Self {
             root,
             log: log.map(Mutex::new),
-            ptys: pty::Ptys::default(),
             watcher: Mutex::new(None),
         }
     }
 }
 
-/// What a module handler gets: the app (for events) and the state (for the root and the ptys).
+/// What a module handler gets: the app (for events) and the state (for the root).
 pub struct Ctx<'a> {
     pub app: &'a tauri::AppHandle,
     pub st: &'a AppState,
@@ -126,9 +123,6 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
-            return log_err(st, &cmd, r);
-        }
-        if let Some(r) = pty::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = platform::handle(&ctx, &cmd, &args) {

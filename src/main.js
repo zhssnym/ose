@@ -6,7 +6,6 @@ import { bridge } from './bridge/index.js';
 import { initShell } from './shell/index.js';
 import { initEditor } from './editor/index.js';
 import { initViews } from './views/index.js';
-import { initClaude } from './claude/index.js';
 
 async function boot() {
   const root = document.getElementById('app');
@@ -19,7 +18,7 @@ async function boot() {
     return;
   }
   await initShell(root);
-  await Promise.all([initEditor(), initViews(), initClaude()]);
+  await Promise.all([initEditor(), initViews()]);
   status.set('mode', 'READY');
   bus.emit('booted');
 }

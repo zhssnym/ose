@@ -5,10 +5,11 @@ If you need something that is not here, add it here first, then implement it.
 
 ## What the app is
 
-A single-window desktop editor for the `D:\os` vault. Pages are markdown files rendered and
-edited in a Notion-style block editor. Views are custom screens (week, habits, journal, tasks)
-built from specific files. A Claude pane runs Claude Code on the vault. Everything is local.
-The host is a .NET WinForms window with a WebView2 control; the UI is a Vite-built static site
+A markdown viewer and editor that parses certain files and builds a graphical interface from
+them, while keeping every file ordinary prose so an agent can read and edit the same vault
+with no adapter. Pages are markdown files in a block editor. Views (day, week, month, journal)
+are screens built from specific files the user names in settings. Everything is local; there is
+no AI surface inside the app (batch 8). The host is Tauri 2; the UI is a Vite-built static site
 embedded in the exe. In development the same UI runs in a normal browser against a Node bridge.
 
 ## Folder layout
@@ -32,7 +33,6 @@ App/
     styles/base.css     reset, scrollbars, canonical components (.btn .input .chip .row ...)
     shell/              layout, titlebar, sidebar, statusbar, palette, settings, router
     editor/             Crepe-based page editor
-    claude/             Claude pane
     views/              week, habits, journal, tasks
     lib/                shared helpers (md parsers, dates, paths)
   legacy/               old dashboard, reference only, never imported
@@ -118,7 +118,6 @@ bridge.on('claude', ({id, event}) => {})   event: a parsed stream-json object fr
 bridge.on('window', ({maximized, focused}) => {})
 
 // claude (Claude Code CLI as a child process)
-bridge.claudeInfo()            -> {path, version} | {path:null}
 bridge.claudeStart({cwd, permissionMode:'acceptEdits'|'bypassPermissions'|'plan'|'default', resume?, model?})
                                -> {id}
 bridge.claudeSend(id, text)    -> void   writes a user message line to stdin
@@ -159,28 +158,6 @@ Vault files are served read-only from `https://vault.os/<path>` via
 `POST /__bridge/<cmd>` with JSON body `{args:[...]}`, reply `{ok, result|error}`.
 Events: `GET /__bridge/events` as Server-Sent Events, each `data:` is `{event, data}`.
 Assets: `GET /vault/<path>`. Root is `process.env.OS_ROOT` or the parent of `App/`.
-
-## Claude Code process
-
-Launched by the host as:
-
-```
-claude -p --output-format stream-json --input-format stream-json --verbose
-       --include-partial-messages --permission-mode <mode> [--resume <id>] [--model <m>]
-```
-
-with `cwd` set, stdin/stdout piped UTF-8, no console window. Each stdout line is JSON and is
-forwarded as a `claude` event unchanged. User turns are written to stdin as
-
-```
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}\n
-```
-
-Interrupt: `{"type":"control_request","request_id":"<uuid>","request":{"subtype":"interrupt"}}`.
-The process stays alive between turns; one process per pane session. Event shapes the pane
-must handle: `system/init` (session_id, model, tools), `stream_event` (partial deltas),
-`assistant` (full message with text and tool_use blocks), `user` (tool_result blocks),
-`result` (cost, duration, is_error), `stderr`, `exit`.
 
 ## Editor contract
 
@@ -225,10 +202,10 @@ back to the exact source line (add/remove `✅ YYYY-MM-DD`).
 ```
 Ctrl+K        command palette         Ctrl+P    open page (fuzzy file search)
 Ctrl+N        new page                Ctrl+S    save now
-Ctrl+\        toggle sidebar          Ctrl+J    toggle Claude pane
+Ctrl+\        toggle sidebar
 Ctrl+Shift+F  search in vault         Alt+Left / Alt+Right   back / forward
 Ctrl+,        settings                Ctrl+Shift+L  toggle theme
-Esc           close palette/menu, or interrupt Claude when the composer is focused
+Esc           close palette/menu
 ```
 
 ## Done means
@@ -248,15 +225,10 @@ export function back() / forward()
 export async function initEditor()                 registers commands (page.new, page.save, page.rename, page.trash, page.reveal ...)
 export async function openPage(el, path) / closePage() / saveNow() / getOpenPath()
 // views/index.js
-export async function initViews()                  registers views 'week' 'habits' 'journal' 'tasks' and their commands
-// claude/index.js
-export async function initClaude()                 registers commands (claude.toggle, claude.new, claude.interrupt ...)
-export function mountClaudePane(el) / unmountClaudePane()
+export async function initViews()                  registers views 'day' 'week' 'month' 'journal' and their commands
 ```
 
-The shell mounts pages with `openPage(mainEl, path)`, views with `views.get(name).mount(mainEl)`,
-and the Claude pane with `mountClaudePane(paneEl)` once, keeping it mounted while toggling
-visibility so a running session survives.
+The shell mounts pages with `openPage(mainEl, path)` and views with `views.get(name).mount(mainEl)`.
 
 ## Additions (2026-09-06, after the first cut)
 
@@ -636,3 +608,25 @@ variables are exported in the shell.
 Before starting the CLI, the host and the dev bridge remove every inherited environment
 variable whose name starts with `CLAUDE` (the app may have been launched from a Claude Code
 session, whose child-session marker disables transcript saving), then set the two above.
+
+## Batch 8 (2026-09-08): the app is an editor
+
+Decision, after two days of use: the integrated Claude pane is removed, and nothing replaces
+it. A terminal inside a web view is strictly worse than a real terminal, and Claude Code is
+run on the vault from outside, where it belongs. Batches 6 and 7 above are history; every
+interface they introduced is gone:
+
+- `src/claude/` is deleted. There is no `initClaude`, no `mountClaudePane`, no Agent view,
+  no `claude.*` command, no `claude` palette group, no `claude` status slot.
+- The bridge has no `claudeInfo` and no `pty*` commands. The host has no `pty.rs`, no
+  `portable-pty`, no Claude binary lookup. The dev bridge has no `node-pty`.
+- The shell body is the sidebar and the page column. `--claude-w/min/max` are gone; the only
+  resizer is the sidebar's. `settings.claudeWidth` and `claude.open/mode` are not read.
+- Ctrl+J is unbound and free.
+- `CLAUDE.md` in the vault remains what makes the vault agent-readable: it is the whole AI
+  integration, and it costs nothing.
+
+What the app is, restated: a markdown viewer and editor that parses certain files and builds a
+GUI from them, while leaving the prose ordinary so an agent can read and edit it too. For that
+to hold, the editor must carry everything a standard markdown editor carries; the batches
+after this one are that work.

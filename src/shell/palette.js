@@ -8,7 +8,7 @@ import { allPages } from './sidebar.js';
 import { icon } from './icons.js';
 import { fuzzy, highlight, pageItems } from './fuzzy.js';
 
-const GROUP_ORDER = ['navigate', 'page', 'view', 'claude', 'app'];
+const GROUP_ORDER = ['navigate', 'page', 'view', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages

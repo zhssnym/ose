@@ -46,7 +46,6 @@ export async function create() {
     listen(name, (e) => fanout({ event: name, data: e.payload }))
       .catch((err) => console.error(`[bridge] listen(${name}) failed`, err));
   forward('fs');
-  forward('pty');
 
   // ---------------------------------------------------------------- window events
   let maximized = false;

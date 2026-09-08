@@ -47,8 +47,7 @@ function renderCrumbs(route) {
 
   let parts;
   if (route.type === 'view') {
-    // The Agent view is a place of its own, not one view among others (CONTRACT.md batch 2).
-    parts = route.name === 'agent' ? [{ text: 'claude', cur: true }] : [{ text: 'view' }, { text: route.name, cur: true }];
+    parts = [{ text: 'view' }, { text: route.name, cur: true }];
   } else {
     // In focus mode the trail starts at the focus folder: everything above it is out of play.
     const focus = getFocus();

@@ -21,8 +21,7 @@ src-tauri/
   src/state.rs            <root>/.ose/state.json get/set (atomic write), window bounds, theme
   src/protocol.rs         `vault` URI scheme serving files read-only from the root with mime types
   src/watcher.rs          notify + 150ms debounce -> event "fs"
-  src/claude.rs           Claude CLI process per session, stdin/stdout threads -> event "claude"; transcripts
-  src/platform.rs         open_external, reveal, claude binary lookup, transcript folder, encoded cwd
+  src/platform.rs         open_external, reveal, platform info
   src/selftest.rs         (optional) helpers for --selftest logging
 src/bridge/tauri.js       the adapter (invoke + listen + window API)
 src/bridge/index.js       picks tauri.js when window.__TAURI_INTERNALS__ exists, else webview.js, else http.js
@@ -42,16 +41,15 @@ async fn rpc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, cmd: Stri
 
 `cmd` is the bridge method name in camelCase exactly as CONTRACT.md lists them: `rootInfo`,
 `tree`, `list`, `stat`, `exists`, `readText`, `writeText`, `appendText`, `writeBinary`, `mkdir`,
-`rename`, `trash`, `search`, `claudeInfo`, `claudeStart`, `claudeSend`, `claudeInterrupt`,
-`claudeStop`, `claudeTranscript`, `openExternal`, `reveal`, `getState`, `setState`, `log`, plus
+`rename`, `trash`, `search`, `openExternal`, `reveal`, `getState`, `setState`, `log`, plus
 `platform` (returns `{os: "windows"|"macos"|"linux", version, exe, root}`). Window commands
 (`winMinimize` ... `winSetTheme`) are NOT routed through rpc: the adapter uses the Tauri window
 API directly. Unknown `cmd` -> `Err("unknown command: <cmd>")`. Every error is a plain string.
 
 Each Rust module exposes `pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>`
-and `main.rs` tries vault, state, claude, platform in that order; `None` means "not mine".
-`Ctx` carries the `AppHandle`, the `Arc<AppState>` (root: PathBuf, log: Option<Mutex<File>>,
-claude sessions map, watcher handle) so modules do not import each other.
+and `lib.rs` tries vault, state, platform in that order; `None` means "not mine".
+`Ctx` carries the `AppHandle` and the `AppState` (root: PathBuf, log: Option<Mutex<File>>,
+watcher handle) so modules do not import each other.
 
 Argument shapes and return shapes are those of CONTRACT.md (the .NET host's `Bridge.cs` and
 `Vault.cs` are the reference implementation; port them, do not redesign). Paths in and out are
@@ -88,22 +86,6 @@ inside the root, GET only, `Content-Type` by extension (png jpg jpeg gif webp sv
 json), 404 otherwise. The adapter's `assetUrl(path)` returns `http://vault.localhost/<encoded>`
 on Windows and `vault://localhost/<encoded>` on macOS and Linux (Tauri's platform rule).
 
-## Claude process
-
-Exactly the argv of CONTRACT.md ("Claude Code process"), `current_dir` = root or the given
-vault-relative cwd, stdin/stdout/stderr piped, no console window on Windows
-(`CREATE_NO_WINDOW`), UTF-8. One thread reads stdout line by line: a line that parses as JSON is
-forwarded verbatim (construct the event JSON by embedding the raw line string, do not
-re-serialise); other lines and stderr lines become `{type:"stderr", text}`; exit becomes
-`{type:"exit", code}`. `claudeStop` kills the process tree (Windows: `taskkill /T /F /PID`;
-unix: kill the process group, spawn with `setsid`/`process_group(0)`). All sessions are killed
-on app exit. Binary lookup: `OSE_CLAUDE` env, then PATH, then `~/.local/bin/claude[.exe]`,
-`/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, `~/.npm-global/bin/claude`; on macOS also
-try `zsh -lc 'command -v claude'` because GUI apps get a minimal PATH. `claudeInfo` runs
-`--version` once and caches. Transcript: `~/.claude/projects/<encoded>/<sessionId>.jsonl` where
-`<encoded>` is the absolute root path with every non-alphanumeric character replaced by `-`;
-return the `user` and `assistant` entries as parsed JSON in order, `[]` if the file is missing.
-
 ## Window
 
 Windows and Linux: `decorations: false`, shadow true, our title bar with drag through the
@@ -120,9 +102,8 @@ monitors. Minimum 720x480.
 
 `os --selftest --root <vault> --log <file>` loads `selftest.html` instead of `index.html`. The
 page imports the bridge facade, runs every command (mutating ones only when
-`<root>/.selftest` exists), reports each as `PASS`/`FAIL` through the `log` command, starts one
-Claude session with permissionMode `default` and a one-word prompt when `claude` is found,
-and finally calls `bridge.win.close()`. CI runs it on both runners against a fake vault
+`<root>/.selftest` exists), reports each as `PASS`/`FAIL` through the `log` command, and
+finally calls `bridge.win.close()`. CI runs it on both runners against a fake vault
 (`ci/fake-vault/` with CLAUDE.md, Inbox.md, a `.selftest` marker, a few md files and a png)
 and fails the job on any FAIL line.
 

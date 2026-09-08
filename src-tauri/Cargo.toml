@@ -28,9 +28,6 @@ trash = "5"
 opener = "0.7"
 percent-encoding = "2"
 base64 = "0.22"
-# One native pty per terminal session: ConPTY on Windows, forkpty on unix.
-portable-pty = "0.9"
-dirs = "5"
 
 [profile.release]
 lto = true

@@ -1,7 +1,6 @@
 // Focus mode: the whole app narrowed to one folder. The pages section is rooted there, pinned
 // and scratch disappear, new pages land inside it, Ctrl+P and Ctrl+F only see paths under it,
-// the breadcrumb starts at it, and the Claude pane uses it as its cwd so that folder's
-// CLAUDE.md applies (CONTRACT.md batch 4).
+// and the breadcrumb starts at it (CONTRACT.md batch 4).
 //
 // State key `focus` (a vault-relative folder path, or null) and store key `focus`. Esc never
 // leaves it: only the `exit` control in the sidebar or the command `app.focus-exit`.

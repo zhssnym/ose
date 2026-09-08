@@ -1,6 +1,6 @@
 // The keyboard map from CONTRACT.md. Bound on window in the capture phase so no module can
-// shadow it. Esc is deliberately not captured unless an overlay is open: the Claude composer
-// uses it to interrupt.
+// shadow it. Esc is deliberately not captured unless an overlay is open: the editor's block
+// selection uses it.
 import { commands } from '../registry.js';
 import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast } from './dialog.js';
 
@@ -10,7 +10,6 @@ export const KEYMAP = [
   { combo: 'ctrl+n', cmd: 'page.new', label: 'Ctrl+N' },
   { combo: 'ctrl+s', cmd: 'page.save', label: 'Ctrl+S' },
   { combo: 'ctrl+\\', cmd: 'app.sidebar', label: 'Ctrl+\\' },
-  { combo: 'ctrl+j', cmd: 'claude.toggle', label: 'Ctrl+J' },
   { combo: 'ctrl+f', cmd: 'app.search', label: 'Ctrl+F' },
   { combo: 'ctrl+shift+f', cmd: 'app.search', label: 'Ctrl+Shift+F' }, // old habit, kept as an alias
   { combo: 'alt+arrowleft', cmd: 'app.back', label: 'Alt+Left' },
@@ -23,8 +22,6 @@ export const KEYMAP = [
 const BY_CMD = new Map();
 for (const k of KEYMAP) if (!BY_CMD.has(k.cmd)) BY_CMD.set(k.cmd, k.label);
 const BY_COMBO = new Map(KEYMAP.map((k) => [k.combo, k]));
-// Chords the shell keeps even while the Claude terminal has focus.
-const TERMINAL_SAFE = new Set(['app.palette', 'app.quickopen', 'app.search', 'app.settings', 'app.theme', 'claude.toggle']);
 
 /** The palette and menus read their hints from here so the map has one source. */
 export function shortcutFor(id) { return BY_CMD.get(id) || null; }
@@ -53,17 +50,13 @@ export function initKeys() {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (overlayCount() > 0) { e.preventDefault(); e.stopPropagation(); closeTopOverlay(); }
-      return; // otherwise fall through: the Claude composer and the sidebar search use Esc
+      return; // otherwise fall through: the editor's block selection uses Esc
     }
 
     const combo = comboOf(e);
     if (!combo) return;
     const entry = BY_COMBO.get(combo);
     if (!entry) return;
-
-    // Inside the Claude terminal every key belongs to the CLI except the app-wide chords
-    // (CONTRACT.md batch 6). Ctrl+J stays mapped: claude.toggle turns it into a newline there.
-    if (e.target && e.target.closest && e.target.closest('.agent-pane') && !TERMINAL_SAFE.has(entry.cmd)) return;
 
     // Never let the browser act on a mapped combo (Ctrl+P print, Ctrl+S save page).
     e.preventDefault();
