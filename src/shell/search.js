@@ -95,7 +95,11 @@ export function openSearch() {
     const h = hits[sel];
     if (!h) return;
     ov.close();
-    Promise.resolve().then(() => navigate({ type: 'page', path: h.path }));
+    // Both bridges number hits from 1 (dev/bridge-plugin.mjs and vault.rs both push `i + 1`),
+    // which is what a route's `line` means (C7); it is passed through unchanged.
+    const route = { type: 'page', path: h.path };
+    if (Number.isInteger(h.line) && h.line > 0) route.line = h.line;
+    Promise.resolve().then(() => navigate(route));
   }
 
   const run = debounce(async () => {

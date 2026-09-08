@@ -1,7 +1,8 @@
 // What every view shares and none of them owns: the period navigation (the ‹ today › group,
-// the keys that drive it, and the hint that says the keys exist) and the loading line an
-// asynchronous region prints while its reads are still out. Nothing here touches the bridge or
-// the shell; it is DOM and timers only, and every function hands back the way to undo itself.
+// the keys that drive it, and the hint that says the keys exist), and the loading line an
+// asynchronous region prints while its reads are still out (lib/loading.js). Nothing here
+// touches the bridge or the shell; it is DOM and timers only, and every function hands back
+// the way to undo itself.
 
 import { esc } from '../registry.js';
 
@@ -59,29 +60,6 @@ export function bindNav(root, { prev, next, today }) {
 
 /* --------------------------------------------------------------- loading */
 
-const DELAY = 150;   // ms a load may take before the region says it is loading
-
-/**
- * Arm the loading line for one region. If the reads are still out after `ms`, the box's content
- * is replaced by one quiet `.empty` line and the box is marked `is-loading` (so a grid can drop
- * its columns while it holds a single line); a load that finishes sooner never shows anything,
- * and the old content stays on screen until the new render replaces it. The returned `stop`
- * cancels the timer, clears the mark, and says whether the line was actually shown, so a caller
- * that decides not to redraw (nothing changed) knows it has to put its content back.
- * Call `stop` before rendering, and again in `finally`; it is idempotent.
- */
-export function loadingLine(box, ms = DELAY) {
-  let fired = false;
-  let timer = box ? setTimeout(() => {
-    timer = null;
-    if (!box.isConnected) return;
-    fired = true;
-    box.classList.add('is-loading');
-    box.innerHTML = '<div class="empty">loading…</div>';
-  }, ms) : null;
-  return () => {
-    if (timer) { clearTimeout(timer); timer = null; }
-    if (box) box.classList.remove('is-loading');
-    return fired;
-  };
-}
+// The loading line moved to lib/loading.js so the router prints the same one while a page
+// mounts (D9). Re-exported here because this is where the views import it from.
+export { loadingLine } from '../lib/loading.js';

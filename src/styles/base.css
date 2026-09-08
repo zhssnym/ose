@@ -1,5 +1,7 @@
 /* os editor: reset, scrollbars, and the canonical components from DESIGN.md.
-   Modules use these classes; they do not redefine them. */
+   Modules use these classes; they do not redefine them. Every padding, margin and gap is a
+   step of the spacing scale in tokens.css (DESIGN.md "Space"); the geometry that is not
+   spacing (a 16px icon, a 12px scrollbar, a 2px bar) is written as the number it is. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -39,18 +41,25 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 /* type helpers */
 .mono { font-family: var(--font-mono); font-size: var(--fs-chrome); }
 .mono-sm { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
-.label {
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
-}
 .muted { color: var(--fg-2); }
 .faint { color: var(--fg-3); }
 .title-font { font-family: var(--font-title); }
 
+/* One section label (E3). `.section-label` is the component, with the horizontal inset a
+   panel needs; `.label` is the same thing flush with the text around it, for a page column
+   or a dialog body that already has an inset of its own. The top padding is the gap above a
+   section everywhere, so no view carries a margin of its own to space one. */
+.section-label, .label {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+  padding: var(--sp-4) var(--sp-3) var(--sp-1);
+}
+.label { padding-left: 0; padding-right: 0; }
+
 /* button */
 .btn {
-  height: var(--ctl-h); padding: 0 10px;
-  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--ctl-h); padding: 0 var(--sp-3);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
   background: var(--bg); color: var(--fg);
   border: 1px solid var(--border); border-radius: var(--radius);
   font-family: var(--font-mono); font-size: var(--fs-chrome);
@@ -67,12 +76,12 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.ghost:hover { background: var(--bg-3); }
 .btn.icon { width: var(--ctl-h); padding: 0; justify-content: center; }
-.btn.sm { height: 22px; padding: 0 6px; font-size: var(--fs-chrome-sm); }
+.btn.sm { height: 22px; padding: 0 var(--sp-2); font-size: var(--fs-chrome-sm); }
 .btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* input */
 .input {
-  height: var(--ctl-h); padding: 0 8px; width: 100%;
+  height: var(--ctl-h); padding: 0 var(--sp-2); width: 100%;
   background: var(--bg); color: var(--fg);
   border: 1px solid var(--border); border-radius: var(--radius);
   font-family: var(--font-ui); font-size: var(--fs-ui);
@@ -81,13 +90,13 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 }
 .input::placeholder { color: var(--fg-3); }
 .input:focus { border-color: var(--accent); outline: none; }
-textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 1.5; }
+textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-height: 1.5; }
 .input.mono { font-family: var(--font-mono); font-size: var(--fs-chrome); }
 
 /* chip */
 .chip {
-  height: 20px; padding: 0 6px;
-  display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 var(--sp-2);
+  display: inline-flex; align-items: center; gap: var(--sp-1);
   background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
   white-space: nowrap;
@@ -98,10 +107,12 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
 .chip.err { background: var(--err-soft); border-color: transparent; color: var(--err-ink); }
 .chip.info { background: var(--info-soft); border-color: transparent; color: var(--info); }
 
-/* list row */
+/* list row. The 2px left border is the current-row bar; the left padding is what puts the
+   text at --sp-3 from the edge of the row once that bar is counted. The sidebar and the
+   start surface both lean on that number (shell.css .sb-row, .start-row). */
 .row {
-  height: var(--row-h); padding: 0 8px 0 10px;
-  display: flex; align-items: center; gap: 8px;
+  height: var(--row-h); padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
+  display: flex; align-items: center; gap: var(--sp-2);
   color: var(--fg); font-size: var(--fs-ui);
   border-left: 2px solid transparent;
   white-space: nowrap; overflow: hidden;
@@ -114,17 +125,10 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
 .row svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--fg-3); }
 .row .hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
 
-/* section label */
-.section-label {
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
-  padding: 16px 12px 4px;
-}
-
-/* panel header */
+/* panel header: one bar height for every bar with a label in it (E2) */
 .panel-head {
-  height: var(--panelhead-h); padding: 0 8px 0 12px;
-  display: flex; align-items: center; gap: 8px;
+  height: var(--panelhead-h); padding: 0 var(--sp-2) 0 var(--sp-3);
+  display: flex; align-items: center; gap: var(--sp-2);
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono); font-size: var(--fs-chrome);
   flex: none;
@@ -151,7 +155,7 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
 /* kbd */
 .kbd {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  padding: 0 4px; height: 18px; display: inline-flex; align-items: center;
+  padding: 0 var(--sp-1); height: 18px; display: inline-flex; align-items: center;
   border: 1px solid var(--border); border-bottom-width: 2px; border-radius: var(--radius);
   color: var(--fg-2); background: var(--bg);
 }
@@ -166,10 +170,10 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
 [data-tip] { position: relative; }
 [data-tip]::after {
   content: attr(data-tip);
-  position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+  position: absolute; left: 50%; top: calc(100% + var(--sp-2)); transform: translateX(-50%);
   background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); white-space: nowrap;
-  padding: 2px 6px; border-radius: var(--radius);
+  padding: var(--sp-half) var(--sp-2); border-radius: var(--radius);
   opacity: 0; pointer-events: none; transition: opacity var(--t-fast) 300ms; z-index: 50;
 }
 [data-tip]:hover::after { opacity: 1; }
@@ -177,24 +181,25 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
 /* empty state */
 .empty {
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
-  text-align: center; padding: 48px 16px;
+  text-align: center; padding: var(--sp-7) var(--sp-4);
 }
 
-/* page column shared by editor and views */
+/* page column shared by editor and views. The bottom air is twice the top air: room to
+   scroll the last line up into the middle of the window. */
 .page-col {
   max-width: calc(var(--page-w) + var(--page-pad-x) * 2);
-  margin: 0 auto; padding: var(--page-pad-top) var(--page-pad-x) 160px;
+  margin: 0 auto; padding: var(--page-pad-top) var(--page-pad-x) calc(2 * var(--page-pad-top));
 }
 .page-title {
   font-family: var(--font-title); font-size: var(--fs-title); font-weight: 400;
-  line-height: 1.2; margin: 0 0 24px; color: var(--fg); letter-spacing: -.01em;
+  line-height: 1.2; margin: 0 0 var(--sp-5); color: var(--fg); letter-spacing: -.01em;
 }
 .page-meta {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  margin: -16px 0 24px; display: flex; gap: 12px; flex-wrap: wrap;
+  margin: calc(-1 * var(--sp-4)) 0 var(--sp-5); display: flex; gap: var(--sp-3); flex-wrap: wrap;
 }
 
 /* generic data table */
 .table { border-collapse: collapse; width: 100%; font-size: var(--fs-ui); }
-.table th, .table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.table th, .table td { border: 1px solid var(--border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
 .table th { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); background: var(--bg-2); font-weight: 400; }

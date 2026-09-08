@@ -2,6 +2,8 @@
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
+// Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
+// every move, however it was made, rewrites the links that pointed at what moved (C13).
 import { bus, store, commands, views, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { icon, hasIcon } from './icons.js';
@@ -11,6 +13,7 @@ import { prompt, confirm, contextMenu, pickFolder, toast, copyText, focusOrigin,
 import { shortcutFor } from './keys.js';
 import { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder } from './focus.js';
 import { getSource } from '../lib/sources.js';
+import { rewriteInboundMany } from '../lib/links.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isHiddenName, segments } from './paths.js';
 
 let el = null, scrollEl = null;
@@ -21,6 +24,11 @@ let pins = [];
 let roving = null;
 // Set by a rename or move so the next render puts focus on the row's new name (B4).
 let focusAfterRender = null;
+// The multi-selection (C17): tree paths, never pins or views. Empty means the focused row is
+// the only target, as before; two or more and the tree commands act on all of them. `anchor`
+// is the row a Shift-range grows from, set by every plain click or arrow.
+let selected = new Set();
+let anchor = null;
 
 const ARCHIVE = '_Archive';
 
@@ -115,6 +123,24 @@ function unpin(path) {
   render();
 }
 
+/** A selection pinned or unpinned in one go (C17): one persist, one render. */
+function pinMany(paths) {
+  const add = paths.map(clean).filter((p) => p && !pins.includes(p));
+  if (!add.length) return;
+  pins.push(...add);
+  persistPins();
+  render();
+}
+
+function unpinMany(paths) {
+  const drop = new Set(paths.map(clean));
+  const before = pins.length;
+  pins = pins.filter((p) => !drop.has(p));
+  if (pins.length === before) return;
+  persistPins();
+  render();
+}
+
 /** Follow a rename or a move: a pinned path, and anything under it, keeps its pin. */
 function repinMoved(from, to) {
   let changed = false;
@@ -148,6 +174,7 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
+  if (data.path && data.pin !== '1' && selected.has(data.path)) b.classList.add('selected');
   b.style.setProperty('--d', depth);
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
   if (data.path) b.draggable = true; // moves within the vault; see the drag and drop section
@@ -351,6 +378,9 @@ function renderTree() {
   scrollEl.textContent = '';
   scrollEl.appendChild(frag);
   scrollEl.scrollTop = keep;
+  // A selected row that is no longer drawn (its folder collapsed, the file gone) is no longer
+  // selected: a batch must never act on something the user cannot see.
+  pruneSelection();
 
   const renamed = rowByKey(focusAfterRender);
   focusAfterRender = null;
@@ -429,6 +459,60 @@ export function focusTree() {
   focusRow(rovingRow());
 }
 
+/* -------------------------------------------------------------- selection (C17) */
+
+/** The rows that can be part of a selection: tree rows with a path, so no pins and no views. */
+function selectableRows() {
+  return treeRows().filter((r) => r.dataset.path !== undefined && r.dataset.pin !== '1');
+}
+const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.pin !== '1';
+
+function paintSelection() {
+  for (const r of selectableRows()) r.classList.toggle('selected', selected.has(r.dataset.path));
+}
+
+function pruneSelection() {
+  if (!selected.size) return;
+  const visible = new Set(selectableRows().map((r) => r.dataset.path));
+  for (const p of [...selected]) if (!visible.has(p)) selected.delete(p);
+}
+
+function clearSelection() {
+  if (!selected.size) return;
+  selected.clear();
+  paintSelection();
+}
+
+function toggleSelected(row) {
+  const p = row.dataset.path;
+  if (selected.has(p)) selected.delete(p); else selected.add(p);
+  paintSelection();
+}
+
+/** Select exactly the visible rows between the anchor and `row`, both included. */
+function selectRange(row) {
+  const rows = selectableRows();
+  const b = rows.indexOf(row);
+  if (b < 0) return;
+  const a0 = rows.indexOf(rowByKey(anchor));
+  const a = a0 < 0 ? b : a0;
+  selected = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((r) => r.dataset.path));
+  paintSelection();
+}
+
+/**
+ * What a tree command acts on when its target is one of several selected rows: every
+ * selected row, in tree order, as `{ path, kind }`. Null when the target is not part of a
+ * selection of two or more, in which case the command keeps its single-target behaviour.
+ */
+function batchFor(t) {
+  if (!t || !t.path || selected.size < 2 || !selected.has(t.path)) return null;
+  return selectableRows().filter((r) => selected.has(r.dataset.path)).map((r) => ({ path: r.dataset.path, kind: r.dataset.kind }));
+}
+
+/** The one thing every batch command needs to know before it starts: how many, and of what. */
+const countOf = (items) => `${items.length} item${items.length === 1 ? '' : 's'}`;
+
 /** Expand or collapse a tree folder row. Pinned folders reveal instead (they are shortcuts, not tree nodes). */
 function toggleDir(row) {
   const path = row.dataset.path;
@@ -472,7 +556,8 @@ function typeAhead(list, at, ch) {
  * The tree's keys (D1), bound on `.sb-scroll` so they only run while a row has focus. Chords
  * with a modifier are the shell's (keys.js has already stopped the mapped ones) and never
  * type-ahead. Up/Down move focus only: nothing opens until Enter, so browsing the tree never
- * churns the editor (B3).
+ * churns the editor (B3). Shift+Up/Down grow the selection from the anchor (C17); a plain
+ * move drops it and moves the anchor, so the selection never trails a user who has moved on.
  */
 function onTreeKey(e) {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -487,7 +572,8 @@ function onTreeKey(e) {
   }
   const at = list.indexOf(row);
   const isDir = row.dataset.kind === 'dir';
-  const inTree = row.dataset.path !== undefined && row.dataset.pin !== '1';
+  const inTree = isSelectable(row);
+  const target = row.dataset.path !== undefined ? { path: row.dataset.path, kind: row.dataset.kind } : null;
   const k = e.key;
   let next = null;
 
@@ -510,14 +596,32 @@ function onTreeKey(e) {
     if (!next) return;
   } else if (k === 'Enter') { e.preventDefault(); activateRow(row); return; }
   else if (k === ' ') { e.preventDefault(); if (isDir) toggleDir(row); return; }
-  else if (k === 'F2') { if (!row.dataset.path) return; e.preventDefault(); void renameAt(row.dataset.path, row.dataset.kind); return; }
-  else if (k === 'Delete') { if (!row.dataset.path) return; e.preventDefault(); void trashAt(row.dataset.path, row.dataset.kind); return; }
-  else if (k === 'Escape') { e.preventDefault(); focusMain(); return; }
+  else if (k === 'F2') { if (!target) return; e.preventDefault(); void renameAt(target.path, target.kind); return; }
+  else if (k === 'Delete') { if (!target) return; e.preventDefault(); void trashAt(batchFor(target) || [target]); return; }
+  else if (k === 'Escape') {
+    // A selection goes first; the page gets focus on the next Esc, so neither is lost.
+    e.preventDefault();
+    if (selected.size) { clearSelection(); return; }
+    focusMain();
+    return;
+  }
   else if (k.length === 1 && k !== ' ') { next = typeAhead(list, at, k); if (!next) return; }
   else return;
 
   e.preventDefault();
-  if (next && next !== row) focusRow(next);
+  if (!next) return;
+  // Shift + a vertical move extends the range from the anchor to where focus lands; a move
+  // without it is a single row again. Only tree rows can be selected, so a range that runs
+  // into the views or the pins simply skips them.
+  if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (inTree || isSelectable(next))) {
+    if (!anchor || !rowByKey(anchor)) anchor = rowKey(row);
+    if (isSelectable(next)) selectRange(next);
+    if (next !== row) focusRow(next);
+    return;
+  }
+  clearSelection();
+  anchor = rowKey(next);
+  if (next !== row) focusRow(next);
 }
 
 function scrollToCurrent() {
@@ -584,20 +688,70 @@ async function newFolderIn(folder) {
   } catch (e) { toast('could not create folder: ' + (e.message || e), 'err'); }
 }
 
-/** Shared tail of rename and move: keep expansion, pins and the open page pointing at `to`. */
-async function afterMove(from, to) {
-  if (expanded.delete(from)) expanded.add(to);
-  repinMoved(from, to);
-  persistExpanded();
-  // The row the user was on has a new name; the next render focuses it there (B4, D1).
-  if (roving === 'path:' + from) focusAfterRender = 'path:' + to;
-  else if (roving === 'pin:' + from) focusAfterRender = 'pin:' + to;
-  const r = currentRoute();
-  if (r && r.type === 'page') {
-    if (r.path === from) { await refreshTree(); await navigate({ type: 'page', path: to }, { replace: true, force: true }); return; }
-    if (r.path.startsWith(from + '/')) { await refreshTree(); await navigate({ type: 'page', path: to + r.path.slice(from.length) }, { replace: true, force: true }); return; }
+/**
+ * The from/to pairs a move produces for the link rewrite (C13): the path itself, and for a
+ * folder every file under it as well, since a link into a moved folder names one of its
+ * files. Read from the tree before `bridge.rename` runs, because the fs event that follows
+ * replaces the tree and the old folder is not in the new one.
+ */
+function filePairs(from, to) {
+  const out = [{ from, to }];
+  const node = findNode(from);
+  if (!node || node.kind !== 'dir') return out;
+  const walk = (n) => {
+    for (const c of n.children || []) {
+      if (c.kind === 'dir') walk(c); else out.push({ from: c.path, to: to + c.path.slice(from.length) });
+    }
+  };
+  walk(node);
+  return out;
+}
+
+const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null);
+
+/**
+ * Shared tail of rename, move-to and drag, for one move or many: keep expansion, pins, the
+ * selection and the open page pointing at the new paths, then rewrite every link into what
+ * moved (C13) and say what happened in one toast: "moved to X · 3 links in 2 pages updated",
+ * or just the verb when nothing linked there. A file whose links could not be written is
+ * named in its own toast; the move itself has already happened and is not undone for it.
+ * `moves` is [{ from, to, pairs }], `pairs` from filePairs taken before the rename.
+ */
+async function afterMoves(moves, verb) {
+  for (const m of moves) {
+    for (const p of [...expanded]) { const n = followMove(p, m.from, m.to); if (n) { expanded.delete(p); expanded.add(n); } }
+    repinMoved(m.from, m.to);
+    // The row the user was on has a new name; the next render focuses it there (B4, D1).
+    if (roving === 'path:' + m.from) focusAfterRender = 'path:' + m.to;
+    else if (roving === 'pin:' + m.from) focusAfterRender = 'pin:' + m.to;
   }
+  persistExpanded();
+  if (selected.size) {
+    const next = new Set();
+    for (const p of selected) {
+      let moved = null;
+      for (const m of moves) { moved = followMove(p, m.from, m.to); if (moved) break; }
+      next.add(moved || p);
+    }
+    selected = next;
+  }
+
+  const r = currentRoute();
+  let reopen = null;
+  if (r && r.type === 'page') for (const m of moves) { reopen = followMove(r.path, m.from, m.to); if (reopen) break; }
   await refreshTree();
+  if (reopen) await navigate({ type: 'page', path: reopen }, { replace: true, force: true });
+
+  let res = { files: 0, links: 0, failed: [] };
+  try {
+    res = await rewriteInboundMany(moves.flatMap((m) => m.pairs || [{ from: m.from, to: m.to }]));
+  } catch (e) {
+    console.error('[shell] links', e);
+    toast('links not updated: ' + (e.message || e), 'err');
+  }
+  const n = res.links, f = res.files;
+  toast(verb + (n ? ` · ${n} link${n === 1 ? '' : 's'} in ${f} page${f === 1 ? '' : 's'} updated` : ''), 'info', 2600);
+  for (const p of res.failed) toast('could not update links in ' + p, 'err');
 }
 
 /**
@@ -622,32 +776,58 @@ async function renameAt(path, kind) {
   if (to === path) return;
   try {
     if (await bridge.exists(to)) { toast(safe + ' already exists here', 'err'); return; }
+    const pairs = filePairs(path, to);
     await bridge.rename(path, to);
-    await afterMove(path, to);
+    await afterMoves([{ from: path, to, pairs }], 'renamed');
   } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); }
 }
 
-/** Move a file to another folder: pick a destination, then bridge.rename. */
-async function moveTo(path) {
-  const from = clean(path);
-  const dir = dirName(from);
-  const dest = await pickFolder({ title: 'Move ' + baseName(from) + ' to…', current: dir });
-  if (dest === null) return;
-  const to = join(dest, baseName(from));
-  if (to === from) return;
-  try {
-    if (await bridge.exists(to)) { toast(baseName(from) + ' already exists in ' + (dest || 'the vault root'), 'err'); return; }
-    await bridge.rename(from, to);
-    if (dest) { expanded.add(dest); expandAncestors(to); }
-    await afterMove(from, to);
-    toast('moved to ' + (dest || 'vault root'), 'info', 2200);
-  } catch (e) { toast('move failed: ' + (e.message || e), 'err'); }
+/**
+ * Move `items` ([{ path }]) into the folder `dest`, one bridge.rename each, then one shared
+ * tail: one tree refresh, one link pass, one toast. An item that cannot go there (into itself,
+ * or where it already is) is skipped; one that would overwrite a file is skipped and said.
+ */
+async function moveMany(items, dest) {
+  const target = clean(dest);
+  const moves = [];
+  for (const it of items) {
+    const src = clean(it.path);
+    if (!canDropInto(src, target)) continue;
+    const to = join(target, baseName(src));
+    try {
+      if (await bridge.exists(to)) { toast(baseName(src) + ' already exists in ' + (target || 'the vault root'), 'err'); continue; }
+      const pairs = filePairs(src, to);
+      await bridge.rename(src, to);
+      moves.push({ from: src, to, pairs });
+    } catch (e) { toast('move failed: ' + (e.message || e), 'err'); }
+  }
+  if (!moves.length) return;
+  if (target) { expanded.add(target); for (const m of moves) expandAncestors(m.to); }
+  await afterMoves(moves, 'moved to ' + (target || 'vault root'));
 }
 
-async function trashAt(path, kind) {
+/** Move to…: pick a destination for one item or a selection, then moveMany. */
+async function moveTo(items) {
+  const list = Array.isArray(items) ? items : [items];
+  if (!list.length) return;
+  const first = clean(list[0].path);
+  const title = list.length === 1 ? 'Move ' + baseName(first) + ' to…' : `Move ${countOf(list)} to…`;
+  // A single folder cannot be offered its own subtree; several items are checked one by one.
+  const dest = await pickFolder({ title, current: dirName(first), hide: list.length === 1 && list[0].kind === 'dir' ? first : null });
+  if (dest === null) return;
+  await moveMany(list, dest);
+}
+
+/** Trash one item or a selection: one confirm naming what goes, then one refresh. */
+async function trashAt(items) {
+  const list = Array.isArray(items) ? items : [items];
+  if (!list.length) return;
+  const one = list.length === 1 ? list[0] : null;
   const ok = await confirm({
-    title: kind === 'dir' ? 'Move Folder to Trash' : 'Move Page to Trash',
-    body: `${path} goes to the Recycle Bin. Nothing is deleted permanently.`,
+    title: one ? (one.kind === 'dir' ? 'Move Folder to Trash' : 'Move Page to Trash') : `Move ${countOf(list)} to Trash`,
+    body: one
+      ? `${one.path} goes to the Recycle Bin. Nothing is deleted permanently.`
+      : `${countOf(list)} go to the Recycle Bin: ${list.map((it) => baseName(it.path)).join(', ')}. Nothing is deleted permanently.`,
     ok: 'Move to Trash', danger: true,
   });
   if (!ok) return;
@@ -655,15 +835,20 @@ async function trashAt(path, kind) {
   // that takes the gap (B4 does that in render). Trashed from the page: the empty surface
   // takes it, the way any other open does.
   const fromTree = !!(scrollEl && scrollEl.contains(focusOrigin()));
-  try {
-    await bridge.trash(path);
-    expanded.delete(path);
-    dropPinsUnder(path);
-    const r = currentRoute();
-    const hit = r && r.type === 'page' && (r.path === path || r.path.startsWith(path + '/'));
-    await refreshTree();
-    if (hit) await clearRoute({ focus: !fromTree });
-  } catch (e) { toast('trash failed: ' + (e.message || e), 'err'); }
+  let hit = false;
+  const r = currentRoute();
+  for (const it of list) {
+    const path = clean(it.path);
+    try {
+      await bridge.trash(path);
+      expanded.delete(path);
+      dropPinsUnder(path);
+      selected.delete(path);
+      if (r && r.type === 'page' && followMove(r.path, path, path)) hit = true;
+    } catch (e) { toast('trash failed: ' + (e.message || e), 'err'); }
+  }
+  await refreshTree();
+  if (hit) await clearRoute({ focus: !fromTree });
 }
 
 /** Expand the tree down to a folder and bring it into view. No navigation. */
@@ -691,14 +876,22 @@ export async function openFolder(path) {
 
 /* ------------------------------------------------------------- drag and drop */
 
-// Internal drags carry the vault path in a private type; `dragPath` mirrors it because
-// dataTransfer.getData is unreadable during dragover, and the self/descendant guard has to
-// run there to decide whether the row may light up at all.
+// Internal drags carry the vault paths (a JSON list: a selection drags together, C17) in a
+// private type; `dragPaths` mirrors it because dataTransfer.getData is unreadable during
+// dragover, and the self/descendant guard has to run there, for every item, to decide
+// whether the row may light up at all.
 const DRAG_TYPE = 'application/x-os-path';
 const TEXT_IMPORT = new Set(['md', 'txt']);
 
-let dragPath = null;
+let dragPaths = null;
 let dropEl = null;
+
+/** The list an internal payload holds. A bare path (an older build's payload) is a list of one. */
+function parseDrag(data) {
+  if (!data) return null;
+  try { const v = JSON.parse(data); if (Array.isArray(v)) return v.map(clean).filter(Boolean); } catch { /* not JSON: a bare path */ }
+  return [clean(data)].filter(Boolean);
+}
 
 /** A folder row (tree or pin) or a section label that stands for a folder. */
 function dropTargetOf(node) {
@@ -724,20 +917,7 @@ function setDropEl(node) {
   if (dropEl) dropEl.classList.add('drop-on');
 }
 
-function endDrag() { dragPath = null; setDropEl(null); }
-
-async function moveInto(from, dir) {
-  const src = clean(from), target = clean(dir);
-  if (!canDropInto(src, target)) return;
-  const to = join(target, baseName(src));
-  try {
-    if (await bridge.exists(to)) { toast(baseName(src) + ' already exists in ' + (target || 'the vault root'), 'err'); return; }
-    await bridge.rename(src, to);
-    if (target) { expanded.add(target); expandAncestors(to); }
-    await afterMove(src, to);
-    toast('moved to ' + (target || 'vault root'), 'info', 2200);
-  } catch (e) { toast('move failed: ' + (e.message || e), 'err'); }
-}
+function endDrag() { dragPaths = null; setDropEl(null); }
 
 /** `<dir>/name.ext`, numbered when taken, so an import never overwrites a vault file. */
 async function freeName(dir, name) {
@@ -782,21 +962,24 @@ function bindDnd(host) {
   host.addEventListener('dragstart', (e) => {
     const row = e.target.closest('.sb-row[data-path]');
     if (!row) { e.preventDefault(); return; }
-    dragPath = row.dataset.path;
+    // A row inside a selection of several drags the whole selection; any other row, itself.
+    const batch = batchFor({ path: row.dataset.path, kind: row.dataset.kind });
+    dragPaths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(DRAG_TYPE, dragPath);
-    e.dataTransfer.setData('text/plain', dragPath);
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(dragPaths));
+    e.dataTransfer.setData('text/plain', dragPaths.join('\n'));
   });
 
   host.addEventListener('dragend', endDrag);
 
   host.addEventListener('dragover', (e) => {
     const types = e.dataTransfer ? [...e.dataTransfer.types] : [];
-    const internal = !!dragPath || types.includes(DRAG_TYPE);
+    const internal = !!dragPaths || types.includes(DRAG_TYPE);
     const external = types.includes('Files');
     if (!internal && !external) { setDropEl(null); return; }
     const t = dropTargetOf(e.target);
-    if (!t || (internal && !canDropInto(dragPath, t.dir))) {
+    // Every dragged item has to be able to land there, or the folder does not light up.
+    if (!t || (internal && !(dragPaths || []).every((p) => canDropInto(p, t.dir)))) {
       setDropEl(null);
       e.preventDefault();                       // still ours: no browser navigation
       e.dataTransfer.dropEffect = 'none';
@@ -814,11 +997,11 @@ function bindDnd(host) {
   host.addEventListener('drop', (e) => {
     e.preventDefault();
     const t = dropTargetOf(e.target);
-    const from = dragPath || (e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
+    const from = dragPaths || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
     const files = e.dataTransfer ? e.dataTransfer.files : null;
     endDrag();
     if (!t) return;
-    if (from) void moveInto(from, t.dir);
+    if (from && from.length) void moveMany(from.map((p) => ({ path: p })), t.dir);
     else if (files && files.length) void importFiles(files, t.dir);
   });
 }
@@ -864,22 +1047,28 @@ const reveal = (path) => bridge.reveal(path).catch((e) => toast(e.message || e, 
 // from these entries (label, icon, shortcut all come from the registered command) and each
 // entry's `applies(target)` decides both the palette's `when` and the menu's rows. The
 // commands take an explicit target from the menu (the row under the pointer, which right-click
-// never focuses) and fall back to `treeTarget()` from the palette or a chord.
+// never focuses) and fall back to `treeTarget()` from the palette or a chord. Pin, unpin,
+// move and trash act on the whole selection when the target is part of one (C17, batchFor);
+// the rest are one-row verbs and never see a selection.
 const TREE_COMMANDS = [
   { id: 'tree.new-page', title: 'New page here', icon: 'plus', group: 'tree',
     applies: () => true, run: (t) => void newPageIn(folderOf(t)) },
   { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'tree',
     applies: () => true, run: (t) => void newFolderIn(folderOf(t)) },
   { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && !isPinned(t.path), run: (t) => pin(t.path) },
+    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => !isPinned(it.path)),
+    run: (t) => { const b = batchFor(t); if (b) pinMany(b.map((it) => it.path)); else pin(t.path); } },
   { id: 'tree.unpin', title: 'Unpin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && isPinned(t.path), run: (t) => unpin(t.path) },
+    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => isPinned(it.path)),
+    run: (t) => { const b = batchFor(t); if (b) unpinMany(b.map((it) => it.path)); else unpin(t.path); } },
   { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
     applies: (t) => !!t.path && t.kind === 'dir' && getFocus() !== t.path, run: (t) => setFocus(t.path) },
   { id: 'tree.rename', title: 'Rename…', icon: 'rename', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void renameAt(t.path, t.kind) },
+  // A lone folder is not offered Move to… (it drags); a selection may hold folders, and each
+  // is checked against the destination when it lands.
   { id: 'tree.move', title: 'Move to…', icon: 'folder', group: 'tree',
-    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void moveTo(t.path) },
+    applies: (t) => !!t.path && (t.kind !== 'dir' || !!batchFor(t)), run: (t) => void moveTo(batchFor(t) || [t]) },
   { id: 'tree.copy-path', title: 'Copy path', icon: 'copy', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
@@ -887,7 +1076,7 @@ const TREE_COMMANDS = [
   { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
     applies: () => true, run: (t) => void reveal(t.path) },
   { id: 'tree.trash', title: 'Move to trash', icon: 'trash', group: 'tree', danger: true,
-    applies: (t) => !!t.path, run: (t) => void trashAt(t.path, t.kind) },
+    applies: (t) => !!t.path, run: (t) => void trashAt(batchFor(t) || [t]) },
 ];
 
 function registerTreeCommands() {
@@ -941,6 +1130,24 @@ function menuFor(path, kind) {
   return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
 }
 
+// The menu for a row inside a selection of several (C17): only what makes sense for many.
+// No rename, no focus, no copy: those are one-row verbs. Labels carry the count so the user
+// knows the menu is for the selection, not the row under the pointer.
+const MULTI_MENU = ['tree.pin', 'tree.unpin', 'tree.move', null, 'tree.trash'];
+
+function multiMenu(batch) {
+  const target = batch[0];
+  const items = [];
+  for (const id of MULTI_MENU) {
+    if (id === null) { items.push({ sep: true }); continue; }
+    const local = TREE_COMMANDS.find((x) => x.id === id);
+    if (!local || !local.applies(target)) continue;
+    const it = menuItem(id, target, `${local.title} (${batch.length})`);
+    if (it) items.push(it);
+  }
+  return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+}
+
 /** Right-click on the empty space under the tree: create in scratch, or in the focus folder. */
 function emptyMenu() {
   const dir = getFocus() || scratchFolder();
@@ -966,24 +1173,46 @@ export function initSidebar(node) {
   if (Array.isArray(savedPins)) pins = savedPins.filter((p) => typeof p === 'string' && p).map(clean);
 
   // A click and Enter do the same thing (activateRow); the clicked row also becomes the tab
-  // stop, so Tab back into the sidebar returns to where the mouse left off (D2).
+  // stop, so Tab back into the sidebar returns to where the mouse left off (D2). Ctrl+click
+  // toggles a tree row in the selection and Shift+click selects the run from the anchor to
+  // it, neither of which opens anything (C17); a plain click is a single row again.
   scrollEl.addEventListener('click', (e) => {
     const row = e.target.closest('.sb-row, .sb-missing');
     if (!row) return;
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
     if (e.detail === 0) return;
+    if (isSelectable(row) && (e.ctrlKey || e.metaKey)) {
+      toggleSelected(row);
+      anchor = rowKey(row);
+      focusRow(row);
+      return;
+    }
+    if (isSelectable(row) && e.shiftKey) {
+      if (!anchor || !rowByKey(anchor)) anchor = roving;
+      selectRange(row);
+      focusRow(row);
+      return;
+    }
+    clearSelection();
+    anchor = rowKey(row);
     setRoving(row);
     activateRow(row);
   });
 
   scrollEl.addEventListener('keydown', onTreeKey);
 
+  // Right-click inside a selection of several opens the menu for all of them; outside it,
+  // the selection is dropped first, so the menu is never about rows other than the one
+  // under the pointer.
   scrollEl.addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
-    if (row) contextMenu(e.clientX, e.clientY, menuFor(row.dataset.path, row.dataset.kind));
-    else contextMenu(e.clientX, e.clientY, emptyMenu());
+    if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
+    const target = { path: row.dataset.path, kind: row.dataset.kind };
+    const batch = isSelectable(row) ? batchFor(target) : null;
+    if (!batch && isSelectable(row)) clearSelection();
+    contextMenu(e.clientX, e.clientY, batch ? multiMenu(batch) : menuFor(row.dataset.path, row.dataset.kind));
   });
 
   bindDnd(scrollEl);

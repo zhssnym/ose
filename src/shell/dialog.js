@@ -139,7 +139,7 @@ function bindMenuKeys(box) {
 function dialogShell(box, { title, danger }) {
   box.classList.add('dlg');
   box.innerHTML = `
-    <div class="dlg-head label">${esc(title || '')}</div>
+    <div class="dlg-head">${esc(title || '')}</div>
     <div class="dlg-body"></div>
     <div class="dlg-foot">
       <button class="btn" data-act="cancel">Cancel</button>

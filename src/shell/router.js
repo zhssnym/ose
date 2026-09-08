@@ -1,4 +1,6 @@
-// Router. Two route shapes: {type:'page', path} and {type:'view', name}.
+// Router. Two route shapes: {type:'page', path, line?} and {type:'view', name}. `line` is a
+// 1-based line of the file to land on (C7): a search hit, a task row. It is carried, never
+// part of a route's identity, so two routes to one page are the same page.
 // Owns the teardown/mount cycle for the main column, the back/forward stack, the 'route'
 // event, and the recent-files list the quick-open palette reads.
 import { bus, store, status, views, debounce, esc } from '../registry.js';
@@ -8,6 +10,7 @@ import { patchState, stateCache, flushState } from './state.js';
 import { titleOf, clean, dirName } from './paths.js';
 import { toast } from './dialog.js';
 import { shortcutFor } from './keys.js';
+import { loadingOverlay } from '../lib/loading.js';
 
 const MAX_RECENT = 40;
 // How many recent pages the empty surface lists (D7). Enough to find yesterday, not a dashboard.
@@ -36,7 +39,12 @@ export function routeLabel(r) {
 
 function normalize(route) {
   if (!route || typeof route !== 'object') return null;
-  if (route.type === 'page' && route.path) return { type: 'page', path: clean(route.path) };
+  if (route.type === 'page' && route.path) {
+    const r = { type: 'page', path: clean(route.path) };
+    // Only a real line survives: a 0, a float or a string would make the editor guess (C7).
+    if (Number.isInteger(route.line) && route.line > 0) r.line = route.line;
+    return r;
+  }
   if (route.type === 'view' && route.name) return { type: 'view', name: String(route.name) };
   return null;
 }
@@ -145,7 +153,22 @@ function emptyState(html) {
   return box;
 }
 
-async function renderPage(scroll, path) {
+/**
+ * Mount a page into the column. The stat, the read and Crepe's boot together take longer than
+ * a blink on a cold start, and until now the column was blank for all of it (D9): one
+ * "loading…" line goes up if the mount outlasts the shared delay and comes down when it
+ * resolves or fails, whichever way it ends, so the column never says loading over a page.
+ */
+async function renderPage(scroll, route) {
+  const stop = loadingOverlay(scroll);
+  try {
+    await mountPage(scroll, route);
+  } finally {
+    stop();
+  }
+}
+
+async function mountPage(scroll, { path, line }) {
   let st = null;
   // A stat that throws is not the same thing as a file that is not there: the first is a
   // locked file or a bridge fault and must never be offered "Create it", because that button
@@ -154,7 +177,7 @@ async function renderPage(scroll, path) {
     console.error('[shell] stat', path, e);
     const box = emptyState(`
       <div class="miss">
-        <div class="label">could not read that page</div>
+        <div class="miss-title">could not read that page</div>
         <div class="miss-path mono">${esc(path)}</div>
         <div class="miss-why">${esc(e.message || String(e))}</div>
         <button class="btn" data-act="retry">Retry</button>
@@ -168,7 +191,7 @@ async function renderPage(scroll, path) {
   if (!st.exists) {
     const box = emptyState(`
       <div class="miss">
-        <div class="label">page not found</div>
+        <div class="miss-title">page not found</div>
         <div class="miss-path mono">${esc(path)}</div>
         <button class="btn primary" data-act="create">Create it</button>
       </div>`);
@@ -186,7 +209,9 @@ async function renderPage(scroll, path) {
 
   let mounted = false;
   try {
-    await openPage(host, path);
+    // The third argument is the route's line (C7). The editor is free to ignore it, and does
+    // until it learns to scroll to a line; passing it now is what lets that land editor-side.
+    await openPage(host, path, { line });
     mounted = host.childElementCount > 0;
   } catch (e) {
     console.error('[shell] openPage', e);
@@ -212,7 +237,7 @@ function renderView(scroll, name) {
   if (!v) {
     scroll.appendChild(emptyState(`
       <div class="miss">
-        <div class="label">view not registered</div>
+        <div class="miss-title">view not registered</div>
         <div class="miss-path mono">${esc(name)}</div>
       </div>`));
     return;
@@ -220,7 +245,7 @@ function renderView(scroll, name) {
   mountedView = v;
   try { v.mount(scroll); } catch (e) {
     console.error('[shell] view mount', e);
-    scroll.appendChild(emptyState(`<div class="miss"><div class="label">view failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
+    scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">view failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
   }
 }
 
@@ -301,7 +326,7 @@ async function show(route, opts = {}) {
 
   if (route.type === 'page') {
     pushRecent(route.path);
-    await renderPage(scroll, route.path);
+    await renderPage(scroll, route);
   } else {
     renderView(scroll, route.name);
   }
@@ -317,7 +342,15 @@ export function navigate(route, opts = {}) {
   const r = normalize(route);
   if (!r) return Promise.resolve();
 
-  if (!opts.force && current && routeKey(current) === routeKey(r)) return Promise.resolve();
+  const same = !!current && routeKey(current) === routeKey(r);
+  // The open page asked for again with a line (a second search hit in the same file): the
+  // request must still reach the editor, so it is shown as if forced, but it is the same
+  // page and gets no second history entry; the current entry just learns the line (C7).
+  if (same && !opts.force && r.line) {
+    if (index >= 0) stack[index] = r;
+    return show(r, opts);
+  }
+  if (same && !opts.force) return Promise.resolve();
 
   if (opts.replace && index >= 0) stack[index] = r;
   else { stack = stack.slice(0, index + 1); stack.push(r); index = stack.length - 1; }

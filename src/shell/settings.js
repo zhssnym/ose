@@ -119,11 +119,11 @@ export async function openSettings() {
   const root = store.get('root') || {};
 
   ov.box.innerHTML = `
-    <div class="dlg-head label">Settings</div>
+    <div class="dlg-head">Settings</div>
     <div class="set-body">
       ${row('Theme', seg('theme', [{ value: 'light', label: 'light' }, { value: 'dark', label: 'dark' }, { value: 'system', label: 'system' }], themePref()))}
       ${row('Body text', seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), s.fontSize))}
-      <div class="section-label set-head">sources</div>
+      <div class="label">sources</div>
       <div class="set-src-list">${SOURCE_KEYS.map(srcRow).join('')}</div>
       <div class="set-info mono-sm text-select">
         <div><span>vault</span>${esc(root.root || '—')}</div>
