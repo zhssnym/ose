@@ -47,8 +47,10 @@ export function loadFocus(state) {
 }
 
 export function initFocus() {
+  // `icon` is what the sidebar's context menu draws next to it (D3); `app.focus-enter`, its
+  // opposite, is registered by the sidebar because it needs the focused row.
   commands.register({
-    id: 'app.focus-exit', title: 'Exit focus', group: 'app',
+    id: 'app.focus-exit', title: 'Exit focus', group: 'app', icon: 'focus',
     when: () => !!focus,
     run: () => exitFocus(),
   });

@@ -1,5 +1,8 @@
 // Title bar: app mark, breadcrumb, unsaved dot, window controls. The whole strip is the
-// window drag handle in the host; the buttons are drawn but inert in the browser.
+// window drag handle in the host; the buttons are drawn but inert in the browser. In a
+// frameless window these buttons are the only way to minimise or close, so they are ordinary
+// tab stops (D6). They sit first in the DOM and so first in the tab ring; putting them last
+// would take a positive tabindex or a re-ordered shell, neither worth it for three buttons.
 import { bus, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { glyph } from './icons.js';
@@ -23,6 +26,7 @@ function setMaximized(v) {
   if (maxBtn) {
     maxBtn.innerHTML = glyph(maximized ? 'restore' : 'max');
     maxBtn.title = maximized ? 'Restore' : 'Maximize';
+    maxBtn.setAttribute('aria-label', maxBtn.title);
   }
 }
 
@@ -78,9 +82,9 @@ export function initTitlebar(node) {
     <span class="tb-dirty" title="unsaved changes" hidden></span>
     <div class="tb-drag"></div>
     <div class="tb-win${HOST() ? '' : ' dim'}">
-      <button class="tb-btn" data-w="min" title="Minimize" tabindex="-1">${glyph('min')}</button>
-      <button class="tb-btn" data-w="max" title="Maximize" tabindex="-1">${glyph('max')}</button>
-      <button class="tb-btn close" data-w="close" title="Close" tabindex="-1">${glyph('close')}</button>
+      <button class="tb-btn" data-w="min" title="Minimize" aria-label="Minimize">${glyph('min')}</button>
+      <button class="tb-btn" data-w="max" title="Maximize" aria-label="Maximize">${glyph('max')}</button>
+      <button class="tb-btn close" data-w="close" title="Close" aria-label="Close">${glyph('close')}</button>
     </div>`;
 
   crumbsEl = el.querySelector('.tb-crumbs');
@@ -88,6 +92,8 @@ export function initTitlebar(node) {
   maxBtn = el.querySelector('[data-w="max"]');
 
   el.querySelectorAll('.tb-btn').forEach((b) => {
+    // Drawn dim and inert in the browser, so not tab stops there either.
+    if (!HOST()) b.tabIndex = -1;
     b.addEventListener('mousedown', (e) => e.stopPropagation());
     b.addEventListener('click', () => {
       if (!HOST()) return;

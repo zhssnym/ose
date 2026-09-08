@@ -64,15 +64,27 @@ function paintSources(box) {
     const el = box.querySelector(`.set-src[data-key="${CSS.escape(key)}"]`);
     if (!el) continue;
     const path = getSource(key);
+    const info = SOURCE_INFO[key] || {};
     const pathEl = el.querySelector('.set-src-p');
     const missEl = el.querySelector('.set-src-missing');
+    const noteEl = el.querySelector('.set-src-note');
     pathEl.textContent = path;
     el.querySelector('.set-src-path').title = path;
     missEl.hidden = true;
+    noteEl.textContent = info.sentence || '';
+    noteEl.classList.remove('err');
     el.querySelector('.set-src-reset').hidden = isDefaultSource(key);
+    // A stat that throws (a locked file, a bridge fault) is not a healthy source, and used to
+    // be painted as one (B5): it reads `missing`, and the note says what the host said.
     bridge.stat(path)
       .then((st) => { if (pathEl.textContent === path) missEl.hidden = !!(st && st.exists); })
-      .catch((e) => { console.warn('[shell] stat', path, e.message || e); });
+      .catch((e) => {
+        console.warn('[shell] stat', path, e.message || e);
+        if (pathEl.textContent !== path) return;
+        missEl.hidden = false;
+        noteEl.textContent = String(e.message || e);
+        noteEl.classList.add('err');
+      });
   }
 }
 

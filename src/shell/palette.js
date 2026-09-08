@@ -1,14 +1,15 @@
 // Command palette (Ctrl+K) and quick open (Ctrl+P). Same surface, two data sources.
 // Matching is a subsequence score with a bonus for word starts, so "phab" finds "page.habits".
 import { commands, esc } from '../registry.js';
-import { openOverlay } from './dialog.js';
+import { openOverlay, toast } from './dialog.js';
 import { shortcutFor } from './keys.js';
 import { navigate, recentFiles } from './router.js';
 import { allPages } from './sidebar.js';
 import { icon } from './icons.js';
 import { fuzzy, highlight, pageItems } from './fuzzy.js';
 
-const GROUP_ORDER = ['navigate', 'page', 'view', 'app'];
+// `tree` is the sidebar's row commands (D3): they act on the focused row, else the open page.
+const GROUP_ORDER = ['navigate', 'page', 'tree', 'view', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
@@ -139,7 +140,11 @@ export function openPalette(mode = 'commands') {
     const it = items[sel];
     if (!it) return;
     ov.close();
-    Promise.resolve().then(() => { try { it.run(); } catch (e) { console.error('[shell] palette run', e); } });
+    // A command that throws says so on screen, not only in a console nobody has open (B6).
+    // Async failures are the command's own to toast; this catches the synchronous ones.
+    Promise.resolve().then(() => {
+      try { it.run(); } catch (e) { console.error('[shell] palette run', e); toast(String(e.message || e), 'err'); }
+    });
   }
 
   function setMode(m) {

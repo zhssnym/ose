@@ -136,11 +136,16 @@ html.mac .tb-win { display: none; }
 .sb-row.current .gl svg { color: var(--accent); }
 .sb-view svg { color: var(--fg-3); }
 .sb-view.current svg { color: var(--accent); }
-.sb-empty { padding: 4px 12px 4px calc(8px + 34px); text-align: left; }
+/* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
+   anything drawn outside it, which is where the base 2px offset would put it. */
+.sb-row:focus-visible, .sb-missing:focus-visible, .menu-row:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
+/* Empty lines start where a depth-0 row's name does: 2px border + 8px pad + 16px chevron +
+   4px gap + 14px glyph + 4px gap = 48px (E9). One size for both, from `.empty`. */
+.sb-empty { padding: 4px 12px 4px 48px; text-align: left; }
 /* The scratch source points at nothing: one line, and clicking it opens settings. */
 .sb-missing {
   display: block; width: 100%; line-height: 1.5;
-  padding-left: 12px; padding-right: 10px;
+  padding-left: 48px; padding-right: 10px;
   color: var(--fg-3); transition: color var(--t-fast);
 }
 .sb-missing:hover, .sb-missing:focus-visible { color: var(--accent); }
@@ -175,6 +180,24 @@ html.mac .tb-win { display: none; }
 .main-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .page-host { min-height: 100%; }
 
+/* The empty surface (D7): a `recent` label, its rows, and one line of chords. The rows are
+   pulled left by their own border and padding so their text starts under the label's. */
+.start .section-label { padding: 0 0 4px; }
+.start-row {
+  width: calc(100% + 12px); margin-left: -12px;
+  text-align: left; cursor: default;
+  color: var(--fg-2);
+}
+.start-row:hover, .start-row:focus-visible { color: var(--fg); }
+.start-row .hint { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.start-keys {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 32px; color: var(--fg-3);
+}
+.start-recent:empty + .start-keys { margin-top: 0; }
+.start-keys .kbd { height: 16px; padding: 0 3px; border-bottom-width: 1px; margin-right: 4px; }
+.start-dot { color: var(--fg-3); }
+
 .miss {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding-top: 96px; text-align: center;
@@ -201,7 +224,9 @@ html.mac .tb-win { display: none; }
   content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px;
   background: transparent; transition: background var(--t-fast);
 }
-.rs:hover::after, .rs.on::after { background: var(--accent); }
+.rs:hover::after, .rs.on::after, .rs:focus-visible::after { background: var(--accent); }
+/* The separator is a tab stop (D6); the lit line is its focus ring, not an outline box. */
+.rs:focus-visible { outline: none; }
 body.resizing { cursor: col-resize; }
 body.resizing * { cursor: col-resize !important; }
 
@@ -218,6 +243,8 @@ body.resizing * { cursor: col-resize !important; }
 .st-left { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .st-sep { width: 1px; height: 10px; background: var(--border-strong); }
+/* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
+.st-hint { color: var(--fg-2); }
 
 /* ------------------------------------------------------------------ window edges */
 
@@ -277,7 +304,7 @@ html.maximized .edge { display: none; }
 .pal-foot {
   height: 26px; flex: none;
   display: flex; align-items: center; gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-top: 1px solid var(--border);
   color: var(--fg-3);
 }
@@ -285,16 +312,15 @@ html.maximized .edge { display: none; }
 .pal-foot .kbd { height: 16px; padding: 0 3px; border-bottom-width: 1px; }
 .pal-mode { color: var(--fg-2); }
 
-/* search overlay (Ctrl+F) */
+/* search overlay (Ctrl+F). Hits group under their file the way palette rows group under a
+   section label: the name in mono with air above it, no rule (E5). */
 .pal.search .pal-list { padding-bottom: 8px; }
 .sr-file {
   display: flex; align-items: baseline; gap: 8px;
-  padding: 10px 12px 2px;
+  padding: 12px 12px 3px;
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  border-top: 1px solid var(--border); margin-top: 6px;
   overflow: hidden;
 }
-.sr-list .sr-file:first-child { border-top: 0; margin-top: 0; }
 .sr-file .g-name { color: var(--fg); flex: none; }
 .sr-file .g-dir { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-row { height: 24px; cursor: default; padding-right: 10px; }
@@ -309,7 +335,8 @@ html.maximized .edge { display: none; }
 /* folder picker (move to…) */
 .pal.pick .pal-row .grow { font-family: var(--font-mono); font-size: var(--fs-chrome); }
 
-/* dialogs */
+/* dialogs. One horizontal inset, 12px, for head, body and foot (E10); the head keeps the one
+   rule a dialog has, the foot is set off by air alone (E4). */
 .dlg-head {
   height: var(--panelhead-h); flex: none;
   display: flex; align-items: center;
@@ -323,7 +350,6 @@ html.maximized .edge { display: none; }
   height: 46px; flex: none;
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   padding: 0 12px;
-  border-top: 1px solid var(--border);
 }
 .dlg-foot .grow { flex: 1; text-align: left; }
 
@@ -334,12 +360,12 @@ html.maximized .edge { display: none; }
 .menu-row.danger svg { color: var(--err); }
 .menu .divider { margin: 4px 0; }
 
-/* settings */
-.set-body { padding: 4px 14px 14px; overflow-y: auto; }
+/* settings. Rows are grouped by whitespace, not by hairlines (E4): eleven rules in one dialog
+   read as a form; twelve pixels of air between rows read as a list. */
+.set-body { padding: 8px 12px 12px; overflow-y: auto; }
 .set-row {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
 }
 .set-label { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-ui); }
 .set-note { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
@@ -358,11 +384,10 @@ html.maximized .edge { display: none; }
 .set-num { width: 92px; height: 26px; text-align: right; }
 /* sources: the name, one sentence about the shape expected there, the path, and the controls */
 .set-head { padding: 0; margin-top: 18px; }
-.set-src-list { border-top: 1px solid var(--border); }
 .set-src {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: start; gap: 3px 12px;
-  padding: 10px 0; border-bottom: 1px solid var(--border);
+  padding: 12px 0;
 }
 .set-src-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
 .set-src-act {
@@ -373,6 +398,8 @@ html.maximized .edge { display: none; }
   grid-column: 1; grid-row: 2; max-width: 64ch;
   font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
 }
+/* a stat that threw: the host's words, in the error colour, where the sentence was (B5) */
+.set-src-note.err { color: var(--err); }
 .set-src-path {
   grid-column: 1; grid-row: 3; margin-top: 3px;
   display: flex; align-items: baseline; gap: 7px; min-width: 0;

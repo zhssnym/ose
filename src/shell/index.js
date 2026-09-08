@@ -8,7 +8,7 @@ import { initTheme } from './theme.js';
 import { initTitlebar } from './titlebar.js';
 import { initSidebar } from './sidebar.js';
 import { initStatusbar } from './statusbar.js';
-import { initRouter, navigate, back, forward, canBack, canForward, clearRoute } from './router.js';
+import { initRouter, navigate, back, forward, canBack, canForward, clearRoute, focusMain } from './router.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
@@ -48,7 +48,34 @@ function fit() {
   measureMain();
 }
 
+// A resizer is a separator control (D6): focusable, with its width spoken as a value, and the
+// arrows move it. 8px a step, 32px with Shift, Home/End to the limits, Enter back to the default.
+const RS_STEP = 8, RS_BIG = 32;
+
 function makeResizer(handle, { get, set, min, max, invert, done }) {
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-valuemin', String(min));
+  handle.setAttribute('aria-valuemax', String(max));
+  handle.tabIndex = 0;
+  const apply = (v) => { set(clamp(v, min, max)); handle.setAttribute('aria-valuenow', String(get())); };
+  apply(get());
+
+  handle.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const step = e.shiftKey ? RS_BIG : RS_STEP;
+    // `invert` means the handle sits on the panel's left edge, where Right shrinks it.
+    const sign = invert ? -1 : 1;
+    if (e.key === 'ArrowRight') apply(get() + sign * step);
+    else if (e.key === 'ArrowLeft') apply(get() - sign * step);
+    else if (e.key === 'Home') apply(min);
+    else if (e.key === 'End') apply(max);
+    else if (e.key === 'Enter' && handle.dataset.reset) apply(+handle.dataset.reset);
+    else return;
+    e.preventDefault();
+    done && done(get());
+  });
+
   handle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -56,7 +83,7 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
     handle.classList.add('on');
     document.body.classList.add('resizing');
     const x0 = e.clientX, w0 = get();
-    const move = (ev) => set(clamp(w0 + (invert ? x0 - ev.clientX : ev.clientX - x0), min, max));
+    const move = (ev) => apply(w0 + (invert ? x0 - ev.clientX : ev.clientX - x0));
     const up = () => {
       handle.removeEventListener('pointermove', move);
       handle.classList.remove('on');
@@ -68,7 +95,7 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
     handle.addEventListener('pointerup', up, { once: true });
     handle.addEventListener('pointercancel', up, { once: true });
   });
-  handle.addEventListener('dblclick', () => { set(handle.dataset.reset ? +handle.dataset.reset : get()); done && done(get()); });
+  handle.addEventListener('dblclick', () => { apply(handle.dataset.reset ? +handle.dataset.reset : get()); done && done(get()); });
 }
 
 /* -------------------------------------------------------------- page column */
@@ -177,7 +204,7 @@ export async function initShell(rootEl) {
     <header class="titlebar"></header>
     <div class="body">
       <aside class="sidebar"></aside>
-      <div class="rs rs-sidebar" data-reset="260" title="Drag to resize"></div>
+      <div class="rs rs-sidebar" data-reset="260" title="Drag to resize" aria-label="Sidebar width"></div>
       <main class="main"></main>
     </div>
     <footer class="statusbar"></footer>`;
@@ -216,6 +243,9 @@ export async function initShell(rootEl) {
 
   commands.register({ id: 'app.back', title: 'Back', group: 'navigate', when: canBack, run: back });
   commands.register({ id: 'app.forward', title: 'Forward', group: 'navigate', when: canForward, run: forward });
+  // The other half of `app.focus-sidebar` (sidebar.js, Ctrl+Shift+E). No chord: Esc from the
+  // tree does it, and the palette has it for everywhere else (D2).
+  commands.register({ id: 'app.focus-page', title: 'Focus page', group: 'app', hint: 'the editor, or the view', run: () => { focusMain(); } });
 
   watchMainWidth(els.main);
 

@@ -5,17 +5,24 @@ import { bus, store, status, views, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { openPage, closePage, saveNow } from '../editor/index.js';
 import { patchState, stateCache, flushState } from './state.js';
-import { titleOf, clean } from './paths.js';
+import { titleOf, clean, dirName } from './paths.js';
 import { toast } from './dialog.js';
+import { shortcutFor } from './keys.js';
 
 const MAX_RECENT = 40;
+// How many recent pages the empty surface lists (D7). Enough to find yesterday, not a dashboard.
+const START_RECENT = 8;
+// Scroll positions kept per route key (C16). Fifty is more than the back stack holds.
+const MAX_SCROLL_MEMORY = 50;
 
 let mainEl = null;
+let scrollEl = null;
 let current = null;
 let mountedView = null;
 let stack = [];
 let index = -1;
 let seq = 0;
+const scrollMemory = new Map();
 
 export function currentRoute() { return current; }
 export function routeKey(r) {
@@ -65,10 +72,64 @@ export function initRouter(el) {
     }
   }, 300);
   bus.on('fs', refresh);
+
+  // No startup route (CONTRACT.md batch 2), but not a bare rectangle either: the empty
+  // surface is drawn now, without taking focus from the sidebar the user is about to use.
+  void show(null, { focus: false });
+}
+
+/* ----------------------------------------------------------- focus and scroll */
+
+/**
+ * Where typing should go once something is on the page column: the editor body, else the
+ * title, else a view's root, else the first recent row of the empty surface. Every open path
+ * (sidebar Enter, Ctrl+P, Alt+Left, a search hit, a followed link) ends here, so the user is
+ * never left having to click before typing (B3). `preventScroll` because C16 has just put the
+ * scroll position back and a focus jump would undo it.
+ */
+export function focusMain() {
+  if (!mainEl) return false;
+  const pick = mainEl.querySelector('.ProseMirror')
+    || mainEl.querySelector('.page-title')
+    || mainEl.querySelector('.view-root')
+    || mainEl.querySelector('.start-row')
+    || mainEl.querySelector('.miss .btn');   // "Create it" / "Retry": Enter should reach it
+  if (!pick) return false;
+  // Views set tabindex=-1 on their root; a page title without an H1 is a plain div. Neither
+  // is our DOM, so only the one attribute that makes `focus()` work is touched.
+  if (!pick.isContentEditable && !pick.hasAttribute('tabindex') && pick.tagName !== 'BUTTON') pick.tabIndex = -1;
+  pick.focus({ preventScroll: true });
+  return document.activeElement === pick;
+}
+
+/** After a mount: focus the page unless something in it (the editor's new-page title) already has it. */
+function settleFocus(scroll) {
+  if (document.activeElement && scroll.contains(document.activeElement)) return;
+  focusMain();
+}
+
+function rememberScroll() {
+  if (!current || !scrollEl) return;
+  const key = routeKey(current);
+  scrollMemory.delete(key);
+  scrollMemory.set(key, scrollEl.scrollTop);
+  while (scrollMemory.size > MAX_SCROLL_MEMORY) scrollMemory.delete(scrollMemory.keys().next().value);
+}
+
+/**
+ * Put the scroll back after the editor or the view has mounted. One frame later, because a
+ * view lays itself out on mount and the editor's node views settle after openPage resolves;
+ * the height has to exist before scrollTop can take it (C16).
+ */
+function restoreScroll(scroll, key) {
+  const top = scrollMemory.get(key);
+  if (!top) return;
+  requestAnimationFrame(() => { if (scroll.isConnected) scroll.scrollTop = top; });
 }
 
 async function teardown() {
   if (!current) return;
+  rememberScroll();
   if (current.type === 'page') {
     try { await closePage(); } catch (e) { console.warn('[shell] closePage:', e.message || e); }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
@@ -163,24 +224,75 @@ function renderView(scroll, name) {
   }
 }
 
-async function show(route) {
+/**
+ * The empty surface (D7): what the app boots into and where trashing the open page lands.
+ * A `recent` label with the last pages opened, and one quiet line of the three chords that
+ * get anywhere from here. Not a dashboard: no counts, no calendar, nothing that competes
+ * with the sidebar. Recents that no longer exist are dropped from the list, not from state;
+ * the check is one stat per row and runs after the surface is up so nothing waits on it.
+ */
+async function renderStart(scroll, my, opts) {
+  const box = document.createElement('div');
+  box.className = 'page-col start';
+  const keys = [
+    [shortcutFor('app.quickopen'), 'open'],
+    [shortcutFor('app.palette'), 'commands'],
+    [shortcutFor('page.new'), 'new'],
+  ].filter(([k]) => k).map(([k, what]) => `<span><span class="kbd">${esc(k)}</span> ${what}</span>`).join('<span class="start-dot">·</span>');
+  box.innerHTML = `<div class="start-recent"></div><div class="start-keys mono-sm">${keys}</div>`;
+  scroll.appendChild(box);
+
+  const candidates = recentFiles().slice(0, START_RECENT * 2);
+  const alive = await Promise.all(candidates.map((p) => bridge.exists(p).catch(() => false)));
+  if (my !== seq) return;
+  const list = candidates.filter((_, i) => alive[i]).slice(0, START_RECENT);
+  if (!list.length) return;
+
+  const host = box.querySelector('.start-recent');
+  const label = document.createElement('div');
+  label.className = 'section-label';
+  label.textContent = 'recent';
+  host.appendChild(label);
+  for (const p of list) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'row start-row';
+    row.dataset.path = p;
+    row.innerHTML = `<span class="grow">${esc(titleOf(p))}</span>` + (dirName(p) ? `<span class="hint">${esc(dirName(p))}</span>` : '');
+    row.addEventListener('click', () => navigate({ type: 'page', path: p }));
+    host.appendChild(row);
+  }
+  // Up/Down walk the list so Enter opens without a Tab per row.
+  host.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const rows = [...host.querySelectorAll('.start-row')];
+    const at = rows.indexOf(document.activeElement);
+    if (at < 0) return;
+    e.preventDefault();
+    rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+  });
+  if (opts.focus !== false) settleFocus(scroll);
+}
+
+async function show(route, opts = {}) {
   const my = ++seq;
   await teardown();
   if (my !== seq) return;
 
   mainEl.textContent = '';
+  const scroll = document.createElement('div');
+  scroll.className = 'main-scroll';
+  mainEl.appendChild(scroll);
+  scrollEl = scroll;
 
   if (!route) {
     current = null;
     store.set('route', null);
     status.set('path', null);
     bus.emit('route', null);
+    await renderStart(scroll, my, opts);
     return;
   }
-
-  const scroll = document.createElement('div');
-  scroll.className = 'main-scroll';
-  mainEl.appendChild(scroll);
 
   current = route;
   store.set('route', route);
@@ -193,8 +305,14 @@ async function show(route) {
   } else {
     renderView(scroll, route.name);
   }
+  if (my !== seq) return;
+  restoreScroll(scroll, routeKey(route));
+  // `focus: false` is for callers that navigate while the user is somewhere else on purpose
+  // (a tree previewing on arrow keys would be one); every ordinary open lands the caret.
+  if (opts.focus !== false) settleFocus(scroll);
 }
 
+/** navigate(route, { replace, force, focus }) — `focus: false` leaves focus where it is. */
 export function navigate(route, opts = {}) {
   const r = normalize(route);
   if (!r) return Promise.resolve();
@@ -205,7 +323,7 @@ export function navigate(route, opts = {}) {
   else { stack = stack.slice(0, index + 1); stack.push(r); index = stack.length - 1; }
   if (stack.length > 100) { stack = stack.slice(-100); index = stack.length - 1; }
 
-  return show(r);
+  return show(r, opts);
 }
 
 export function back() {
@@ -228,9 +346,9 @@ export function canForward() { return index >= 0 && index < stack.length - 1; }
  * the app boots into, and where trashing the open page lands when there is nothing to show
  * in its place.
  */
-export function clearRoute() {
+export function clearRoute(opts = {}) {
   stack = stack.slice(0, index + 1);
-  return show(null);
+  return show(null, opts);
 }
 
 /** Used by the sidebar after a rename/trash of the page currently open. */

@@ -11,6 +11,22 @@ const stack = [];
 
 export function overlayCount() { return stack.length; }
 export function closeTopOverlay() { stack[stack.length - 1]?.close(); }
+/**
+ * The element that had focus before any overlay opened, or the active element when none is
+ * open. Commands that act on "the focused tree row" ask here: the palette's `when` guards run
+ * while the palette input itself holds focus, and the row they should see is the one focus
+ * will be handed back to when the palette closes (CONTRACT.md batch 9, D3).
+ */
+export function focusOrigin() {
+  return stack.length ? stack[0].prevFocus : document.activeElement;
+}
+/**
+ * The sidebar rebuilds its rows while a dialog is open (an fs event lands mid-confirm); the
+ * node focus would go back to is then detached. It tells us the replacement here (B4).
+ */
+export function retargetFocusOrigin(el) {
+  if (stack.length && el) stack[0].prevFocus = el;
+}
 export function overlayHasInputFocus() {
   const top = stack[stack.length - 1];
   if (!top) return false;
@@ -39,7 +55,7 @@ export function openOverlay(opts = {}) {
   if (top) box.style.marginTop = '0';
   el.appendChild(box);
 
-  const entry = { el, box, close };
+  const entry = { el, box, close, prevFocus };
   stack.push(entry);
   document.body.appendChild(el);
 
@@ -69,6 +85,9 @@ export function openOverlay(opts = {}) {
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
+  // Every `.menu` surface (the context menu today) is a list of `.menu-row` buttons, and a
+  // list of buttons is arrow-keyed, not tabbed (D4). Enter and Space are the buttons' own.
+  if (/\bmenu\b/.test(className)) bindMenuKeys(box);
 
   let closed = false;
   function close() {
@@ -78,10 +97,43 @@ export function openOverlay(opts = {}) {
     if (i >= 0) stack.splice(i, 1);
     el.remove();
     try { onClose && onClose(); } catch (e) { console.error(e); }
-    if (prevFocus && prevFocus.isConnected && typeof prevFocus.focus === 'function') prevFocus.focus();
+    // `entry.prevFocus`, not the captured const: retargetFocusOrigin may have swapped it.
+    const back = entry.prevFocus;
+    if (back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
   }
 
   return entry;
+}
+
+/**
+ * Menu keys: Up/Down wrap, Home/End, and a letter jumps to the next row whose label starts
+ * with it (cycling, so pressing it again moves on). Chords are left alone: the shell's window
+ * listener has already had them, and anything with a modifier is not a letter jump.
+ */
+function bindMenuKeys(box) {
+  const rows = () => [...box.querySelectorAll('.menu-row')].filter((n) => !n.disabled && n.offsetParent !== null);
+  box.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const list = rows();
+    if (!list.length) return;
+    const at = list.indexOf(document.activeElement);
+    let next = -1;
+    if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % list.length;
+    else if (e.key === 'ArrowUp') next = at < 0 ? list.length - 1 : (at - 1 + list.length) % list.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = list.length - 1;
+    else if (e.key.length === 1 && e.key !== ' ') {
+      const ch = e.key.toLowerCase();
+      const starts = (n) => (n.textContent || '').trim().toLowerCase().startsWith(ch);
+      for (let i = 1; i <= list.length; i++) {
+        const n = (at + i) % list.length;
+        if (starts(list[n])) { next = n; break; }
+      }
+      if (next < 0) return;
+    } else return;
+    e.preventDefault();
+    list[next].focus();
+  });
 }
 
 function dialogShell(box, { title, danger }) {
@@ -246,7 +298,9 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
         row.className = 'row pal-row' + (i === sel ? ' active' : '');
         row.dataset.i = i;
         row.setAttribute('role', 'option');
-        row.innerHTML = `${icon(iconName)}<span class="grow">${esc(p || rootLabel)}</span>`
+        // No glyph per row: the head's icon already says what kind of thing is listed, and the
+        // page picker and Ctrl+P draw their rows without one (E13).
+        row.innerHTML = `<span class="grow">${esc(p || rootLabel)}</span>`
           + (p === current ? '<span class="pal-hint">current</span>' : '');
         frag.appendChild(row);
       });
@@ -374,7 +428,7 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
         row.setAttribute('role', 'option');
         row.innerHTML = `<span class="grow">${highlight(it.title, it.hits)}</span>`
           + (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '')
-          + (it.path === current ? '<span class="kbd">current</span>' : '');
+          + (it.path === current ? '<span class="pal-hint">current</span>' : '');
         frag.appendChild(row);
       });
       list.appendChild(frag);
@@ -465,17 +519,23 @@ export async function copyText(text) {
   }
 }
 
-/** Context menu: items are {label, icon?, danger?, sep?, run()}. */
+/**
+ * Context menu: items are {label, iconSvg?, shortcut?, danger?, sep?, run()}. Arrow keys,
+ * Home/End and letter jumps come from openOverlay's `.menu` handling; Esc from the shell.
+ */
 export function contextMenu(x, y, items) {
   const ov = openOverlay({ at: { x, y }, dim: false, width: null, className: 'menu' });
+  ov.box.setAttribute('role', 'menu');
   const frag = document.createDocumentFragment();
   for (const it of items) {
     if (!it) continue;
     if (it.sep) { const d = document.createElement('div'); d.className = 'divider'; frag.appendChild(d); continue; }
     const row = document.createElement('button');
     row.type = 'button';
+    row.setAttribute('role', 'menuitem');
     row.className = 'row menu-row' + (it.danger ? ' danger' : '');
-    row.innerHTML = `${it.iconSvg || ''}<span class="grow">${esc(it.label)}</span>`;
+    row.innerHTML = `${it.iconSvg || ''}<span class="grow">${esc(it.label)}</span>`
+      + (it.shortcut ? `<span class="kbd">${esc(it.shortcut)}</span>` : '');
     row.addEventListener('click', () => { ov.close(); Promise.resolve().then(() => it.run && it.run()); });
     frag.appendChild(row);
   }
@@ -484,20 +544,45 @@ export function contextMenu(x, y, items) {
   return ov;
 }
 
-/** Transient message above the status bar. Errors surface here instead of being swallowed. */
+/* ------------------------------------------------------------------ toasts */
+
+// Newest last in the DOM, so `dismissToast` pops the last child. The host is a live region:
+// a screen reader hears a save error the way a sighted user sees it (D10).
 let toastHost = null;
+
+/** Transient message above the status bar. Errors surface here instead of being swallowed. */
 export function toast(text, kind = 'info', ms = 4500) {
   if (!toastHost) {
     toastHost = document.createElement('div');
     toastHost.className = 'toasts';
+    toastHost.setAttribute('role', 'status');
+    toastHost.setAttribute('aria-live', 'polite');
     document.body.appendChild(toastHost);
   }
   const t = document.createElement('div');
   t.className = 'toast surface ' + kind;
   t.textContent = String(text);
   toastHost.appendChild(t);
-  const kill = () => { t.remove(); if (!toastHost.childElementCount) { toastHost.remove(); toastHost = null; } };
-  const timer = setTimeout(kill, ms);
-  t.addEventListener('click', () => { clearTimeout(timer); kill(); });
+  const kill = () => {
+    clearTimeout(timer);
+    t.remove();
+    if (toastHost && !toastHost.childElementCount) { toastHost.remove(); toastHost = null; }
+  };
+  t.__kill = kill;
+  // Hovering pauses the clock: a message being read must not vanish under the pointer. On
+  // leave it gets what was left, and never less than a second to finish the line.
+  let timer = setTimeout(kill, ms);
+  let left = ms, since = Date.now();
+  t.addEventListener('mouseenter', () => { clearTimeout(timer); left = Math.max(0, left - (Date.now() - since)); });
+  t.addEventListener('mouseleave', () => { since = Date.now(); timer = setTimeout(kill, Math.max(1000, left)); });
+  t.addEventListener('click', kill);
   return kill;
+}
+
+/** Esc with no overlay open (keys.js): drop the newest toast. True when there was one. */
+export function dismissToast() {
+  const t = toastHost && toastHost.lastElementChild;
+  if (!t) return false;
+  t.__kill();
+  return true;
 }

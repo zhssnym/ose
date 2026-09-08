@@ -2,7 +2,7 @@
 // shadow it. Esc is deliberately not captured unless an overlay is open: the editor's block
 // selection uses it.
 import { commands } from '../registry.js';
-import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast } from './dialog.js';
+import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.js';
 
 export const KEYMAP = [
   { combo: 'ctrl+k', cmd: 'app.palette', label: 'Ctrl+K' },
@@ -10,6 +10,7 @@ export const KEYMAP = [
   { combo: 'ctrl+n', cmd: 'page.new', label: 'Ctrl+N' },
   { combo: 'ctrl+s', cmd: 'page.save', label: 'Ctrl+S' },
   { combo: 'ctrl+\\', cmd: 'app.sidebar', label: 'Ctrl+\\' },
+  { combo: 'ctrl+shift+e', cmd: 'app.focus-sidebar', label: 'Ctrl+Shift+E' },
   { combo: 'ctrl+f', cmd: 'app.search', label: 'Ctrl+F' },
   { combo: 'ctrl+shift+f', cmd: 'app.search', label: 'Ctrl+Shift+F' }, // old habit, kept as an alias
   { combo: 'alt+arrowleft', cmd: 'app.back', label: 'Alt+Left' },
@@ -41,16 +42,29 @@ function comboOf(e) {
   return parts.join('+');
 }
 
+// Why a chord did nothing, in the user's terms. `commands.run` returns silently when a `when`
+// guard says no, and Ctrl+S over a view used to be exactly that silence (D5).
+const UNAVAILABLE = {
+  'page.save': 'nothing to save here',
+  'app.back': 'nothing to go back to',
+  'app.forward': 'nothing to go forward to',
+};
+
 function fire(id) {
-  if (!commands.get(id)) { toast(`${id} is not available yet`, 'warn', 2200); return; }
+  const c = commands.get(id);
+  if (!c) { toast(`${id} is not available yet`, 'warn', 2200); return; }
+  if (c.when && !c.when()) { toast(UNAVAILABLE[id] || `${(c.title || id).toLowerCase()}: not available here`, 'info', 2200); return; }
   try { commands.run(id); } catch (e) { console.error('[shell] command', id, e); toast(String(e.message || e), 'err'); }
 }
 
 export function initKeys() {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (overlayCount() > 0) { e.preventDefault(); e.stopPropagation(); closeTopOverlay(); }
-      return; // otherwise fall through: the editor's block selection uses Esc
+      if (overlayCount() > 0) { e.preventDefault(); e.stopPropagation(); closeTopOverlay(); return; }
+      // No overlay: the newest toast goes, and the key still falls through, because the
+      // editor's block selection uses Esc too and both may want it (D10).
+      dismissToast();
+      return;
     }
 
     const combo = comboOf(e);
@@ -58,11 +72,13 @@ export function initKeys() {
     const entry = BY_COMBO.get(combo);
     if (!entry) return;
 
+    // A chord typed into a dialog's input that is not overlay-safe belongs to the input
+    // (Ctrl+A, Ctrl+Z...): leave it entirely alone, no preventDefault, or it dies in silence.
+    if (overlayHasInputFocus() && !OVERLAY_SAFE.has(entry.cmd)) return;
+
     // Never let the browser act on a mapped combo (Ctrl+P print, Ctrl+S save page).
     e.preventDefault();
     e.stopPropagation();
-
-    if (overlayHasInputFocus() && !OVERLAY_SAFE.has(entry.cmd)) return;
     fire(entry.cmd);
   }, true);
 }

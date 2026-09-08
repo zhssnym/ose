@@ -6,8 +6,9 @@ import { bus, store, commands, views, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { icon, hasIcon } from './icons.js';
 import { patchState, stateCache } from './state.js';
-import { navigate, currentRoute, clearRoute } from './router.js';
-import { prompt, confirm, contextMenu, pickFolder, toast, copyText } from './dialog.js';
+import { navigate, currentRoute, clearRoute, focusMain } from './router.js';
+import { prompt, confirm, contextMenu, pickFolder, toast, copyText, focusOrigin, retargetFocusOrigin, overlayCount } from './dialog.js';
+import { shortcutFor } from './keys.js';
 import { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder } from './focus.js';
 import { getSource } from '../lib/sources.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isHiddenName, segments } from './paths.js';
@@ -16,6 +17,10 @@ let el = null, scrollEl = null;
 let tree = null;
 let expanded = new Set();
 let pins = [];
+// The one row that is a tab stop (D2). A key, not an element: rows are rebuilt on every render.
+let roving = null;
+// Set by a rename or move so the next render puts focus on the row's new name (B4).
+let focusAfterRender = null;
 
 const ARCHIVE = '_Archive';
 
@@ -146,6 +151,7 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
   b.style.setProperty('--d', depth);
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
   if (data.path) b.draggable = true; // moves within the vault; see the drag and drop section
+  if (chevron !== null) b.setAttribute('aria-expanded', String(!!chevron));
   b.innerHTML =
     `<span class="tw${chevron ? ' open' : ''}">${chevron === null ? '' : icon('chevron')}</span>` +
     `<span class="gl">${glyphHtml}</span>` +
@@ -252,7 +258,8 @@ function renderScratch(frag, curPath) {
     frag.appendChild(label('scratch'));
     const miss = document.createElement('button');
     miss.type = 'button';
-    miss.className = 'empty sb-empty sb-missing mono-sm';
+    // One font size for every empty line in the tree (E9): `.empty` already sets the mono face.
+    miss.className = 'empty sb-empty sb-missing';
     miss.textContent = 'scratch folder missing · set it in settings';
     miss.title = dir ? `${dir} is not in the vault` : 'no scratch folder is set';
     miss.addEventListener('click', () => commands.run('app.settings'));
@@ -329,10 +336,35 @@ function renderTree() {
 
   if (tree && !focus) renderScratch(frag, curPath);
 
+  // The rebuild would drop keyboard focus on the floor, and render runs 350ms after every
+  // autosave (B4): note which row had it, rebuild, put it back. A row that is gone (trashed)
+  // hands focus to whatever now sits at its index, so Delete on a run of pages keeps working.
+  // `focusOrigin` rather than activeElement: while a confirm or rename dialog is up, the row
+  // is where focus will return to, and the dialog must be told the row's replacement or it
+  // would hand focus back to a detached node, i.e. to nothing.
+  const origin = focusOrigin();
+  const had = origin && origin !== scrollEl && scrollEl.contains(origin) ? origin : null;
+  const hadKey = had ? rowKey(had) : null;
+  const hadIndex = had ? treeRows().indexOf(had) : -1;
+
   const keep = scrollEl.scrollTop;
   scrollEl.textContent = '';
   scrollEl.appendChild(frag);
   scrollEl.scrollTop = keep;
+
+  const renamed = rowByKey(focusAfterRender);
+  focusAfterRender = null;
+  if (renamed) roving = rowKey(renamed);
+  applyRoving();
+  if (had) {
+    const list = treeRows();
+    // ...or, for a control that was not a row (the focus-mode exit), the tab-stop row.
+    const back = renamed || rowByKey(hadKey) || (hadIndex >= 0 ? list[Math.min(hadIndex, list.length - 1)] : null) || rovingRow();
+    if (back) {
+      setRoving(back);
+      if (overlayCount()) retargetFocusOrigin(back); else back.focus({ preventScroll: true });
+    }
+  }
 }
 
 function render() {
@@ -342,6 +374,150 @@ function render() {
 
 function rowFor(path) {
   return scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]:not(.sb-pin)`);
+}
+
+/* ------------------------------------------------------------ keyboard tree */
+
+// Everything a key can land on, top to bottom: pins, views, pages, scratch, the missing-scratch
+// line. Collapsed folders render no children, so this list is exactly the visible rows.
+function treeRows() {
+  return scrollEl ? [...scrollEl.querySelectorAll('.sb-row, .sb-missing')] : [];
+}
+
+/** A stable identity for a row across renders: the path (pins apart from tree rows), the view, or the one missing line. */
+function rowKey(row) {
+  if (!row || !row.dataset) return null;
+  if (row.classList.contains('sb-missing')) return 'miss';
+  if (row.dataset.view) return 'view:' + row.dataset.view;
+  if (row.dataset.path !== undefined) return (row.dataset.pin === '1' ? 'pin:' : 'path:') + row.dataset.path;
+  return null;
+}
+
+function rowByKey(key) {
+  if (!key) return null;
+  return treeRows().find((r) => rowKey(r) === key) || null;
+}
+
+/** The row Tab lands on: the remembered one if it still exists, else the current page, else the first. */
+function rovingRow() {
+  const list = treeRows();
+  if (!list.length) return null;
+  const r = currentRoute();
+  return rowByKey(roving)
+    || (r && r.type === 'page' && rowFor(r.path))
+    || (r && r.type === 'view' && rowByKey('view:' + r.name))
+    || list[0];
+}
+
+function setRoving(row) {
+  roving = rowKey(row);
+  for (const r of treeRows()) r.tabIndex = r === row ? 0 : -1;
+}
+
+function applyRoving() { setRoving(rovingRow()); }
+
+function focusRow(row) {
+  if (!row) return;
+  setRoving(row);
+  row.focus({ preventScroll: true });
+  row.scrollIntoView({ block: 'nearest' });
+}
+
+/** Ctrl+Shift+E and `app.focus-sidebar`: the sidebar, open, with its one tab stop focused. */
+export function focusTree() {
+  if (!store.get('sidebar.open')) store.set('sidebar.open', true);
+  focusRow(rovingRow());
+}
+
+/** Expand or collapse a tree folder row. Pinned folders reveal instead (they are shortcuts, not tree nodes). */
+function toggleDir(row) {
+  const path = row.dataset.path;
+  if (row.dataset.pin === '1') { revealFolder(path); return; }
+  if (expanded.has(path)) expanded.delete(path); else expanded.add(path);
+  persistExpanded();
+  render();
+}
+
+/** Enter: what a click does. Pages open (and take focus, B3), folders toggle, views open, the missing line opens settings. */
+function activateRow(row) {
+  if (row.classList.contains('sb-missing')) { commands.run('app.settings'); return; }
+  if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
+  const path = row.dataset.path;
+  if (row.dataset.kind === 'dir') { toggleDir(row); return; }
+  if (row.dataset.md === '1') navigate({ type: 'page', path });
+  else bridge.reveal(path).catch((err) => toast(err.message || err, 'err'));
+}
+
+// Type-ahead: letters typed within 700ms of each other form one prefix, searched from the row
+// after the focused one, wrapping. A single letter pressed again therefore walks the matches.
+let typeBuf = '';
+let typeAt = 0;
+const TYPE_MS = 700;
+
+function typeAhead(list, at, ch) {
+  const now = Date.now();
+  typeBuf = now - typeAt < TYPE_MS ? typeBuf + ch : ch;
+  typeAt = now;
+  const q = typeBuf.toLowerCase();
+  const text = (r) => ((r.querySelector('.grow') || r).textContent || '').trim().toLowerCase();
+  const from = typeBuf.length > 1 ? at : at + 1;
+  for (let i = 0; i < list.length; i++) {
+    const n = (from + i) % list.length;
+    if (text(list[n]).startsWith(q)) return list[n];
+  }
+  return null;
+}
+
+/**
+ * The tree's keys (D1), bound on `.sb-scroll` so they only run while a row has focus. Chords
+ * with a modifier are the shell's (keys.js has already stopped the mapped ones) and never
+ * type-ahead. Up/Down move focus only: nothing opens until Enter, so browsing the tree never
+ * churns the editor (B3).
+ */
+function onTreeKey(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const list = treeRows();
+  if (!list.length) return;
+  const row = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row, .sb-missing') : null;
+  // A click on the blank space under the tree focuses the scroller itself: the first arrow
+  // key steps onto the tab-stop row instead of doing nothing.
+  if (!row) {
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) { e.preventDefault(); focusRow(rovingRow()); }
+    return;
+  }
+  const at = list.indexOf(row);
+  const isDir = row.dataset.kind === 'dir';
+  const inTree = row.dataset.path !== undefined && row.dataset.pin !== '1';
+  const k = e.key;
+  let next = null;
+
+  if (k === 'ArrowDown') next = list[Math.min(list.length - 1, at + 1)];
+  else if (k === 'ArrowUp') next = list[Math.max(0, at - 1)];
+  else if (k === 'Home') next = list[0];
+  else if (k === 'End') next = list[list.length - 1];
+  else if (k === 'ArrowRight') {
+    if (!isDir) return;
+    if (row.dataset.pin === '1') { e.preventDefault(); revealFolder(row.dataset.path); return; }
+    if (!expanded.has(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
+    // Open already: the first child is the very next row, when there is one.
+    const kid = list[at + 1];
+    if (kid && kid.dataset.path && dirName(kid.dataset.path) === row.dataset.path) next = kid; else return;
+  } else if (k === 'ArrowLeft') {
+    if (isDir && inTree && expanded.has(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
+    if (!inTree) return;
+    const parent = dirName(row.dataset.path);
+    next = parent ? rowFor(parent) : null;
+    if (!next) return;
+  } else if (k === 'Enter') { e.preventDefault(); activateRow(row); return; }
+  else if (k === ' ') { e.preventDefault(); if (isDir) toggleDir(row); return; }
+  else if (k === 'F2') { if (!row.dataset.path) return; e.preventDefault(); void renameAt(row.dataset.path, row.dataset.kind); return; }
+  else if (k === 'Delete') { if (!row.dataset.path) return; e.preventDefault(); void trashAt(row.dataset.path, row.dataset.kind); return; }
+  else if (k === 'Escape') { e.preventDefault(); focusMain(); return; }
+  else if (k.length === 1 && k !== ' ') { next = typeAhead(list, at, k); if (!next) return; }
+  else return;
+
+  e.preventDefault();
+  if (next && next !== row) focusRow(next);
 }
 
 function scrollToCurrent() {
@@ -377,6 +553,17 @@ export async function newPageIn(folder) {
     if (dir) { expanded.add(dir); expandAncestors(path); persistExpanded(); }
     await refreshTree();
     await navigate({ type: 'page', path });
+    // A new page wants its name first: the title, selected, the way the editor's own page.new
+    // leaves it. DOM level only, since the title element belongs to the editor.
+    const title = document.querySelector('.main .page-title[contenteditable]');
+    if (title) {
+      title.focus({ preventScroll: true });
+      const range = document.createRange();
+      range.selectNodeContents(title);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
     return path;
   } catch (e) {
     toast('could not create page: ' + (e.message || e), 'err');
@@ -402,6 +589,9 @@ async function afterMove(from, to) {
   if (expanded.delete(from)) expanded.add(to);
   repinMoved(from, to);
   persistExpanded();
+  // The row the user was on has a new name; the next render focuses it there (B4, D1).
+  if (roving === 'path:' + from) focusAfterRender = 'path:' + to;
+  else if (roving === 'pin:' + from) focusAfterRender = 'pin:' + to;
   const r = currentRoute();
   if (r && r.type === 'page') {
     if (r.path === from) { await refreshTree(); await navigate({ type: 'page', path: to }, { replace: true, force: true }); return; }
@@ -461,6 +651,10 @@ async function trashAt(path, kind) {
     ok: 'Move to Trash', danger: true,
   });
   if (!ok) return;
+  // Trashed from the tree (Delete, or the menu on a row): focus stays in the tree, on the row
+  // that takes the gap (B4 does that in render). Trashed from the page: the empty surface
+  // takes it, the way any other open does.
+  const fromTree = !!(scrollEl && scrollEl.contains(focusOrigin()));
   try {
     await bridge.trash(path);
     expanded.delete(path);
@@ -468,7 +662,7 @@ async function trashAt(path, kind) {
     const r = currentRoute();
     const hit = r && r.type === 'page' && (r.path === path || r.path.startsWith(path + '/'));
     await refreshTree();
-    if (hit) await clearRoute();
+    if (hit) await clearRoute({ focus: !fromTree });
   } catch (e) { toast('trash failed: ' + (e.message || e), 'err'); }
 }
 
@@ -629,7 +823,7 @@ function bindDnd(host) {
   });
 }
 
-/* ------------------------------------------------------------------ menu */
+/* ------------------------------------------------------- tree commands and menu */
 
 // Only what a markdown link cannot carry is escaped: a vault path is meant to stay readable, so
 // `1-personal/3-execution` is left alone and a space becomes %20 (CONTRACT.md batch 5).
@@ -648,44 +842,113 @@ async function copyLink(path, kind) {
   toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
 }
 
-function menuFor(path, kind) {
-  const dir = kind === 'dir' ? path : dirName(path);
-  const items = [
-    { label: 'New Page Here', iconSvg: icon('plus'), run: () => newPageIn(dir) },
-    { label: 'New Folder', iconSvg: icon('folderPlus'), run: () => newFolderIn(dir) },
-  ];
-  if (path) {
-    items.push({ sep: true });
-    items.push(isPinned(path)
-      ? { label: 'Unpin', iconSvg: icon('pin'), run: () => unpin(path) }
-      : { label: 'Pin', iconSvg: icon('pin'), run: () => pin(path) });
-    if (kind === 'dir') {
-      items.push(getFocus() === path
-        ? { label: 'Exit Focus', iconSvg: icon('focus'), run: () => exitFocus() }
-        : { label: 'Focus', iconSvg: icon('focus'), run: () => setFocus(path) });
-    }
-    items.push({ label: 'Rename…', iconSvg: icon('rename'), run: () => renameAt(path, kind) });
-    if (kind !== 'dir') items.push({ label: 'Move to…', iconSvg: icon('folder'), run: () => moveTo(path) });
-    items.push({ sep: true });
-    items.push({ label: 'Copy Path', iconSvg: icon('copy'), run: () => copyPath(path) });
-    items.push({ label: 'Copy Link', iconSvg: icon('link'), run: () => copyLink(path, kind) });
-    items.push({ label: 'Reveal in Explorer', iconSvg: icon('reveal'), run: () => bridge.reveal(path).catch((e) => toast(e.message || e, 'err')) });
-    items.push({ sep: true });
-    items.push({ label: 'Move to Trash', iconSvg: icon('trash'), danger: true, run: () => trashAt(path, kind) });
-  } else {
-    items.push({ sep: true });
-    items.push({ label: 'Reveal in Explorer', iconSvg: icon('reveal'), run: () => bridge.reveal('').catch((e) => toast(e.message || e, 'err')) });
+/**
+ * The thing a tree command acts on (D3): `{ path, kind }` for the focused tree row (the row
+ * focus will return to, while a palette or menu is up: see focusOrigin), else the open page,
+ * else null. The vault root is `{ path: '', kind: 'dir' }`, which the missing-scratch line and
+ * the blank space under the tree stand for.
+ */
+function treeTarget() {
+  const o = focusOrigin();
+  const row = o && scrollEl && scrollEl.contains(o) && o.closest ? o.closest('.sb-row[data-path]') : null;
+  if (row) return { path: row.dataset.path, kind: row.dataset.kind };
+  const r = currentRoute();
+  if (r && r.type === 'page') return { path: r.path, kind: 'file' };
+  return null;
+}
+
+const folderOf = (t) => (t.kind === 'dir' ? t.path : dirName(t.path));
+const reveal = (path) => bridge.reveal(path).catch((e) => toast(e.message || e, 'err'));
+
+// One table for the palette and the context menu, so the two cannot drift: the menu is built
+// from these entries (label, icon, shortcut all come from the registered command) and each
+// entry's `applies(target)` decides both the palette's `when` and the menu's rows. The
+// commands take an explicit target from the menu (the row under the pointer, which right-click
+// never focuses) and fall back to `treeTarget()` from the palette or a chord.
+const TREE_COMMANDS = [
+  { id: 'tree.new-page', title: 'New page here', icon: 'plus', group: 'tree',
+    applies: () => true, run: (t) => void newPageIn(folderOf(t)) },
+  { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'tree',
+    applies: () => true, run: (t) => void newFolderIn(folderOf(t)) },
+  { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
+    applies: (t) => !!t.path && !isPinned(t.path), run: (t) => pin(t.path) },
+  { id: 'tree.unpin', title: 'Unpin', icon: 'pin', group: 'tree',
+    applies: (t) => !!t.path && isPinned(t.path), run: (t) => unpin(t.path) },
+  { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
+    applies: (t) => !!t.path && t.kind === 'dir' && getFocus() !== t.path, run: (t) => setFocus(t.path) },
+  { id: 'tree.rename', title: 'Rename…', icon: 'rename', group: 'tree',
+    applies: (t) => !!t.path, run: (t) => void renameAt(t.path, t.kind) },
+  { id: 'tree.move', title: 'Move to…', icon: 'folder', group: 'tree',
+    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void moveTo(t.path) },
+  { id: 'tree.copy-path', title: 'Copy path', icon: 'copy', group: 'tree',
+    applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
+  { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
+    applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
+  { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
+    applies: () => true, run: (t) => void reveal(t.path) },
+  { id: 'tree.trash', title: 'Move to trash', icon: 'trash', group: 'tree', danger: true,
+    applies: (t) => !!t.path, run: (t) => void trashAt(t.path, t.kind) },
+];
+
+function registerTreeCommands() {
+  for (const c of TREE_COMMANDS) {
+    commands.register({
+      id: c.id, title: c.title, group: c.group, icon: c.icon,
+      when: () => { const t = treeTarget(); return !!t && c.applies(t); },
+      run: (target) => { const t = target && typeof target === 'object' ? target : treeTarget(); if (t && c.applies(t)) c.run(t); },
+    });
   }
-  return items;
+}
+
+// The menu's order, as it has always read: create, then the row's own verbs, then the
+// clipboard and Explorer, then the one destructive action. `app.focus-exit` lives in
+// focus.js; its menu row shows only on the folder that is the focus.
+const MENU = [
+  'tree.new-page', 'tree.new-folder',
+  null,
+  'tree.pin', 'tree.unpin', 'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
+  'tree.rename', 'tree.move',
+  null,
+  'tree.copy-path', 'tree.copy-link', 'tree.reveal',
+  null,
+  'tree.trash',
+];
+
+/** A menu row from a registered command: its title, icon and chord, run against `target`. */
+function menuItem(id, target, label) {
+  const c = commands.get(id);
+  if (!c) return null;
+  const local = TREE_COMMANDS.find((x) => x.id === id);
+  return {
+    label: label || c.title, iconSvg: c.icon ? icon(c.icon) : '', shortcut: shortcutFor(id) || '',
+    danger: !!(local && local.danger),
+    run: () => commands.run(id, target),
+  };
+}
+
+function menuFor(path, kind) {
+  const target = { path: clean(path || ''), kind: path ? kind : 'dir' };
+  const items = [];
+  for (const entry of MENU) {
+    if (entry === null) { items.push({ sep: true }); continue; }
+    const id = typeof entry === 'string' ? entry : entry.id;
+    const applies = typeof entry === 'string' ? TREE_COMMANDS.find((x) => x.id === id)?.applies : entry.applies;
+    if (!applies || !applies(target)) continue;
+    const it = menuItem(id, target);
+    if (it) items.push(it);
+  }
+  // No two separators in a row and none at either end, whatever was filtered out between.
+  return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
 }
 
 /** Right-click on the empty space under the tree: create in scratch, or in the focus folder. */
 function emptyMenu() {
   const dir = getFocus() || scratchFolder();
   const where = baseName(dir) || 'the vault root';
+  const target = { path: dir, kind: 'dir' };
   return [
-    { label: `New Page in ${where}`, iconSvg: icon('plus'), run: () => newPageIn(dir) },
-    { label: `New Folder in ${where}`, iconSvg: icon('folderPlus'), run: () => newFolderIn(dir) },
+    menuItem('tree.new-page', target, `New page in ${where}`),
+    menuItem('tree.new-folder', target, `New folder in ${where}`),
   ];
 }
 
@@ -702,23 +965,19 @@ export function initSidebar(node) {
   const savedPins = stateCache().pins;
   if (Array.isArray(savedPins)) pins = savedPins.filter((p) => typeof p === 'string' && p).map(clean);
 
+  // A click and Enter do the same thing (activateRow); the clicked row also becomes the tab
+  // stop, so Tab back into the sidebar returns to where the mouse left off (D2).
   scrollEl.addEventListener('click', (e) => {
-    const view = e.target.closest('.sb-view');
-    if (view) { navigate({ type: 'view', name: view.dataset.view }); return; }
-    const row = e.target.closest('.sb-row');
+    const row = e.target.closest('.sb-row, .sb-missing');
     if (!row) return;
-    const path = row.dataset.path;
-    if (row.dataset.kind === 'dir') {
-      // A pinned folder reveals itself in the tree; a tree folder toggles.
-      if (row.dataset.pin === '1') { revealFolder(path); return; }
-      if (expanded.has(path)) expanded.delete(path); else expanded.add(path);
-      persistExpanded();
-      render();
-      return;
-    }
-    if (row.dataset.md === '1') navigate({ type: 'page', path });
-    else bridge.reveal(path).catch((err) => toast(err.message || err, 'err'));
+    // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
+    // handler has already acted on those, and acting twice would toggle a folder shut again.
+    if (e.detail === 0) return;
+    setRoving(row);
+    activateRow(row);
   });
+
+  scrollEl.addEventListener('keydown', onTreeKey);
 
   scrollEl.addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.sb-row:not(.sb-view)');
@@ -741,6 +1000,11 @@ export function initSidebar(node) {
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
     run: () => store.set('sidebar.open', !store.get('sidebar.open')),
   });
+  commands.register({
+    id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app', hint: 'Esc returns to the page',
+    run: () => focusTree(),
+  });
+  registerTreeCommands();
 
   refreshTree();
 }
