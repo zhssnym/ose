@@ -758,3 +758,50 @@ row's name starts) and `--fs-content` (15px). DESIGN.md: a bare pixel value in a
 stylesheet is a bug; boxes, not rules. The day column is one box component (`.dy-box`,
 `.dy-box-head`); `.label` and `.section-label` are one component with and without the
 horizontal inset; the week and day event blocks are one rule set.
+
+### Editor, second phase (C1 C2 C7 C13)
+
+```
+openPage(el, path, opts?)   opts.line: 1-based line of the file (as the search overlay counts
+                            them). After mount the caret goes to the block holding that line
+                            and it is scrolled near the top. A line above the body scrolls to
+                            the top; the title's line puts the caret in the title. The router
+                            asks the editor to scroll in place when the page is already open.
+scrollToLine(line) -> bool  the same jump on the open page; false when no page is open.
+
+Line mapping is a heuristic: each top-level block is serialised alone (the save path) and its
+first line matched against the file's body (stringify.js lineKey); lists, quotes and tables
+refine to the item/row. A block that cannot be matched claims no lines: the caret lands on
+the block before it — early, never late.
+
+Commands (group 'page', when: a page is open):
+  page.find      Ctrl+F. "Find in page". A sticky bar at the top of the page column: one mono
+                 field, an `n / m` count. Case-insensitive substring over the body (not the
+                 title). Every hit is a `find-hit` decoration, the current one `find-hit
+                 current`; the selection is a caret at the current hit. Enter next,
+                 Shift+Enter previous, Escape closes and leaves the caret on the hit. Hits
+                 inside code blocks are counted and reachable but painted by CodeMirror.
+                 Nothing is written; the bar does not count as touching the page.
+  page.outline   Ctrl+Shift+O. "Go to heading". A `.pal.pick` picker of the H1 title then
+                 every body heading indented by level, fuzzy-filtered like Ctrl+P; the
+                 heading under the caret is preselected. Enter/click scrolls it to the top
+                 and puts the caret at its start. No sidebar panel.
+The vault search is Ctrl+Shift+F only.
+
+Rename (page.rename and the C12 title rename) then calls lib/links.js
+rewriteInbound(oldPath, newPath) and toasts "renamed · N links in M pages updated" when N > 0.
+resolveHref decodes with decodeURIComponent, matching relativeHref's encodeURIComponent.
+```
+
+### Routes, links, selection (shell second phase)
+
+- Route: `{type:'page', path, line?}` — `line` is a 1-based line, kept by `normalize` only when
+  a positive integer, not part of `routeKey`; navigating to the open page with a `line`
+  scrolls it in place without a history entry.
+- Loading: a region that outlasts `LOADING_DELAY` (150 ms) shows one `.empty` "loading…"
+  (`lib/loading.js`); the router lays it over the page column while a page mounts.
+- Links: every move in the tree (rename, move-to, drag), file or folder, rewrites confirmed
+  `](href)` links into what moved (`lib/links.js`); only href bytes change; the result is
+  toasted, never confirmed beforehand.
+- Selection: Ctrl+click, Shift+click and Shift+Up/Down select tree rows; with two or more,
+  `tree.pin/unpin/move/trash` and drag act on all; Esc clears before leaving the tree.
