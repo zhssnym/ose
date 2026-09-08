@@ -2,7 +2,6 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
 
 use serde_json::{json, Value};
 
