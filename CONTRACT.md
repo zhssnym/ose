@@ -177,7 +177,8 @@ closePage()            flush pending save, unmount
   name as title and creating one is a user action, not automatic.
 - Relative image paths resolve through `bridge.assetUrl`.
 - External fs changes to the open file: if the editor is not dirty, reload silently; if dirty,
-  keep the user's version and show a status-bar warning.
+  keep the user's version, toast once, and ask at the next save (batch 9: Cancel / Reload from
+  disk / Keep mine). A rename with `to` re-routes the page; a delete makes it read-only.
 
 ## Views contract
 
@@ -235,7 +236,8 @@ The shell mounts pages with `openPage(mainEl, path)` and views with `views.get(n
 - `bridge.writeBinary(path, base64)` -> void. For image uploads from the editor; the file goes
   to `<folder of the page>/attachments/<name>` and the markdown gets a relative link.
 - Window closing: the host posts `{event:'window', data:{closing:true}}` on the first close
-  attempt, waits 400ms, then closes. The editor must flush any pending save immediately on it.
+  attempt, awaits what the handlers return (at least 400ms, at most 3000ms), then closes. A
+  handler resolving `false` vetoes the close (batch 9). The editor returns its final save.
 - `shell/dialog.js` exports `prompt({title, value?, placeholder?, ok?}) -> Promise<string|null>`
   and `confirm({title, body?, ok?, danger?}) -> Promise<boolean>`. Modules use these for any
   input; nobody calls window.prompt/alert/confirm.
@@ -630,3 +632,129 @@ What the app is, restated: a markdown viewer and editor that parses certain file
 GUI from them, while leaving the prose ordinary so an agent can read and edit it too. For that
 to hold, the editor must carry everything a standard markdown editor carries; the batches
 after this one are that work.
+
+## Batch 9 (2026-09-08): the editor stops losing work, and the app runs from the keyboard
+
+Implemented from the reviewed plan the same day the pane was removed (batch 8). Three modules
+changed in parallel under strict file ownership; the interfaces they added are recorded here.
+
+### Editor
+
+**Conflicts (B1).** Before every write the editor reads the file back and compares it to
+`baseline`, the text the page was opened from or last wrote. If it differs the user chooses:
+`Cancel` (nothing written; autosave holds until an explicit save — Ctrl+S, leaving the page,
+closing the window — asks again; status `unsaved · changed on disk`), `Reload from disk`
+(buffer dropped, page reopened in place) or `Keep mine` (overwrite). An external change to a
+dirty page toasts once per distinct disk text; a clean page still reloads silently. The editor
+builds the three-way dialog on the shell's `openOverlay` with the `.dlg` classes
+(`editor/deps.js choose({title, body?, options:[{label, value, kind?}], cancel?})`).
+
+**Gone or moved files (C18).** `fs` `rename` with `to` re-routes the open page to `to`
+(navigate replace; a dirty buffer is flushed to the new path first). `delete`, a rename the
+watcher could not pair, or a read-back that fails on a path that no longer exists, turns the
+page read-only: no write ever recreates a deleted file from a stale buffer. `create`/`modify`
+on the same path lifts it. The dev bridge cannot pair renames (Node `fs.watch`), so in the
+browser an external rename shows as delete → read-only; the host pairs them.
+
+**Closing (B2).** `bridge.on` handlers' return values are collected. On `window {closing:true}`
+the Tauri adapter awaits the returned promises (`Promise.allSettled`), waits at least 400ms and
+at most 3000ms, then destroys the window. A handler that resolves `false` vetoes the close (the
+editor does this when the last save needs an answer; the dialog is on screen and closing
+again retries). `saveNow(opts)` returns `false` in that case; `opts.explicit` lifts a hold,
+`opts.closing` refuses to await a dialog. Any `closing` subscriber may return a promise.
+
+**Dev bridge (B8).** `rename` refuses when the target exists (`already exists: <to>`), like the host.
+
+**Commands added.** `page.duplicate` "Duplicate page" (copy of the saved file to `Name 2.md`
+beside it, then open it), `page.copy-markdown` "Copy as markdown" (the exact text a save would
+write, toast `copied`), `page.print` "Print page" (`window.print()`, light palette for the
+dialog, `@media print` hides the chrome). File export is deliberately absent (needs a native
+save dialog, a new Tauri plugin).
+
+**Slash menu.** Heading 3 to Heading 6 follow Heading 2 (aliases h3…h6); `Duplicate` follows
+`Rename` in the page group. Everything else as batch 3.
+
+**Markdown.** `~~text~~` is strikethrough (typing rule and toolbar); a single `~` is never one.
+GFM footnotes `[^1]` / `[^1]: text` render and round-trip. Obsidian callouts `> [!word] …`
+render as a box with the marker in mono; the text is not rewritten. Heading sizes are ratios of
+`--fs-body`. The properties strip edits a plain `key: value` frontmatter line in place; anything
+multi-line, duplicated or block-scalar stays read-only; the block is never parsed as YAML.
+
+**Title names the file (C12).** While a file is still `Untitled*.md`, leaving an edited title
+renames the file to the sanitised title (toast `warn` when taken). Files with a real name are
+only renamed by `page.rename`. A link to a missing `.md` page navigates to it and the router's
+"page not found · Create it" screen takes over (C8). Pasting a single URL over a non-empty
+selection wraps the selection in a link (C10).
+
+### Shell
+
+**Focus lands (B3).** `router.js focusMain()` runs after every mount: `.ProseMirror`, then the
+title, then `.view-root`, then the start surface. `navigate(route, {replace, force, focus})`
+and `clearRoute({focus})`: `focus:false` leaves keyboard focus where it is (boot, trash from
+the tree). The sidebar keeps the focused row across its own rebuilds (B4), including the one
+autosave triggers; `dialog.js focusOrigin()` / `retargetFocusOrigin(el)` let a rebuild under an
+open dialog retarget where the dialog hands focus back.
+
+**Keyboard map additions.**
+
+```
+Ctrl+Shift+E  focus sidebar (opens it if closed)      Esc (in the tree)  focus page
+In the tree: Up/Down move, Right expand or first child, Left collapse or parent, Home/End,
+Enter open (page) / toggle (folder), Space toggle folder, F2 rename, Delete move to trash,
+letters type-ahead (700ms). Esc with no overlay also dismisses the newest toast.
+In a context menu: Up/Down wrap, Home/End, first letter jumps, Enter/Space run, Esc closes.
+On the sidebar resizer (a focusable separator): Left/Right 8px, Shift+Left/Right 32px,
+Home/End min/max, Enter reset.
+```
+
+**Commands.**
+
+```
+groups: 'navigate' | 'page' | 'tree' | 'view' | 'app'
+commands.register({ id, title, group, hint?, shortcut?, icon?, when?, run(...args) })
+  icon: a name from shell/icons.js; the sidebar's context menu draws it.
+  commands.run(id, ...args) passes args to run; tree.* take an optional {path, kind} target.
+app.focus-sidebar  Focus sidebar   Ctrl+Shift+E     app.focus-page  Focus page (no chord)
+app.focus-enter    Focus folder (target must be a folder not already the focus)
+tree.new-page  tree.new-folder  tree.pin  tree.unpin  tree.rename  tree.move
+tree.copy-path  tree.copy-link  tree.reveal  tree.trash
+  target = the focused tree row (the one focus returns to when a palette/menu closes),
+  else the open page; `when` is false with no target. The sidebar context menu is built
+  from these commands (title, icon, shortcutFor) and cannot drift from the palette.
+```
+
+A mapped chord whose command's `when` is false says so in a toast (D5); chords typed inside a
+dialog input that are not overlay-safe fall through to the input. The tree has one tab stop
+(roving tabindex). Window buttons are in the tab order in the host. Toasts are `role=status`,
+pause on hover, and Esc dismisses the newest. The empty surface shows `recent` (the last eight
+existing pages) and the three chords — still no startup route (D7). Scroll position is
+remembered per route, 50 entries (C16). A source whose `stat` throws shows as missing with the
+error (B5).
+
+### Views
+
+```
+Period navigation (day, month; any future view with a cursor):
+  ‹ today › group from views/common.js navHtml(); keys ArrowLeft / ArrowRight / t bound on
+  the view root by bindNav(); ignored with any modifier or when focus is in a text field;
+  the hint "← → · t" is printed beside the buttons in mono --fg-3. Torn down in unmount.
+Focus: every view root has tabindex="-1" and is focused on mount, before its reads.
+Path links in .page-meta are <button class="v-link">, in the tab order, focus ring --focus.
+Loading: a region filled asynchronously shows one `.empty` line "loading…" only if its reads
+  outlast 150 ms (lib/loading.js loadingLine, re-exported by views/common.js); a faster load
+  keeps the previous content until the new render replaces it. Empty, missing-source,
+  read-error and loading messages all use `.empty`; the only padding override is
+  `.dy-box .empty { padding: var(--sp-4) }`.
+Errors: a source that exists but cannot be read prints "could not read <path>: <error>"
+  and logs console.error; a missing one prints "no <kind> at <path> · set it in settings".
+Task rows navigate with { type:'page', path, line } (1-based line).
+```
+
+### Visual system
+
+`tokens.css` carries a spacing scale (`--sp-half` 2, `--sp-1` 4 … `--sp-7` 48), `--barhead-h`
+(44px, the palette's input row and a dialog's foot), `--tree-inset` (48px, where a depth-0
+row's name starts) and `--fs-content` (15px). DESIGN.md: a bare pixel value in a module
+stylesheet is a bug; boxes, not rules. The day column is one box component (`.dy-box`,
+`.dy-box-head`); `.label` and `.section-label` are one component with and without the
+horizontal inset; the week and day event blocks are one rule set.
