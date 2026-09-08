@@ -11,7 +11,7 @@
 import { bus, commands, status, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { navigate, clearRoute, defaultNewFolder, scratchFolder } from '../shell/index.js';
-import { prompt, confirm, patchState } from './deps.js';
+import { prompt, confirm, patchState, toast } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
@@ -631,7 +631,9 @@ async function newPage() {
   const focused = defaultNewFolder();
   const folder = focused || (page ? P.dirname(page.path) : scratchFolder());
   const path = await freePath(folder, 'Untitled');
-  await bridge.writeText(path, '# Untitled\n');
+  try {
+    await bridge.writeText(path, '# Untitled\n');
+  } catch (e) { toast('could not create the page: ' + (e.message || e), 'err'); return; }
   navigate({ type: 'page', path });
   // The router mounts asynchronously; focus the title once it is there.
   const focusTitle = () => {
@@ -653,9 +655,11 @@ async function renamePage() {
   const clean = name.replace(/[\\/:*?"<>|]/g, '-').replace(/\.md$/i, '') + '.md';
   const to = P.joinPath(P.dirname(p.path), clean);
   if (to === p.path) return;
-  if (await bridge.exists(to)) { status.set('save', 'a file with that name already exists'); return; }
+  if (await bridge.exists(to)) { toast('a file with that name already exists', 'err'); return; }
   await saveNow();
-  await bridge.rename(p.path, to);
+  try {
+    await bridge.rename(p.path, to);
+  } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); return; }
   navigate({ type: 'page', path: to });
 }
 

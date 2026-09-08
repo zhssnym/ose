@@ -27,6 +27,7 @@ const P = {
   theme: '<circle cx="8" cy="8" r="4.6"/><path d="M8 3.4v9.2" fill="currentColor" stroke="none"/><path d="M8 3.4a4.6 4.6 0 0 0 0 9.2z" fill="currentColor" stroke="none"/>',
   command: '<path d="M4.5 5.5L7 8l-2.5 2.5"/><path d="M8.5 11h3.5"/><rect x="1.75" y="2.75" width="12.5" height="10.5"/>',
   dot: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
+  close: '<path d="M3.75 3.75l8.5 8.5M12.25 3.75l-8.5 8.5"/>',
   // Focus mode: a bracketed target, the frame narrowed onto one thing.
   focus: '<path d="M2.75 5.5V2.75H5.5M10.5 2.75h2.75V5.5M13.25 10.5v2.75H10.5M5.5 13.25H2.75V10.5"/><circle cx="8" cy="8" r="2"/>',
   pin: '<path d="M6 2.75h4l-.5 4 2.25 2.25h-7.5L6.5 6.75z"/><path d="M8 9v4.25"/>',

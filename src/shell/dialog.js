@@ -130,7 +130,9 @@ export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger 
     parts.body.innerHTML = body ? `<p class="dlg-text">${esc(body)}</p>` : '';
     parts.ok.addEventListener('click', () => finish(true));
     parts.cancel.addEventListener('click', () => finish(false));
-    ov.box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
+    // On the OK button only: on the whole box this fired with Cancel focused too, which
+    // turned Enter-to-dismiss into Enter-to-delete.
+    parts.ok.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
     requestAnimationFrame(() => parts.ok.focus());
   });
 }

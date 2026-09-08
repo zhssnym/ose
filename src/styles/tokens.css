@@ -17,7 +17,7 @@
   /* text */
   --fg: #1F1E1D;
   --fg-2: #5C5952;
-  --fg-3: #8F8B7F;
+  --fg-3: #767264;
 
   /* claude */
   --accent: #D97757;
@@ -37,6 +37,13 @@
   --err-soft: #F2D9D3;
   --info: #5B7A9E;
   --info-soft: #DDE6EF;
+
+  /* Chip text sits on the matching -soft ground, which needs a darker ink than the 3:1 line
+     colours above. Only the chips use these. */
+  --accent-ink: #A2492B;
+  --ok-ink: #4C6639;
+  --warn-ink: #7E610F;
+  --err-ink: #8E2E1E;
 
   /* week grid families (low opacity fills, full colour bars) */
   --c-class: #5B7A9E;
@@ -110,7 +117,7 @@
 
   --fg: #ECE9E1;
   --fg-2: #A9A497;
-  --fg-3: #77736A;
+  --fg-3: #8B8779;
 
   --accent: #D97757;
   --accent-hover: #E38A6C;
@@ -128,6 +135,12 @@
   --err-soft: rgba(214, 97, 75, .16);
   --info: #7E9CC0;
   --info-soft: rgba(126, 156, 192, .16);
+
+  /* Dark already clears 6:1 on the 16% grounds, so the inks are the line colours. */
+  --accent-ink: var(--accent);
+  --ok-ink: var(--ok);
+  --warn-ink: var(--warn);
+  --err-ink: var(--err);
 
   --c-class: #7E9CC0;
   --c-maths: #D97757;

@@ -180,6 +180,10 @@ html.mac .tb-win { display: none; }
   padding-top: 96px; text-align: center;
 }
 .miss-path { color: var(--fg-2); max-width: 100%; word-break: break-all; }
+.miss-why {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
+  max-width: 420px; word-break: break-word;
+}
 
 .fallback .fallback-md {
   margin: 0; padding: 14px 16px;

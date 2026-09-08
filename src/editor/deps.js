@@ -26,6 +26,13 @@ export async function confirm(opts) {
   return fallbackConfirm(opts);
 }
 
+/** CONTRACT: toast(text, kind?, ms?) -> void. Without the shell, the console. */
+export async function toast(text, kind = 'info', ms) {
+  const m = await optional('../shell/dialog.js');
+  if (m && typeof m.toast === 'function') { m.toast(text, kind, ms); return; }
+  (kind === 'err' ? console.error : console.log)('[editor]', text);
+}
+
 /**
  * CONTRACT: pickPage({title}) -> Promise<path|null>  (the quick-open list, fuzzy, Enter).
  * Until the shell exports it, `pickFile` is the same surface over `.md`; with no shell at all

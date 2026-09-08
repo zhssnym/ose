@@ -93,10 +93,10 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
   white-space: nowrap;
 }
-.chip.accent { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
-.chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
-.chip.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
-.chip.err { background: var(--err-soft); border-color: transparent; color: var(--err); }
+.chip.accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+.chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok-ink); }
+.chip.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn-ink); }
+.chip.err { background: var(--err-soft); border-color: transparent; color: var(--err-ink); }
 .chip.info { background: var(--info-soft); border-color: transparent; color: var(--info); }
 
 /* list row */

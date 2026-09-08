@@ -86,8 +86,25 @@ function emptyState(html) {
 
 async function renderPage(scroll, path) {
   let st = null;
-  try { st = await bridge.stat(path); } catch { st = null; }
-  if (!st || !st.exists) {
+  // A stat that throws is not the same thing as a file that is not there: the first is a
+  // locked file or a bridge fault and must never be offered "Create it", because that button
+  // writes a stub over the path.
+  try { st = await bridge.stat(path); } catch (e) {
+    console.error('[shell] stat', path, e);
+    const box = emptyState(`
+      <div class="miss">
+        <div class="label">could not read that page</div>
+        <div class="miss-path mono">${esc(path)}</div>
+        <div class="miss-why">${esc(e.message || String(e))}</div>
+        <button class="btn" data-act="retry">Retry</button>
+      </div>`);
+    box.querySelector('[data-act="retry"]').addEventListener('click', () => {
+      navigate({ type: 'page', path }, { replace: true, force: true });
+    });
+    scroll.appendChild(box);
+    return;
+  }
+  if (!st.exists) {
     const box = emptyState(`
       <div class="miss">
         <div class="label">page not found</div>

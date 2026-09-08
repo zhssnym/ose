@@ -426,12 +426,28 @@ async function afterMove(from, to) {
   await refreshTree();
 }
 
+/**
+ * A name the filesystem accepts, keeping the extension the file already had when the user
+ * did not type one. A folder is passed '' and keeps no extension. Mirrors the editor's own
+ * rename (editor/index.js), which is the path this one used to disagree with.
+ */
+function safeName(name, ext) {
+  const base = String(name).replace(/[\\/:*?"<>|]/g, '-').trim().replace(/\.+$/, '');
+  if (!base || base === '.' || base === '..') return '';
+  if (!ext) return base;
+  return base.toLowerCase().endsWith('.' + ext) ? base : base + '.' + ext;
+}
+
 async function renameAt(path, kind) {
   const old = baseName(path);
   const name = await prompt({ title: kind === 'dir' ? 'Rename Folder' : 'Rename Page', value: old, ok: 'Rename' });
   if (!name || name === old) return;
-  const to = join(dirName(path), name);
+  const safe = safeName(name, kind === 'dir' ? '' : extOf(old));
+  if (!safe) { toast('that is not a usable name', 'err'); return; }
+  const to = join(dirName(path), safe);
+  if (to === path) return;
   try {
+    if (await bridge.exists(to)) { toast(safe + ' already exists here', 'err'); return; }
     await bridge.rename(path, to);
     await afterMove(path, to);
   } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); }
