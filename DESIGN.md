@@ -10,7 +10,15 @@ Claude's colours. Think of a 1990s plant-control panel redrawn by Anthropic's de
 ## Personality
 
 - **Space.** Content breathes. The page column is 720px wide, centred, with 80px of air above the
-  title. Nothing is cramped, ever. Padding in panels is 12px to 16px, never 4px.
+  title. Nothing is cramped, ever. Every padding, margin and gap is a step of the spacing scale
+  in `tokens.css` (`--sp-1` 4, `--sp-2` 8, `--sp-3` 12, `--sp-4` 16, `--sp-5` 24, `--sp-6` 32,
+  `--sp-7` 48; `--sp-half` for a deliberate 2px optical nudge, with a comment saying why). A
+  bare pixel value in a module stylesheet is a bug. Panels sit at `--sp-3` to `--sp-4`.
+- **Boxes, not rules.** Whitespace groups things. A 1px hairline is for the edge of a box or the
+  bottom of a bar, never a ladder of dividers between rows. Two things that are the same kind
+  of thing get the same component: one bar height (`--panelhead-h`, or `--barhead-h` for the
+  palette's input row and a dialog's foot), one row height (`--row-h`), one section label, one
+  empty state.
 - **Precision.** 1px hard borders. Square corners: `--radius` is 2px and that is the maximum
   anywhere (menus, buttons, inputs, cards, chips). No drop shadows except on floating menus and
   the command palette, and those use a hard 1px border plus a flat offset shadow

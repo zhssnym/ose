@@ -66,16 +66,30 @@
   --fs-chrome: 12px;
   --fs-chrome-sm: 11px;
   --fs-ui: 13px;
+  --fs-content: 15px;       /* content-sized inputs: the palette query, a dialog title */
   --fs-body: 16px;
   --fs-title: 34px;
   --lh-body: 1.65;
+
+  /* space. The only paddings, margins and gaps a module stylesheet may use. Optical nudges
+     (a 1px baseline shift, a 2px inset) are the one exception and say so in a comment. */
+  --sp-half: 2px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
 
   /* geometry */
   --radius: 2px;
   --titlebar-h: 36px;
   --statusbar-h: 24px;
-  --panelhead-h: 32px;
+  --panelhead-h: 32px;      /* every bar with a label in it: panel heads, box heads, dialog heads */
+  --barhead-h: 44px;        /* the one taller bar: the palette's input row and a dialog's foot */
   --row-h: 28px;
+  --tree-inset: 48px;       /* x of a depth-0 row's name in the sidebar: 2+8+16+4+14+4 */
   --ctl-h: 28px;
   --sidebar-w: 260px;
   --sidebar-min: 200px;
