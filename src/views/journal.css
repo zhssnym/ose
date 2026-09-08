@@ -64,7 +64,6 @@ textarea.input.jr-input::placeholder {
   display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0 var(--sp-5);
   padding: var(--sp-5) 0;
 }
-.jr-day:first-child, .jr-day + .jr-day { border-top: 1px solid var(--border); }
 
 /* left margin column: date, weekday, and the hover link (space always reserved). The date is
    nudged one step down so its small mono line sits on the first line of the body text. */
@@ -138,7 +137,7 @@ textarea.input.jr-input::placeholder {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
   letter-spacing: .06em; color: var(--fg-3);
 }
-.jr-year + .jr-day { border-top: 0; padding-top: 0; }
+.jr-year + .jr-day { padding-top: 0; }
 .jr-year + .jr-c { border-top: 0; }
 
 /* lazy tail, indented to the text column of the mode above it */

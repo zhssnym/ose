@@ -5,7 +5,7 @@
 // event, and the recent-files list the quick-open palette reads.
 import { bus, store, status, views, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { openPage, closePage, saveNow } from '../editor/index.js';
+import { openPage, closePage } from '../editor/index.js';
 import { patchState, stateCache, flushState } from './state.js';
 import { titleOf, clean, dirName } from './paths.js';
 import { toast } from './dialog.js';
@@ -67,11 +67,12 @@ export function initRouter(el) {
   // App/state.json by an older build so nothing resurrects it.
   if (stateCache().route !== undefined) patchState({ route: undefined });
 
+  // On close the editor's own subscriber returns its final save (and may veto, batch 9); the
+  // router's only duty is the state file. Returning the promise is what lets the adapter await
+  // it rather than trusting a timer.
   bridge.on('window', (d) => {
-    if (d && d.closing) {
-      try { saveNow(); } catch (e) { console.warn('[shell] saveNow on close:', e.message || e); }
-      flushState();
-    }
+    if (d && d.closing) return flushState();
+    return undefined;
   });
 
   const refresh = debounce(() => {

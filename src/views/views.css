@@ -193,7 +193,7 @@
 }
 .mo-num {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
-  height: 22px; border-bottom: 1px solid var(--border);
+  height: 22px;
 }
 /* the name is content and gets the UI voice, the same as the matrix label to its left; only
    the numbers are mono. The "overall" row is a label, so it keeps the label's mono. */
