@@ -5,7 +5,7 @@
 // event, and the recent-files list the quick-open palette reads.
 import { bus, store, status, views, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { openPage, closePage } from '../editor/index.js';
+import { openPage, closePage, scrollToLine } from '../editor/index.js';
 import { patchState, stateCache, flushState } from './state.js';
 import { titleOf, clean, dirName } from './paths.js';
 import { toast } from './dialog.js';
@@ -349,6 +349,9 @@ export function navigate(route, opts = {}) {
   // page and gets no second history entry; the current entry just learns the line (C7).
   if (same && !opts.force && r.line) {
     if (index >= 0) stack[index] = r;
+    // The editor scrolls its mounted page in place; a remount would lose the caret and the
+    // undo history for a jump within the same file.
+    if (scrollToLine(r.line)) return Promise.resolve();
     return show(r, opts);
   }
   if (same && !opts.force) return Promise.resolve();

@@ -54,7 +54,10 @@ export function resolveHref(fromFile, href) {
   h = h.split('#')[0].split('?')[0];
   if (!h) return null;
   let decoded = h;
-  try { decoded = decodeURI(h); } catch { /* leave as written */ }
+  // decodeURIComponent, not decodeURI: relativeHref encodes with encodeURIComponent, and
+  // decodeURI leaves %2C %3B %3A %40 %26 %3D %2B %24 in place, so a page named with a comma
+  // or an ampersand never resolved (and lib/links.js could not confirm links into it).
+  try { decoded = decodeURIComponent(h); } catch { /* leave as written */ }
   if (decoded.startsWith('/')) return normalize(decoded);
   return joinPath(dirname(fromFile), decoded);
 }
