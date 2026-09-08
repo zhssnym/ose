@@ -17,13 +17,14 @@ import {
 } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
 import { getSource, onSources, resolvePlanPath } from './sources-compat.js';
+import { navHtml, bindNav, loadingLine } from './common.js';
 
-let el = null;
+let el = null, root = null;
 let cursor = startOfMonth(new Date());
 let plan = null, path = '', systems = [], log = { done: new Map(), first: new Map(), names: [] };
 let planDir = '', logPath = '';          // the source paths this render was built from
 let dirMissing = false, logMissing = false;
-let offSources = null;
+let offSources = null, offNav = null;
 let seq = 0;   // a navigation while a read is in flight must not be overwritten by it
 
 /** A source that is not there is said out loud, with the path and where to change it. */
@@ -80,15 +81,11 @@ function streak(s) {
 
 function skeleton() {
   return `
-<div class="view-root">
+<div class="view-root" tabindex="-1" id="moRoot">
   <div class="page-col">
     <div class="v-head">
       <h1 class="page-title" id="moTitle">&nbsp;</h1>
-      <div class="v-nav">
-        <button class="btn sm" id="moPrev" aria-label="Previous month">&lsaquo;</button>
-        <button class="btn sm" id="moToday">today</button>
-        <button class="btn sm" id="moNext" aria-label="Next month">&rsaquo;</button>
-      </div>
+      ${navHtml('month')}
     </div>
     <div class="page-meta" id="moMeta">&nbsp;</div>
 
@@ -207,11 +204,11 @@ function render() {
   if (!el) return;
   $('#moTitle').textContent = monthName(cursor);
   $('#moMeta').innerHTML = [
-    `<span class="v-link" data-path="${esc(path)}">${esc(path)}</span>`,
-    `<span class="v-link" data-path="${esc(logPath)}">${esc(logPath)}</span>`,
+    `<button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>`,
+    `<button type="button" class="v-link" data-path="${esc(logPath)}">${esc(logPath)}</button>`,
     `<span>${systems.length} system${systems.length === 1 ? '' : 's'}</span>`,
   ].join('');
-  $('#moToday').hidden = sameDay(startOfMonth(new Date()), cursor);
+  $('[data-nav="today"]').hidden = sameDay(startOfMonth(new Date()), cursor);
   renderGoals();
   renderMatrix();
   renderNums();
@@ -223,6 +220,10 @@ function render() {
 async function load() {
   const my = ++seq;
   const at = cursor;
+  // the three regions the reads feed say "loading…" only past a blink; the numbers block is
+  // left out because it is empty whenever the matrix is
+  const stops = ['#moGoals', '#moMatrix', '#moReview'].map((s) => loadingLine($(s)));
+  const stop = () => stops.forEach((f) => f());
   try {
     const dir = getSource('plans');
     const logFile = getSource('systemsLog');
@@ -239,10 +240,13 @@ async function load() {
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);
     systems = systemsFor(plan, log, at);
+    stop();
     render();
   } catch (e) {
     console.error('[views:month]', e);
     flash(`month: ${e.message || e}`);
+  } finally {
+    stop();   // a superseded or failed load must not print "loading…" later
   }
 }
 
@@ -267,20 +271,25 @@ export const month = {
   async mount(host) {
     el = host;
     el.innerHTML = skeleton();
+    root = $('#moRoot');
     el.addEventListener('click', onClick);
-    $('#moPrev').addEventListener('click', () => go(-1));
-    $('#moNext').addEventListener('click', () => go(1));
-    $('#moToday').addEventListener('click', () => go(0));
+    offNav = bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) });
     offSources = onSources(() => load());
     const saved = await getViewState('month');
+    if (!el) return;                  // unmounted while the state was read
     cursor = (saved.month && parseDate(`${saved.month}-01`)) || startOfMonth(new Date());
+    // the title needs no read: it is on screen before the data, and the keys work from the
+    // first frame because focus goes to the root before the reads, not after
+    $('#moTitle').textContent = monthName(cursor);
+    root.focus({ preventScroll: true });
     await load();
   },
 
   unmount() {
     if (offSources) { offSources(); offSources = null; }
+    if (offNav) { offNav(); offNav = null; }
     if (el) el.removeEventListener('click', onClick);
-    el = null;
+    el = null; root = null;
   },
 
   refresh() { if (el) load(); },

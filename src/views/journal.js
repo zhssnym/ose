@@ -21,6 +21,7 @@ import { bridge } from '../bridge/index.js';
 import { journalFileName, journalHeading, naturalCompare } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
 import { getSource, onSources } from './sources-compat.js';
+import { loadingLine } from './common.js';
 import './journal.css';
 
 /* --------------------------------------------------------------- constants */
@@ -106,7 +107,8 @@ function renderThought(text) {
 let el = null;                    // the element the shell handed us
 let days = [];                    // [{name, path, date, year, text?, thoughts?}] newest first
 let dirPath = '';                 // the folder this listing came from
-let dirMissing = false;           // that folder could not be listed
+let dirMissing = false;           // that folder is not there
+let dirError = '';                // the folder is there but listing it threw: the message
 let sig = '';                     // signature of the listing, so refresh() is cheap
 let shown = 0;                    // how many days are in the DOM
 let wantFocus = false;
@@ -191,10 +193,13 @@ function drawRecord() {
   if (!box) return;
   box.classList.toggle('is-compact', mode === 'compact');
   if (!days.length) {
-    // a folder that is not there is a different problem from a folder nobody has written in
-    box.innerHTML = dirMissing
-      ? `<div class="jr-empty">no folder at ${esc(dirPath)} · set it in settings (ctrl+,)</div>`
-      : '<div class="jr-empty">no entries yet</div>';
+    // three different problems, one line each: the folder is not there, it could not be read,
+    // or nobody has written in it yet. The line is the shared .empty of DESIGN.md.
+    box.innerHTML = `<div class="empty">${dirMissing
+      ? `no folder at ${esc(dirPath)} · set it in settings (ctrl+,)`
+      : dirError
+        ? `could not read ${esc(dirPath)}: ${esc(dirError)}`
+        : 'no entries yet'}</div>`;
     $('#jrMore').hidden = true;
     return;
   }
@@ -212,8 +217,11 @@ function drawRecord() {
   if (rest > 0) $('#jrMoreBtn').textContent = `show earlier (${rest})`;
 }
 
-/** Read the text of every day up to `target`, then draw once. */
-async function renderTo(target) {
+/**
+ * Read the text of every day up to `target`, then draw once. `before` runs right before the
+ * draw: load() passes the loading line's stop so the line goes exactly when the record does.
+ */
+async function renderTo(target, before = null) {
   if (!el) return;
   const next = Math.min(days.length, Math.max(0, target));
   if (next <= shown) return;
@@ -225,6 +233,7 @@ async function renderTo(target) {
   }));
   if (!el) return;
   shown = next;
+  if (before) before();
   drawRecord();
 }
 
@@ -260,12 +269,20 @@ function maybeMore() {
 async function load() {
   if (loading || !el) return;
   loading = true;
+  // the record says "loading…" only when the listing and the first reads outlast a blink
+  const stop = loadingLine($('#jrRecord'));
   try {
     const folder = dir();
+    // a folder that is not there and a folder that cannot be listed are two different facts,
+    // and the second one is an error worth the console
     let items = null;
-    try { items = await bridge.list(folder); } catch { items = null; }
+    dirError = '';
+    if (await bridge.exists(folder)) {
+      try { items = await bridge.list(folder); }
+      catch (e) { console.error('[views:journal] list', folder, e); dirError = String(e.message || e); }
+    }
     dirPath = folder;
-    dirMissing = items === null;
+    dirMissing = items === null && !dirError;
     // any `YYYY-MM-DD*.md` is an entry; newest first, and a natural order inside one date
     const files = (items || [])
       .filter((i) => i.kind === 'file' && /\.md$/i.test(i.name) && dateFromName(i.name))
@@ -273,7 +290,12 @@ async function load() {
 
     const newest = files[0];
     const next = `${folder}::${files.map((f) => f.name).join('|')}::${newest ? `${newest.mtime || ''}:${newest.size || ''}` : ''}`;
-    if (next === sig && days.length) { drawHeader(); return; }
+    if (next === sig && days.length) {
+      // nothing changed, nothing to redraw, unless the loading line already replaced the record
+      drawHeader();
+      if (stop()) drawRecord();
+      return;
+    }
     sig = next;
 
     // reuse the parsed text of every day that is still there; the newest file may have grown
@@ -289,12 +311,13 @@ async function load() {
     const was = shown;
     shown = 0;
     drawHeader();
-    if (!days.length) drawRecord();
-    else await renderTo(Math.max(CHUNK, was));
+    if (!days.length) { stop(); drawRecord(); }
+    else await renderTo(Math.max(CHUNK, was), stop);
   } catch (e) {
     console.error('[views:journal]', e);
     flash(`journal: ${e.message || e}`);
   } finally {
+    stop();   // a failed load must not print "loading…" later
     loading = false;
   }
 }
@@ -337,7 +360,7 @@ async function save() {
     }
     day.text = fresh;
     day.thoughts = parseEntry(fresh);
-    dirPath = folder; dirMissing = false;   // writing the file created the folder if it was gone
+    dirPath = folder; dirMissing = false; dirError = '';   // writing the file created the folder if it was gone
     sig = '';                     // the next refresh() re-lists and re-signs
     drawHeader();
     drawRecord();
@@ -427,7 +450,7 @@ function setMode(next) {
 
 function skeleton() {
   return `
-<div class="view-root jr-root">
+<div class="view-root jr-root" tabindex="-1" id="jrRoot">
   <div class="page-col">
     <h1 class="page-title" id="jrTitle">${esc(ymd(new Date()))}</h1>
     <div class="page-meta jr-meta">
@@ -482,6 +505,8 @@ export const journal = {
 
     drawHeader();
     clock = setInterval(drawHeader, 30000);
+    // focus lands on the view, not nowhere; `journal.new` moves it into the box afterwards
+    $('#jrRoot').focus({ preventScroll: true });
 
     const saved = await getViewState('journal');
     if (!el) return;

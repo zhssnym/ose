@@ -114,7 +114,9 @@ textarea.input.jr-input::placeholder {
   display: flex; align-items: center; margin: 0;
 }
 .jr-c:hover .jr-c-open, .jr-c-open:focus { opacity: 1; }
-.jr-c-body { padding: 10px 0 20px 106px; }   /* lines up with the first line in the row above */
+/* the body starts where the first line above it starts: the row's 2px border + 4px padding,
+   the 52px date, a 12px gap, the 26px weekday, a 12px gap = 108px */
+.jr-c-body { padding: 10px 0 20px 108px; }
 
 /* year marker where the year changes */
 .jr-year {
@@ -126,19 +128,17 @@ textarea.input.jr-input::placeholder {
 .jr-year + .jr-day { border-top: 0; padding-top: 0; }
 .jr-year + .jr-c { border-top: 0; }
 
-/* lazy tail */
+/* lazy tail, indented to the text column of the mode above it: the 96px date column and its
+   24px gap in full, the 108px of .jr-c-body in compact */
 .jr-more { padding: 16px 0 0; padding-left: 120px; border-top: 1px solid var(--border); }
-.jr-record.is-compact + .jr-more { padding-left: 106px; }
+.jr-record.is-compact + .jr-more { padding-left: 108px; }
 .jr-more-btn {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   transition: color var(--t-fast);
 }
 .jr-more-btn:hover { color: var(--accent); }
 
-.jr-empty {
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  padding: 24px 0 0;
-}
+/* an empty, missing or loading record is the shared .empty line of base.css; nothing here */
 
 /* narrow main area (a small window): the date stacks above the text */
 @container jr (max-width: 560px) {

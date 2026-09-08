@@ -7,17 +7,29 @@
 .view-root { min-height: 100%; }
 .view-root:focus { outline: none; }
 
-/* title row with the previous / today / next group on the right */
+/* title row with the previous / today / next group on the right, and the keys that drive it
+   said once, quietly, in front of the buttons (views/common.js navHtml) */
 .v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.v-nav { display: flex; flex: none; margin-top: 8px; }
+.v-nav { display: flex; align-items: center; flex: none; margin-top: 8px; }
 .v-nav .btn + .btn { margin-left: -1px; }
+.v-keys { color: var(--fg-3); margin-right: 10px; white-space: nowrap; }
 
-/* a source path in .page-meta, or any path that navigates when clicked */
-.v-link { cursor: default; transition: color var(--t-fast); }
+/* a source path in .page-meta, or any path that navigates when clicked: a button that reads
+   as the text around it, so it is in the tab order and lights up on focus like any control */
+.v-link {
+  display: inline; padding: 0; margin: 0; text-align: left;
+  font: inherit; color: inherit; cursor: default;
+  transition: color var(--t-fast);
+}
 .v-link:hover { color: var(--accent); }
+.v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
 
-/* one short line, left aligned, where a whole .empty block would be too loud */
-.dy-note { padding: 10px 0; color: var(--fg-3); }
+/* An asynchronous region says "loading…" only when its reads outlast a blink (common.js
+   loadingLine). While it holds that one line, a grid drops its columns so the line is not
+   squeezed into the first cell. Empty states, missing sources and this line are the same
+   .empty everywhere; the day boxes are too short for its 48px, so they get one override. */
+.wk-grid.is-loading, .mo-matrix.is-loading { display: block; width: auto; min-width: 0; }
+.dy-box .empty { padding: 16px; }
 
 /* colour families, shared by the week grid, the day timeline and the now dot */
 .wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
@@ -68,20 +80,24 @@
 .wk-col.today { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .wk-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
 
-.wk-ev {
+/* One event block, drawn the same in the week grid and the day timeline: 2px inset, the
+   family colour at 15% with a 2px bar, name / times / room stacked. The day column is wide
+   enough for one size up, and that is the only thing it changes. */
+.wk-ev, .dy-ev {
   --c: var(--c-rest);
   position: absolute; left: 2px; right: 2px;
   display: flex; flex-direction: column; gap: 1px;
   padding: 3px 5px 3px 6px; overflow: hidden;
-  font-size: 11px; line-height: 1.3;
+  font-size: var(--fs-chrome-sm); line-height: 1.3;
   background: color-mix(in srgb, var(--c) 15%, var(--bg));
   border-left: 2px solid var(--c);
   transition: opacity var(--t-fast);
 }
-.wk-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wk-ev-t, .wk-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wk-ev.past { opacity: .45; }
-.wk-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+.dy-ev { font-size: var(--fs-chrome); }
+.wk-ev-n, .dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev-t, .wk-ev-s, .dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev.past, .dy-ev.past { opacity: .45; }
+.wk-ev.live, .dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
 
 .wk-nowline { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
 .wk-nowdot { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
@@ -142,13 +158,17 @@
 }
 .mo-lab > span { left: 0; right: 12px; overflow: hidden; text-overflow: ellipsis; }
 
-.mo-c { width: 12px; height: 12px; background: var(--bg-3); opacity: .4; }
+/* Four cell states, each one step apart so the grid reads at a glance: off (does not apply,
+   before the start, still to come) is a solid --bg-3 square, which is what makes the matrix a
+   grid at all; skip (applied, not done) is a --border-strong ring on the page ground, the
+   only hollow one; on is the accent; today gets the accent ring. */
+.mo-c { width: 12px; height: 12px; background: var(--bg-3); }
 /* the tooltip is laid out even when invisible, so keep it out of the scroll width until hover */
 .mo-c[data-tip]::after { max-width: 0; overflow: hidden; }
 .mo-c[data-tip]:hover::after { max-width: none; overflow: visible; }
-.mo-c.skip { background: var(--bg-4); opacity: 1; box-shadow: inset 0 0 0 1px var(--border); }
-.mo-c.on { background: var(--accent); opacity: 1; }
-.mo-c.today { box-shadow: inset 0 0 0 1px var(--accent); opacity: 1; }
+.mo-c.skip { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.mo-c.on { background: var(--accent); }
+.mo-c.today { box-shadow: inset 0 0 0 1px var(--accent); }
 .mo-c.today.on { box-shadow: none; }
 
 .mo-nums {
@@ -159,10 +179,18 @@
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   height: 22px; border-bottom: 1px solid var(--border);
 }
-.mo-num-k { min-width: 0; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the name is content and gets the UI voice, the same as the matrix label to its left; only
+   the numbers are mono. The "overall" row is a label, so it keeps the label's mono. */
+.mo-num-k {
+  min-width: 0; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-ui); font-size: var(--fs-ui);
+}
 .mo-num-v { flex: none; color: var(--fg); }
 .mo-total { margin-top: 8px; border-top: 1px solid var(--border-strong); border-bottom: 0; }
-.mo-total .mo-num-k { color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em; }
+.mo-total .mo-num-k {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em;
+}
 .mo-total .mo-num-v { color: var(--accent); }
 
 /* intro prose of a plan: the paragraphs before the first label, and the paragraphs of a month
@@ -198,22 +226,10 @@
 .dy-t { position: absolute; right: 7px; top: 0; line-height: 12px; color: var(--fg-3); }
 .dy-track { position: relative; height: var(--dy-body, 792px); overflow: hidden; }
 .dy-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
-.dy-tl-empty { grid-column: 1 / -1; padding: 16px; border-top: 1px solid var(--border); }
+/* the shared .empty line under the two columns; this only makes it span both */
+.dy-tl-empty { grid-column: 1 / -1; }
 
-.dy-ev {
-  --c: var(--c-rest);
-  position: absolute; left: 3px; right: 3px;
-  display: flex; flex-direction: column; gap: 1px;
-  padding: 3px 6px 3px 7px; overflow: hidden;
-  font-size: 12px; line-height: 1.3;
-  background: color-mix(in srgb, var(--c) 15%, var(--bg));
-  border-left: 2px solid var(--c);
-  transition: opacity var(--t-fast);
-}
-.dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dy-ev.past { opacity: .45; }
-.dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+/* .dy-ev itself is drawn with .wk-ev at the top of this file: one block, one set of numbers */
 .dy-now { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
 .dy-now-dot { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 

@@ -22,6 +22,7 @@ import {
   getTaskSource, taskSourceMissing, taskFiles,
 } from './tasks-index.js';
 import { getSource, onSources, resolvePlanPath } from './sources-compat.js';
+import { navHtml, bindNav, loadingLine } from './common.js';
 
 const { START, END, HOUR_H } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -38,11 +39,12 @@ let plan = null;
 let ttFile = '', plansDir = '', planFile = '', logFile = '';
 let ttMissing = false, dirMissing = false, planMissing = false;
 let expanded = new Set(), busy = false, seq = 0;
-let ro = null, tickTimer = null, offSources = null;
+let ro = null, tickTimer = null, offSources = null, offNav = null;
 
+/** Every empty, missing and loading message is the one `.empty` line of DESIGN.md. */
+const note = (text) => `<div class="empty">${text}</div>`;
 /** A source that is not there is said out loud, with the path and where to change it. */
-const srcNote = (path, what = 'file') =>
-  `<div class="dy-note mono-sm">no ${what} at ${esc(path)} · set it in settings (ctrl+,)</div>`;
+const srcNote = (path, what = 'file') => note(`no ${what} at ${esc(path)} · set it in settings (ctrl+,)`);
 
 const $ = (sel) => el && el.querySelector(sel);
 const isDone = (name, d) => log.done.get(logKey(ymd(d), name)) === true;
@@ -56,11 +58,7 @@ function skeleton() {
   <div class="page-col">
     <div class="v-head">
       <h1 class="page-title" id="dyTitle">&nbsp;</h1>
-      <div class="v-nav">
-        <button class="btn sm" id="dyPrev" aria-label="Previous day">&lsaquo;</button>
-        <button class="btn sm" id="dyToday">today</button>
-        <button class="btn sm" id="dyNext" aria-label="Next day">&rsaquo;</button>
-      </div>
+      ${navHtml('day')}
     </div>
     <div class="page-meta" id="dyMeta">&nbsp;</div>
 
@@ -106,6 +104,7 @@ function renderTimeline() {
   out.push('<div class="dy-now" id="dyNow" hidden><span class="dy-now-dot"></span></div></div>');
   box.innerHTML = out.join('');
   if (!list.length) {
+    // the same .empty line as everywhere else; .dy-tl-empty only spans it across both columns
     box.insertAdjacentHTML('beforeend', `<div class="dy-tl-empty empty">${ttMissing
       ? `no file at ${esc(ttFile)} · set it in settings (ctrl+,)`
       : 'nothing in the timetable for this day'}</div>`);
@@ -138,8 +137,8 @@ function renderSystems() {
   if (!list.length) {
     // no systems at all and no plan for the month is a different thing from a rest day
     box.innerHTML = (!systems.length && planMissing)
-      ? `<div class="dy-note mono-sm">no plan for this month at ${esc(planFile)}</div>`
-      : `<div class="dy-note mono-sm">no system applies on ${esc(ddmm(cursor))}</div>`;
+      ? note(`no plan for this month at ${esc(planFile)}`)
+      : note(`no system applies on ${esc(ddmm(cursor))}`);
     return;
   }
   const k = list.filter((s) => isDone(s.name, cursor)).length;
@@ -208,7 +207,7 @@ function renderTasks() {
   const box = $('#dyTasks');
   if (taskSourceMissing()) { box.innerHTML = srcNote(getTaskSource(), 'todo source'); return; }
   const out = groupsForDay(cursor).map(group).join('');
-  box.innerHTML = out || '<div class="dy-note mono-sm">nothing due, nothing late</div>';
+  box.innerHTML = out || note('nothing due, nothing late');
 }
 
 async function onToggleTask(id) {
@@ -238,17 +237,22 @@ function renderMeta() {
   const files = taskFiles();
   $('#dyMeta').innerHTML = [ttFile, planFile, logFile, ...(files.length ? files : [getTaskSource()])]
     .filter(Boolean)
-    .map((p) => `<span class="v-link" data-path="${esc(p)}">${esc(p)}</span>`).join('');
+    .map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`).join('');
 }
 
-function render() {
+/**
+ * Everything the five reads feed. The tasks box is left out on the first pass of a load, since
+ * the index resolves after it: drawing it from the previous index and again a moment later
+ * would be a flash of the wrong list.
+ */
+function render({ tasks = true } = {}) {
   if (!el) return;
   $('#dyTitle').textContent = dayTitle(cursor);
   renderMeta();
-  $('#dyToday').hidden = sameDay(cursor, new Date());
+  $('[data-nav="today"]').hidden = sameDay(cursor, new Date());
   renderTimeline();
   renderSystems();
-  renderTasks();
+  if (tasks) renderTasks();
 }
 
 /* ------------------------------------------------------------------- data */
@@ -259,6 +263,9 @@ async function load() {
   const tt = getSource('timetable');
   const dir = getSource('plans');
   const logPath = getSource('systemsLog');
+  // each region says "loading…" only if its reads take longer than a blink; a fast reload keeps
+  // the previous day on screen until the new one replaces it
+  const stopTl = loadingLine($('#dyTl')), stopSys = loadingLine($('#dySys')), stopTasks = loadingLine($('#dyTasks'));
   try {
     // the month's file is found by listing `<plans>/<year>/`: names after the date are free
     const [hasTt, ttText, hasDir, found, logText] = await Promise.all([
@@ -276,12 +283,18 @@ async function load() {
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);
     systems = systemsFor(plan, log, at);
-    render();
+    stopTl(); stopSys();
+    render({ tasks: false });
     await indexTasks();
-    if (my === seq && el) { renderMeta(); renderTasks(); }
+    if (my !== seq || !el) return;
+    stopTasks();
+    renderMeta(); renderTasks();
   } catch (e) {
     console.error('[views:day]', e);
     flash(`day: ${e.message || e}`);
+  } finally {
+    // a superseded or failed load must not leave a timer that would print "loading…" later
+    stopTl(); stopSys(); stopTasks();
   }
 }
 
@@ -302,18 +315,16 @@ function onClick(ev) {
   const more = ev.target.closest('[data-more]');
   if (more) { expanded.add(more.dataset.more); renderTasks(); return; }
   const src = ev.target.closest('.tk-src, .dy-grp-head');
-  if (src && src.dataset.path) { navigate({ type: 'page', path: src.dataset.path }); return; }
+  if (src && src.dataset.path) {
+    // a task row knows the 1-based line it came from; the route carries it so the editor can
+    // land on that line once the router passes it through (CONTRACT.md, batch 9)
+    const route = { type: 'page', path: src.dataset.path };
+    if (src.dataset.line) route.line = Number(src.dataset.line);
+    navigate(route);
+    return;
+  }
   const link = ev.target.closest('.v-link');
   if (link && link.dataset.path) navigate({ type: 'page', path: link.dataset.path });
-}
-
-function onKey(ev) {
-  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  const tag = ev.target && ev.target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || (ev.target && ev.target.isContentEditable)) return;
-  if (ev.key === 'ArrowLeft') { ev.preventDefault(); go(-1); }
-  else if (ev.key === 'ArrowRight') { ev.preventDefault(); go(1); }
-  else if (ev.key === 't' || ev.key === 'T') { ev.preventDefault(); go(0); }
 }
 
 /* ------------------------------------------------------------------- view */
@@ -328,10 +339,7 @@ export const day = {
     el.innerHTML = skeleton();
     root = $('#dyRoot');
     el.addEventListener('click', onClick);
-    el.addEventListener('keydown', onKey);
-    $('#dyPrev').addEventListener('click', () => go(-1));
-    $('#dyNext').addEventListener('click', () => go(1));
-    $('#dyToday').addEventListener('click', () => go(0));
+    offNav = bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) });
 
     // the layout follows the main column, not the window: the sidebar changes how much room
     // there is.
@@ -342,17 +350,22 @@ export const day = {
 
     offSources = onSources(() => load());
     const saved = await getViewState('day');
+    if (!el) return;                  // unmounted while the state was read
     cursor = (saved.date && parseDate(saved.date)) || new Date();
-    await load();
+    // the title needs no read: it is on screen before the data, and the keys work from the
+    // first frame because focus goes to the root before the reads, not after
+    $('#dyTitle').textContent = dayTitle(cursor);
     root.focus({ preventScroll: true });
+    await load();
     tickTimer = setInterval(tick, 30000);
   },
 
   unmount() {
     if (offSources) { offSources(); offSources = null; }
+    if (offNav) { offNav(); offNav = null; }
     if (ro) { ro.disconnect(); ro = null; }
     clearInterval(tickTimer); tickTimer = null;
-    if (el) { el.removeEventListener('click', onClick); el.removeEventListener('keydown', onKey); }
+    if (el) el.removeEventListener('click', onClick);
     el = null; root = null;
   },
 

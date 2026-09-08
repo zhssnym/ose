@@ -11,6 +11,7 @@ import {
 } from '../lib/md.js';
 import { flash, navigate } from './shell-compat.js';
 import { getSource, onSources } from './sources-compat.js';
+import { loadingLine } from './common.js';
 
 const { START, END, HOUR_H, WORK_KINDS } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -29,11 +30,11 @@ function skeleton() {
   const monday = startOfWeek(new Date());
   const fmt = (d) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   return `
-<div class="view-root">
+<div class="view-root" tabindex="-1" id="wkRoot">
   <div class="page-col">
     <h1 class="page-title">Week</h1>
     <div class="page-meta" id="wkMeta">
-      <span class="v-link" data-path="${esc(path)}">${esc(path)}</span>
+      <button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>
       <span>${esc(fmt(monday))} to ${esc(fmt(addDays(monday, 6)))}</span>
       <span id="wkSource"></span>
     </div>
@@ -146,12 +147,16 @@ async function load() {
   // a source change during a read must not be swallowed by the coalescing guard
   if (loading) { again = true; return; }
   loading = true;
+  // the grid says "loading…" only when the read outlasts a blink; a fast re-read keeps the
+  // grid that is already there until build() replaces it
+  const stop = loadingLine($('#wkGrid'));
   try {
     path = getSource('timetable');
     const link = $('#wkMeta .v-link');
     if (link) { link.dataset.path = path; link.textContent = path; }
     const has = await bridge.exists(path);
     events = has ? parseTimetable(await bridge.readText(path)) : [];
+    stop();
     const empty = $('#wkEmpty');
     if (empty) {
       empty.hidden = events.length > 0;
@@ -165,9 +170,13 @@ async function load() {
   } catch (e) {
     console.error('[views:week]', e);
     flash(`week: ${e.message || e}`);
+    // a failed read leaves the grid frame empty (a loading line must not stay behind) and says
+    // what went wrong in the same slot a missing file uses
+    if (stop()) { const g = $('#wkGrid'); if (g) g.innerHTML = ''; }
     const empty = $('#wkEmpty');
-    if (empty) { empty.hidden = false; empty.textContent = String(e.message || e); }
+    if (empty) { empty.hidden = false; empty.textContent = `could not read ${path}: ${e.message || e}`; }
   } finally {
+    stop();
     loading = false;
     if (again) { again = false; load(); }
   }
@@ -191,6 +200,10 @@ export const week = {
     el.innerHTML = skeleton();
     el.addEventListener('click', onClick);
     offSources = onSources(() => load());
+    // focus lands on the view, not nowhere, so Tab reaches the path link and the shell's keys
+    // have a target from the first frame
+    const root = $('#wkRoot');
+    if (root) root.focus({ preventScroll: true });
     await load();
     tickTimer = setInterval(tick, 30000);
     dayTimer = setInterval(() => { if (dayIdx(new Date()) !== lastDay) build(); }, 60000);
