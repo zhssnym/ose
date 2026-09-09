@@ -1,0 +1,6 @@
+# The repo is LF throughout (CLAUDE.md: LF endings, UTF-8 without BOM). This stops git on a
+# Windows clone with core.autocrlf from warning on every commit and from ever writing CRLF.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
