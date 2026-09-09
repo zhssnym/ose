@@ -2,12 +2,14 @@
 
 ## What this is
 
-A markdown viewer and editor for the whole `D:\os` tree. It parses certain files and builds a
-graphical view from them, while leaving every file ordinary prose — so an agent (Claude Code,
-run on the vault from outside) can read and edit the same files with no adapter. That is the
-whole application. One window: a sidebar with the vault, and a page column that is either a
-markdown file in a block editor or one of the views. It ships as a single file, `os.exe`,
-placed at the root of the vault. Move the folder, the editor moves with it.
+Obsidian plus custom GUIs from files: a markdown viewer and editor for any folder, which
+parses certain files and builds graphical views from them while leaving every file ordinary
+prose — so an agent (Claude Code, run on the vault from outside) can read and edit the same
+files with no adapter. That is the whole application. One window: a sidebar with the vault,
+and a page column that is either a markdown file in a block editor or one of the views. It
+ships as a single portable file, `os.exe` (or `os.app`), that normally lives at the root of
+its vault — move the folder, the editor moves with it — and asks for a folder when it doesn't.
+It updates itself in place from the repo's `latest` release; there is no installer.
 
 The files are the database. The editor never keeps a second copy of anything; state that is
 only about the editor (window size, last route, sidebar width) lives in `.ose/state.json`,
@@ -91,7 +93,9 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
   outside; `CLAUDE.md` in the vault is the whole integration, and it costs nothing.
 - No database, no index files, no cache of vault content on disk. Everything is recomputed from
   the files at startup (175 files, milliseconds).
-- No sync, no accounts, no network calls.
+- No sync, no accounts. One network call: the update check against the repo's own `latest`
+  release, ten seconds after boot and every six hours, off by a switch in settings. Nothing
+  else in the app has a network path.
 - No tabs. One page at a time, with back and forward, like Notion.
 - No startup route. The app opens on the sidebar and an empty surface; the user picks.
 - Sidebar, top to bottom: pinned (only when something is pinned), views, scratch (the
@@ -109,3 +113,7 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
 - No plugin system. New views are new files in `src/views/` registered through the registry.
 - No drag-to-reorder in the tree: order comes from names, which survive every other tool.
 - No math. A bare `$` in prose stays a `$`.
+- No installer and no code signing: a portable binary that swaps itself in place, trusting
+  HTTPS to the repo's own release.
+- Any folder is a vault; no marker file is required (`.ose/` or `CLAUDE.md` only tell an exe it
+  is already inside one).

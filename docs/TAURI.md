@@ -42,7 +42,7 @@ async fn rpc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, cmd: Stri
 `cmd` is the bridge method name in camelCase exactly as CONTRACT.md lists them: `rootInfo`,
 `tree`, `list`, `stat`, `exists`, `readText`, `writeText`, `appendText`, `writeBinary`, `mkdir`,
 `rename`, `trash`, `search`, `openExternal`, `reveal`, `getState`, `setState`, `log`,
-`pickVault`, `vaultInfo`, `forgetVault`, plus
+`pickVault`, `vaultInfo`, `forgetVault`, `updateCheck`, `updateDownload`, `updateApply`, plus
 `platform` (returns `{os: "windows"|"macos"|"linux", version, exe, root}`). Window commands
 (`winMinimize` ... `winSetTheme`) are NOT routed through rpc: the adapter uses the Tauri window
 API directly. Unknown `cmd` -> `Err("unknown command: <cmd>")`. Every error is a plain string.
@@ -94,6 +94,29 @@ Only `--selftest` still exits (2, with a message box) when no root is found.
 inside the root, GET only, `Content-Type` by extension (png jpg jpeg gif webp svg pdf md txt
 json), 404 otherwise. The adapter's `assetUrl(path)` returns `http://vault.localhost/<encoded>`
 on Windows and `vault://localhost/<encoded>` on macOS and Linux (Tauri's platform rule).
+
+## Self-update (update.rs)
+
+Stamp: CI sets `OSE_BUILD_SHA` / `OSE_BUILD_DATE` on the build step; `build_info()` reads them
+with `option_env!` (build.rs re-runs when they change). `os --version` prints
+`os 0.1.0 (a7d42de, 2026-09-09)` or `os 0.1.0 (dev build)`; on Windows it attaches to the
+parent console first so the line lands in the terminal that asked.
+
+Layout: everything beside the executable — Windows `<dir>/os.exe{,.new,.old}`; macOS the
+folder holding `os.app`: `os-update.zip`, `os-update-tmp/`, `os.app.old`.
+
+Windows swap: `os.exe` → `os.exe.old` (renaming a running image is allowed), `os.exe.new` →
+`os.exe`, spawn `os.exe` with the original argv (`CREATE_NEW_PROCESS_GROUP`), save the window
+geometry, 400 ms, exit. macOS swap: `ditto -x -k zip os-update-tmp/`, `os.app` → `os.app.old`,
+`tmp/os.app` → `os.app`, remove tmp and zip, `open -n os.app --args <argv>`, exit. Any failure
+after the first rename restores `.old`.
+
+Cleanup: `setup` runs `finish_previous` on a thread — removes `.old`/`.new`/zip/tmp, retrying
+for 5 s because on Windows `.old` stays locked until the parent that spawned us exits. A build
+that will not start leaves `.old` beside it for a manual rename back.
+
+`tests/swap.rs` (Windows) copies the built executable twice into a temp folder, holds one
+running with `--hold`, runs the swap against it and checks the names before and after.
 
 ## Window
 

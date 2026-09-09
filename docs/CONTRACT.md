@@ -881,3 +881,37 @@ counts as neither done, lost nor open, so a system added on the 10th has a 21-da
 systems → no line. Review: the file's prose under `# Monthly Review` or `# Review`, read-only,
 `not written yet` when absent. No per-system counts, no streaks, no overall rate. Cells are not
 clickable. Nothing is ever written to a plan file.
+
+## Batch 11 (2026-09-09): self-update, portable
+
+No installer, ever. Every push to `main` publishes the rolling `latest` release; a build is
+newer when it was built from a different commit than the running one. This is the app's one
+network call, and the settings switch turns it off.
+
+```
+bridge.updateCheck()    -> {current:{sha,short,date}|null, latest:{sha,short,publishedAt}|null,
+                            behind, commits:[{short,subject,date}] (newest first, ≤20),
+                            asset:{name,size,url,digest|null}|null, error:string|null}
+                           never rejects; a dev build (current null) makes no request;
+                           404 = latest null, error null (CI recreating the release)
+bridge.updateDownload() -> {path, bytes, verified}   Err while one runs ("already downloading");
+                           size must match, sha256 must match when a digest is published; a
+                           failed download is deleted
+bridge.updateApply()    -> never resolves on success: swap, relaunch with the original argv,
+                           exit. Err with nothing verified, while downloading, or when the swap
+                           fails (the previous build is restored). The UI saves the page and
+                           flushes state first.
+bridge.on('update', {phase:'download', received, total} | {phase:'apply'})
+platform.build          {sha, short, date} | null (dev build)
+settings.updates        boolean, default true: with it off no automatic request is ever made;
+                        `app.update-check` still works and says so
+store 'update'          {current, latest, behind, commits, asset, error, checkedAt}
+commands                app.update-check "Check for updates"; app.update "Update now…" (when behind)
+status bar              right side, `update · N commits` (a button, --accent, mono) while behind
+schedule                10 s after boot with a vault open, then every 6 h; silent unless behind
+dev bridge              updateCheck → dev shape; updateDownload/Apply → Err('not in the dev bridge')
+```
+
+Hidden names gain `os.exe.new`, `os.exe.old`, `os.app`, `os.app.old`, `os-update.zip`,
+`os-update-tmp`. `os --version` prints the stamp; `--hold <secs>` exists in debug builds for
+the swap test. See docs/TAURI.md "Self-update" for the swap on each platform.
