@@ -382,6 +382,20 @@ pub fn run_headless(app: tauri::AppHandle) {
             return;
         }
         if !v["behind"].as_bool().unwrap_or(false) {
+            // The relaunched build lands here within a second of the swap, while the build it
+            // replaced may still hold `.old` open; the background cleanup would be cut off by
+            // the exit below, so wait for it here (its retries are bounded).
+            if let Some(lay) = layout() {
+                let name = lay.target.file_name().map(|n| n.to_string_lossy().to_string());
+                let removed = name.map(|n| finish_previous(&lay.dir, &n)).unwrap_or_default();
+                if !removed.is_empty() {
+                    let names: Vec<String> = removed
+                        .iter()
+                        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                        .collect();
+                    log_line(st, &format!("update: cleaned up previous build ({})", names.join(", ")));
+                }
+            }
             log_line(st, "update: --update: nothing to do");
             app.exit(0);
             return;
