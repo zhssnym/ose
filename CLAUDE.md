@@ -16,9 +16,12 @@ which is ignored by git.
 ## Layout
 
 ```
-CONTRACT.md         the agreement between modules: bridge API, registry, events, entry points
-DESIGN.md           the visual system: tokens, components, the look
-TAURI.md            the host design
+README.md           one paragraph, Hassan's, not edited by the editor's tooling
+docs/
+  CONTRACT.md       the agreement between modules: bridge API, registry, events, entry points
+  DESIGN.md         the visual system: tokens, components, the look
+  TAURI.md          the host design
+  OSE.md            the long-form introduction (the former README)
 index.html          entry
 vite.config.js      dev server, dev bridge plugin, build to dist/
 package.json        scripts: dev, build, ship
@@ -61,12 +64,13 @@ npm run ship
 The host is Tauri 2 (Rust). On this machine Rust is installed per user (rustup, gnu host) with
 MinGW from winget for the linker tools; no admin rights are needed. Shipped binaries come from
 CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
-`os-macos-arm64.zip` to the rolling `latest` release. See TAURI.md for the host design.
+`os-macos-arm64.zip` to the rolling `latest` release. See docs/TAURI.md for the host design.
 
 ## Rules for working in this folder
 
-- Read `CONTRACT.md` before touching any module and `DESIGN.md` before touching any UI. A change
-  to an interface goes into `CONTRACT.md` first, then into code.
+- Read `docs/CONTRACT.md` before touching any module and `docs/DESIGN.md` before touching any UI.
+  A change to an interface goes into `docs/CONTRACT.md` first, then into code. Every document
+  lives in `docs/`; the root `README.md` is one paragraph and stays as it is.
 - Markdown fidelity is non-negotiable. The editor must never rewrite a file it did not edit, and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
   emphasis, H1 and body text, no runs of blank lines, LF endings, UTF-8 without BOM.
