@@ -12,6 +12,7 @@ import { initRouter, navigate, back, forward, canBack, canForward, clearRoute, f
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
+import { initUpdate } from './update.js';
 import { initKeys } from './keys.js';
 import { icon } from './icons.js';
 import { initFocus, loadFocus, getFocus, defaultNewFolder } from './focus.js';
@@ -236,6 +237,7 @@ export async function initShell(rootEl) {
   initPalette();
   initSearch();
   initSettings();
+  initUpdate();
   initKeys();
   initFocus();
   buildEdges();

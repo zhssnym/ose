@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
 fn main() {
+    // The CI stamp (update.rs `build_info`) is read with `option_env!`; without these lines a
+    // cached build would keep the previous commit's stamp.
+    println!("cargo:rerun-if-env-changed=OSE_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=OSE_BUILD_DATE");
+
     // On Windows, tauri-build compiles the icon and version resource and links it into bin
     // targets only, together with an application manifest that opts the process into Common
     // Controls v6. tauri (`common-controls-v6`, a default feature) and the dialog plugin both

@@ -112,6 +112,13 @@ export const bridge = {
 
   openExternal: (url) => call('openExternal', url),
   reveal: (path) => call('reveal', path),
+  // Self-update (CONTRACT.md "Self-update"): the check never throws and answers
+  // {current, latest, behind, commits, asset, error}; the download streams the asset beside
+  // the executable and emits `update` events {phase:'download', received, total}; apply swaps,
+  // relaunches and exits, so on success it never resolves.
+  updateCheck: () => call('updateCheck'),
+  updateDownload: () => call('updateDownload'),
+  updateApply: () => call('updateApply'),
   getState: () => call('getState'),
   setState: (obj) => call('setState', obj),
   log: (text) => call('log', text),

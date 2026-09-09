@@ -7,7 +7,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { vaultRoot, rootSource } from './root.mjs';
 
-const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space', 'os.exe', 'os.pdb']);
+const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space', 'os.exe', 'os.pdb',
+  // what an update leaves beside the executable for a moment, and the bundle itself on macOS (vault.rs)
+  'os.exe.new', 'os.exe.old', 'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const IS_WIN = process.platform === 'win32';
 
@@ -202,7 +204,13 @@ export function bridgePlugin() {
     search: async (q, opts) => search(q, opts),
 
     log: async (text) => { console.log('[selftest]', String(text)); },
-    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
+    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
+
+    // Self-update is the host's (update.rs). The browser is a dev build: nothing to compare
+    // with, nothing to download, and no request is ever made from here.
+    updateCheck: async () => ({ current: null, latest: null, behind: false, commits: [], asset: null, error: null }),
+    updateDownload: async () => { throw new Error('not in the dev bridge'); },
+    updateApply: async () => { throw new Error('not in the dev bridge'); },
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },

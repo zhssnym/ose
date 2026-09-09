@@ -5,11 +5,13 @@ import { openOverlay, pickFile, pickFolder, toast } from './dialog.js';
 import { patchState, stateCache, flushState } from './state.js';
 import { reloadIntoVault } from './vault.js';
 import { themePref, setTheme } from './theme.js';
+import { buildLine, checkedLine, reschedule } from './update.js';
 import { SOURCE_KEYS, SOURCE_INFO, getSource, setSource, isDefaultSource } from '../lib/sources.js';
 
 const FONT_SIZES = [14, 15, 16, 17];
-// The dialog shows theme, body text, the sources, and the read-only block, nothing else.
-const DEFAULTS = { fontSize: 16 };
+// The dialog shows theme, body text, updates, the sources, and the read-only block, nothing else.
+// `updates` is the switch on the app's one network call (update.js).
+const DEFAULTS = { fontSize: 16, updates: true };
 
 let openOv = null;
 
@@ -115,7 +117,8 @@ export async function openSettings() {
   const s = settings();
   // Six source rows with a sentence each need the width; the body scrolls when the window is
   // short, so the dialog stays inside 1280x800 without clipping anything.
-  const ov = openOverlay({ width: 620, top: '10vh', className: 'set', onClose: () => { openOv = null; } });
+  let unwatchUpdate = null;
+  const ov = openOverlay({ width: 620, top: '10vh', className: 'set', onClose: () => { openOv = null; unwatchUpdate && unwatchUpdate(); } });
   openOv = ov;
   const root = store.get('root') || {};
 
@@ -124,6 +127,8 @@ export async function openSettings() {
     <div class="set-body">
       ${row('Theme', seg('theme', [{ value: 'light', label: 'light' }, { value: 'dark', label: 'dark' }, { value: 'system', label: 'system' }], themePref()))}
       ${row('Body text', seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), s.fontSize))}
+      ${row('Updates', seg('updates', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.updates === false ? 'off' : 'on'), 'the one network call')}
+      <div class="set-upd mono-sm"><span class="set-upd-build"></span><span class="set-upd-checked"></span><button class="btn sm" data-act="check">Check now</button></div>
       <div class="label">sources</div>
       <div class="set-src-list">${SOURCE_KEYS.map(srcRow).join('')}</div>
       <div class="set-info mono-sm text-select">
@@ -144,6 +149,15 @@ export async function openSettings() {
     .then((v) => { if (srcEl.isConnected) srcEl.textContent = v && v.source ? `${v.source}${v.remembered ? ' · remembered' : ''}` : '—'; })
     .catch((e) => { if (srcEl.isConnected) srcEl.textContent = String(e.message || e); });
 
+  // The build this executable is, and when it last asked; repainted as checks land.
+  const paintUpdate = () => {
+    ov.box.querySelector('.set-upd-build').textContent = buildLine();
+    ov.box.querySelector('.set-upd-checked').textContent = checkedLine();
+  };
+  paintUpdate();
+  unwatchUpdate = store.watch('update', paintUpdate);
+  ov.box.querySelector('[data-act="check"]').addEventListener('click', () => { void commands.run('app.update-check'); });
+
   paintSources(ov.box);
   ov.box.addEventListener('click', (e) => {
     const b = e.target.closest('[data-src]');
@@ -161,6 +175,7 @@ export async function openSettings() {
     b.parentElement.querySelectorAll('.seg-b').forEach((n) => n.classList.toggle('on', n === b));
     if (group === 'theme') setTheme(v);
     else if (group === 'font') save({ fontSize: +v });
+    else if (group === 'updates') { save({ updates: v === 'on' }); reschedule(); paintUpdate(); }
   });
 
   requestAnimationFrame(() => ov.box.querySelector('.seg-b')?.focus());

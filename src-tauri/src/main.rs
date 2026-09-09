@@ -11,7 +11,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, log_line, protocol, state, vault, AppState, Root, Source};
+use ose::{args, log_line, protocol, state, update, vault, AppState, Root, Source};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
@@ -23,6 +23,21 @@ Pass --root <folder>, set OSE_ROOT, or start it from inside a vault (a folder wi
 fn main() {
     let opts = args::parse(std::env::args().skip(1));
 
+    if opts.version {
+        // The release binary has no console of its own; borrowing the parent's makes the line
+        // land in the terminal that asked.
+        attach_parent_console();
+        println!("{}", update::version_line());
+        std::process::exit(0);
+    }
+
+    // A running copy with no window, for the swap test (tests/swap.rs) and nothing else.
+    #[cfg(debug_assertions)]
+    if let Some(secs) = opts.hold {
+        std::thread::sleep(Duration::from_secs(secs));
+        std::process::exit(0);
+    }
+
     // Steps 1 to 3 of the resolution order need no app: the argument, the executable's
     // ancestors, the environment. The remembered root (step 4) needs the app's config folder
     // and is read in `setup`; with nothing at all the UI asks (step 5). Only the self-test,
@@ -33,11 +48,12 @@ fn main() {
     }
 
     let root = found.map(|(path, source)| Root { path, source });
-    let app_state = AppState::new(
+    let mut app_state = AppState::new(
         root.clone(),
         opts.log.as_deref().and_then(open_log),
         Some(pick_folder),
     );
+    app_state.before_restart = Some(save_for_restart);
     match &root {
         Some(r) => log_line(
             &app_state,
@@ -108,6 +124,9 @@ fn setup(app: &mut tauri::App, selftest: bool) -> Result<(), Box<dyn std::error:
         }
     }
     let root = st.root();
+
+    // This build started, so the one it replaced can go (update.rs `finish_previous`).
+    update::finish_previous_in_background(handle.clone());
 
     let window = app
         .get_webview_window("main")
@@ -198,20 +217,8 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         WindowEvent::Resized(_) | WindowEvent::Moved(_) => remember_bounds(window),
 
         // The adapter prevents this close, flushes the UI and destroys the window 400ms later,
-        // so this is the last moment the geometry is still readable. Without a vault there is
-        // nowhere to write it.
-        WindowEvent::CloseRequested { .. } => {
-            let Some(root) = st.root() else { return };
-            let bounds = current_bounds(window);
-            if let Err(e) = state::save_window(&root, bounds) {
-                log_line(st.inner(), &format!("window state save failed: {e}"));
-            }
-            // `ThemeChanged` only fires for system theme changes, so the value the adapter set
-            // with `winSetTheme` is read back here instead.
-            if let Ok(theme) = window.theme() {
-                persist_theme(st.inner(), theme);
-            }
-        }
+        // so this is the last moment the geometry is still readable.
+        WindowEvent::CloseRequested { .. } => save_geometry(window),
 
         // The system theme changed under us: repaint the native background to match.
         WindowEvent::ThemeChanged(theme) => {
@@ -228,6 +235,30 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         }
 
         _ => {}
+    }
+}
+
+/// Bounds and theme into `state.json`. Without a vault there is nowhere to write them.
+fn save_geometry(window: &tauri::Window) {
+    let app = window.app_handle();
+    let st = app.state::<AppState>();
+    let Some(root) = st.root() else { return };
+    let bounds = current_bounds(window);
+    if let Err(e) = state::save_window(&root, bounds) {
+        log_line(st.inner(), &format!("window state save failed: {e}"));
+    }
+    // `ThemeChanged` only fires for system theme changes, so the value the adapter set
+    // with `winSetTheme` is read back here instead.
+    if let Ok(theme) = window.theme() {
+        persist_theme(st.inner(), theme);
+    }
+}
+
+/// The `ose::BeforeRestart` hook: `updateApply` exits from a worker thread and never reaches
+/// `CloseRequested`, so it asks for the same save first.
+fn save_for_restart(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        save_geometry(&w.as_ref().window());
     }
 }
 
@@ -330,3 +361,22 @@ fn message_box(title: &str, text: &str) {
 
 #[cfg(not(windows))]
 fn message_box(_title: &str, _text: &str) {}
+
+/// `--version` from a terminal: the release build is a windows-subsystem process with no
+/// console, so it attaches to the parent's; with none (double-clicked) this fails and the
+/// line goes nowhere, which is fine. A console build already has one and the call is a no-op.
+#[cfg(windows)]
+fn attach_parent_console() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(pid: u32) -> i32;
+    }
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    // Safe: no pointers cross; failure is reported by the return value and ignored.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}

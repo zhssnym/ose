@@ -17,6 +17,7 @@ pub mod args;
 pub mod platform;
 pub mod protocol;
 pub mod state;
+pub mod update;
 pub mod vault;
 pub mod watcher;
 
@@ -66,6 +67,11 @@ pub struct Root {
 pub type FolderPicker =
     fn(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnOnce(Option<PathBuf>) + Send>);
 
+/// What the binary does on the ordinary close path (window geometry, theme into the state
+/// file), supplied so `updateApply`, which exits from a worker thread, can do the same before
+/// the process goes away.
+pub type BeforeRestart = fn(app: &tauri::AppHandle);
+
 /// Everything the host owns, managed by Tauri and reachable from any command or thread.
 ///
 /// The root is optional: the app now starts without one and lets the UI ask (CONTRACT.md,
@@ -77,6 +83,7 @@ pub struct AppState {
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
+    pub before_restart: Option<BeforeRestart>,
 }
 
 impl AppState {
@@ -86,6 +93,7 @@ impl AppState {
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
             picker,
+            before_restart: None,
         }
     }
 
@@ -204,6 +212,12 @@ pub mod commands {
         // rather than dispatched through the synchronous module handlers.
         if cmd == "pickVault" {
             let r = vault::pick_vault(&ctx).await;
+            return log_err(st, &cmd, r);
+        }
+
+        // The update commands talk to the network and the disk for seconds at a time; each
+        // runs on a blocking worker and is awaited here, like the picker.
+        if let Some(r) = update::handle(&app, &cmd).await {
             return log_err(st, &cmd, r);
         }
 

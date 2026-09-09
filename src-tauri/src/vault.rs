@@ -31,6 +31,14 @@ const HIDDEN: &[&str] = &[
     "os.exe",
     "os.pdb",
     ".ose",
+    // what an update leaves beside the executable for a moment (update.rs), and the bundle
+    // itself when os.app sits at the vault root on macOS
+    "os.exe.new",
+    "os.exe.old",
+    "os.app",
+    "os.app.old",
+    "os-update.zip",
+    "os-update-tmp",
 ];
 
 const MAX_DEPTH: usize = 24;

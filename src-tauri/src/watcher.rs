@@ -28,23 +28,6 @@ const POLL: Duration = Duration::from_millis(25);
 /// A flood (a git checkout, a sync) is flushed rather than accumulated.
 const MAX_PENDING: usize = 2000;
 
-/// Names never reported to the web side. Any segment starting with `.` is hidden too.
-const HIDDEN: &[&str] = &[
-    ".git",
-    ".obsidian",
-    ".claude",
-    ".vscode",
-    ".trash",
-    "node_modules",
-    "App",
-    ".tmp.driveupload",
-    ".makemd",
-    ".space",
-    "os.exe",
-    "os.pdb",
-    ".ose",
-];
-
 /// Stops the watcher thread when dropped.
 pub struct Handle {
     stop: Arc<AtomicBool>,
@@ -340,9 +323,10 @@ fn rel(root: &Path, p: &Path) -> Option<String> {
     }
 }
 
+/// The vault's own hidden list (one list, so a name the tree never shows is never reported
+/// changing either: the update's `os.exe.new` being written would otherwise storm the UI).
 fn hidden(rel: &str) -> bool {
-    rel.split('/')
-        .any(|seg| seg.starts_with('.') || HIDDEN.iter().any(|h| h.eq_ignore_ascii_case(seg)))
+    rel.split('/').any(crate::vault::is_hidden)
 }
 
 #[cfg(test)]

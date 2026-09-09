@@ -1,8 +1,10 @@
 // Status bar. Left: whatever modules put in status.set(), in registry order, joined by ' · '.
-// Right: the settings hint, the resolved theme, and which bridge is answering.
-import { bus, status, esc } from '../registry.js';
+// Right: the update item when a newer build is published (a button, in the accent, the only
+// colour in the bar), the settings hint, the resolved theme, and which bridge is answering.
+import { bus, store, status, commands, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { resolvedTheme } from './theme.js';
+import { statusItem } from './update.js';
 
 let leftEl = null, rightEl = null;
 let sawFs = false;
@@ -15,7 +17,9 @@ function renderLeft() {
 }
 
 function renderRight() {
+  const upd = statusItem();
   rightEl.innerHTML =
+    (upd ? `<button type="button" class="st-item st-update" title="A newer build is published">${esc(upd)}</button><span class="st-sep"></span>` : '') +
     `<span class="st-item st-hint">ctrl+, settings</span>` +
     `<span class="st-sep"></span>` +
     `<span class="st-item">${esc(resolvedTheme())}</span>` +
@@ -31,6 +35,10 @@ export function initStatusbar(node) {
 
   status.watch(renderLeft);
   bus.on('theme', renderRight);
+  store.watch('update', renderRight);
+  rightEl.addEventListener('click', (e) => {
+    if (e.target.closest('.st-update')) commands.run('app.update');
+  });
   renderLeft();
   renderRight();
 

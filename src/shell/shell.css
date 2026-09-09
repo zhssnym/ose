@@ -292,6 +292,9 @@ body.resizing * { cursor: col-resize !important; }
 .st-sep { width: 1px; height: 10px; background: var(--border-strong); }
 /* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
 .st-hint { color: var(--fg-2); }
+/* a newer build is published: the one accent in the bar, and a button so Tab reaches it */
+.st-update { color: var(--accent); cursor: pointer; }
+.st-update:hover { color: var(--accent-hover); }
 
 /* ------------------------------------------------------------------ window edges */
 
@@ -402,6 +405,14 @@ html.maximized .edge { display: none; }
 }
 .dlg-foot .grow { flex: 1; text-align: left; }
 
+/* the update dialog: one line saying which build to which, then the commit subjects, each
+   with its short sha in the chrome voice; the list scrolls before the dialog outgrows a short
+   window. Text is content, so the UI face and size (DESIGN.md, two typefaces). */
+.upd-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 40vh; overflow-y: auto; }
+.upd-row { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; font-size: var(--fs-ui); line-height: 1.5; }
+.upd-sha { flex: none; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.upd-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* context menu */
 .menu { min-width: 210px; padding: var(--sp-1) 0; }
 .menu-row { width: 100%; text-align: left; cursor: default; }
@@ -430,6 +441,11 @@ html.maximized .edge { display: none; }
 .seg-b:last-child { border-right: 0; }
 .seg-b:hover { background: var(--bg-3); color: var(--fg); }
 .seg-b.on { background: var(--accent); color: var(--accent-fg); }
+/* under the updates row: the build this executable is, when it last asked, and `Check now`;
+   the row above carries the switch, this line carries the facts */
+.set-upd { display: flex; align-items: center; gap: var(--sp-3); padding: 0 0 var(--sp-3); color: var(--fg-3); }
+.set-upd-checked::before { content: "· "; }
+.set-upd .btn { margin-left: auto; flex: none; }
 /* sources: the name, one sentence about the shape expected there, the path, and the controls.
    The `sources` heading is a plain .label: flush with the rows, its own top padding the gap. */
 .set-src {

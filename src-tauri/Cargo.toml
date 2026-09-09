@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "os editor"
 authors = ["Hassan Shahir"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.85"
 
 # The library holds every module; the binary is a thin entry point so `generate_handler!`
 # can name commands by path (`ose::rpc`).
@@ -33,6 +33,15 @@ trash = "5"
 opener = "0.7"
 percent-encoding = "2"
 base64 = "0.22"
+# The update check and the asset download (update.rs). The download cannot run in the webview:
+# GitHub's signed asset host answers without a CORS header, so fetch() from the page is refused
+# before a byte arrives. A small blocking client on a worker thread is all the host needs; rustls
+# so the build never depends on a system OpenSSL, no default features so no gzip/compression
+# crates ride along.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# sha256 of the downloaded asset against the digest the release API publishes; pure Rust, and
+# already in the tree as a transitive dependency of tauri (no new download).
+sha2 = "0.10"
 
 [profile.release]
 lto = true

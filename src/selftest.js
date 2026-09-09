@@ -109,6 +109,37 @@ async function run() {
     return `${p}, kind=${bridge.kind}, assetUrl=${bridge.assetUrl('a b/c.png')}`;
   });
 
+  // The CI stamp (CONTRACT.md "Self-update"): `build` is {sha, short, date} on a build from
+  // build.yml and null on a local one; either is right here.
+  let stamped = null;
+  await test('platformInfo', async () => {
+    const p = await bridge.platformInfo();
+    assert(p && typeof p.os === 'string' && typeof p.version === 'string', 'bad shape: ' + trim(JSON.stringify(p), 160));
+    assert(p.build === null || (p.build && /^[0-9a-f]{40}$/.test(p.build.sha) && p.build.short === p.build.sha.slice(0, 7)),
+      'bad build stamp: ' + trim(JSON.stringify(p.build), 120));
+    stamped = p.build;
+    return stamped ? `build ${stamped.short} · ${stamped.date}` : 'dev build';
+  });
+
+  // The check hits the real release API on a stamped build, so only the shape is asserted:
+  // never `behind` (the runner may be building the very commit that would answer it), and an
+  // error string (a rate limit, no network) is as valid an answer as a release.
+  await test('updateCheck', async () => {
+    const r = await bridge.updateCheck();
+    assert(r && typeof r === 'object', 'not an object');
+    assert(typeof r.behind === 'boolean' && Array.isArray(r.commits), 'bad shape: ' + trim(JSON.stringify(r), 160));
+    assert(r.error === null || typeof r.error === 'string', 'error is neither null nor a string');
+    if (stamped) {
+      assert(r.current && r.current.sha === stamped.sha, 'current disagrees with the platform stamp');
+      assert(r.latest === null || (typeof r.latest.sha === 'string' && typeof r.latest.short === 'string'), 'bad latest');
+      assert(r.asset === null || (typeof r.asset.name === 'string' && typeof r.asset.url === 'string'), 'bad asset');
+      return r.error ? `error: ${r.error}` : r.latest ? `latest ${r.latest.short}, behind=${r.behind}, ${r.commits.length} commits` : 'no release right now';
+    }
+    assert(r.current === null && r.latest === null && r.behind === false, 'a dev build must not check: ' + trim(JSON.stringify(r), 160));
+    return 'dev build, no request made';
+  });
+  skipped('updateDownload / updateApply', 'they replace the running executable');
+
   // The vault commands (CONTRACT.md "Vault resolution"). `vaultInfo` must agree with rootInfo
   // and name a source. `forgetVault` deletes the per-user remembered-root file: it is only
   // exercised when there is none to delete, so a run on a developer's machine never forgets

@@ -44,9 +44,19 @@ jobs:
       - name: Build the web UI
         run: npm run build
 
+      # The stamp the update check compares against the release (update.rs `build_info`):
+      # the commit this build is, and the day, read at compile time.
+      - name: Stamp the build
+        shell: pwsh
+        run: |
+          "OSE_BUILD_SHA=$env:GITHUB_SHA" >> $env:GITHUB_ENV
+          "OSE_BUILD_DATE=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd'))" >> $env:GITHUB_ENV
+
       # tauri:build resolves to `tauri build --no-bundle` on Windows: one self-contained
       # src-tauri/target/release/os.exe, no installer.
       - name: Build the host
+        env:
+          OSE_BUILD_SHA: ${{ github.sha }}
         run: npm run tauri:build
 
       - name: Stage os.exe
@@ -136,7 +146,14 @@ jobs:
       # Apple silicon, so the default host target is aarch64-apple-darwin; the locate step below
       # accepts both target/release/... and target/<triple>/release/... layouts in case the
       # script later builds with an explicit --target.
+      - name: Stamp the build
+        run: |
+          echo "OSE_BUILD_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "OSE_BUILD_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - name: Build the host
+        env:
+          OSE_BUILD_SHA: ${{ github.sha }}
         run: npm run tauri:build
 
       - name: Locate os.app

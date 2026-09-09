@@ -1,4 +1,4 @@
-//! Command line: `os [--root <path>] [--log <file>] [--selftest]`.
+//! Command line: `os [--root <path>] [--log <file>] [--selftest] [--version] [--hold <secs>]`.
 //! Unknown arguments are ignored, exactly as the .NET host did.
 
 use std::path::PathBuf;
@@ -11,6 +11,11 @@ pub struct Args {
     pub log: Option<PathBuf>,
     /// Load `selftest.html` instead of `index.html`.
     pub selftest: bool,
+    /// Print `os <version> (<commit>, <date>)` and exit 0.
+    pub version: bool,
+    /// Debug builds only: sleep this many seconds with no window, then exit 0. A test uses it
+    /// to hold a copy of the executable running while the update swap is exercised on it.
+    pub hold: Option<u64>,
 }
 
 pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Args {
@@ -21,6 +26,8 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Args {
             "--root" => out.root = it.next(),
             "--log" => out.log = it.next().map(PathBuf::from),
             "--selftest" => out.selftest = true,
+            "--version" => out.version = true,
+            "--hold" => out.hold = it.next().and_then(|s| s.parse().ok()),
             _ => {}
         }
     }
@@ -41,6 +48,14 @@ mod tests {
         assert_eq!(a.root.as_deref(), Some("D:/os"));
         assert_eq!(a.log, Some(PathBuf::from("out.log")));
         assert!(a.selftest);
+    }
+
+    #[test]
+    fn version_and_hold() {
+        let a = v(&["--version"]);
+        assert!(a.version && a.hold.is_none());
+        assert_eq!(v(&["--hold", "20"]).hold, Some(20));
+        assert_eq!(v(&["--hold", "soon"]).hold, None);
     }
 
     #[test]

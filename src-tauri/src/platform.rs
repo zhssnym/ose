@@ -121,11 +121,13 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 // ---- platform -------------------------------------------------------------
 
 /// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
-/// executable's own, or the folder holding `os.app` on macOS.
+/// executable's own, or the folder holding `os.app` on macOS. `build` is the CI stamp
+/// `{sha, short, date}`, null for a local build (update.rs).
 fn platform_info(ctx: &Ctx) -> Value {
     json!({
         "os": os_name(),
         "version": env!("CARGO_PKG_VERSION"),
+        "build": crate::update::build_json(),
         "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
         "root": ctx.st.root().map(|p| p.display().to_string()),
