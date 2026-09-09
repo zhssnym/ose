@@ -109,6 +109,32 @@ async function run() {
     return `${p}, kind=${bridge.kind}, assetUrl=${bridge.assetUrl('a b/c.png')}`;
   });
 
+  // The vault commands (CONTRACT.md "Vault resolution"). `vaultInfo` must agree with rootInfo
+  // and name a source. `forgetVault` deletes the per-user remembered-root file: it is only
+  // exercised when there is none to delete, so a run on a developer's machine never forgets
+  // the vault that machine remembers.
+  let remembered = null;
+  await test('vaultInfo', async () => {
+    const v = await bridge.vaultInfo();
+    assert(v && v.root === root.root && v.name === root.name, 'disagrees with rootInfo: ' + trim(JSON.stringify(v), 160));
+    assert(typeof v.remembered === 'boolean', 'remembered is not a boolean');
+    assert(typeof v.source === 'string' && v.source.length > 0, 'no source: ' + trim(JSON.stringify(v), 120));
+    remembered = v.remembered;
+    return `source=${v.source} remembered=${v.remembered}`;
+  });
+  if (remembered === false) {
+    await test('forgetVault (nothing to forget)', async () => {
+      const r = await bridge.forgetVault();
+      assert(r === null, 'expected null, got ' + trim(JSON.stringify(r), 80));
+      const v = await bridge.vaultInfo();
+      assert(v && v.root === root.root, 'the open vault changed: ' + trim(JSON.stringify(v), 160));
+      assert(v.remembered === false, 'a remembered root appeared');
+      return 'null, the open vault untouched';
+    });
+  } else {
+    skipped('forgetVault', remembered === null ? 'vaultInfo failed' : 'this machine remembers a vault; not deleting it');
+  }
+
   await test('exists(.selftest marker)', async () => {
     mutable = (await bridge.exists('.selftest')) === true;
     return mutable ? 'present, mutating tests enabled' : 'absent, mutating tests skipped';

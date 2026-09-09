@@ -74,7 +74,8 @@ fn open_external(url: &str) -> Result<(), String> {
 // ---- reveal ---------------------------------------------------------------
 
 fn reveal(ctx: &Ctx, rel: &str) -> Result<(), String> {
-    let full = crate::vault::resolve(&ctx.st.root, rel)?;
+    let root = ctx.st.require_root()?;
+    let full = crate::vault::resolve(&root, rel)?;
     if std::fs::symlink_metadata(&full).is_err() {
         return Err(format!("nothing to reveal: {rel}"));
     }
@@ -119,12 +120,15 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 
 // ---- platform -------------------------------------------------------------
 
+/// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
+/// executable's own, or the folder holding `os.app` on macOS.
 fn platform_info(ctx: &Ctx) -> Value {
     json!({
         "os": os_name(),
         "version": env!("CARGO_PKG_VERSION"),
         "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
-        "root": ctx.st.root.display().to_string(),
+        "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
+        "root": ctx.st.root().map(|p| p.display().to_string()),
     })
 }
 

@@ -239,6 +239,29 @@ html.mac .tb-win { display: none; }
   white-space: pre-wrap; overflow-wrap: break-word;
 }
 
+/* ------------------------------------------------------------------ choose a vault */
+
+/* No root yet (shell/vault.js): the title bar and one centred column. The same empty-state
+   voice as `.empty`, with the sentence in the UI face because it is a sentence, not a label;
+   the suggestion and any error are mono because they are a path and a message from the host. */
+.vault {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr);
+  background: var(--bg);
+}
+.vault-body {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-4); padding: var(--sp-6); text-align: center;
+}
+.vault-text { margin: 0; max-width: 44ch; font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
+.vault-hint {
+  max-width: 100%; color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vault-hint:empty { display: none; }
+.vault-err { max-width: 60ch; color: var(--err); word-break: break-word; }
+
 /* ------------------------------------------------------------------ resizers */
 
 /* A 7px grab zone centred on the 1px border it drags: 3px either side. Geometry, not spacing. */
@@ -448,6 +471,8 @@ html.maximized .edge { display: none; }
   text-transform: uppercase; letter-spacing: .06em;
 }
 .set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+/* the vault line carries `Change vault…`: the one control in the read-only block, kept small */
+.set-info .btn { margin-left: auto; flex: none; align-self: center; }
 
 /* toasts */
 .toasts {

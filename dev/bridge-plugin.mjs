@@ -168,8 +168,18 @@ export function bridgePlugin() {
 
   // ---------------------------------------------------------------- commands
   const statePath = () => path.join(root, '.ose', 'state.json'); // same file the Tauri host uses
+  // The dev bridge always has a root (dev/root.mjs). `?novault=1` on the page makes rootInfo
+  // and vaultInfo answer as the host does before a vault is chosen, so the choose-vault surface
+  // can be seen in a browser; pickVault then "chooses" the configured root without a dialog and
+  // the page reloads without the flag. The flag arrives as a query on the bridge call (http.js).
+  let noVault = false;
   const cmds = {
-    rootInfo: async () => ({ root, name: path.basename(root) }),
+    rootInfo: async () => (noVault ? { root: null, name: null } : { root, name: path.basename(root) }),
+    vaultInfo: async () => (noVault
+      ? { root: null, name: null, remembered: false, source: null }
+      : { root, name: path.basename(root), remembered: false, source: 'dev' }),
+    pickVault: async () => ({ root, name: path.basename(root) }),
+    forgetVault: async () => null,
     tree: async () => { const t = await tree(root); t.name = path.basename(root); t.path = ''; return t; },
     list: async (p) => listDir(abs(p)),
     stat: async (p) => { try { const st = await fs.stat(abs(p)); return { exists: true, kind: st.isDirectory() ? 'dir' : 'file', mtime: st.mtimeMs, size: st.size }; } catch { return { exists: false }; } },
@@ -192,7 +202,7 @@ export function bridgePlugin() {
     search: async (q, opts) => search(q, opts),
 
     log: async (text) => { console.log('[selftest]', String(text)); },
-    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, root }),
+    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
@@ -212,7 +222,8 @@ export function bridgePlugin() {
       process.once('SIGINT', () => { shutdown(); process.exit(0); });
 
       server.middlewares.use(async (req, res, next) => {
-        const url = decodeURIComponent(req.url.split('?')[0]);
+        const [rawPath, rawQuery = ''] = req.url.split('?');
+        const url = decodeURIComponent(rawPath);
 
         if (url === '/__bridge/events') { openStream(req, res); return; }
 
@@ -230,6 +241,7 @@ export function bridgePlugin() {
 
         if (!url.startsWith('/__bridge/')) return next();
         const cmd = url.slice(10);
+        noVault = /(^|&)novault=1(&|$)/.test(rawQuery);
         let body = '';
         for await (const chunk of req) body += chunk;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');

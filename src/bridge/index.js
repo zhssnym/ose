@@ -77,6 +77,15 @@ export const bridge = {
   on,
 
   rootInfo: () => call('rootInfo'),
+  // The vault itself (CONTRACT.md "Vault resolution"): `rootInfo` answers {root:null, name:null}
+  // while no vault is open; `pickVault` opens the native folder picker and adopts the choice;
+  // `vaultInfo` adds where the root came from; `forgetVault` drops the remembered root.
+  vaultInfo: () => call('vaultInfo'),
+  pickVault: () => call('pickVault'),
+  forgetVault: () => call('forgetVault'),
+  // The host's own description of itself: {os, version, exe, exeDir, root}. The chooser names
+  // `exeDir` as its suggestion; nothing else needs it.
+  platformInfo: () => call('platform'),
   tree: () => call('tree'),
   list: (path) => call('list', path),
   stat: (path) => call('stat', path),

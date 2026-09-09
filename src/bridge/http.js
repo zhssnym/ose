@@ -4,6 +4,13 @@
 
 const BASE = '/__bridge/';
 
+// `?novault=1` on the page URL makes the dev bridge answer `rootInfo` with no root, so the
+// choose-vault surface can be exercised in a browser (dev/bridge-plugin.mjs). The flag rides
+// along on every call; the plugin only reads it where it matters.
+const FLAGS = (() => {
+  try { return new URLSearchParams(location.search).get('novault') ? '?novault=1' : ''; } catch { return ''; }
+})();
+
 export async function create() {
   const subs = new Set();
   let es = null;
@@ -80,7 +87,7 @@ export async function create() {
     async call(cmd, args) {
       let r;
       try {
-        r = await fetch(BASE + cmd, {
+        r = await fetch(BASE + cmd + FLAGS, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ args: args || [] }),

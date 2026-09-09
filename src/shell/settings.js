@@ -1,8 +1,9 @@
 // Settings (Ctrl+,). Small, flat, one dialog. Everything persists under state.settings.
 import { commands, store, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { openOverlay, pickFile, pickFolder } from './dialog.js';
-import { patchState, stateCache } from './state.js';
+import { openOverlay, pickFile, pickFolder, toast } from './dialog.js';
+import { patchState, stateCache, flushState } from './state.js';
+import { reloadIntoVault } from './vault.js';
 import { themePref, setTheme } from './theme.js';
 import { SOURCE_KEYS, SOURCE_INFO, getSource, setSource, isDefaultSource } from '../lib/sources.js';
 
@@ -126,13 +127,22 @@ export async function openSettings() {
       <div class="label">sources</div>
       <div class="set-src-list">${SOURCE_KEYS.map(srcRow).join('')}</div>
       <div class="set-info mono-sm text-select">
-        <div><span>vault</span>${esc(root.root || '—')}</div>
+        <div><span>vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button class="btn sm" data-act="vault">Change vault…</button></div>
+        <div><span>from</span><i class="set-vault-src">—</i></div>
         <div><span>bridge</span>${esc(bridge.kind === 'http' ? 'dev (vite)' : `${bridge.kind} (host, ${bridge.platform})`)}</div>
       </div>
     </div>
     <div class="dlg-foot"><span class="grow mono-sm faint">changes apply immediately</span><button class="btn primary" data-act="done">Done</button></div>`;
 
   ov.box.querySelector('[data-act="done"]').addEventListener('click', () => ov.close());
+  ov.box.querySelector('[data-act="vault"]').addEventListener('click', () => commands.run('app.vault-change'));
+
+  // Where the root came from, in the host's words: arg, exe, env, remembered, picked (dev in
+  // the browser). Asked each time the dialog opens; the answer can change within one run.
+  const srcEl = ov.box.querySelector('.set-vault-src');
+  bridge.vaultInfo()
+    .then((v) => { if (srcEl.isConnected) srcEl.textContent = v && v.source ? `${v.source}${v.remembered ? ' · remembered' : ''}` : '—'; })
+    .catch((e) => { if (srcEl.isConnected) srcEl.textContent = String(e.message || e); });
 
   paintSources(ov.box);
   ov.box.addEventListener('click', (e) => {
@@ -156,7 +166,28 @@ export async function openSettings() {
   requestAnimationFrame(() => ov.box.querySelector('.seg-b')?.focus());
 }
 
+/**
+ * `Change vault…`: the native folder picker, then the whole app boots again against the
+ * choice (the host remembers it). The open page is saved first and the state file flushed,
+ * because a reload gives neither the `closing` notice the editor relies on.
+ */
+async function changeVault() {
+  let picked;
+  try {
+    picked = await bridge.pickVault();
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), 'err');
+    return;
+  }
+  if (!picked || !picked.root) return;
+  try { await commands.run('page.save'); } catch (e) { console.warn('[shell] save before vault change', e); }
+  await flushState();
+  reloadIntoVault();
+}
+
 export function initSettings() {
   applySettings();
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: toggleSettings });
+  const root = store.get('root') || {};
+  commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
 }

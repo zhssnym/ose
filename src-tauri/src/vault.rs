@@ -11,7 +11,9 @@ use base64::Engine as _;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::{arg_str, arg_str_or, opt_field_i64, Ctx};
+use tauri::Manager as _;
+
+use crate::{arg_str, arg_str_or, opt_field_i64, Ctx, Source};
 
 /// Never listed, never searched, never walked. Any name starting with a dot is hidden too,
 /// which covers `.ose` (the state folder) and every dotfile.
@@ -41,42 +43,185 @@ pub fn is_hidden(name: &str) -> bool {
 
 // ---- root resolution -------------------------------------------------------
 
-/// A vault is a folder with a `CLAUDE.md` at its root. The source repository has one too, so a
-/// folder that also holds `src-tauri` is the app, not a vault (matters when running from
-/// `src-tauri/target/release` during development).
-fn looks_like_vault(dir: &Path) -> bool {
-    dir.join("CLAUDE.md").is_file() && !dir.join("src-tauri").is_dir()
+/// A folder the executable's walk may adopt on its own: one that already carries our state
+/// folder `.ose/`, or a `CLAUDE.md` (the older marker, kept so every existing vault still
+/// opens). The source repository has a `CLAUDE.md` too, so a folder that also holds
+/// `src-tauri` is the app, not a vault (matters when running from `src-tauri/target/release`
+/// during development). A chosen or remembered folder needs no marker at all.
+pub fn looks_like_vault(dir: &Path) -> bool {
+    (dir.join(".ose").is_dir() || dir.join("CLAUDE.md").is_file()) && !dir.join("src-tauri").is_dir()
 }
 
-/// `--root` when it exists, else the executable's folder or the nearest ancestor that holds
-/// `CLAUDE.md` (on macOS the walk climbs out of `os.app/Contents/MacOS`),
-/// else `OSE_ROOT`. `None` means the caller must tell the user and exit.
-pub fn resolve_root(explicit: Option<&str>) -> Option<PathBuf> {
+/// Steps 1 to 3 of the resolution order (CONTRACT.md "Vault resolution"): `--root` when it is
+/// a folder, else the nearest ancestor of the executable that `looks_like_vault` (on macOS the
+/// walk climbs out of `os.app/Contents/MacOS`), else `OSE_ROOT`. Steps 4 and 5, the remembered
+/// root and the picker, need the app handle and happen in `setup`. `None` here no longer
+/// means exit: it means "ask".
+pub fn resolve_root(explicit: Option<&str>) -> Option<(PathBuf, Source)> {
     if let Some(r) = explicit.filter(|r| !r.is_empty()) {
         let full = normalize(Path::new(r));
         if full.is_dir() {
-            return Some(full);
+            return Some((full, Source::Arg));
         }
     }
 
     if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(normalize);
-        while let Some(d) = dir {
-            if looks_like_vault(&d) {
-                return Some(d);
-            }
-            dir = d.parent().map(Path::to_path_buf);
+        if let Some(d) = root_above(&exe) {
+            return Some((d, Source::Exe));
         }
     }
 
     if let Some(env) = std::env::var_os("OSE_ROOT") {
         let full = normalize(Path::new(&env));
         if full.is_dir() {
-            return Some(full);
+            return Some((full, Source::Env));
         }
     }
 
     None
+}
+
+/// The nearest ancestor of `exe` that looks like a vault, the executable's own folder first.
+fn root_above(exe: &Path) -> Option<PathBuf> {
+    let mut dir = exe.parent().map(normalize);
+    while let Some(d) = dir {
+        if looks_like_vault(&d) {
+            return Some(d);
+        }
+        dir = d.parent().map(Path::to_path_buf);
+    }
+    None
+}
+
+/// The folder the picker opens in and the chooser names: the executable's folder, except that
+/// an executable inside a macOS bundle names the folder holding the `.app`.
+pub fn suggested_dir(exe: &Path) -> Option<PathBuf> {
+    for a in exe.ancestors().skip(1) {
+        let is_bundle = a
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("app"))
+            .unwrap_or(false);
+        if is_bundle {
+            return a.parent().map(normalize);
+        }
+    }
+    exe.parent().map(normalize)
+}
+
+pub fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok().and_then(|e| suggested_dir(&e))
+}
+
+// ---- the remembered root ---------------------------------------------------
+
+/// One line, the vault's absolute path, in `<app config dir>/vault`. Per user, outside every
+/// vault, so it survives the vault moving and the exe being dropped anywhere.
+pub fn remembered_file(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("vault"))
+}
+
+/// The remembered path as written, if the file names one. Existence is the caller's check.
+fn parse_remembered(text: &str) -> Option<PathBuf> {
+    let line = text.lines().next()?.trim().trim_start_matches('\u{feff}').trim();
+    if line.is_empty() {
+        None
+    } else {
+        Some(normalize(Path::new(line)))
+    }
+}
+
+/// Step 4: the remembered root, when its file exists and it still names a folder.
+pub fn read_remembered(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let file = remembered_file(app)?;
+    let text = fs::read_to_string(file).ok()?;
+    parse_remembered(&text).filter(|p| p.is_dir())
+}
+
+pub fn remember(app: &tauri::AppHandle, root: &Path) -> Result<(), String> {
+    let file = remembered_file(app).ok_or("no app config folder on this platform")?;
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    fs::write(&file, format!("{}\n", root.to_string_lossy()))
+        .map_err(|e| format!("{}: {e}", file.display()))
+}
+
+/// Deletes the remembered-root file. Nothing to delete is not an error.
+pub fn forget(app: &tauri::AppHandle) -> Result<(), String> {
+    let Some(file) = remembered_file(app) else { return Ok(()) };
+    match fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", file.display())),
+    }
+}
+
+fn is_remembered(app: &tauri::AppHandle) -> bool {
+    remembered_file(app).map(|f| f.is_file()).unwrap_or(false)
+}
+
+// ---- choosing a vault ------------------------------------------------------
+
+/// Makes `dir` the open vault: validated, remembered, set in the state, watched. Everything
+/// after the picker itself, so the picker stays the only platform-specific line.
+pub fn adopt(ctx: &Ctx, dir: &Path, source: Source) -> Result<Value, String> {
+    let full = normalize(dir);
+    if !full.is_dir() {
+        return Err(format!("not a folder: {}", full.display()));
+    }
+    remember(ctx.app, &full)?;
+    ctx.st.set_root(full.clone(), source);
+    ctx.st.watch(ctx.app, full.clone());
+    crate::log_line(
+        ctx.st,
+        &format!("vault root: {} (from {})", full.display(), source.as_str()),
+    );
+    Ok(root_info(&full))
+}
+
+/// `pickVault`: the native folder picker (supplied by the binary, see `crate::FolderPicker`),
+/// opened in the executable's folder. `null` on cancel, `{root, name}` once the choice is
+/// adopted. The picker calls back from a thread of its own; awaiting a channel keeps the async
+/// runtime free and never blocks the main thread.
+pub async fn pick_vault(ctx: &Ctx<'_>) -> Result<Value, String> {
+    let picker = ctx
+        .st
+        .picker
+        .ok_or_else(|| "this build has no folder picker".to_string())?;
+    let start = exe_dir().filter(|d| d.is_dir());
+
+    let (tx, mut rx) = tauri::async_runtime::channel::<Option<PathBuf>>(1);
+    picker(
+        ctx.app,
+        start,
+        Box::new(move |picked| {
+            let _ = tx.try_send(picked);
+        }),
+    );
+
+    match rx.recv().await.flatten() {
+        None => Ok(Value::Null),
+        Some(path) => adopt(ctx, &path, Source::Picked),
+    }
+}
+
+/// `vaultInfo`: the open root, whether a remembered-root file exists on this machine, and the
+/// source the root came from. Root, name and source are null while no vault is open.
+pub fn vault_info(ctx: &Ctx) -> Value {
+    match ctx.st.root_info() {
+        Some(r) => json!({
+            "root": r.path.to_string_lossy(),
+            "name": root_name(&r.path),
+            "remembered": is_remembered(ctx.app),
+            "source": r.source.as_str(),
+        }),
+        None => json!({
+            "root": null,
+            "name": null,
+            "remembered": is_remembered(ctx.app),
+            "source": null,
+        }),
+    }
 }
 
 /// Absolute and lexically clean, without `canonicalize`: on Windows that returns a `\\?\`
@@ -507,6 +652,8 @@ fn search_dir(
 
 const COMMANDS: &[&str] = &[
     "rootInfo",
+    "vaultInfo",
+    "forgetVault",
     "tree",
     "list",
     "stat",
@@ -525,13 +672,28 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
     if !COMMANDS.contains(&cmd) {
         return None;
     }
-    Some(dispatch(&ctx.st.root, cmd, args))
+    // The three that answer without a vault; everything else reads the root at call time.
+    match cmd {
+        "rootInfo" => {
+            return Some(Ok(match ctx.st.root() {
+                Some(root) => root_info(&root),
+                None => json!({ "root": null, "name": null }),
+            }))
+        }
+        "vaultInfo" => return Some(Ok(vault_info(ctx))),
+        "forgetVault" => return Some(forget(ctx.app).map(|_| Value::Null)),
+        _ => {}
+    }
+    let root = match ctx.st.require_root() {
+        Ok(r) => r,
+        Err(e) => return Some(Err(e)),
+    };
+    Some(dispatch(&root, cmd, args))
 }
 
 fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
     let ok = Ok(Value::Null);
     match cmd {
-        "rootInfo" => Ok(root_info(root)),
         "tree" => to_value(tree(root)?),
         "list" => to_value(list(root, &arg_str_or(args, 0, ""))?),
         "stat" => stat(root, &arg_str(args, 0)?),
@@ -603,6 +765,68 @@ mod tests {
         assert!(is_hidden(".anything"));
         assert!(!is_hidden("_Archive"));
         assert!(!is_hidden("Personal"));
+    }
+
+    /// A fresh folder under the system temp dir, removed when dropped.
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(tag: &str) -> Self {
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let dir = std::env::temp_dir().join(format!("ose-test-{tag}-{stamp}-{}", std::process::id()));
+            fs::create_dir_all(&dir).unwrap();
+            Tmp(dir)
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_vault_is_marked_by_ose_or_claude_md_but_never_the_repo() {
+        let t = Tmp::new("marker");
+        let d = &t.0;
+        assert!(!looks_like_vault(d), "a plain folder is not adopted by the walk");
+        fs::create_dir_all(d.join(".ose")).unwrap();
+        assert!(looks_like_vault(d), ".ose/ marks a vault");
+        fs::remove_dir_all(d.join(".ose")).unwrap();
+        fs::write(d.join("CLAUDE.md"), "# vault\n").unwrap();
+        assert!(looks_like_vault(d), "CLAUDE.md still marks a vault");
+        fs::create_dir_all(d.join("src-tauri")).unwrap();
+        assert!(!looks_like_vault(d), "the source repo is not a vault");
+    }
+
+    #[test]
+    fn the_walk_climbs_out_of_a_bundle_to_the_nearest_marker() {
+        let t = Tmp::new("walk");
+        let vault = &t.0;
+        fs::create_dir_all(vault.join(".ose")).unwrap();
+        let exe = vault.join("os.app").join("Contents").join("MacOS").join("os");
+        assert_eq!(root_above(&exe), Some(normalize(vault)));
+    }
+
+    #[test]
+    fn the_suggested_folder_leaves_a_mac_bundle() {
+        let exe = Path::new("/Applications/os.app/Contents/MacOS/os");
+        assert_eq!(suggested_dir(exe).unwrap(), normalize(Path::new("/Applications")));
+        let exe = Path::new(if cfg!(windows) { r"D:\os\os.exe" } else { "/home/h/os/os" });
+        assert_eq!(suggested_dir(exe).unwrap(), normalize(exe.parent().unwrap()));
+    }
+
+    #[test]
+    fn the_remembered_file_is_one_line() {
+        assert!(parse_remembered("").is_none());
+        assert!(parse_remembered("  \n").is_none());
+        let p = if cfg!(windows) { r"D:\os" } else { "/home/h/os" };
+        assert_eq!(parse_remembered(&format!("{p}\n")).unwrap(), normalize(Path::new(p)));
+        assert_eq!(
+            parse_remembered(&format!("\u{feff}{p}\r\nsecond line")).unwrap(),
+            normalize(Path::new(p))
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -20,20 +20,101 @@ pub mod state;
 pub mod vault;
 pub mod watcher;
 
+/// The error every command that touches files returns while no vault is open.
+pub const NO_VAULT: &str = "no vault is open";
+
+/// Where the open root came from, for `vaultInfo` and the log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// `--root <dir>`
+    Arg,
+    /// an ancestor of the executable that holds `.ose/` or `CLAUDE.md`
+    Exe,
+    /// `OSE_ROOT`
+    Env,
+    /// the `vault` file in the per-user app config folder
+    Remembered,
+    /// chosen in the native folder picker during this run
+    Picked,
+}
+
+impl Source {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Arg => "arg",
+            Source::Exe => "exe",
+            Source::Env => "env",
+            Source::Remembered => "remembered",
+            Source::Picked => "picked",
+        }
+    }
+}
+
+/// The open vault: its absolute, normalised path and where it came from.
+#[derive(Clone, Debug)]
+pub struct Root {
+    pub path: PathBuf,
+    pub source: Source,
+}
+
+/// The native folder picker, supplied by the binary (main.rs) and called by `pickVault`:
+/// `start` is the folder to open in, `done` receives the choice, `None` on cancel. The dialog
+/// plugin is used in the binary only: on Windows its `rfd` backend imports `TaskDialogIndirect`,
+/// which exists only in the Common Controls v6 comctl32 that an application manifest opts
+/// into, and tauri-build embeds that manifest in bin targets alone. Keeping the plugin out of
+/// the library keeps the library's test harness loadable.
+pub type FolderPicker =
+    fn(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnOnce(Option<PathBuf>) + Send>);
+
 /// Everything the host owns, managed by Tauri and reachable from any command or thread.
+///
+/// The root is optional: the app now starts without one and lets the UI ask (CONTRACT.md,
+/// vault resolution). It is read through `root()` / `require_root()` at call time, never
+/// cached by a module, so `pickVault` changing it is seen by the next command and by the
+/// `vault` protocol alike.
 pub struct AppState {
-    pub root: PathBuf,
+    root: RwLock<Option<Root>>,
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
+    pub picker: Option<FolderPicker>,
 }
 
 impl AppState {
-    pub fn new(root: PathBuf, log: Option<File>) -> Self {
+    pub fn new(root: Option<Root>, log: Option<File>, picker: Option<FolderPicker>) -> Self {
         Self {
-            root,
+            root: RwLock::new(root),
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
+            picker,
         }
+    }
+
+    /// The open root's path, if any.
+    pub fn root(&self) -> Option<PathBuf> {
+        self.root_info().map(|r| r.path)
+    }
+
+    /// The open root with its source, if any.
+    pub fn root_info(&self) -> Option<Root> {
+        self.root
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// The open root, or the one error every file command shares.
+    pub fn require_root(&self) -> Result<PathBuf, String> {
+        self.root().ok_or_else(|| NO_VAULT.to_string())
+    }
+
+    pub fn set_root(&self, path: PathBuf, source: Source) {
+        *self.root.write().unwrap_or_else(|p| p.into_inner()) = Some(Root { path, source });
+    }
+
+    /// (Re)starts the watcher on `root`. Dropping the previous handle stops its thread.
+    pub fn watch(&self, app: &tauri::AppHandle, root: PathBuf) {
+        let started = watcher::start(app.clone(), root);
+        *self.watcher.lock().unwrap_or_else(|p| p.into_inner()) = Some(started);
     }
 }
 
@@ -118,6 +199,13 @@ pub mod commands {
         }
 
         log_line(st, &format!("rpc {cmd}"));
+
+        // The folder picker is the one command that waits on the user, so it is awaited here
+        // rather than dispatched through the synchronous module handlers.
+        if cmd == "pickVault" {
+            let r = vault::pick_vault(&ctx).await;
+            return log_err(st, &cmd, r);
+        }
 
         if let Some(r) = vault::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);

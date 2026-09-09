@@ -8,6 +8,15 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 
 use crate::vault;
 
+/// The handler main.rs registers: reads the root at request time, so a vault picked after
+/// startup is served from the first `<img>` on.
+pub fn serve_current(st: &crate::AppState, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+    match st.root() {
+        Some(root) => serve(&root, request),
+        None => plain(StatusCode::NOT_FOUND, crate::NO_VAULT),
+    }
+}
+
 pub fn serve(root: &Path, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     if request.method() != Method::GET {
         return plain(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");

@@ -146,12 +146,19 @@ pub fn usable(b: Bounds, monitors: &[MonitorRect]) -> bool {
 // ---- dispatch --------------------------------------------------------------
 
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    let root = ctx.st.root.as_path();
+    if !matches!(cmd, "getState" | "setState") {
+        return None;
+    }
+    // The state file lives inside the vault, so there is none to read without one.
+    let root = match ctx.st.require_root() {
+        Ok(r) => r,
+        Err(e) => return Some(Err(e)),
+    };
     match cmd {
-        "getState" => Some(Ok(get(root))),
+        "getState" => Some(Ok(get(&root))),
         "setState" => {
             let value = args.first().cloned().unwrap_or_else(|| json!({}));
-            Some(set(root, &value).map(|_| Value::Null))
+            Some(set(&root, &value).map(|_| Value::Null))
         }
         _ => None,
     }
