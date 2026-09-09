@@ -10,6 +10,7 @@ import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
 import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
+import { dropPlugin } from './drop.js';
 
 // A token read at construction time, for the one Crepe option that takes a colour string and
 // not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
@@ -27,6 +28,8 @@ const cssVar = (name, fallback = 'currentColor') => {
  * @param {string} o.markdown           initial body markdown
  * @param {(src:string)=>string} [o.resolveImage]   markdown src -> displayable url
  * @param {(file:File)=>Promise<string>} [o.uploadImage]  File -> markdown src
+ * @param {(file:File)=>Promise<string>} [o.attachFile]   File -> vault path of the copy (drops)
+ * @param {()=>string|null} [o.pagePath]  the open file, for the hrefs a drop writes
  * @param {boolean} [o.slashCommands]   false in the round-trip harness: no menu, no block keys
  */
 export async function makeCrepe(o) {
@@ -67,7 +70,7 @@ export async function makeCrepe(o) {
   });
 
   configureStringify(crepe.editor);
-  await installExtras(crepe.editor);
+  await installExtras(crepe.editor, o);
   if (o.slashCommands !== false) { installSlash(crepe.editor); installBlockKeys(crepe.editor); }
   if (o.onChange) watchDoc(crepe.editor, o.onChange);
   if (o.on) crepe.on(o.on);
@@ -77,16 +80,19 @@ export async function makeCrepe(o) {
 }
 
 /**
- * The batch-9 plugins (plugins.js). The paste handler goes in front of `prosePluginsCtx`:
- * ProseMirror asks plugins in order and Milkdown's clipboard plugin, already in the list,
- * would otherwise paste the URL as text before ours is asked. The callout and find
+ * The batch-9 plugins (plugins.js) and the drop handler (drop.js). The paste and drop
+ * handlers go in front of `prosePluginsCtx`: ProseMirror asks plugins in order and Milkdown's
+ * clipboard and upload plugins, already in the list, would otherwise paste the URL as text,
+ * or claim a drop of files it then throws away, before ours are asked. The callout and find
  * decorations can go anywhere. The gfm strikethrough input rule is taken out before
  * `create()` (`remove` only edits the plugin store at that point) and the `~~`-only rule is
- * used in its place.
+ * used in its place. The harness passes no `attachFile`, so it gets no drop handler.
  */
-async function installExtras(editor) {
+async function installExtras(editor, o) {
+  const first = [urlPastePlugin()];
+  if (typeof o.attachFile === 'function') first.push(dropPlugin({ attach: o.attachFile, pagePath: o.pagePath || (() => null) }));
   editor.config((ctx) => {
-    ctx.update(prosePluginsCtx, (plugins) => [urlPastePlugin(), ...plugins, calloutPlugin(), findPlugin()]);
+    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin()]);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);

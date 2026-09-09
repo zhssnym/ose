@@ -17,6 +17,7 @@ import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText, icon }
 import { prompt, confirm, choose, patchState, toast } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
+import { DRAG_TYPE, dropInto, payloadOf } from './drop.js';
 import { createFind } from './find.js';
 import { pickHeading } from './outline.js';
 import { bodyStartLine, titleLineNo, posForBodyLine } from './lines.js';
@@ -129,6 +130,8 @@ export async function openPage(el, path, opts = {}) {
     markdown: p.doc.body,
     resolveImage: (src) => resolveImage(p, src),
     uploadImage: (file) => uploadImage(p, file),
+    attachFile: (file) => attachFile(p, file),
+    pagePath: () => p.path,
     onChange: () => { if (p.ready) markDirty(p); },
     on: (api) => {
       api.blur(() => { if (p.dirty) void saveNow(); });
@@ -137,6 +140,7 @@ export async function openPage(el, path, opts = {}) {
   if (token !== openToken) { await p.crepe.destroy().catch(() => {}); return; }
 
   wireEditorEvents(p);
+  wireDrops(p);
   applySpellcheck(p);
   p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null));
   p.cleanups.push(() => { if (p.find) p.find.destroy(); p.find = null; });
@@ -565,19 +569,67 @@ const readAsBase64 = (file) => new Promise((resolve, reject) => {
 });
 
 /**
- * Pasted or dropped images land in `<page folder>/attachments/<yyyy-mm-dd>-<slug>.<ext>` and
- * the markdown gets a path relative to the page, so the folder stays portable.
+ * A pasted or dropped file lands in `<page folder>/attachments/<yyyy-mm-dd>-<slug>.<ext>`,
+ * numbered when taken, so the folder stays portable. Resolves to the vault path of the copy.
+ * Images and every other kind of file get the same name (drop.js links the others).
  */
-async function uploadImage(p, file) {
-  const ext = (/\.([a-z0-9]{2,5})$/i.exec(file.name || '') || [])[1]
-    || (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
-  const base = `${P.today()}-${P.slugify(P.stem(file.name || 'image'))}`;
+async function attachFile(p, file) {
+  const image = /^image\//.test(file.type || '');
+  const ext = (/\.([a-z0-9]{1,8})$/i.exec(file.name || '') || [])[1]
+    || (image ? (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg') : 'bin');
+  const base = `${P.today()}-${P.slugify(P.stem(file.name || ''), image ? 'image' : 'file')}`;
   const folder = P.joinPath(P.dirname(p.path), 'attachments');
   let target = `${folder}/${base}.${ext.toLowerCase()}`;
   for (let n = 2; await bridge.exists(target); n++) target = `${folder}/${base}-${n}.${ext.toLowerCase()}`;
   await bridge.writeBinary(target, await readAsBase64(file));
   p.touched = true;
-  return P.relativeHref(p.path, target);
+  return target;
+}
+
+/** Milkdown's uploader (crepe.js onUpload): the attachment as a markdown src relative to the page. */
+async function uploadImage(p, file) {
+  return P.relativeHref(p.path, await attachFile(p, file));
+}
+
+/**
+ * The drops the body's own handler (drop.js) never sees. On the title or the meta line the
+ * browser would put the payload's text into the title, or the shell's window guard would
+ * refuse the drop; both are the page, so the links go at the top of the body (position 0).
+ * Inside a node view that keeps its events — the code block, where CodeMirror would insert
+ * the sidebar's `text/plain` paths as code — or any other non-editable node, the drop is
+ * taken here at the pointer, and drop.js puts the blocks after the node. A read-only page
+ * takes nothing anywhere: Milkdown's editable-only handlers no longer cover the body then,
+ * and an unhandled file drop navigates the window to the file. Text drags are left alone.
+ */
+function wireDrops(p) {
+  const host = p.host;
+  const above = (t) => t instanceof Element && !!(t.closest('.page-title') || t.closest('.page-meta'));
+  const held = (t) => t instanceof Element && !!t.closest('.ProseMirror [contenteditable="false"]');
+  const opts = { pagePath: () => p.path, attach: (file) => attachFile(p, file) };
+  const onOver = (e) => {
+    const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : [];
+    const ours = types.includes(DRAG_TYPE) || types.includes('Files');
+    if (!p.readOnly && !(ours && (above(e.target) || held(e.target)))) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = p.readOnly ? 'none' : types.includes(DRAG_TYPE) ? 'move' : 'copy';
+  };
+  const onDrop = (e) => {
+    if (p.readOnly) { e.preventDefault(); return; }
+    const top = above(e.target);
+    if (!top && !held(e.target)) return;
+    const payload = payloadOf(e.dataTransfer);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const view = p.crepe ? editorView(p.crepe) : null;
+    if (!view) return;
+    const at = top ? null : view.posAtCoords({ left: e.clientX, top: e.clientY });
+    p.touched = true;
+    void dropInto(view, payload, at ? at.pos : 0, opts);
+  };
+  host.addEventListener('dragover', onOver, true);
+  host.addEventListener('drop', onDrop, true);
+  p.cleanups.push(() => { host.removeEventListener('dragover', onOver, true); host.removeEventListener('drop', onDrop, true); });
 }
 
 // ---------------------------------------------------------------------------

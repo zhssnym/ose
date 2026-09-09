@@ -76,14 +76,14 @@ export function relativeHref(fromFile, target) {
 }
 
 /** ASCII slug for attachment file names: keeps words, collapses everything else to '-'. */
-export function slugify(name) {
+export function slugify(name, fallback = 'image') {
   return String(name || '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'image';
+    .slice(0, 48) || fallback;
 }
 
 export const today = (d = new Date()) =>
