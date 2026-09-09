@@ -41,7 +41,8 @@ async fn rpc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, cmd: Stri
 
 `cmd` is the bridge method name in camelCase exactly as CONTRACT.md lists them: `rootInfo`,
 `tree`, `list`, `stat`, `exists`, `readText`, `writeText`, `appendText`, `writeBinary`, `mkdir`,
-`rename`, `trash`, `search`, `openExternal`, `reveal`, `getState`, `setState`, `log`, plus
+`rename`, `trash`, `search`, `openExternal`, `reveal`, `getState`, `setState`, `log`,
+`pickVault`, `vaultInfo`, `forgetVault`, plus
 `platform` (returns `{os: "windows"|"macos"|"linux", version, exe, root}`). Window commands
 (`winMinimize` ... `winSetTheme`) are NOT routed through rpc: the adapter uses the Tauri window
 API directly. Unknown `cmd` -> `Err("unknown command: <cmd>")`. Every error is a plain string.
@@ -73,11 +74,19 @@ calls `getCurrentWindow().destroy()`.
 
 ## Root resolution
 
-`--root <path>` if it exists; else the folder containing the executable if it holds `CLAUDE.md`
-(and no `src-tauri`, so the repo itself never counts); else walk up from the executable's folder (on macOS the binary is inside
-`os.app/Contents/MacOS/`, so the walk reaches the folder holding the .app); else `OSE_ROOT`
-env; else exit with a native error dialog (tauri's `MessageDialog` from the dialog plugin is
-allowed for this one use, or print to stderr and exit 2 if the plugin is not wanted).
+`--root <path>` if it is a directory; else the executable's folder or the nearest ancestor
+holding `.ose/` or `CLAUDE.md` (never one that also holds `src-tauri`; on macOS the walk
+climbs out of `os.app/Contents/MacOS`); else `OSE_ROOT`; else the remembered root, one line in
+`app_config_dir()/vault`, read in `setup` once the app handle exists; else the app starts with
+no root and the UI asks. `AppState.root` is `RwLock<Option<Root>>` read at call time through
+`root()` / `require_root()`; the `vault` protocol, every rpc, the window-close save and the
+watcher all follow a root picked later. `pickVault` runs `tauri-plugin-dialog`'s native folder
+picker from Rust only (`main.rs pick_folder`, handed to the library as `AppState.picker`), so
+no capability entry exists for it. The plugin — and tauri's default `common-controls-v6` —
+need the Common Controls v6 manifest in every executable; `build.rs` compiles
+`windows-app.manifest` with `embed_resource::compile_for_everything` and asks tauri-build to
+leave its own manifest out, which is what lets the library's test harness load on Windows.
+Only `--selftest` still exits (2, with a message box) when no root is found.
 
 ## Vault protocol
 

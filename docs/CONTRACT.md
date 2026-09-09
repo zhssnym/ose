@@ -805,3 +805,79 @@ resolveHref decodes with decodeURIComponent, matching relativeHref's encodeURICo
   toasted, never confirmed beforehand.
 - Selection: Ctrl+click, Shift+click and Shift+Up/Down select tree rows; with two or more,
   `tree.pin/unpin/move/trash` and drag act on all; Esc clears before leaving the tree.
+
+## Batch 10 (2026-09-09): Obsidian is the reference
+
+Restated by the owner: the app is "Obsidian plus custom GUIs from files". Any folder is a
+vault; no marker file is required; per-vault state lives in `.ose/` the way Obsidian's lives
+in `.obsidian/`. Behaviour questions (a key, a drop, a rename) default to what Obsidian does.
+There will never be a plugin system: a new GUI is a new view. The app stays a portable
+executable that normally lives inside its vault.
+
+### Vault resolution
+
+A vault is any folder. The host looks for one in this order, and the first hit wins:
+
+1. `--root <dir>`, if it is a directory.
+2. The executable's own folder, then each ancestor, for a folder holding `.ose/` (our state
+   folder) or `CLAUDE.md`; a folder that also holds `src-tauri` is the source repo and never
+   counts. On macOS the walk climbs out of `os.app/Contents/MacOS`.
+3. `OSE_ROOT`, if it is a directory.
+4. The remembered root: one line in `<app config dir>/vault` (per user, outside every vault),
+   ignored when it no longer names a directory.
+5. Nothing. The host starts anyway and `rootInfo()` answers `{root: null, name: null}`; the UI
+   mounts the choose-vault surface (shell/vault.js) instead of the shell, and the page
+   reloads once a folder is chosen. `--selftest` is the one start that still refuses
+   without a root.
+
+```
+bridge.rootInfo()     -> {root, name}                  both null while no vault is open
+bridge.vaultInfo()    -> {root, name, remembered, source}
+                         source: 'arg'|'exe'|'env'|'remembered'|'picked'|null ('dev' in the
+                         browser); remembered: a remembered-root file exists on this machine
+bridge.pickVault()    -> {root, name} | null            native folder picker, opened in the
+                         executable's folder; a choice is validated, remembered, watched, and
+                         becomes the root at once (the vault protocol follows)
+bridge.forgetVault()  -> null                          deletes the remembered-root file;
+                         nothing to delete is not an error
+bridge.platformInfo() -> {os, version, exe, exeDir, root}   exeDir: the chooser's suggestion
+```
+
+Commands needing a vault reject with `no vault is open` while there is none.
+Command `app.vault-change` "Change vault…" (group app, hint: the current root) — settings'
+info block and the palette; saves the page, flushes state, reloads into the new root.
+Dev: `?novault=1` on the page URL makes the dev bridge answer as a host with no vault.
+
+### Drop onto the page (editor/drop.js)
+
+- Files from outside: every non-image is copied to `<page folder>/attachments/<yyyy-mm-dd>-<slug>.<ext>`
+  (numbered -2, -3… when taken; the name an image gets) and linked as `[original name](relative href)`.
+  Images alone go to Milkdown's uploader (an image block); mixed drops are handled together.
+- Rows from the sidebar (`application/x-os-path`, a JSON list): a page links by its title
+  (first H1, else the stem), a folder as `[name](relative/)`, any other vault file by its name.
+  Nothing is copied. The `text/plain` fallback is never inserted.
+- Placement: one link dropped in a paragraph goes inline at the pointer; further items, and
+  anything dropped on a code block, an image, between blocks, or on the title, become one
+  paragraph per item after the block at the drop point (the title: top of the body).
+- Links are the link mark the Link command writes, hrefs through `relativeHref`, so
+  lib/links.js follows them on rename. One toast per file that could not be copied.
+- A read-only page takes no drops. Text drags are ProseMirror's own.
+
+### Month view (replaces the earlier paragraph)
+
+Title "<Month YYYY>", previous/next month. Three sections, each a bare `.label` (`goals`,
+`systems`, `review`) with nothing to its right and everything underneath. Goals as before.
+Systems: the activity matrix across the full page column — a fixed name column (ellipsis), one
+square per day sharing the rest, the day-number header with the `today` mark. Cell states:
+`on` = due and checked (accent), `skip` = due and missed (ring), `off` = not due, before the
+system's first logged day (its floor), or still to come (`--bg-3`); today unchecked draws as
+`skip` but counts as open. Each row ends in a loss column: `−N%` in `--err` mono, N = days due
+and missed so far ÷ all days the system is due in the whole month, empty when nothing is lost;
+hover gives `D done · L lost · O open`. Under the grid one line, mono `--fg-3`, right-aligned
+under the loss column: `D% done · L% lost · O% open`, pooled over every system with the month
+as the only denominator; `done` and `lost` round on their own and `open` takes the drift (when
+nothing is open, `lost` does), so the line always sums to 100. A day before a system's floor
+counts as neither done, lost nor open, so a system added on the 10th has a 21-day month. No
+systems → no line. Review: the file's prose under `# Monthly Review` or `# Review`, read-only,
+`not written yet` when absent. No per-system counts, no streaks, no overall rate. Cells are not
+clickable. Nothing is ever written to a plan file.
