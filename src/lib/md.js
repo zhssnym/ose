@@ -254,6 +254,8 @@ function goalSections(lines) {
  *   "# YYYY-MM Monthly Plan"  intro prose, then label lines with bullets  -> title, intro, sections
  *   "# Systems"               prose, then one bullet per system            -> systems, hasSystems
  *   "# Monthly Review"        Hassan's prose, never written by the app     -> review
+ *                             (`# Review` is the same section: the view calls it that, and a
+ *                             plan written to match the view must not lose its review)
  * The heads are matched exactly: `# 2026-01 Monthly Review` is not `# Monthly Review`, and a
  * file that names it that way keeps its review out of the view until the file is fixed.
  * One tolerance, because the vault uses it: a `# Goals` section is read as more of the title
@@ -267,7 +269,7 @@ export function parseMonthlyPlan(text) {
   const find = (re) => heads.find((s) => re.test(s.head));
   const goalSec = heads.indexOf(titleSec) === 0 ? find(/^goals$/i) : null;
   const sysSec = find(/^systems$/i);
-  const revSec = find(/^monthly\s+review$/i);
+  const revSec = find(/^(?:monthly\s+)?review$/i);
   const head = goalSections(titleSec.body);
   const extra = goalSec ? goalSections(goalSec.body) : { sections: [], intro: '' };
   const sections = [...head.sections, ...extra.sections];

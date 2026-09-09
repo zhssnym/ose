@@ -1,5 +1,6 @@
-// Month view: the month's goals, the systems activity matrix, the numbers it computes, and
-// Hassan's monthly review. Everything comes from two sources and nothing is written here:
+// Month view: three sections and nothing else. The month's goals, the systems matrix with the
+// loss each system has taken and one summary line under it, and Hassan's review. Everything
+// comes from two sources and nothing is written here:
 //   plans      <plans>/<year>/<YYYY-MM>*.md   goals, `# Systems`, `# Monthly Review`
 //   systemsLog the append-only check log
 // Both paths come from `sources-compat.js`, so they follow the settings; the file schema is
@@ -12,8 +13,8 @@ import { esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import {
   parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies, isGapLine,
-  ymd, ym, ddmm, parseDate, addDays, sameDay, monthDays, monthName,
-  startOfMonth, endOfMonth, addMonths, pad,
+  ymd, ym, ddmm, parseDate, sameDay, monthDays, monthName,
+  startOfMonth, addMonths, pad,
 } from '../lib/md.js';
 import { flash, navigate, getViewState, setViewState } from './shell-compat.js';
 import { getSource, onSources, resolvePlanPath } from './sources-compat.js';
@@ -42,39 +43,48 @@ function floorOf(s) {
   return f && f > start ? f : start;
 }
 
-/** The last day with a verdict: today, or the end of the month once it is behind us. */
-function lastDay() {
-  const today = new Date(), end = endOfMonth(cursor);
-  return end < today ? end : today;
-}
-
 /* ------------------------------------------------------------------ stats */
 
-/** done / applicable to date. Today still pending is not counted as a miss. */
-function score(s) {
-  const today = new Date(), end = lastDay(), floor = floorOf(s);
-  let all = 0, ok = 0;
-  for (let d = floor; d <= end; d = addDays(d, 1)) {
-    if (!applies(s, d)) continue;
-    const done = isDone(s, d);
-    if (sameDay(d, today) && !done) continue;
-    all++;
-    if (done) ok++;
-  }
-  return { all, ok };
+/**
+ * One day of one system, as the cell draws it and as the numbers count it, from the same
+ * verdict so the two can never disagree:
+ *   on    due and checked, whenever it was checked        -> done
+ *   skip  due and not checked, today or before            -> lost, except today, which is open
+ *   off   not due, before the system started, or to come -> nothing, or open when it is due
+ * A day before the floor (the system's first logged day) is off and counts as neither done,
+ * lost nor open: a system added on the 10th has a 21-day month, not a 30-day one with nine
+ * losses it never had the chance to avoid. Today still unchecked is open, not lost, so the
+ * loss column does not accuse before the day is over.
+ */
+function verdict(s, d, floor, today) {
+  const done = isDone(s, d);
+  const isToday = sameDay(d, today), future = d > today && !isToday;
+  const due = applies(s, d) && d >= floor;
+  const cls = done ? 'on' : (!due || future) ? 'off' : 'skip';
+  const tally = !due ? null : done ? 'done' : (future || isToday) ? 'open' : 'lost';
+  const state = done ? 'done'
+    : future ? 'upcoming'
+    : !applies(s, d) ? 'not applicable'
+    : d < floor ? 'before it started'
+    : 'not done';
+  return { cls, tally, state };
 }
 
-/** Applicable days done in a row, counting back. Today still pending is not a break. */
-function streak(s) {
-  const today = new Date(), floor = floorOf(s);
-  let d = lastDay(), n = 0;
-  if (sameDay(d, today) && applies(s, d) && !isDone(s, d)) d = addDays(d, -1);
-  for (let i = 0; i < 400 && d >= floor; i++, d = addDays(d, -1)) {
-    if (!applies(s, d)) continue;
-    if (!isDone(s, d)) break;
-    n++;
-  }
-  return n;
+/** `12 done · 2 lost · 16 open` — the hover of a row's loss and the shape of the summary. */
+const tallyText = (t) => `${t.done} done · ${t.lost} lost · ${t.open} open`;
+
+/**
+ * Three integers that always sum to 100. `done` and `lost` round on their own and `open`
+ * takes the drift, so a line never reads 33 · 33 · 33. Once nothing is open (a month behind
+ * us) the drift goes to `lost` instead: two halves rounding up (1 lost of 8, 7 done) would
+ * otherwise print "−1% open" on a month that has nothing open at all.
+ */
+function percentages(t) {
+  const all = t.done + t.lost + t.open;
+  const done = Math.round((100 * t.done) / all);
+  if (!t.open) return { done, lost: 100 - done, open: 0 };
+  const lost = Math.round((100 * t.lost) / all);
+  return { done, lost, open: 100 - done - lost };
 }
 
 /* --------------------------------------------------------------- skeleton */
@@ -94,9 +104,8 @@ function skeleton() {
 
     <div class="label">systems</div>
     <div class="mo-matrix-wrap"><div class="mo-matrix" id="moMatrix"></div></div>
-    <div class="mo-nums" id="moNums"></div>
 
-    <div class="label">monthly review</div>
+    <div class="label">review</div>
     <div class="mo-review" id="moReview"></div>
   </div>
 </div>`;
@@ -149,48 +158,36 @@ function renderMatrix() {
   const today = new Date(), days = monthDays(cursor);
   box.style.setProperty('--mo-days', String(days.length));
 
+  // the header row and every system row end in the loss column, so both carry one more cell
   const out = ['<div class="mo-corner"></div>'];
   for (const d of days) {
     out.push(`<div class="mo-dh mono-sm${sameDay(d, today) ? ' today' : ''}"><span>${pad(d.getDate())}</span></div>`);
   }
+  out.push('<div class="mo-corner"></div>');
+
+  const month = { done: 0, lost: 0, open: 0 };
   for (const s of systems) {
     out.push(`<div class="mo-lab" title="${esc(s.name)}"><span>${esc(s.name)}</span></div>`);
-    const floor = floorOf(s);
+    const floor = floorOf(s), t = { done: 0, lost: 0, open: 0 };
     for (const d of days) {
-      const future = d > today && !sameDay(d, today);
-      const done = isDone(s, d);
-      // a day checked ahead of time still counts as filled; everything else in the future is dim
-      const off = !applies(s, d) || d < floor || (future && !done);
-      const state = done ? 'done'
-        : future ? 'upcoming'
-        : !applies(s, d) ? 'not applicable'
-        : d < floor ? 'before it started'
-        : 'not done';
-      const cls = off ? 'off' : done ? 'on' : 'skip';
-      out.push(`<div class="mo-c ${cls}${sameDay(d, today) ? ' today' : ''}" data-tip="${esc(s.name)} · ${ddmm(d)} · ${state}"></div>`);
+      const v = verdict(s, d, floor, today);
+      if (v.tally) { t[v.tally]++; month[v.tally]++; }
+      out.push(`<div class="mo-c ${v.cls}${sameDay(d, today) ? ' today' : ''}" data-tip="${esc(s.name)} · ${ddmm(d)} · ${v.state}"></div>`);
     }
+    // the loss a system has taken so far, over every day it is due this month; a system that
+    // has lost nothing says nothing, so the column is empty on a clean sheet
+    const due = t.done + t.lost + t.open;
+    const loss = due && t.lost ? `−${Math.round((100 * t.lost) / due)}%` : '';
+    out.push(`<div class="mo-loss" data-tip="${tallyText(t)}">${loss}</div>`);
+  }
+
+  // one line for the month, pooled over every system, the month as the only denominator; a
+  // month where nothing is due yet (every system starts after it) has nothing to say
+  if (month.done + month.lost + month.open) {
+    const p = percentages(month);
+    out.push(`<div class="mo-sum">${p.done}% done · ${p.lost}% lost · ${p.open}% open</div>`);
   }
   box.innerHTML = out.join('');
-}
-
-function renderNums() {
-  const box = $('#moNums');
-  if (!systems.length) { box.innerHTML = ''; return; }
-  let all = 0, ok = 0;
-  const rows = systems.map((s) => {
-    const { all: a, ok: k } = score(s);
-    all += a; ok += k;
-    const st = streak(s);
-    return `<div class="mo-num">
-      <span class="mo-num-k">${esc(s.name)}</span>
-      <span class="mo-num-v">${k} / ${a}${st ? ` <span class="faint">·</span> streak ${st}` : ''}</span>
-    </div>`;
-  }).join('');
-  const pct = all ? Math.round((100 * ok) / all) : null;
-  box.innerHTML = `${rows}<div class="mo-num mo-total">
-    <span class="mo-num-k">overall</span>
-    <span class="mo-num-v">${pct === null ? '–' : `${pct} %`} to date</span>
-  </div>`;
 }
 
 function renderReview() {
@@ -211,7 +208,6 @@ function render() {
   $('[data-nav="today"]').hidden = sameDay(startOfMonth(new Date()), cursor);
   renderGoals();
   renderMatrix();
-  renderNums();
   renderReview();
 }
 
@@ -220,8 +216,7 @@ function render() {
 async function load() {
   const my = ++seq;
   const at = cursor;
-  // the three regions the reads feed say "loading…" only past a blink; the numbers block is
-  // left out because it is empty whenever the matrix is
+  // the three regions the reads feed say "loading…" only past a blink
   const stops = ['#moGoals', '#moMatrix', '#moReview'].map((s) => loadingLine($(s)));
   const stop = () => stops.forEach((f) => f());
   try {
