@@ -366,6 +366,38 @@ fn check(app: &tauri::AppHandle) -> Value {
     }
 }
 
+/// `os --update`: the whole loop with no window — check, download when behind, swap, relaunch.
+/// Exit 0 when already up to date; on a successful swap `apply` exits after spawning the new
+/// build, which runs this same argv, logs itself as up to date and exits 0. Exit 1 on any
+/// failure, with the reason in the log. This is what proves the assembled loop on a machine
+/// where nobody can click the dialog, and what a script uses to update in place.
+pub fn run_headless(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let st = app.state::<AppState>();
+        let st = st.inner();
+        let v = check(&app);
+        if let Some(e) = v["error"].as_str() {
+            log_line(st, &format!("update: --update stopped at the check: {e}"));
+            app.exit(1);
+            return;
+        }
+        if !v["behind"].as_bool().unwrap_or(false) {
+            log_line(st, "update: --update: nothing to do");
+            app.exit(0);
+            return;
+        }
+        if let Err(e) = download(&app) {
+            log_line(st, &format!("update: --update stopped at the download: {e}"));
+            app.exit(1);
+            return;
+        }
+        if let Err(e) = apply(&app) {
+            log_line(st, &format!("update: --update stopped at the swap: {e}"));
+            app.exit(1);
+        }
+    });
+}
+
 // ---- download -------------------------------------------------------------
 
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);

@@ -118,6 +118,11 @@ that will not start leaves `.old` beside it for a manual rename back.
 `tests/swap.rs` (Windows) copies the built executable twice into a temp folder, holds one
 running with `--hold`, runs the swap against it and checks the names before and after.
 
+`os --update` runs the whole loop with no window: check, download when behind, swap, relaunch;
+the relaunched build runs the same argv, logs itself up to date and exits 0. Exit 1 with the
+reason in the log on any failure. It is what a script uses, and what proved the assembled
+loop on a machine where the dialog could not be clicked.
+
 ## Window
 
 Windows and Linux: `decorations: false`, shadow true, our title bar with drag through the

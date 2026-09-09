@@ -913,5 +913,6 @@ dev bridge              updateCheck → dev shape; updateDownload/Apply → Err(
 ```
 
 Hidden names gain `os.exe.new`, `os.exe.old`, `os.app`, `os.app.old`, `os-update.zip`,
-`os-update-tmp`. `os --version` prints the stamp; `--hold <secs>` exists in debug builds for
-the swap test. See docs/TAURI.md "Self-update" for the swap on each platform.
+`os-update-tmp`. `os --version` prints the stamp; `os --update` runs check → download → swap → relaunch
+with no window (exit 0 when up to date or swapped, 1 on failure); `--hold <secs>` exists in
+debug builds for the swap test. See docs/TAURI.md "Self-update" for the swap on each platform.

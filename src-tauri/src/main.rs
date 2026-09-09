@@ -17,6 +17,10 @@ use ose::{args, log_line, protocol, state, update, vault, AppState, Root, Source
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
 static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 
+/// `--update`: the page still loads (the webview is the process), but the window is never
+/// shown and nothing but the update loop runs.
+static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 const NO_VAULT_SELFTEST: &str = "os --selftest needs a vault.\n\n\
 Pass --root <folder>, set OSE_ROOT, or start it from inside a vault (a folder with .ose/ or CLAUDE.md).";
 
@@ -63,6 +67,11 @@ fn main() {
     }
 
     let selftest = opts.selftest;
+    if opts.update {
+        HEADLESS.store(true, std::sync::atomic::Ordering::Relaxed);
+        log_line(&app_state, "os --update: headless");
+    }
+    let headless = opts.update;
 
     tauri::Builder::default()
         .manage(app_state)
@@ -80,13 +89,16 @@ fn main() {
         // The window starts invisible; the first finished page load is the earliest moment
         // showing it cannot flash an empty frame.
         .on_page_load(|webview, payload| {
-            if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Finished) {
+            if webview.label() == "main"
+                && matches!(payload.event(), PageLoadEvent::Finished)
+                && !HEADLESS.load(std::sync::atomic::Ordering::Relaxed)
+            {
                 let window = webview.window();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
         })
-        .setup(move |app| setup(app, selftest))
+        .setup(move |app| setup(app, selftest, headless))
         .on_window_event(on_window_event)
         .run(tauri::generate_context!())
         .expect("os failed to start");
@@ -109,7 +121,7 @@ fn pick_folder(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnO
     });
 }
 
-fn setup(app: &mut tauri::App, selftest: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let st = app.state::<AppState>();
 
@@ -127,6 +139,12 @@ fn setup(app: &mut tauri::App, selftest: bool) -> Result<(), Box<dyn std::error:
 
     // This build started, so the one it replaced can go (update.rs `finish_previous`).
     update::finish_previous_in_background(handle.clone());
+
+    // `--update`: no window, no theme, no bounds; the loop runs on its own thread and exits.
+    if headless {
+        update::run_headless(handle);
+        return Ok(());
+    }
 
     let window = app
         .get_webview_window("main")
