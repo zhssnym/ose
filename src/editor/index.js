@@ -13,7 +13,7 @@
 
 import { bus, commands, status, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText, icon } from '../shell/index.js';
+import { navigate, clearRoute, defaultNewFolder, scratchFolder, copyText, icon, attachmentFolder, spellcheckOn, trashMode, trashDestination } from '../shell/index.js';
 import { prompt, confirm, choose, patchState, toast } from './deps.js';
 import { makeCrepe, readMarkdown, editorView } from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
@@ -23,9 +23,12 @@ import { pickHeading } from './outline.js';
 import { bodyStartLine, titleLineNo, posForBodyLine } from './lines.js';
 import { caretAt, scrollerOf } from './reveal.js';
 import { registerExtensionCommands } from './extensions.js';
-import { keepVersion } from './versions.js';
+import { keepVersion, keepDiskVersion } from './versions.js';
+import { backlinkCount } from './backlinks.js';
+import { followHref } from './linkstate.js';
+import { createSourceView, rememberSource, renameRemembered, wasInSource } from './source.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
-import { parseDoc, composeDoc, countWords, detectLang, frontmatterEditable, setFrontmatterValue } from './doc.js';
+import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
 import './editor.css';
 
@@ -45,6 +48,11 @@ let initialised = false;
 const blankPage = () => ({
   path: '', doc: null, title: '', baseline: '',
   el: null, host: null, titleEl: null, metaEl: null, bodyEl: null, crepe: null, find: null,
+  // Batch 12 (P5). mode: 'block' (Crepe) or 'source' (the whole file in CodeMirror), swapped by
+  // `page.source-toggle`. plain: a text file that is not markdown — source mode is its only
+  // mode and composeDoc is never applied to it. words/wordTimer: the meta line's count, taken
+  // from the ProseMirror document and debounced with the save rather than serialised per key.
+  mode: 'block', plain: false, source: null, words: 0, chars: 0, mtime: 0, wordTimer: 0, titleSelected: false,
   dirty: false, touched: false, ready: false,
   // rev counts user edits, so a write can tell whether the document moved on under it.
   // readOnly: the file is gone from disk; nothing is written again (C18). hold: the user
@@ -73,6 +81,8 @@ export async function initEditor() {
 
   // The bridge facade already re-emits 'fs' onto the bus; listening to both would reload twice.
   bus.on('fs', onFsChange);
+  // Spellcheck is a setting now (L12/E43): a page already open follows a change to it.
+  bus.on('settings', () => { if (page) applySpellcheck(page); });
   // The returned promise is what the Tauri adapter waits on before destroying the window
   // (B2). It resolves `false` when the save needs the user (the file changed on disk): the
   // adapter then keeps the window, the question is on screen, and closing again retries.
@@ -89,8 +99,9 @@ export async function initEditor() {
  * up (C7). The same path with a new line does not remount: the open page just scrolls.
  */
 export async function openPage(el, path, opts = {}) {
-  if (opts.line && page && page.path === path && page.crepe && page.el && page.el.parentNode === el) {
-    scrollToLine(opts.line);
+  if (opts.line && page && page.path === path && (page.crepe || page.source) && page.el && page.el.parentNode === el) {
+    scrollToLine(opts.line, opts.col);
+    openFindWith(page, opts.query);
     return;
   }
   const token = ++openToken;
@@ -118,46 +129,159 @@ export async function openPage(el, path, opts = {}) {
   }
   if (token !== openToken) return;
 
-  p.doc = parseDoc(text);
+  // A file that is not markdown is never parsed as one (batch 12): it opens in source mode,
+  // with no title strip, and what is written back is exactly what CodeMirror holds.
+  p.plain = !P.isMarkdown(path);
+  p.doc = p.plain ? plainDoc(text) : parseDoc(text);
   p.title = p.doc.title;
   p.baseline = text;
+  p.mode = p.plain || (await wasInSource(path)) ? 'source' : 'block';
+  if (token !== openToken) return;
 
   buildDom(p, el);
-  updateMeta(p);
+  updateMeta(p, true);
   status.set('path', path);
   status.set('save', null);
 
-  p.crepe = await makeCrepe({
-    root: p.bodyEl,
-    markdown: p.doc.body,
-    resolveImage: (src) => resolveImage(p, src),
-    uploadImage: (file) => uploadImage(p, file),
-    attachFile: (file) => attachFile(p, file),
-    pagePath: () => p.path,
-    onChange: () => { if (p.ready) markDirty(p); },
-    on: (api) => {
-      api.blur(() => { if (p.dirty) void saveNow(); });
-    },
-  });
-  if (token !== openToken) { await p.crepe.destroy().catch(() => {}); return; }
+  if (!await mountBody(p, text, token)) return;
+  void readMtime(p);
 
-  wireEditorEvents(p);
-  wireDrops(p);
-  applySpellcheck(p);
-  p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null));
-  p.cleanups.push(() => { if (p.find) p.find.destroy(); p.find = null; });
-  // Anything the editor does to the document while it is settling (the trailing plugin adds
-  // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
-  // normal path; the timer is the fallback, because a hidden window fires no frames at all.
-  const ready = () => { p.ready = true; };
-  requestAnimationFrame(() => requestAnimationFrame(ready));
-  setTimeout(ready, 80);
-  // The line jump waits for the same two frames: node views have to be laid out before a
-  // block has a height to scroll to, and the router puts a remembered scroll back one frame
-  // after the mount — the jump must come after that, not be undone by it.
-  if (opts.line) requestAnimationFrame(() => requestAnimationFrame(() => { if (p === page) scrollToLine(opts.line); }));
+  // The jump waits for the layout: node views have to be laid out before a block has a height
+  // to scroll to, and the router puts a remembered scroll back one frame after the mount — the
+  // jump must come after that, not be undone by it. `selection` is the router handing back
+  // where the caret was when the page was last left (N44); a line wins over it.
+  if (opts.line || opts.selection || opts.query) {
+    afterLayout(() => {
+      if (p !== page) return;
+      if (opts.line) scrollToLine(opts.line, opts.col);
+      else if (opts.selection) restoreSelection(p, opts.selection);
+      openFindWith(p, opts.query);
+    });
+  }
 
   void patchState({ editor: { last: path } });
+}
+
+/**
+ * The document shape of a file that is not markdown (`.txt`, `.csv`, `.py`, a log). Every
+ * field is empty but `body`, so nothing above the body is drawn and `compose` never rewrites
+ * a byte: source mode hands the file back exactly as it holds it.
+ */
+function plainDoc(text) {
+  return {
+    eol: '\n', eols: null, lines: null, bom: false, endsWithNewline: /\n$/.test(String(text ?? '')),
+    frontmatterRaw: '', frontmatter: null, preTitle: '', titleLine: null, title: '', gap: '',
+    body: String(text ?? ''), plain: true,
+  };
+}
+
+/**
+ * Put the body in: Crepe in block mode, CodeMirror over the whole file in source mode. `text`
+ * is the whole file. Answers false when the open was superseded while the editor was building.
+ */
+async function mountBody(p, text, token) {
+  p.ready = false;
+  if (p.mode === 'source') {
+    p.bodyEl.classList.add('ed-source');
+    p.el.classList.add('ed-source-on');
+    // The title line is inside the text now; a strip that could also edit it would be a second
+    // source of truth for the same bytes. It stays as a label until the mode goes back.
+    if (p.titleEl) p.titleEl.contentEditable = 'false';
+    p.source = createSourceView({
+      host: p.bodyEl,
+      text,
+      markdown: !p.plain,
+      gutter: p.plain,
+      readOnly: p.readOnly,
+      onChange: () => { p.touched = true; markDirty(p); },
+      onEscape: () => { try { p.source.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
+    });
+    p.find = {
+      open: () => { if (p.source) p.source.openFind(); },
+      close: () => { if (p.source) p.source.closeFind(); },
+      destroy: () => {},
+    };
+    p.ready = true;
+  } else {
+    p.crepe = await makeCrepe({
+      root: p.bodyEl,
+      markdown: p.doc.body,
+      resolveImage: (src) => resolveImage(p, src),
+      uploadImage: (file) => uploadImage(p, file),
+      attachFile: (file) => attachFile(p, file),
+      pagePath: () => p.path,
+      onChange: () => { if (p.ready) markDirty(p); },
+      // The two keys at the top edge of the body (L10, L19); source.js holds the keymap.
+      onLeaveTop: () => focusTitleEnd(p),
+      onSelectAll: () => selectAllWithTitle(p),
+      on: (crepeApi) => {
+        crepeApi.blur(() => { if (p.dirty) void saveNow(); });
+      },
+    });
+    if (token !== undefined && token !== openToken) { await p.crepe.destroy().catch(() => {}); return false; }
+    wireDrops(p);
+    p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null));
+    // Anything the editor does to the document while it is settling (the trailing plugin adds
+    // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
+    // normal path; the timer is the fallback, because a hidden window fires no frames at all.
+    const ready = () => { p.ready = true; };
+    requestAnimationFrame(() => requestAnimationFrame(ready));
+    setTimeout(ready, 80);
+  }
+  wireEditorEvents(p);
+  applySpellcheck(p);
+  updateMeta(p, true);
+  p.cleanups.push(() => { if (p.find) p.find.destroy(); p.find = null; });
+  return true;
+}
+
+/** Tear the body down, whichever kind it is, and forget everything wired around it. */
+async function unmountBody(p) {
+  clearTimeout(p.wordTimer);
+  for (const fn of p.cleanups) { try { fn(); } catch (e) { console.error(e); } }
+  p.cleanups.length = 0;
+  if (p.crepe) { try { await p.crepe.destroy(); } catch (e) { console.error('[editor] destroy', e); } }
+  if (p.source) p.source.destroy();
+  p.crepe = null;
+  p.source = null;
+}
+
+/**
+ * `page.source-toggle` (Ctrl+E). The buffer, not the file, crosses over: `compose` gives the
+ * whole file as a save would write it, CodeMirror shows exactly that, and `parseDoc` takes it
+ * back. Nothing is written, the dirty flag and the baseline are untouched, and the only thing
+ * lost is the undo history of the editor being left — which the status bar says.
+ */
+async function toggleSource() {
+  const p = page;
+  if (!p || (!p.crepe && !p.source)) return;
+  if (p.plain) { toast(`${P.basename(p.path)} is not markdown: source is its only mode`, 'info'); return; }
+
+  let text;
+  try {
+    text = compose(p);
+  } catch (e) {
+    toast('could not serialise the page, the mode was not changed: ' + (e.message || e), 'err');
+    return;
+  }
+  const host = p.el ? p.el.parentNode : null;
+  if (!host) return;
+  const scroller = scrollerOf(host);
+  const top = scroller ? scroller.scrollTop : 0;
+
+  await unmountBody(p);
+  if (p !== page) return;
+  p.mode = p.mode === 'source' ? 'block' : 'source';
+  p.doc = parseDoc(text);
+  p.title = p.doc.title;
+  p.titleSelected = false;
+  buildDom(p, host);
+  if (!await mountBody(p, text)) return;
+  if (scroller) scroller.scrollTop = top;
+  if (p.source) p.source.focus(); else focusBody();
+  void rememberSource(p.path, p.mode === 'source');
+  toast(p.mode === 'source' ? 'source mode · the block editor\'s undo history was cleared'
+    : 'block mode · the text editor\'s undo history was cleared', 'info', 3500);
 }
 
 /**
@@ -165,10 +289,13 @@ export async function openPage(el, path, opts = {}) {
  * line above the body — frontmatter, the title — scrolls to the top, with the caret in the
  * title when the line is the title's. True when there was a page to scroll.
  */
-export function scrollToLine(line) {
+export function scrollToLine(line, col) {
   const p = page;
   const n = Math.floor(Number(line) || 0);
-  if (!p || !p.crepe || !p.el || n < 1) return false;
+  if (!p || !p.el || n < 1) return false;
+  // Source mode counts the same lines the search overlay counts: the file's own.
+  if (p.source) { p.source.goToLine(n, col); return true; }
+  if (!p.crepe) return false;
   const view = editorView(p.crepe);
   if (!view) return false;
   const start = bodyStartLine(p.doc);
@@ -178,9 +305,55 @@ export function scrollToLine(line) {
     if (n === titleLineNo(p.doc)) focusTitle(p);
     return true;
   }
-  const pos = posForBodyLine(p.crepe, view, p.doc.body, n - start + 1);
+  const pos = posForBodyLine(p.crepe, view, p.doc.body, n - start + 1, col);
   caretAt(view, pos, { block: 'start', always: true, focus: true });
   return true;
+}
+
+/**
+ * Two frames, or 80ms, whichever comes first — and exactly once.
+ *
+ * A window that is hidden (minimised, another virtual desktop, a background tab) fires no
+ * animation frames at all, so a bare `requestAnimationFrame` chain never runs and the caret
+ * never leaves the top of the page. `ready` in `openPage` has had the same fallback since
+ * batch 9; the jump needs it for the same reason.
+ */
+/**
+ * The find bar, seeded with the term a search hit was found by (N36). Silent when there is no
+ * term; loud in the console when there is one and no bar to put it in, because a search hit
+ * that opens the page and highlights nothing looks like the search was wrong.
+ */
+function openFindWith(p, query) {
+  if (!query) return;
+  if (p && p.find && typeof p.find.open === 'function') { p.find.open({ query }); return; }
+  console.warn('[editor] no find bar to seed with', query);
+}
+
+function afterLayout(fn) {
+  let done = false;
+  const once = () => { if (done) return; done = true; fn(); };
+  requestAnimationFrame(() => requestAnimationFrame(once));
+  setTimeout(once, 80);
+}
+
+/**
+ * Put a `{from, to}` the router remembered back on the document (N44). `caretAt` does the
+ * dispatch itself, and `always` makes it scroll even when the position is already on screen —
+ * without it a caret restored into the first visible screenful is set and then left invisible,
+ * which reads as "it did nothing".
+ */
+function restoreSelection(p, sel) {
+  const view = p && p.crepe ? editorView(p.crepe) : null;
+  if (!view || !sel) return;
+  const size = view.state.doc.content.size;
+  const from = Math.max(0, Math.min(Math.floor(Number(sel.from) || 0), size));
+  caretAt(view, from, { block: 'center', always: true, focus: true });
+}
+
+/** Where the caret is, for the router to hand back at the next open (N44, P7). */
+export function currentSelection() {
+  const view = page && page.crepe ? editorView(page.crepe) : null;
+  return view ? { from: view.state.selection.from, to: view.state.selection.to } : null;
 }
 
 /** The top of the page, caret at the start of the title (when the file has one). */
@@ -204,11 +377,8 @@ export async function closePage() {
   // Leaving the page is deliberate: a held changed-on-disk question is asked now, and the
   // route change waits for the answer.
   if (p.dirty) await saveDoc(p, { explicit: true });
-  for (const fn of p.cleanups) { try { fn(); } catch (e) { console.error(e); } }
-  p.cleanups.length = 0;
-  if (p.crepe) { try { await p.crepe.destroy(); } catch (e) { console.error('[editor] destroy', e); } }
+  await unmountBody(p);
   if (p.el && p.el.parentNode) p.el.remove();
-  p.crepe = null;
   p.el = p.host = p.titleEl = p.metaEl = p.bodyEl = null;
   status.set('doc', null);
   status.set('save', null);
@@ -239,7 +409,10 @@ function buildDom(p, el) {
 
   if (p.doc.frontmatterRaw) col.append(propertiesStrip(p));
 
-  if (p.doc.titleLine !== null) {
+  // A file that is not markdown has no title of any kind: the meta line names it.
+  if (p.plain) {
+    // nothing above the body
+  } else if (p.doc.titleLine !== null) {
     col.append(makeTitleEl(p, p.doc.title));
   } else {
     const wrap = document.createElement('div');
@@ -374,9 +547,60 @@ function onTitleKey(e) {
   }
 }
 
+/**
+ * L11: the caret lands at the **start of the first body block**, not wherever it happened to
+ * be last. Leaving the title is a move to the top of the body, and nothing else.
+ */
 function focusBody() {
-  const view = page && page.crepe ? editorView(page.crepe) : null;
-  if (view) view.focus();
+  const p = page;
+  if (!p) return;
+  if (p.source) { p.source.focus(); return; }
+  const view = p.crepe ? editorView(p.crepe) : null;
+  if (!view) return;
+  view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)).scrollIntoView());
+  view.focus();
+}
+
+/**
+ * L10: the way back. Backspace or ArrowUp at the very start of the body puts the caret at the
+ * **end** of the title, where a user who just walked backwards out of the body expects it.
+ * False when there is no title to go to, so the key keeps its ordinary meaning.
+ */
+function focusTitleEnd(p) {
+  if (!p || !p.titleEl || p.titleEl.contentEditable === 'false') return false;
+  p.titleEl.focus({ preventScroll: true });
+  const range = document.createRange();
+  range.selectNodeContents(p.titleEl);
+  range.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
+
+/**
+ * L19: Ctrl+A once selects the block, twice the body (P3, blocks.js), a third time the title
+ * as well — so the copy that follows is the whole note. The title is not part of the
+ * ProseMirror document, so the selection cannot literally reach it: it is marked instead, and
+ * the copy handler in `wireEditorEvents` writes the title line in front of the body.
+ */
+function selectAllWithTitle(p) {
+  if (!p || !p.titleEl || p.titleSelected) return false;
+  p.titleSelected = true;
+  p.titleEl.classList.add('ed-all-selected');
+  return true;
+}
+
+function clearTitleSelection(p) {
+  if (!p || !p.titleSelected) return;
+  p.titleSelected = false;
+  if (p.titleEl) p.titleEl.classList.remove('ed-all-selected');
+}
+
+/** The note without its frontmatter: the title line, the gap, the body, as a save would write. */
+function wholeNote(p) {
+  const body = readMarkdown(p.crepe, p.doc.body);
+  return composeDoc({ ...p.doc, frontmatterRaw: '', preTitle: '' }, { title: p.title, body });
 }
 
 /** Give a file with no H1 one. A user action, never automatic. */
@@ -399,21 +623,22 @@ function addTitle(p) {
 }
 
 /**
- * Chromium spellchecks a contenteditable against the `lang` in effect on it, so the language
- * is decided per document and put on the page column; the editable root asks for checking
- * explicitly rather than relying on the inherited default.
+ * Spellcheck is a setting, not a guess (L12/E43). The old code sniffed the document's language
+ * from a dozen stop words and switched checking off whenever the guess disagreed with the
+ * Windows display language — which, on this fr-FR machine, meant no spellcheck at all on every
+ * English page and red underlines under every French word on a page it read as English.
+ * `settings.spellcheck` (P8, default true) decides; the language is the app's own.
  */
 function applySpellcheck(p) {
-  const lang = detectLang(`${p.title || ''} ${p.doc.body}`);
+  if (!p || !p.el) return;
+  const on = spellcheckOn();
+  const lang = navigator.language || 'en';
   p.el.setAttribute('lang', lang);
   const view = p.crepe ? editorView(p.crepe) : null;
-  // WebView2 spellchecks with the Windows display language only (fr-FR here) and ignores
-  // `lang`, so an English page would get every word underlined. Check only when the document's
-  // language matches the checker's; see the batch-2 report in CONTRACT.md.
-  const checkerLang = (navigator.language || 'fr').slice(0, 2);
-  if (view && view.dom) {
-    view.dom.setAttribute('spellcheck', String(lang === checkerLang));
-    view.dom.setAttribute('lang', lang);
+  for (const dom of [view && view.dom, p.source && p.source.view.contentDOM]) {
+    if (!dom) continue;
+    dom.setAttribute('spellcheck', String(on));
+    dom.setAttribute('lang', lang);
   }
 }
 
@@ -432,6 +657,29 @@ function wireEditorEvents(p) {
     host.addEventListener(ev, touch, true);
     p.cleanups.push(() => host.removeEventListener(ev, touch, true));
   }
+  // L19: the widened selection is a mode of exactly one gesture. Anything but the chords that
+  // read it (Ctrl+A again, Ctrl+C, Ctrl+X) puts the page back to an ordinary selection.
+  const MODIFIERS = ['Control', 'Meta', 'Shift', 'Alt', 'AltGraph'];
+  const keeps = (e) => MODIFIERS.includes(e.key)
+    || ((e.ctrlKey || e.metaKey) && ['a', 'c', 'x', 'insert'].includes(String(e.key).toLowerCase()));
+  const clearAll = (e) => { if (e.type !== 'keydown' || !keeps(e)) clearTitleSelection(p); };
+  const onCopy = (e) => {
+    if (!p.titleSelected || !e.clipboardData || !p.crepe) return;
+    let text;
+    try { text = wholeNote(p); } catch (err) { console.error('[editor] copy whole note', err); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    e.clipboardData.setData('text/plain', text);
+  };
+  host.addEventListener('keydown', clearAll, true);
+  host.addEventListener('pointerdown', clearAll, true);
+  host.addEventListener('copy', onCopy, true);
+  p.cleanups.push(() => {
+    host.removeEventListener('keydown', clearAll, true);
+    host.removeEventListener('pointerdown', clearAll, true);
+    host.removeEventListener('copy', onCopy, true);
+  });
+
   host.addEventListener('pointerdown', onLinkPointerDown, true);
   host.addEventListener('click', onLinkClick, true);
   p.cleanups.push(() => host.removeEventListener('pointerdown', onLinkPointerDown, true));
@@ -493,12 +741,19 @@ function chordOf(e) {
  * its own content element, below this listener and below the shell's window listener, so the
  * event has to be stopped here — and the shell's command run in its place.
  */
+const CODE_KEYS = new Set([
+  'alt+arrowleft', 'alt+arrowright', 'alt+arrowup', 'alt+arrowdown', 'ctrl+d', 'ctrl+shift+k',
+]);
+
 function guardShellKeys(e) {
   if (!(e.target instanceof Element) || !e.target.closest('.cm-editor')) return;
   const combo = chordOf(e);
   if (!combo) return;
   const entry = SHELL_KEYMAP.find((k) => k.combo === combo);
   if (!entry) return;
+  // Six chords belong to CodeMirror inside a code block: move by syntax node, move and copy a
+  // line, select next occurrence, delete line (CONTRACT batch 12, "Code blocks", P4).
+  if (CODE_KEYS.has(combo)) return;
   e.preventDefault();
   e.stopPropagation();
   commands.run(entry.cmd);
@@ -543,14 +798,9 @@ function onLinkClick(e) {
 
 async function followLink(href) {
   if (!page) return;
-  if (P.isExternal(href)) { await bridge.openExternal(href); return; }
-  const target = P.resolveHref(page.path, href);
-  if (!target) return;
-  // A page link always navigates, whether or not the file exists: the router draws a
-  // "page not found" screen with a Create button for a missing path, which is both the
-  // explanation and the fix (C8). A status word here was neither.
-  if (/\.md$/i.test(target)) { navigate({ type: 'page', path: target }); return; }
-  await bridge.reveal(target);
+  // linkstate.js (P7) owns where a href goes: anchors, missing pages, text files into source
+  // mode, the platform for everything else. The editor only says which page it was written in.
+  return followHref(href, page.path);
 }
 
 // ---------------------------------------------------------------------------
@@ -580,7 +830,8 @@ async function attachFile(p, file) {
   const ext = (/\.([a-z0-9]{1,8})$/i.exec(file.name || '') || [])[1]
     || (image ? (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg') : 'bin');
   const base = `${P.today()}-${P.slugify(P.stem(file.name || ''), image ? 'image' : 'file')}`;
-  const folder = P.joinPath(P.dirname(p.path), 'attachments');
+  // Where attachments go is a setting (S35, P8); the default answers the page's own folder.
+  const folder = attachmentFolder(p.path);
   let target = `${folder}/${base}.${ext.toLowerCase()}`;
   for (let n = 2; await bridge.exists(target); n++) target = `${folder}/${base}-${n}.${ext.toLowerCase()}`;
   await bridge.writeBinary(target, await readAsBase64(file));
@@ -651,10 +902,17 @@ function markDirty(p) {
   updateMeta(p);
   clearTimeout(p.saveTimer);
   p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
+  clearTimeout(p.wordTimer);
+  p.wordTimer = setTimeout(() => { if (p === page) updateMeta(p, true); }, SAVE_DEBOUNCE);
 }
 
-/** The file exactly as a save would write it. `page.copy-markdown` copies this (C14). */
+/**
+ * The file exactly as a save would write it. `page.copy-markdown` copies this (C14). In source
+ * mode the text in CodeMirror *is* the file — frontmatter, title and body — so it is handed
+ * back untouched; composeDoc would only have the chance to change bytes nobody edited.
+ */
 function compose(p) {
+  if (p.source) return p.source.getText();
   const body = readMarkdown(p.crepe, p.doc.body);
   return composeDoc(p.doc, { title: p.title, body });
 }
@@ -679,7 +937,7 @@ const clean = (p) => {
  * instead of being marked clean by mistake (`rev`).
  */
 async function saveDoc(p, opts = {}) {
-  if (!p || !p.crepe) return true;
+  if (!p || (!p.crepe && !p.source)) return true;
   clearTimeout(p.saveTimer);
   // Never write a file the user has not touched, whatever the editor thinks it changed while
   // mounting node views.
@@ -761,9 +1019,12 @@ async function writeOut(p, text, rev) {
   await bridge.writeText(p.path, text);
   p.baseline = text;
   p.warnedDisk = null;
-  p.doc = parseDoc(text);
+  p.doc = p.plain ? plainDoc(text) : parseDoc(text);
   p.title = p.doc.titleLine !== null ? p.doc.title : p.title;
+  // In source mode the title strip is a label over text the user just edited: it follows.
+  if (p.source && p.titleEl && p.titleEl.textContent !== p.title) p.titleEl.textContent = p.title;
   p.savedAt = P.hhmm();
+  void readMtime(p);
   bus.emit('doc:saved', { path: p.path });
   if (p.rev === rev) {
     clean(p);
@@ -799,6 +1060,9 @@ async function resolveConflict(p, text, rev, onDisk) {
     p.asking = false;
   }
   if (choice === 'keep') {
+    // The one write that destroys text this editor has never seen. The disk's version is kept
+    // first, whatever the five-minute rule says, so `page.versions` can undo the decision.
+    await keepDiskVersion(p.path, onDisk);
     try {
       await writeOut(p, text, rev);
     } catch (e) {
@@ -832,6 +1096,7 @@ function fileGone(p) {
   p.readOnly = true;
   clearTimeout(p.saveTimer);
   try { if (p.crepe) p.crepe.setReadonly(true); } catch (e) { console.error('[editor] readonly', e); }
+  if (p.source) p.source.setReadOnly(true);
   if (p.titleEl) p.titleEl.contentEditable = 'false';
   for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = 'false';
   status.set('save', 'file is gone · read-only');
@@ -843,24 +1108,83 @@ function fileBack(p) {
   if (!p.readOnly) return;
   p.readOnly = false;
   try { if (p.crepe) p.crepe.setReadonly(false); } catch (e) { console.error('[editor] readonly', e); }
-  if (p.titleEl) p.titleEl.contentEditable = 'plaintext-only';
+  if (p.source) p.source.setReadOnly(false);
+  // In source mode the title strip stays a label: the text below is where the title is edited.
+  if (p.titleEl && !p.source) p.titleEl.contentEditable = 'plaintext-only';
   for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = 'plaintext-only';
   status.set('save', p.dirty ? 'unsaved' : null);
 }
 
-function updateMeta(p) {
+/**
+ * S32: the meta line used to serialise the whole document on every keystroke — `getMarkdown()`
+ * plus eight regex passes over the result, per key. The count comes from the ProseMirror
+ * document now, and only when `recount` says so: markDirty repaints the line immediately with
+ * the number it already has and schedules the recount on the same debounce as the save.
+ */
+function updateMeta(p, recount = false) {
   if (!p.metaEl) return;
-  const folder = P.dirname(p.path) || store.get('root')?.name || 'vault';
-  const words = countWords((p.crepe ? safeMarkdown(p) : p.doc.body) + ' ' + (p.title || ''));
-  const bits = [folder, `${words} word${words === 1 ? '' : 's'}`];
+  if (recount) {
+    const text = pageText(p);
+    p.words = countWords(text);
+    p.chars = text.length;
+  }
+  const n = (v) => v.toLocaleString();
+  const bits = [];
+  // A file with no title of its own says its name; a page's folder is in the breadcrumb.
+  if (p.plain) bits.push(P.basename(p.path));
+  bits.push(`${n(p.words)} word${p.words === 1 ? '' : 's'}`);
+  bits.push(`${n(p.chars)} character${p.chars === 1 ? '' : 's'}`);
+  const when = modifiedLabel(p.mtime);
+  if (when) bits.push(when);
+  const linked = backlinkCount(p.path);
+  if (linked) bits.push(`${linked} linked`);
+  if (p.mode === 'source' && !p.plain) bits.push('source');
   if (p.dirty) bits.push('unsaved');
   else if (p.savedAt) bits.push('saved ' + p.savedAt);
   p.metaEl.textContent = bits.join('  ·  ');
-  status.set('doc', `${words} words`);
+  status.set('doc', `${n(p.words)} words`);
 }
 
-function safeMarkdown(p) {
-  try { return p.crepe.getMarkdown(); } catch { return p.doc.body; }
+/** `modified today` / `modified yesterday` / `modified 9 Sep 2026`. Empty for a file with no mtime. */
+function modifiedLabel(mtime) {
+  const ms = Number(mtime) || 0;
+  if (!ms) return '';
+  const d = new Date(ms);
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const today = day(new Date());
+  if (day(d) === today) return 'modified today';
+  if (day(d) === today - 86_400_000) return 'modified yesterday';
+  return 'modified ' + d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * The file's mtime, read once per open and once per save — never on the keystroke path (S32).
+ * A file that is not on disk yet simply has none and the meta line drops that part.
+ */
+async function readMtime(p) {
+  try {
+    const st = await bridge.stat(p.path);
+    if (p !== page) return;
+    p.mtime = st && st.exists ? Number(st.mtime) || 0 : 0;
+  } catch { p.mtime = 0; }
+  if (p === page) updateMeta(p);
+}
+
+/**
+ * The text the counts are taken from: the title and the body, never the frontmatter. From the
+ * ProseMirror document itself (never a serialisation) in block mode, from the buffer in source
+ * mode, from the file before either is mounted.
+ */
+function pageText(p) {
+  try {
+    if (p.source) return p.source.getText();
+    const view = p.crepe ? editorView(p.crepe) : null;
+    if (view) {
+      const doc = view.state.doc;
+      return `${p.title || ''} ${doc.textBetween(0, doc.content.size, '\n', ' ')}`;
+    }
+  } catch (e) { console.error('[editor] word count', e); }
+  return `${p.title || ''} ${p.doc ? p.doc.body : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -899,6 +1223,7 @@ async function followRename(p, to) {
   if (!/\.md$/i.test(to)) { fileGone(p); return; }
   const from = p.path;
   p.path = to;
+  void renameRemembered(from, to);
   status.set('path', to);
   updateMeta(p);
   toast(`moved on disk: ${from} → ${to}`);
@@ -926,14 +1251,21 @@ async function reloadSilently(p) {
   await reopenInPlace(p);
 }
 
-/** Reopen the page from disk in the same host, keeping the scroll position. */
+/**
+ * Reopen the page from disk in the same host, keeping the scroll position and the caret (E39).
+ * The undo history does not survive: the document the editor is rebuilt from is a different
+ * one, and a history over it would let Ctrl+Z type the old file back over the new.
+ */
 async function reopenInPlace(p) {
   if (p !== page || !p.el) return;
   const host = p.el.parentNode;
   const scroller = scrollerOf(host);
   const top = scroller ? scroller.scrollTop : 0;
-  await openPage(host, p.path);
+  const sel = currentSelection();
+  const line = p.source ? p.source.view.state.doc.lineAt(p.source.view.state.selection.main.head).number : 0;
+  await openPage(host, p.path, sel ? { selection: sel } : {});
   if (scroller) scroller.scrollTop = top;
+  if (line && page && page.source) page.source.goToLine(line);
 }
 
 // ---------------------------------------------------------------------------
@@ -956,9 +1288,20 @@ const editorApi = {
   focusTitle: () => { if (page) focusTitle(page); },
   focusBody: () => focusBody(),
   markDirty: () => { if (page) markDirty(page); },
+  // A module that changed the document through a transaction the user asked for: the page has
+  // been interacted with, so the change is allowed to reach the disk (see markDirty).
+  touch: () => { if (page) { page.touched = true; markDirty(page); } },
   saveNow: (opts) => saveNow(opts),
+  // The router saves this when a page is left and hands it back at the next open (N44, P7);
+  // backlinks.js asks for a repaint when its count changes (N6).
+  getSelection: () => currentSelection(),
+  updateMeta: () => { if (page) updateMeta(page); },
   reopenInPlace: () => (page ? reopenInPlace(page) : Promise.resolve()),
   attachFile: (file) => (page ? attachFile(page, file) : Promise.reject(new Error('no page'))),
+  // Batch 12 (P5), source mode. A file that is not markdown has one mode and cannot toggle.
+  isSource: () => !!(page && page.source),
+  canToggleSource: () => !!(page && !page.plain && (page.crepe || page.source)),
+  toggleSource: () => toggleSource(),
 };
 
 function registerCommands() {
@@ -1080,7 +1423,10 @@ const cleanFileName = (name) =>
  * can report the rename, so onFsChange never mistakes our own move for an external one.
  */
 async function moveOpenPage(p, to) {
-  if (await bridge.exists(to)) { toast(`${P.basename(to)} already exists`, 'err'); return false; }
+  // NTFS is case-insensitive, so `Chapter.md` -> `chapter.md` "exists" already; the host does
+  // that rename through a temporary name (N17, P7) and only this guard was in the way.
+  const caseOnly = to.toLowerCase() === p.path.toLowerCase();
+  if (!caseOnly && await bridge.exists(to)) { toast(`${P.basename(to)} already exists`, 'err'); return false; }
   await saveNow({ explicit: true });
   if (p !== page) return false;
   if (p.dirty) { toast('not renamed: the page could not be saved first', 'warn'); return false; }
@@ -1089,6 +1435,7 @@ async function moveOpenPage(p, to) {
     await bridge.rename(from, to);
   } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); return false; }
   p.path = to;
+  void renameRemembered(from, to);
   await navigate({ type: 'page', path: to }, { replace: true });
   void rewriteLinks(from, to);
   return true;
@@ -1139,7 +1486,7 @@ async function renameUntitledFromTitle(p) {
   if (to === p.path) return false;
   // The title stays as typed either way; only the file name is at stake, so a taken name is
   // a warning, not an error, and the file keeps its `Untitled` name until Rename.
-  if (await bridge.exists(to)) { toast(`${P.basename(to)} already exists; the file keeps its name`, 'warn'); return false; }
+  if (to.toLowerCase() !== p.path.toLowerCase() && await bridge.exists(to)) { toast(`${P.basename(to)} already exists; the file keeps its name`, 'warn'); return false; }
   if (p !== page) return false;
   return moveOpenPage(p, to);
 }
@@ -1200,15 +1547,16 @@ async function trashPage() {
   const p = page;
   if (!p) return;
   const ok = await confirm({
-    title: 'Move to trash?',
-    body: `${p.path} goes to the Recycle Bin. Nothing is deleted permanently.`,
+    title: `Move “${P.basename(p.path)}” to trash?`,
+    body: `It goes to ${trashDestination()}. Nothing is deleted permanently.`,
     ok: 'Move to trash', danger: true,
   });
   if (!ok) return;
   const folder = P.dirname(p.path);
   p.dirty = false;              // do not resurrect the file by saving it on close
   await closePage();
-  await bridge.trash(p.path);
+  // The second argument is a setting (S37, P8); a host that does not know it ignores it.
+  await bridge.trash(p.path, { mode: trashMode() });
   const next = await firstPageIn(folder);
   if (next) navigate({ type: 'page', path: next }); else clearRoute();
 }

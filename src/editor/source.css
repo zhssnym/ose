@@ -1,0 +1,157 @@
+/* Batch 12, package P5. Three surfaces, one file because P5 owns one stylesheet:
+   the source-mode body (.ed-source), the Versions… dialog (.ed-versions) and the box a
+   missing image draws in its place (.ed-image-missing). Every value is a token. */
+
+/* ---------------------------------------------------------------- source mode */
+
+.ed-source {
+  margin: 0 calc(-1 * var(--sp-2));
+  padding: 0 var(--sp-2) var(--sp-7);
+}
+
+.ed-source .cm-editor {
+  background: transparent;
+  min-height: 40vh;
+}
+
+.ed-source .cm-content {
+  /* The block editor's body starts at the same x; source mode must not shift the column. */
+  padding: 0;
+  min-height: 40vh;
+}
+
+.ed-source .cm-scroller {
+  overflow: visible;              /* the page column scrolls, never a box inside it */
+}
+
+.ed-source .cm-placeholder { color: var(--fg-3); }
+
+.ed-source .cm-gutters { padding-right: var(--sp-3); }
+
+.ed-source .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.ed-source .cm-panel.cm-search .cm-button { background-image: none; }
+
+.ed-source .cm-panel.cm-search [name='close'] {
+  position: static;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-2);
+}
+
+/* The title is part of the text while source mode is on: the strip above stays as a label so
+   the page keeps its shape, but it cannot be edited from two places at once. */
+.ed-source-on .page-title { color: var(--fg-2); cursor: default; }
+
+/* Ctrl+A widened past the body: the title is in the selection too (L19). */
+.page-title.ed-all-selected { background: var(--sel); }
+
+/* ---------------------------------------------------------------- versions */
+
+.ed-versions-body {
+  max-height: 46vh;
+  padding: var(--sp-2) 0;
+}
+
+.ed-versions-body .row {
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ed-versions-body .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.ed-versions-size {
+  min-width: 56px;
+  text-align: right;
+}
+
+.ed-versions-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+}
+
+/* ---------------------------------------------------------------- images */
+
+/* A width written as `![alt|300](src)`: the block keeps it and the height follows the picture.
+   `.ed .milkdown .milkdown-image-block img` (editor.css) and Crepe's own rule both say
+   `width: 100%`, and the component writes a pixel `height` straight onto the element, so this
+   one has to outrank a three-class selector and an inline style to say anything at all. */
+.ed .milkdown .milkdown-image-block[data-os-width] img {
+  width: var(--os-image-width) !important;
+  max-width: 100%;
+  height: auto !important;
+}
+
+.ed-image-missing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.ed-image-missing .ed-image-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* The chip sits on its own line rather than stretching across the box. */
+.ed-image-missing > .chip { align-self: flex-start; }
+
+/* Milkdown's reset (`.milkdown button { background: none }`, 0-1-1) outranks `.btn` (0-1-0),
+   so the two actions state the component's own surface again.
+
+   `background-color`, not the `background` shorthand, and no transition on it: Chromium keeps
+   the *resolved* value of a transitioning shorthand that holds a `var()`, so a button styled
+   `transition: background …; background: var(--bg)` inside the editor keeps painting the old
+   theme's colour after the theme is switched, while `getComputedStyle` reports the new
+   variable. The transition therefore lives on `:hover` only: hovering still fades in over
+   120ms, leaving is instant, and a theme change finds no transition to strand. */
+.ed-image-missing .btn {
+  background-color: var(--bg);
+  background-image: none;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  transition: none;
+}
+
+.ed-image-missing .btn:hover {
+  background-color: var(--bg-3);
+  transition: background-color 120ms ease-out;
+}
+
+.ed-image-missing .ed-image-alt {
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  color: var(--fg-2);
+}
+
+.ed-image-missing .ed-image-acts {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* The image itself is out of the way while the box explains why. */
+.milkdown-image-block.ed-missing img { display: none; }
+.milkdown-image-block.ed-missing .image-wrapper { display: block; }

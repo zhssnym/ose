@@ -1,6 +1,15 @@
-// Shell modules the editor needs but does not own. `shell/dialog.js` and `shell/state.js` are
-// listed in CONTRACT.md but may not exist yet, so they are loaded lazily and fall back to a
-// minimal inline implementation. When the shell lands, nothing here has to change.
+// Shell modules the editor needs but does not own. `shell/dialog.js` is listed in CONTRACT.md
+// but the editor must still work without it, so it is loaded lazily and falls back to a
+// minimal inline implementation. Everything it answers is stateless, which is what makes the
+// lazy import safe there.
+//
+// `shell/state.js` is imported statically, and must be: it is the one shell module that holds
+// state. Vite serves an HMR-refreshed module under a `?t=` query, so a bare `import()` of the
+// same path resolves to a *second* instance with its own empty cache and `loaded === false` —
+// a `patchState` into it is dropped on the floor and `stateCache()` is always `{}`. That is
+// what happened to `editor.last`, and it is why `sourcePages` never reached `.ose/state.json`.
+
+import { patchState as shellPatchState, stateCache } from '../shell/state.js';
 
 const cache = new Map();
 
@@ -112,11 +121,26 @@ export async function pickPage(opts) {
   return fallbackPickPage(title);
 }
 
-/** CONTRACT: patchState(partial) -> Promise<void>. A no-op until shell/state.js exists. */
+/**
+ * CONTRACT: openOverlay({width, className, onClose}) -> {el, box, close}, the shell's dialog
+ * stack (Esc, click outside, focus trap, focus return). `null` when the shell is not there;
+ * a caller that needs more than two buttons falls back to `choose` above, which builds the
+ * same look on a plain scrim.
+ */
+export async function openOverlay(opts) {
+  const m = await optional('../shell/dialog.js');
+  return m && typeof m.openOverlay === 'function' ? m.openOverlay(opts) : null;
+}
+
+/** CONTRACT: patchState(partial) -> Promise<void>. Merged shallow at the top level. */
 export async function patchState(partial) {
-  const m = await optional('../shell/state.js');
-  if (m && typeof m.patchState === 'function') return m.patchState(partial);
-  return undefined;
+  return shellPatchState(partial);
+}
+
+/** The loaded `.ose/state.json`, read-only. `{}` until the shell has loaded it. */
+export async function readState() {
+  const c = stateCache();
+  return c && typeof c === 'object' ? c : {};
 }
 
 // ---------------------------------------------------------------------------
