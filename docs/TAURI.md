@@ -204,3 +204,36 @@ pub fn transcript_dir(root: &Path) -> PathBuf;
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>>;
 pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String>;  // used by claude.rs for cwd
 ```
+
+## Batch 12 (2026-09-10)
+
+### Single instance
+
+`tauri-plugin-single-instance` is registered first, before every other plugin. A second `os`
+hands its argv and cwd to the running process and exits; the callback in `main.rs` decides what
+the launch meant. `--root <dir>` naming the folder that is already open, or no `--root` at all,
+means "show me the window": unminimize, show, focus. Another folder is adopted through
+`vault::adopt` — remembered, watched, recorded in the recent list — and the webview is told on
+the `vault` event to reload itself into it, because every module read its world from the root at
+boot. Two vaults side by side in two windows is out of scope; the plugin is per app id.
+
+### The close path
+
+`bridge.quit()` and `RunEvent::ExitRequested` both end in `window.close()`, never in
+`app.exit()`. `close()` raises `CloseRequested`, which the adapter prevents; it fans out
+`{closing: true}`, waits for every handler's promise to settle — with a floor of 400 ms and no
+ceiling — and destroys the window only then. A handler resolving `false` (the editor, when the
+last save needs an answer) leaves the window open. Destroying the last window raises
+`ExitRequested` again, this time with no window to find, and the app exits.
+
+`RunEvent::Exit` writes the window geometry and theme, so even a quit that never reaches the
+save path keeps the window where it was.
+
+### Recent vaults
+
+`<app config dir>/vaults`, one absolute path per line, newest first, at most ten. Written by
+`vaults::record` from three places: `pickVault`, `openVault` and `setup` (whatever root the app
+resolved for itself). Read by `recentVaults`, which adds `exists` and `current` per row.
+Compared case-insensitively on Windows and byte for byte elsewhere. `vaults.rs` handles
+`recentVaults`, `openVault` and `forgetVault(path)` and is dispatched before `vault.rs`, which
+still owns `forgetVault()` with no argument.

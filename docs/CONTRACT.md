@@ -200,14 +200,8 @@ back to the exact source line (add/remove `✅ YYYY-MM-DD`).
 
 ## Keyboard map (shell owns, modules must not shadow)
 
-```
-Ctrl+K        command palette         Ctrl+P    open page (fuzzy file search)
-Ctrl+N        new page                Ctrl+S    save now
-Ctrl+\        toggle sidebar
-Ctrl+Shift+F  search in vault         Alt+Left / Alt+Right   back / forward
-Ctrl+,        settings                Ctrl+Shift+L  toggle theme
-Esc           close palette/menu
-```
+Replaced wholesale in batch 12 (2026-09-10): see "Keyboard map, batch 12" below. The map is
+Obsidian's; `Mod` is Ctrl on Windows and Linux and Cmd on macOS.
 
 ## Done means
 
@@ -916,3 +910,749 @@ Hidden names gain `os.exe.new`, `os.exe.old`, `os.app`, `os.app.old`, `os-update
 `os-update-tmp`. `os --version` prints the stamp; `os --update` runs check → download → swap → relaunch
 with no window (exit 0 when up to date or swapped, 1 on failure); `--hold <secs>` exists in
 debug builds for the swap test. See docs/TAURI.md "Self-update" for the swap on each platform.
+
+## Batch 12 (2026-09-10): the rough edges
+
+The third plan (`work/research/plan.html` during the batch; the artifact "os editor: the rough
+edges"): 90 items from 201 findings by five research agents, everything a complete markdown
+editor has that this one did not. Eight packages ran at once, one agent each, one module each
+under `src/editor/` aggregated by `extensions.js`; every package wrote its own section below.
+The decisions taken for the whole batch:
+
+- The keymap is Obsidian's (see "Keyboard map, batch 12"): Ctrl+P commands, Ctrl+O quick open,
+  Ctrl+K link, Ctrl+E source, Ctrl+H replace, Ctrl+Enter checkbox, Alt+Enter follow link.
+- Tab in a paragraph does nothing; it only ever nests (lists) or moves (tables).
+- `[[` opens the page picker and writes a markdown link. Wiki-link syntax is never written.
+- Previous versions live under `.ose/versions` (one per five minutes per file, 20 per file,
+  50 MB per vault). Nothing else keeps a copy of anything.
+- Two dependencies join: `@codemirror/language-data` (code-block highlighting) and
+  `tauri-plugin-single-instance` (one window per vault).
+- Shift+Enter writes a bare newline inside a paragraph; `<br>` typed stays `<br>`.
+- The context menu in the body is the app's; the WebView's browser menu and its accelerator
+  keys (F5, Ctrl+R) are off.
+
+### The extension seam (extensions.js)
+
+`src/editor/extensions.js` imports one module per package (`table`, `code`, `commands`, `menu`,
+`image`, `source`, `versions`, `backlinks`, `wikitrigger`). A module may export
+`plugins(ctx, o) -> Plugin[]` (ProseMirror plugins, asked before Milkdown's keymap and before
+blocks.js, in list order: tables first), `featureConfig(o) -> {[CrepeFeature]: options}` (merged
+one level deep over crepe.js's own), and `registerCommands(api)` (called once at boot from
+index.js). `api` is `editorApi` in index.js: `hasPage, getPage, getView, getCrepe, getPath,
+getDoc, focusTitle, focusBody, markDirty, saveNow, reopenInPlace, attachFile` — accessors, never
+the page object, and modules never import index.js. index.js calls
+`keepVersion(path, previous, next)` from versions.js before every write.
+
+### Keyboard map, batch 12
+
+The map is Obsidian's. `Mod` is **Ctrl** on Windows and Linux and **Cmd** on macOS: one switch in
+`shell/keys.js` reads `document.documentElement.dataset.os === 'mac'` (falling back to a
+user-agent test until the shell sets the attribute) and matches `metaKey` on mac, `ctrlKey`
+elsewhere. On mac the app therefore never claims Ctrl+P/N/K/F/A/E/H (Emacs caret motion) and
+never claims Option+Left/Right (word jump); the two chords that would collide are remapped, and
+those are the only two differences in the table.
+
+#### Shell chords (`shell/keys.js`, window capture; no module may shadow them)
+
+```
+Mod+P         command palette            app.palette
+Mod+O         quick open                 app.quickopen
+Mod+N         new page                   page.new
+Mod+S         save now                   page.save
+Mod+W         close the page             page.close        save, then the start surface
+Mod+Q         quit                       app.quit
+Mod+\         toggle sidebar             app.sidebar
+Mod+Shift+E   focus sidebar              app.focus-sidebar
+Mod+Shift+N   new folder                 tree.new-folder
+Mod+F         find in page               page.find
+Mod+H         find and replace           page.replace      mac: Cmd+Alt+F
+Mod+Shift+F   search the vault           app.search
+Mod+Shift+O   go to heading              page.outline
+Mod+E         toggle source mode         page.source-toggle
+Mod+K         link                       format.link
+Alt+Enter     follow the link at caret   page.follow-link  (Option+Enter on mac, as Obsidian)
+Mod+Shift+T   reopen the last closed     app.reopen-closed
+Mod+=  Mod+-  Mod+0   zoom               app.zoom-in / app.zoom-out / app.zoom-reset
+Alt+Left  Alt+Right   back / forward     app.back / app.forward   mac: Cmd+[ and Cmd+]
+Mod+,         settings                   app.settings
+Mod+Shift+L   toggle theme               app.theme
+Esc           close the newest overlay, else dismiss the newest toast (and falls through)
+F2            rename (in the tree; the sidebar owns it)
+```
+
+Chords whose character moves with the keyboard layout (`0`…`9`, `=`, `-`) are matched on
+`event.code` as well as `event.key`, so an AZERTY digit row reaches them (E26).
+
+Three rules make the map hold in the two places that have their own keymaps:
+
+- **Inside a code block** (`.cm-editor`) the six chords CodeMirror owns are let through instead
+  of fired — Alt+Left/Right, Alt+Up/Down, Mod+D, Mod+Shift+K (`CODE_KEYS` in `keys.js`) — and
+  the body keymap stands down there entirely. Every other shell chord still fires.
+- **Mod+0 inside the editor body** is not zoom: it falls through to the body keymap, where it is
+  `block.paragraph`, so the block group Mod+0…Mod+6 is one gesture. Anywhere else Mod+0 resets
+  the zoom, and `app.zoom-reset` is always in the palette.
+- A chord typed into a dialog's input that is not overlay-safe belongs to the input. A mapped
+  chord whose command is not registered toasts `<id> is not available yet`; one whose `when` is
+  false says why (batch 9, D5).
+
+#### Body chords (`editor/commands.js`, a ProseMirror keymap; never inside a code block)
+
+```
+Mod+B   bold          Mod+I   italic        Mod+Shift+X  strikethrough
+Mod+`   inline code   Mod+Shift+M  clear formatting
+Mod+0   paragraph     Mod+1 … Mod+6  heading 1 … 6      (matched on event.code Digit0…Digit6)
+Mod+Shift+8  bullet list      Mod+Shift+7  numbered list     Mod+Shift+9  task list
+Mod+Shift+.  quote            Mod+Shift+C  code block
+Mod+Enter    toggle the checkbox of the task the caret is in
+Alt+Up / Alt+Down     move the block up / down     (Mod+Shift+Up/Down still do the same)
+Mod+D        duplicate the block      Mod+Shift+K  delete the block
+Mod+A        from a block selection, the whole body (the press after that is the title, P5)
+Esc          select the block         (batch 5; Esc again is a caret)
+Tab          nothing in a paragraph; sinks a list item that has one above it; the next cell in
+             a table; never a space, and never a focus that leaves the page
+Shift+Tab    lifts a list item, the previous cell in a table; nothing anywhere else
+Alt+Shift+Up / Down / Left / Right   add a row above or below, a column left or right —
+             only with the caret inside a table (`table.*`, P2's commands)
+```
+
+A body chord whose command's `when` is false is not swallowed: the key falls through to
+whatever else wants it, which is what lets `Mod+Enter` mean "exit the table" inside a table and
+"toggle the checkbox" everywhere else without either side knowing about the other.
+
+Milkdown's own `Mod-Alt-…` chords stay as aliases. `plugin-indent` is removed before
+`create()`: Tab never inserts spaces, so prose can no longer turn itself into an indented code
+block on the next reload (E1, E2, L2).
+
+**Block selection (D2/L21).** While a block is selected, only Backspace, Delete, Enter, the
+arrows and the block chords act. Typing a printable character first collapses the selection to a
+caret at the end of the block and then inserts the character, so Esc followed by a letter can no
+longer eat a paragraph.
+
+**IME.** Every keydown handler in the editor returns early while `event.isComposing` is true
+(E44).
+
+
+### Editor commands
+
+Every action inside the body is a registered command, so the palette lists it, the context menu
+draws it and the chord is only a shortcut to it. Groups: `format` (marks and inline),
+`block` (whole blocks). `when` is "a page is open and the caret is in the body".
+
+```
+format.bold          Bold                     Mod+B
+format.italic        Italic                   Mod+I
+format.strike        Strikethrough            Mod+Shift+X
+format.code          Inline code              Mod+`
+format.link          Link…                    Mod+K
+format.link-remove   Remove link
+format.clear         Clear formatting         Mod+Shift+M
+format.copy-markdown Copy selection as markdown
+format.paste-plain   Paste as plain text      Mod+Shift+V
+block.paragraph      Paragraph                Mod+0
+block.h1 … block.h6  Heading 1 … Heading 6    Mod+1 … Mod+6
+block.bullet         Bullet list              Mod+Shift+8
+block.numbered       Numbered list            Mod+Shift+7
+block.task           Task list                Mod+Shift+9
+block.quote          Quote                    Mod+Shift+.
+block.code           Code block               Mod+Shift+C
+block.divider        Divider
+block.table          Table                    (runs table.insert when P2's command is there)
+block.toggle-task    Toggle checkbox          Mod+Enter
+block.move-up        Move block up            Alt+Up
+block.move-down      Move block down          Alt+Down
+block.duplicate      Duplicate block          Mod+D
+block.delete         Delete block             Mod+Shift+K
+block.select         Select block             Esc
+block.turn-into      Turn into…               (a picker of the block types)
+page.close           Close page               Mod+W
+page.replace         Find and replace         Mod+H
+```
+
+**Link (E20/E21/L9).** `format.link` opens one dialog: a single field that takes either a URL or
+a page name. The list under it is the quick-open matcher over `allPages()`; a row that is a page
+links to it by its title with an href relative to the open page; a field that parses as a URL (a
+scheme, or `www.`/`host/path`) offers a `link to <url>` row; a name that matches no page offers
+`create <name>`, which creates the page beside the open one and links to it. Enter takes the
+selected row. With the caret inside an existing link the dialog opens prefilled with that link's
+href and its foot carries `Remove link`. With a selection, the selection stays as the link text;
+with none, the page's title (or the URL) becomes the text.
+
+**Wrap a selection (E25).** Typing one of `*`, `_`, `` ` ``, `[`, `(`, `"` over a non-empty
+selection wraps it instead of replacing it. In a WYSIWYG the three markdown ones mean their
+mark, not their character — writing `*` into the document would put a literal asterisk in the
+file and the serialiser would escape it — so `*` and `_` toggle emphasis, `` ` `` toggles inline
+code, and `[` opens the link dialog, as it does in Obsidian. `(` and `"` are ordinary
+punctuation and are written as they are, around the selection. Not in code blocks, not in
+inline code.
+
+**Copy as markdown (S8).** A `clipboardTextSerializer` puts the selection's markdown, through the
+same `postProcess` a save uses, on `text/plain`; `format.copy-markdown` does the same from the
+palette. `page.copy-markdown` still copies the whole file.
+
+**Heading Backspace (E31).** Backspace at the start of a heading turns it into a paragraph in one
+press; Milkdown's level-by-level downgrade is replaced.
+
+**`[] ` and `[x] ` at the start of a paragraph** make a task item (E12/L22). `- [ ] ` keeps working.
+
+**The selection toolbar (E41)** is real buttons (Crepe's own `<button>`s), so Tab from the body
+lands on the first one; a `:focus-visible` ring is drawn inside the button, because the bar
+clips its overflow; Enter and Space act (the component listens for `pointerdown`, so the key
+handler says it that way); Esc puts the caret back. The link preview tooltip's icons get a tab
+stop and a role the same way, and Tab with the caret inside a link moves into the tooltip while
+it is on screen. The keyboard route that does not depend on the tooltip being visible is Mod+K,
+whose dialog carries both Edit and Remove.
+
+**Find and replace (S22/L15).** `page.find` (Mod+F) opens the bar; `page.replace` (Mod+H) opens
+it with its second row: replace field, `Replace`, `Replace all`, and the two switches `Aa`
+(match case) and `ab|` (whole word). Previous, next and close are buttons on the first row.
+Enter next, Shift+Enter previous, Enter in the replace field replaces, Esc closes. Whole word
+is a look-around on letters, digits and underscore with the `u` flag, not `\b`, so it means the
+same thing on a French word as on an English one. Every replacement is one ProseMirror
+transaction, so undo works and the page goes dirty through the normal path; `Replace all` is one
+transaction for the whole document and one undo takes all of it back. `find.js` also exports
+`currentFind()` — the bar of the open page — and `open({ query, replace })`, so the vault search
+can hand its own term over (N36) without going through `index.js`.
+
+
+### The editor's context menu
+
+The WebView's own menu is off (P8). `editor/menu.js` answers `contextmenu`, Shift+F10 and the
+`ContextMenu` key inside the body and draws `shell/dialog.js` `contextMenu(x, y, items)` — the
+same component the tree uses, so arrows, Home/End, letter jumps, Enter and Esc come for free.
+**Shift+right-click** is not claimed, so the WebView's own menu answers it where the host still
+allows one: no browser tells a page which word it has underlined, and the only signal that does
+exist ("this element is spellchecked") is true of the whole body, so the fall-through has to be
+a gesture rather than a detection. With the host's menu switched off entirely, that gesture
+answers with nothing and spelling suggestions are not reachable anywhere in the app.
+
+Items, in order, each hidden when its command's `when` is false:
+
+```
+Cut · Copy · Paste · Paste as plain text
+Copy as markdown                       (only with a selection)
+—
+Turn into…                             (a second menu: Paragraph, Heading 1…6, Bullet list,
+                                        Numbered list, Task list, Quote, Code block)
+Link…  ·  Remove link                  (Remove only inside a link)
+—
+table.* when the caret is inside a table (Add row above/below, Add column left/right,
+        Delete row, Delete column, Delete table, Align left/center/right)
+image.* when the click is on an image (Open, Copy path, Caption)
+—
+Select block · Duplicate block · Delete block
+```
+
+Every row carries its chord from `shortcutFor(id)`, so the menu, the palette and the keymap
+cannot drift. `Cut` and `Copy` go through `document.execCommand`, which runs ProseMirror's own
+copy handler, so what leaves the app is the same slice Mod+C sends. `Paste` cannot: no browser
+lets a script run the paste command, so the row reads the clipboard and hands the result to the
+view's own paste path, and says which key to press when the read is refused.
+
+`plugin-indent` is removed from the editor before `create()` — only its shortcut, since Crepe's
+builder configures `indentConfig` at create time and removing the whole plugin takes the ctx
+slice with it.
+
+
+### Tables
+
+`src/editor/table.js` (+ `table.css`), registered through `editor/extensions.js` as the **first**
+module in the list, so its ProseMirror keymap is asked before Milkdown's own (`preset-gfm`'s
+`tableKeymap`, `plugin-indent`'s bare `Tab`, the base keymap) and before `blocks.js`.
+
+**Keys, when the caret is inside a table cell.** Nothing below ever inserts a space or a tab.
+
+```
+Enter                the cell below, same column; on the last row, add a row after and go into it
+Ctrl+Enter           leave the table: a paragraph after it (what plain Enter used to do)
+Shift+Enter          a hard break inside the cell (a `hardbreak` node; P6 writes it as `<br>`)
+Tab / Shift+Tab      next / previous cell, wrapping by row; on the last cell Tab adds a row
+                     after and goes into it. Shift+Tab in the first cell does nothing.
+Backspace / Delete   with a CellSelection: empty the selected cells and nothing else
+Esc                  caret in a cell -> select that cell (a CellSelection of one cell)
+Esc again            select the whole table as a block (a NodeSelection on the `table` node,
+                     which is what blocks.js acts on: Backspace removes it, Ctrl+Shift+Up /
+                     Ctrl+Shift+Down move it, Esc again drops back to a caret)
+Ctrl+A               first the cell's own text, then the whole table (a CellSelection over
+                     every cell); a third press falls through to the document
+```
+
+`table.js` returns `true` only while the selection is inside a table, so every one of these keys
+keeps its normal meaning everywhere else.
+
+**Commands** (group `'table'`, registered in `registerCommands(api)` from `extensions.js`; every
+one but `table.insert` has `when: caret is inside a table`, so they are invisible in the palette
+elsewhere). They act on the caret's cell, or on the whole CellSelection when there is one.
+
+```
+table.insert        Insert table          3 columns, a header row and two body rows, at the caret
+table.row-above     Add row above
+table.row-below     Add row below
+table.col-left      Add column left
+table.col-right     Add column right
+table.delete-row    Delete row            the row the caret is in, or every selected row
+table.delete-col    Delete column         the column the caret is in, or every selected column
+table.delete        Delete table
+table.align-left    Align column left     sets the `alignment` attr of every cell in the column
+table.align-center  Align column center
+table.align-right   Align column right
+```
+
+The three alignment commands toggle: run on a column that already has that alignment, they clear
+it. Markdown tells `| --- |` from `| :--- |`, and without the toggle a table Hassan wrote
+unaligned could never be put back the way he wrote it.
+
+Chords are P3's (`shell/keys.js`); the ids above are fixed so they can be bound and put in the
+context menu without touching `table.js`.
+
+**What is written.** A new table is three columns wide: one `table_header_row` and two
+`table_row`s, all cells empty, no alignment set. Alignment is the `alignment` attribute of the
+cells in a column (`left` | `center` | `right`, `null` for none), which `preset-gfm` already
+round-trips through the delimiter row; the delimiter row's own shape is P6's (`| --- |`).
+Shift+Enter inserts a `hardbreak` node inside the cell's paragraph.
+
+**The popover** (Milkdown's `table-block` node view, which `table.js` cannot rewrite) is made
+keyboard-usable from outside: while the caret is in a table the row and column handles for that
+cell are shown and positioned, every handle and button gets `type="button"`, an `aria-label` and
+a `:focus-visible` ring from `tokens.css`, the add-row / add-column buttons are shown when the
+handle is hovered **or** focused, and Enter or Space on any of them runs the matching `table.*`
+command (Milkdown binds those buttons to `pointerdown` only). `table.css` is the only stylesheet
+involved and uses tokens and the `--sp-*` scale only.
+
+
+### Code blocks
+
+`src/editor/code.js` (+ `code.css`) owns everything inside a fence. It exports the three
+extension-seam functions and nothing else; nobody imports it but `extensions.js`.
+
+**Languages.** `@codemirror/language-data` (the one dependency this package adds) is passed to
+Crepe's code-mirror feature as `languages`, so `LanguageLoader` finally has a pack to load from:
+~40 languages, each a dynamic `import()` fetched the first time a fence asks for it. A fence's
+language lives where it always did, in `node.attrs.language`, and is written back byte for byte:
+` ```js `, ` ```javascript ` and ` ```Rust ` all survive a round trip, and the loader matches
+them case-insensitively against the pack's names and aliases. A name the pack does not know
+(` ```mermaid `) is kept and simply not highlighted.
+
+**Colours.** `syntaxHighlighting(style)` with a non-fallback highlighter replaces
+`defaultHighlightStyle` outright (`getHighlighters` prefers any real highlighter over a
+`fallback: true` one), so not one of CodeMirror's hard-coded hexes reaches the screen. The style
+is declared with `class:` names, not inline styles: every token gets an `os-t-*` class and
+`code.css` colours it from tokens — `--code-keyword`, `--code-string`, `--code-number`,
+`--code-function`, `--code-type` (added to `tokens.css` by P8), with comments on `--fg-3`,
+punctuation and operators on `--fg-2`, and an existing token as the fallback of every
+`var(--code-*, …)` so the file is legible in both themes even before the tokens land.
+
+**Chrome.** `basicSetup` still comes from Crepe and cannot be taken out of the array, so the
+chrome it brings is switched off from the outside: the gutters (line numbers, fold, active line)
+are `display: none` in `code.css` at a higher specificity than `editor.css`, the active-line and
+selection-match backgrounds are neutralised, and `autocompletion({ activateOnTyping: false,
+override: [] })` is appended — `combineConfig` takes the first value for a field, and Crepe's own
+`autocompletion()` passes none, so ours wins and no completion popup ever opens inside a note.
+Bracket closing, `indentOnInput` and Tab indentation stay. So do CodeMirror's own editing chords:
+Alt+Left/Right (by syntax node), Alt+Up/Down (move line), Shift+Alt+Up/Down (copy line),
+Ctrl+D (select next occurrence) and Ctrl+Shift+K (delete line) are all in `defaultKeymap` and
+`searchKeymap` already — they only needed the shell to stop intercepting them (see below).
+
+**The picker.** Crepe's picker cannot do the job: its list is whatever `languages` holds, it has
+no free-text entry, no arrow keys, and it is drawn inside a block that clips it (L5). The trigger
+button stays — it is the block's language label — but a capture-phase click listener on the
+editor's own DOM takes the click before Vue sees it and opens ours instead: a popover appended to
+`document.body` (so no ancestor can clip it), positioned under the trigger, `--shadow-menu`, one
+input and a list of `--row-h` rows. Type to filter by name or alias; the first row is always
+"as typed", so any name at all can be set, known or not; Arrow Up/Down move, Enter applies, Esc
+closes and puts the caret back where it was. Picking a pack row writes the language in lower case
+(`javascript`, `rust`); typing writes exactly what was typed (`js`, `Rust`, `mermaid`). The first
+row when the box is empty is "Plain text", which clears the language.
+
+**Fences and the way out.** A ProseMirror plugin (asked before Milkdown's keymap) adds two Enter
+rules: ` ``` ` alone in a paragraph, or ` ```lang `, becomes an empty code block with that
+language and the caret inside it (input rules never see Enter, which is why three backticks and
+Enter used to do nothing); and Enter on a selected code block puts the caret back at the end of
+its text. Esc inside CodeMirror is bound at `Prec.highest` and does the reverse: it dispatches a
+`NodeSelection` on the code block and focuses the ProseMirror view, so the block is selected as
+any other block is and Delete, Ctrl+Shift+Up/Down and the rest of `blocks.js` apply to it.
+
+**Commands.** `code.language` ("Set code block language…") opens the picker on the block holding
+the caret; `code.copy` ("Copy code block") copies its text. Both are in the palette and both are
+guarded by `when`, so they only appear with a code block under the caret.
+
+**What the shell must not take.** The shell binds its chords on `window` in the capture phase, so
+they fire before CodeMirror ever sees the key. Inside `.cm-editor` the shell keymap and
+`guardShellKeys` (`editor/index.js`) skip a small exempt list — `alt+arrowleft`,
+`alt+arrowright`, `alt+arrowup`, `alt+arrowdown`, `ctrl+d`, `ctrl+shift+k` — and let CodeMirror
+have them.
+
+
+### Source mode (editor/source.js)
+
+`page.source-toggle` "Toggle source mode" (Ctrl+E, bound by P3) swaps the body of the open
+page between the block editor and the whole file as plain text in CodeMirror 6. The title
+strip, the properties strip and the meta line do not change; only the body host is replaced.
+
+- The text shown is the **whole file** — frontmatter, title line, body — as a save would write
+  it: `composeDoc(doc, {title, body})` over the current buffer, so unsaved edits carry across.
+  Leaving source mode parses it back with `parseDoc` and remounts the block editor; the title
+  strip is rebuilt from the parsed title, and the undo history of the block editor is not kept
+  across a toggle (say so once, in the status bar).
+- Everything about saving is unchanged: the dirty flag, the 600 ms debounce, blur, Ctrl+S, the
+  close veto, the changed-on-disk dialog, `keepVersion`. In source mode `compose()` is the
+  CodeMirror text verbatim; in block mode it is `composeDoc` as before.
+- An external change to a clean page reloads the source buffer in place, as it does in block
+  mode. A read-only page (the file is gone) makes CodeMirror read-only too.
+- Ctrl+F in source mode opens CodeMirror's own search panel (`@codemirror/search`), styled from
+  `tokens.css`; `page.find` routes to it. Esc closes it.
+- **Non-markdown text files** — the list is P7's `paths.js TEXT_EXTS` (`txt csv jsonl py log
+  tex json yaml toml`), and anything that is not `.md` opens this way — open directly in source
+  mode with **no title strip**: the meta line shows the file name. They are never parsed as
+  markdown and `composeDoc` is never applied to them, so what is written back is byte for byte
+  what CodeMirror holds. `page.source-toggle` on one of them says so and changes nothing.
+  `openPage` takes them like any other page; the router may route any of them to it.
+- The mode is remembered per page in `.ose/state.json` under `sourcePages: [path, …]` (P5's
+  key, capped at 200 entries, written through `patchState`). A page in that list opens in
+  source mode.
+
+The CodeMirror packages (`@codemirror/view`, `@codemirror/state`, `@codemirror/commands`,
+`@codemirror/search`, `@codemirror/language`, `@codemirror/lang-markdown`) are already in the
+tree as dependencies of `@milkdown/kit`'s code-mirror feature. No package was added.
+
+### Versions (editor/versions.js, src-tauri/src/versions.rs)
+
+Every write keeps the text it replaces. Versions live at
+`.ose/versions/<vault-relative path of the file>/<yyyy-mm-dd-hhmmss>.md` — the file's own name
+is a folder, so `7-scratchpad/note.md` keeps its versions under
+`.ose/versions/7-scratchpad/note.md/`. `.ose` is hidden from the tree and gitignored.
+
+Four rpc commands (host: `versions.rs`; dev bridge: `dev/bridge-plugin.mjs`, same semantics):
+
+```
+versionKeep(path, text, force?)  -> {kept: bool, id: string|null}
+versionList(path)                -> [{id, at, bytes}]   newest first
+versionRead(path, id)            -> string
+versionRestore(path, id)         -> {kept: bool, id: string|null}
+```
+
+- `versionKeep` writes `text` as a new version of `path`. **At most one version per five
+  minutes per file**: when the newest version of that file is younger than five minutes,
+  nothing is written and `{kept:false}` comes back, so the state the file had before the
+  editing session is the one that survives. `force: true` bypasses that rule; the editor
+  passes it before "Keep mine" overwrites a file that changed on disk, which is the one moment
+  a version is never optional. A version identical to the newest one is never written twice.
+- Caps: **20 versions per file** and **50 MB per vault**, oldest pruned first (the per-vault
+  sweep never removes the newest version of a file).
+- `versionRestore` keeps the file's current text as a version first (forced), then writes the
+  chosen version over the file.
+- Every write under `.ose/versions` and the restore itself is atomic: a temp file beside the
+  target, then a rename.
+- `at` is epoch milliseconds, `bytes` the version's size on disk, `id` the timestamp stem.
+
+`keepVersion(path, previous, next)` in `versions.js` is called by the editor's write path
+before every `writeText`. It does nothing when `previous === next` or `previous` is empty, it
+never throws, and it never blocks a save for longer than the rpc.
+
+`page.versions` "Versions…" opens a dialog over `openOverlay`: one row per version with the
+time, the size and a one-line diff summary — `+N −M`, **what restoring that version would add
+to and remove from the file as it is now**, counted per line without an LCS. Arrow keys move,
+Enter or Restore restores, Esc closes. The page is flushed before a restore (a page whose save
+is waiting on the user is not restored, and says so), and afterwards it reloads in place with
+the undo history gone and a toast saying so.
+
+### Images (editor/image.js)
+
+- **Alt text survives.** The `image-block` node schema is extended with an `alt` and a `width`
+  attribute; the markdown alt slot is written as `alt`, or `alt|300` when a width is set, and
+  read back the same way — Obsidian's syntax. Milkdown's own use of that slot for the aspect
+  ratio (`![1.00](x.png)`) is only accepted on read, as a legacy value, and never written.
+  A file whose line reads `![Wiring diagram|420](x.png "caption")` round-trips byte for byte.
+  P6's `postProcess` must therefore no longer strip `![1.00](` → `![](`.
+- **Resizing writes a width.** Crepe's own handle drags the image's *height* and stores the
+  result as that aspect ratio, which markdown cannot say and which distorts the picture, since
+  a block image is always the column's width. The pointerdown is taken before Crepe sees it and
+  the drag sets the **width** instead: it is clamped to 60px and the column, written to the
+  `width` attribute on pointer-up, and cleared when the drag reaches the full column again. The
+  pixel width is what reaches the file and what a reload renders from.
+- **A missing image names itself.** When an image fails to load the block shows the file name,
+  the alt text, and two buttons: `open folder` (`bridge.reveal`) and `edit path` (a prompt that
+  rewrites the src). Never an empty grey box.
+- Commands: `image.open` "Open image" (`bridge.openPath` when the host has it, else
+  `bridge.reveal`), `image.copy-path` "Copy image path", `image.caption` "Toggle image caption".
+  All three act on the selected image block, or the one nearest the caret.
+- An image pasted from a web page (a clipboard carrying `text/html` whose only content is one
+  `<img src=http…>`) is fetched from the page and written into the attachment folder like any
+  other paste; a WebView that refuses the cross-origin read keeps the URL and toasts
+  `kept as a link`. Milkdown's own uploader refuses every such paste, which is why this handler
+  exists at all.
+
+### The page lifecycle (editor/index.js)
+
+- **Title to body (L11).** Enter, Tab or ArrowDown in the title puts the caret at the **start
+  of the first body block**, not wherever it last was.
+- **Body to title (L10).** Backspace or ArrowUp at offset 0 of the first body block puts the
+  caret at the end of the title. Backspace only when the selection is empty and the first block
+  is not a list item or a code block, so it never eats a block.
+- **Ctrl+A widens (L19).** P3's Ctrl+A goes block → body; a further press extends the selection
+  to the title as well, so the next Ctrl+C copies the whole note (title line included).
+- **Word count (S32).** The meta line counts words from the ProseMirror document
+  (`doc.textBetween`), not by serialising the file on every keystroke, and the count is
+  debounced with the save.
+- **Spellcheck (L12/E43).** `settings.spellcheck` (P8, `true|false`, default `true`) decides.
+  When it is on, the editable root gets `spellcheck="true"` and `lang` = `navigator.language`;
+  when off, `spellcheck="false"`. The language of the document is no longer guessed.
+
+### What the implementation settled that the brief left open
+
+- **The five-minute rule skips, it does not replace.** The brief's parenthesis ("a newer save
+  inside five minutes replaces the newest version") and its reason ("so the last state before
+  the session is always kept") point opposite ways: replacing the newest version is exactly
+  what loses the pre-session state. The reason won. Inside the window nothing is written, so
+  the version a file keeps through an editing session is the state it had when the session
+  began. `force` is the escape hatch and the conflict dialog is its one caller.
+- **`versionKeep` takes a third argument**, `force`, additively.
+- **Source mode makes the title strip a label.** The title line is inside the text in source
+  mode; a strip that could still edit it would be a second source of truth for the same bytes.
+  It stays visible, dimmed and not editable, and follows the text on every save.
+- **The meta line** follows P8's format (`N words · N characters · modified …`) with three
+  additions: the file name in front for a page with no title, `source` when the mode is on, and
+  P7's `N linked`.
+
+
+### Links
+
+- **One link shape.** Everything that writes an href writes `relativeHref(fromPage, target)`
+  (`editor/paths.js`): page-relative, `encodeURIComponent` per segment. The tree's `Copy link`
+  writes the same href relative to the open page; with no page open it writes the
+  vault-root-relative form with a leading `/`, which `resolveHref` resolves against the root.
+  A folder gets a trailing `/`. `Chapter #3.md` round-trips as `Chapter%20%233.md`.
+- **Anchors.** `paths.js linkTarget(fromFile, href) -> {path, heading} | null`: the path
+  resolved as before plus the `#fragment`, decoded; a bare `#heading` resolves to `fromFile`.
+  `lines.js headingLine(body, heading) -> number|0` matches, in order: the GitHub slug
+  (lowercased, spaces → `-`, punctuation dropped), the raw heading text, and the `%20`-decoded
+  form (Obsidian's). Route: `{type:'page', path, line?, col?, heading?}`; `heading` is not part
+  of `routeKey`; the router turns it into a line before the page mounts, and a heading on the
+  page already open scrolls in place with no history entry.
+- **Following a link** is one function, `editor/linkstate.js followHref(href, fromPath)`:
+  external → `bridge.openExternal`, and a refused scheme is toasted rather than swallowed;
+  `.md` → `navigate({type:'page', path, heading})` (a missing page still reaches the router's
+  "Create it" screen); every other vault file → `bridge.openPath`, except the text extensions
+  (`.txt .csv .jsonl .py .log .tex .json .yaml .toml`), which navigate so the editor opens
+  them in source mode. Command `page.follow-link` "Follow link under cursor" (Alt+Enter)
+  follows the link mark at the caret through the same function.
+- **Broken links.** `linkstate.js` decorates every internal link whose target does not exist
+  with the class `link-missing` (dashed underline in `--err-ink`). Existence is cached per
+  page open and the cache is dropped on any `fs` event. Following one still offers "create".
+- **`[[`.** Typing `[[` in a text block opens the page picker inline, anchored like the slash
+  menu. It filters as you type, Enter inserts a **markdown** link with the page's title, `]]`
+  or Esc closes and leaves the typed text. A name with no match offers `Create <name>`, which
+  creates the page in the current page's folder and links it. Wiki-link syntax is never
+  written and never rendered.
+- **Backlinks.** `editor/backlinks.js` renders a `linked from` box under the page body,
+  collapsed, fed by `lib/links.js findInbound`; the meta line gains `· N linked`. Each row is
+  a page title with the matching line's text and opens that page at that line. Recomputed on
+  open and on `fs`. Command `page.backlinks` "Show linked mentions" expands and focuses it.
+- **Rewriting.** `lib/links.js rewriteInboundMany(pairs)` now rewrites, in a moved file, the
+  hrefs that point **outside** the move set as well, so a page moved to another folder keeps
+  its own links and its `attachments/` images working. It also rewrites `[ref]: path`
+  definitions. The candidate search runs uncapped (`bridge.search(q, {limit: 0})`) so a rename
+  finds every inbound link, and the toast reports the exact count.
+- **A rename seen by the watcher** (`fs` event with `to`) that the app did not make offers a
+  toast `update N links` that runs the same rewriter.
+
+### Files
+
+- Tree menu: `Duplicate` (files only), `Move to…` on a lone folder as well, `Open with default
+  app` on every row (`bridge.openPath`), and `Search in folder` on a folder (opens the search
+  overlay prefilled with `path:<folder>/`).
+- Commands `tree.collapse-all` / `tree.expand-all`, `tree.duplicate`, `tree.open-external`,
+  `tree.search-here`.
+- A non-markdown row carries its extension as a mono `--fg-3` badge. A breadcrumb folder click
+  focuses the folder in the tree and opens nothing.
+- Keys: Backspace trashes as Delete does (macOS), Shift+F10 and the Menu key open the row's
+  context menu at the row.
+
+### Search
+
+- `bridge.search(query, {limit})` semantics, identical in the host and the dev bridge:
+  - The query is split into terms on whitespace; `"a phrase"` is one term; `path:<prefix>` and
+    `file:<substring>` are filters, not terms. Every term must appear somewhere in the file
+    (AND); a line is a hit when it contains any term.
+  - File and folder **names** match: a name hit is reported with `line: 0`.
+  - Text files are searched, not only `.md`: `md txt csv jsonl py log tex json yaml toml`.
+  - A hit carries `col` (1-based column of the first term in the line).
+  - The cap counts **files**, not lines: `limit` files (default 100), at most 20 lines each.
+    The answer is an object `{hits, files, total, capped}`; an array is still accepted by the
+    UI for older hosts. `limit: 0` means no cap at all (the rename pass uses it).
+  - Results are ordered by score: a name match first, then the number of hits.
+  - The host carries a search generation counter: a newer query cancels the older one.
+- The overlay says `showing N of M files` when the answer was cut, ArrowUp recalls the last 20
+  queries of the session, and a hit navigates with `{path, line, col}`.
+
+### Routes and navigation
+
+- `{type:'page', path, line?, col?, heading?}`. `col` is a 1-based column; the editor lands the
+  caret on the match and opens find with the query so the hit is highlighted.
+- Quick open (Ctrl+O) matches the H1 title and the path, split on spaces (every word must
+  match one of the two); a row shows the title with the path under it in mono `--fg-3`.
+  `Shift+Enter` creates a page named after what was typed, in the focused folder.
+- `app.reopen-closed` "Reopen closed page" (Ctrl+Shift+T) reopens the last route `clearRoute`
+  dropped; the router keeps a stack of the last 20.
+- Back and forward restore the caret: the router stores `{line, col}` with the scroll position
+  per route key and hands it to the editor on the way back.
+- The title bar carries back and forward arrows (icon buttons, disabled when the stack ends,
+  `aria-label` and a `title` with the chord), and mouse buttons 4 and 5 navigate.
+- Every route change sets the window title through `bridge.setTitle`: `<Note> · <vault>`,
+  `<View> · <vault>`, or the vault name alone on the start surface.
+
+### rpc additions
+
+```
+bridge.openPath(relPath)   -> null    opens a vault file in the platform's default application
+                                      (host: `opener`, on the resolved path; dev bridge:
+                                      start / open / xdg-open). Never a scheme, never outside
+                                      the vault, and an error when the file is not there.
+bridge.search(q, {limit})  -> {hits:[{path,line,col,text}], files, total, capped}
+                                      limit counts files; 0 means no cap.
+```
+
+### Host safety
+
+`vault.rs write_text` and `write_binary` write a temp file beside the target and rename over
+it, the way `state.rs write_locked` does, so a crash mid-write never truncates a vault file.
+`rename` performs a case-only rename (Windows) through a temporary name.
+
+
+### Settings
+
+`shell/settings.js` owns `state.settings` and applies it to `<html>`. Every row shows one
+sentence under it. Defaults, and who reads each:
+
+```
+fontSize       14 | 15 | 16 | 17          --fs-body, in rem                    (16)
+lineHeight     1.5 | 1.65 | 1.8           --lh-body                            (1.65)
+readableWidth  boolean                    <html class="full-width"> when off   (true)
+zoom           90 | 100 | 110 | 125 | 150 --zoom, the root font size            (100)
+newPages       focus | scratch | page     focus.js defaultNewFolder()          ('focus')
+attachments    'beside' | <vault folder>  settings.attachmentFolder(pagePath)  ('beside')
+trash          system | vault             bridge.trash(path, {mode})           ('system')
+spellcheck     boolean                    the editor's spellcheck attribute    (true)
+updates        boolean                    the one network call (batch 11)      (true)
+```
+
+Exports other modules read, all re-exported from `shell/index.js`:
+
+```js
+settings()                     the whole object, defaults merged
+attachmentFolder(pagePath)     -> vault-relative folder ('' is the root). 'beside' answers
+                                  `<page folder>/attachments`, which is what was hard-coded.
+spellcheckOn()                 -> boolean
+trashMode()                    -> 'system' | 'vault'
+trashDestination()             -> 'the system recycle bin' | '.trash in the vault',
+                                  the words the trash confirmation uses
+zoom() / zoomLabel() / setZoom(pct)
+newPageMode()                  -> 'focus' | 'scratch' | 'page'
+```
+
+Bus event `settings`: emitted with the whole settings object after any change. A module that
+caches a setting (the editor's spellcheck attribute, the status bar's zoom item) re-reads here
+instead of asking on every keystroke.
+
+`defaultNewFolder()` (focus.js) answers the focus folder when one is set — focus mode always
+wins — and otherwise follows `newPages`: `focus` answers `''` (so `page.new` falls through to
+the open page's folder and then the scratch source, as before), `scratch` answers the scratch
+source, `page` answers the folder of the open page.
+
+### Zoom
+
+Five steps, 90 / 100 / 110 / 125 / 150 %, remembered per vault under `settings.zoom`. The
+factor is `--zoom` on `<html>` and the only thing it does is scale the root font size
+(`:root { font-size: calc(var(--zoom) * 100%) }` in tokens.css). Every size token is therefore
+written in rem, and at 100 % each is exactly the pixel value it replaced. What stays in px:
+hairlines and `--radius`, the sidebar width (window geometry the shell measures against
+`window.innerWidth`), the frameless window's grab zones, and the macOS traffic-light inset.
+
+```
+app.zoom-in  app.zoom-out  app.zoom-reset      group app, with `when` guards at the ends
+status bar   `110%` while not 100 %, a button that resets
+```
+
+The web view's own zoom hotkeys are off in both window configs (`zoomHotkeysEnabled: false`),
+so Ctrl+= / Ctrl+- / Ctrl+0 reach the page on every platform.
+
+### Window
+
+- **Title (S13).** `bridge.setTitle(text)`: `getCurrentWindow().setTitle` in the host (and
+  `document.title` with it), `document.title` alone in the dev and WebView2 adapters. Called by
+  the router on every route change.
+- **Closing (S28).** The adapter still turns the first close attempt into a `closing` notice and
+  still waits at least 400 ms, but there is no ceiling any more: the window is destroyed when
+  every handler has settled, however long the save takes. After 3 s a toast says `still saving…`
+  and stays until it settles. A handler resolving `false` vetoes the close, as before.
+- **Quitting (S16).** `bridge.quit()` → rpc `quit` → `window.close()`, so a quit takes the same
+  path as the close button and waits for the same save. `RunEvent::ExitRequested` with no exit
+  code does the same thing whenever the main window still exists; once it is gone, the same
+  event means "nothing left to save" and the app exits. `RunEvent::Exit` still writes the window
+  geometry. Command `app.quit` (group app, hidden in the browser).
+  **macOS:** the system's own Quit (`terminate:` from a predefined menu item, the Apple menu,
+  the Dock) reaches tao as `applicationWillTerminate`, which is past the point of no return and
+  arrives as `RunEvent::Exit`, never `ExitRequested`. The host therefore builds its own menu bar
+  (`main.rs build_menu()`): the app submenu's Quit is a plain item with the `Cmd+Q` accelerator
+  and the id `app.quit`, which runs the close path, never `PredefinedMenuItem::quit()`. An Edit
+  submenu carries the standard editing accelerators, without which a Mac window with a menu of
+  its own loses Cmd+C/V/X/A inside the web view. The menu is built on every platform so it
+  type-checks everywhere, and installed on macOS alone.
+- **The browser underneath (S27).** Tauri exposes neither of wry's
+  `with_browser_accelerator_keys` / `with_default_context_menus`, so the page refuses them
+  itself: `guardBrowserKeys()` swallows F5, Ctrl+F5, Shift+F5, Ctrl+R, Ctrl+Shift+R,
+  Ctrl+U and F7 in the capture phase, and `guardContextMenu()` calls `preventDefault()` on any
+  `contextmenu` event that reached the window unhandled, so the web view's own menu (with
+  Reload in it) never appears. Shift+right-click is the one deliberate exception: it is the only
+  route to a spelling suggestion, because no browser tells a page which word is underlined. A
+  key the guard swallows must be one nothing in the app wants — Ctrl+O is quick open and is
+  therefore not in the set.
+- **The two window configs (S49).** `tauri.macos.conf.json` is merged into `tauri.conf.json`
+  with RFC 7396, which replaces arrays wholesale: a key added to the base window object and not
+  repeated in the macOS one disappears on macOS. That is how `dragDropEnabled: false` was lost,
+  and with it every drop and drag-to-move on a Mac (S17). Tauri parses both as strict JSON, so
+  the rule cannot be a comment: it is a test (`lib.rs the_macos_window_mirrors_every_key_of_the_base_window`)
+  that fails the build when a key is not mirrored.
+- **The sidebar on a narrow window (L25).** Never more than 40 % of the window, and under 640 px
+  it hides itself and comes back when the window is wide again. `sidebar.open` — the
+  preference — is never written by the window; an explicit toggle overrules the automatic hide.
+
+### The vault
+
+```
+bridge.recentVaults()   -> [{path, name, exists, current}]   newest first, at most 10
+bridge.openVault(path)  -> {root, name}       adopts a folder with no dialog, like pickVault
+bridge.forgetVault(path)-> null               drops one line of the recent list
+bridge.forgetVault()    -> null               unchanged: forgets the remembered root
+```
+
+The list is `<app config dir>/vaults`, one absolute path per line, beside the `vault` file that
+holds the remembered root: that file answers "which vault opens by itself", this one answers
+"which vaults has this person had open" (S46). It is written when a vault is adopted — the
+picker, `openVault`, a second launch — and once at startup for whatever the app opened by
+itself. The first-run chooser lists it under `recent`, and `Change vault…` opens the same list
+with `Choose folder…` beside it; Delete forgets the focused row; a folder that no longer exists
+is dimmed and marked `missing` rather than hidden.
+
+**One instance per vault (S14).** `tauri-plugin-single-instance`: a second launch hands its
+argv over and exits. Same root (or no `--root` at all) brings the running window forward;
+another root is adopted and announced on the event `vault` `{changed:true}`, and the page
+reloads into it — one window, the vault it was told to open.
+
+**The vault going away (S29).** The watcher's restart loop reports it once, as `fs` with
+`{changes: [], lost: true}`, and again with `lost: false` when the folder comes back. The shell
+puts up one dialog — "The vault is gone", `Retry` and `Change vault…` — instead of a toast per
+failed call; the folder coming back closes it and reloads. Anything else that reads the root
+and is told it does not exist calls `vaultLost()`, which is idempotent.
+
+### Access and look
+
+- `openOverlay({..., title})` sets `aria-modal="true"` on any dimmed overlay and `aria-label`
+  from `title`; every `.dlg` head carries an id the box points `aria-labelledby` at. A menu
+  (`dim:false`) is not modal and does not claim to be (S40).
+- `--fg-3` moved in both themes so small chrome text clears 4.5:1 on `--bg`, `--bg-2` **and**
+  `--bg-3`: light `#6B6759` (5.37 / 5.01 / 4.53), dark `#959182` (5.56 / 5.28 / 4.61) (L28).
+- Eight code-highlight tokens, both themes, each measured on `--bg-2`: `--code-key`,
+  `--code-str`, `--code-num`, `--code-fn`, `--code-type`, `--code-var`, `--code-punc`,
+  `--code-com`.
+- A symlinked folder is shown in the tree, greyed, `title="link, not followed"`, from a tree
+  node whose `kind` is `link` (S31). CSS `.sb-row.link`.
