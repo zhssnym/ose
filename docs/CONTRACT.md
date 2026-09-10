@@ -1656,3 +1656,109 @@ and is told it does not exist calls `vaultLost()`, which is idempotent.
   `--code-com`.
 - A symlinked folder is shown in the tree, greyed, `title="link, not followed"`, from a tree
   node whose `kind` is `link` (S31). CSS `.sb-row.link`.
+
+### Fidelity
+
+The rule from CLAUDE.md — the editor never rewrites a file it did not edit, and a user edit
+never reformats the rest of the file — is now a measured guarantee, not an intention. Every
+sentence below is a sentence the round-trip harness tests.
+
+**The unit is the block, not the line.** `stringify.js blocks(text)` cuts a markdown text at its
+blank lines (fenced code kept whole); that is where every top-level block ends. `reconcile(out,
+original, {canon})` asks, for each block of the file on disk, what the editor would write for
+that block *on its own* (`canon` is `crepe.js canonicalise`, memoised per editor). A block whose
+answer is the block the editor is writing now is a block the user did not touch: it keeps its
+original bytes, exactly, however differently it is spelled — a four-space nested list, a setext
+heading, a padded table, a hand-written escape. The blocks that do not match are the ones the
+user edited; they are paired with their originals by position between the matched blocks on
+either side, written from the canonical text with a line-level pass inside them, and verified on
+their own. Nothing that happens to one block can reach another: there is no whole-file fallback
+any more, and the 80-line resynchronisation window is gone with it.
+
+**Verification, unchanged in kind.** A block is only restored when re-serialising it gives back
+exactly what the editor was going to write. The assembled file is checked once more the same
+way before it is handed to the caller; if that check ever fails the canonical text is written.
+Measured over the vault, it never fails.
+
+**Tables.** An edited table is restored row by row: a row whose cells did not change keeps its
+own padding, so a one-cell edit rewrites one row. The delimiter row is markup, not content, and
+is kept byte for byte whenever the column count and the alignments are unchanged. A delimiter
+row the editor writes is `| --- |`, with alignment colons kept (`:---`, `---:`, `:---:`), never
+mdast's minimal `| - |`.
+
+**The file's own bytes.** `doc.js parseDoc` reads and `composeDoc` writes back:
+
+- a UTF-8 BOM, stripped before the title regex and the editor and restored on write;
+- the final newline exactly as the file had it — 96 of the vault's 172 files have none, and the
+  editor no longer adds one;
+- each line's own ending, recorded per line, so a file with 99 CRLF lines and 8 LF ones keeps
+  all 107 (`doc.eol`, the majority ending, is only what a line the editor *adds* gets);
+- trailing spaces on any line the user did not edit.
+
+`---` on line 1 opens frontmatter only when the block closes within 64 lines and every line in
+it is blank, a `#` comment, a `key: value`, an indented continuation or a `- item`; otherwise it
+is a thematic break and the prose under it reaches the editor. A closing `#` sequence on the H1
+(`# Title #`) is markup: the title is `Title`.
+
+**What the parse used to destroy.** Two of Milkdown's remark plugins are left out of the editor,
+because both deleted markdown before anything downstream could see it. `remark-preserve-empty-line`
+spliced out every `<br>`, so `line one<br>line two` came back as `line oneline two`; without it
+`<br>` is an ordinary inline html node and survives — inline, alone on a line, and inside a table
+cell. Its other effect goes too: an empty paragraph is no longer written as `<br />`, it is
+simply not written, which is what Obsidian does. `remark-inline-links` rewrote `[text][ref]` into
+`[text](url)` and deleted the definition; without it a `definition` is a node of its own (an atom
+that renders as the line it came from and writes back what it read) and the link mark carries
+`identifier`, `label` and `referenceType`, so full, collapsed and shortcut references all survive
+a save. A reference resolves to its definition's url at parse time, so the link is clickable and
+the tooltip works; change the target and the link is written inline instead, so the edit lands in
+the file. An image reference has no node and is inlined, as before.
+
+**A hard break** is a bare newline inside a paragraph — what the vault contains and what
+`remarkLineBreak` reads back as a break — and a literal `<br>` where a newline is not allowed,
+which is inside a table row. mdast wrote a visible trailing backslash in the first case and a
+space in the second, losing the break. So a `hardbreak` inside a `table_cell` or `table_header`
+is written `<br>` and parses back to a `hardbreak`.
+
+**A fenced code block** keeps the whole of its info string: ```` ```js title="a.js" {1,3} ````
+comes back with everything past the language (`meta`, an attribute on the node).
+
+**postProcess.** A literal `[text](url)` loses both halves of mdast's escape, not just the
+first, so nothing is ever saved as `[text]\(url)`. `\_` between two word characters, `\#` in
+front of a `#tag`, `\&` where no character reference follows and `\|` outside a table row are
+all undone — every one of them a backslash mdast adds that the file never had. A table's
+delimiter row is written `| --- |`, with alignment colons kept.
+
+**Interfaces.**
+
+```js
+// stringify.js
+blocks(text) -> { list: [{start, end, lines, text}], gaps: number[] }   // gaps.length = list.length + 1
+reconcile(out, original, { canon })     canon: (md) => string, the editor's parse-and-serialise
+lineKey(line)                           unchanged; lines.js still keys on it
+
+// crepe.js
+roundTrip(crepe, markdown, original = markdown)
+   what a save would write for `markdown` against the file `original`. The two are the same
+   text for open-and-save; the harness passes them apart to ask what one edit writes.
+
+// doc.js
+parseDoc(text) -> { ..., bom, eol, eols: string[], lines: string[] }
+```
+
+**Measured** (`work/vault`, batch 12): every file comes back byte for byte on open and save with
+no edit — 173 of 173, against 65 of 171 before — and every one of the 41 fixtures passes,
+including the 18 written for findings that were broken when the batch started. Of 4,387
+one-character edits, one to each non-blank body line in the vault, 117 changed any other line:
+81 of them a table row whose cell count changed, 9 a fence or `---` marker whose block stopped
+being that block, and 27 an ordinary line. Before: 1,064 of the same 4,387, and 23,531
+collateral lines against 618.
+
+**The harness** (`/src/editor/harness.html`, `npm run dev`) has two columns and three runs.
+`run all` opens and saves every file in the vault with no edit: **bytes** compares the file byte
+for byte and is the column that fails; **lenient** is the batch-9 comparison through `norm()`,
+kept only so the two numbers together say what the old column was hiding. `run edits` appends
+one character to every non-blank body line in the vault, one at a time, and counts the lines
+that changed other than that one; `run edits (batch 9)` is the same sweep through the previous
+engine, which is how the two columns above were measured by one instrument. Fixtures cover each
+numbered finding of the batch-12 markdown research by name; a fixture for a finding that is not
+fixed yet is marked `todo` and counted apart.
