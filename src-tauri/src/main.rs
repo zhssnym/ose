@@ -82,11 +82,15 @@ fn main() {
     }
     let headless = opts.update;
 
-    let app = tauri::Builder::default()
-        .manage(app_state)
-        // First plugin, as the plugin's own documentation requires: a second launch hands its
-        // argv over and exits before anything else in this process runs (S14).
-        .plugin(tauri_plugin_single_instance::init(on_second_instance))
+    let mut builder = tauri::Builder::default().manage(app_state);
+    // First plugin, as the plugin's own documentation requires: a second launch hands its
+    // argv over and exits before anything else in this process runs (S14). Not for the
+    // self-test: it must run beside a person's open window, and it must never redirect that
+    // window to the fake vault, which is what a handover would do.
+    if !selftest {
+        builder = builder.plugin(tauri_plugin_single_instance::init(on_second_instance));
+    }
+    let app = builder
         // The native folder picker behind `pickVault` (`pick_folder` below); used from Rust
         // only, so no capability entry is needed: permissions gate the webview's own invoke,
         // not host code.
