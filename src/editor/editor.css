@@ -59,21 +59,39 @@
 /* ---------------------------------------------------------------- find bar (C1) */
 
 /* One bar at the top of the column, sticky, so the hits scroll under it. A labelled bar like
-   any other (--panelhead-h) with the hairline a bar is allowed at its foot. */
+   any other (--panelhead-h per row) with the hairline a bar is allowed at its foot. The
+   replace row (Ctrl+H) is the same row again, so the two lines are one component. */
 .ed-find {
   position: sticky; top: 0; z-index: 20;
-  height: var(--panelhead-h); margin-bottom: var(--sp-4);
-  display: flex; align-items: center; gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
   background: var(--bg); border-bottom: 1px solid var(--border);
 }
+.ed-find-row {
+  height: var(--panelhead-h);
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+/* An author `display` beats the user agent's `[hidden]`, so the replace row says so itself. */
+.ed-find-row[hidden] { display: none; }
 .ed-find .input { flex: 1; min-width: 0; max-width: calc(var(--page-w) / 2); }
 .ed-find-count { flex: none; min-width: 7ch; text-align: right; color: var(--fg-3); }
 .ed-find-count.none { color: var(--warn); }
+.ed-find-btn, .ed-find-tog { flex: none; }
+.ed-find-icon { width: var(--ctl-h); padding: 0; display: grid; place-items: center; }
+.ed-find-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.ed-find-icon.flip svg { transform: rotate(180deg); }
+.ed-find-tog.on { color: var(--accent); border-color: var(--accent); }
+.ed-find-btn[disabled] { opacity: .5; }
 /* every hit on the selection tint; the current one on the accent surface, boxed in accent */
 .ed .milkdown .ProseMirror .find-hit { background: var(--sel); border-radius: var(--radius); }
 .ed .milkdown .ProseMirror .find-hit.current {
   background: var(--accent-soft); outline: 1px solid var(--accent); outline-offset: 1px; /* 1px: a hairline box */
 }
+
+/* ---------------------------------------------------------------- link dialog (E20) */
+
+/* The quick-open surface, unchanged; the only thing that is ours is the foot button, which
+   sits where the mode chip normally does. */
+.pal.ed-link .pal-foot .btn { flex: none; margin-left: var(--sp-2); }
 
 /* ---------------------------------------------------------------- outline (C2) */
 
@@ -311,16 +329,8 @@
   text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
 }
 .ed .milkdown .milkdown-table-block :is(th, td) p { margin: 0; }
-.ed .milkdown .milkdown-table-block .cell-handle {
-  border-radius: var(--radius); background: var(--bg-2); border: 1px solid var(--border);
-  box-shadow: none; color: var(--fg-3);
-}
-.ed .milkdown .milkdown-table-block .cell-handle:hover { background: var(--bg-3); }
-.ed .milkdown .milkdown-table-block .button-group {
-  background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius);
-  box-shadow: var(--shadow-menu);
-}
-.ed .milkdown .milkdown-table-block svg { fill: var(--fg-3); }
+/* The popover — .handle, .cell-handle, .line-handle, .button-group, .add-button — is P2's and
+   lives in table.css, so it has one owner (batch 12). What is inside a cell stays here. */
 
 /* ---------------------------------------------------------------- images */
 
@@ -389,6 +399,12 @@
 .ed .milkdown .milkdown-toolbar .toolbar-item:hover { background: var(--bg-3); }
 .ed .milkdown .milkdown-toolbar .toolbar-item.active svg { color: var(--accent); fill: var(--accent); }
 .ed .milkdown .milkdown-toolbar .divider { background: var(--border); height: 18px; margin: var(--sp-2) var(--sp-half); /* --sp-half: hairline breathing room */ }
+/* E41: Tab reaches the toolbar and Enter acts, so the ring has to be visible — and the bar
+   clips its overflow, so it is drawn inside the button rather than 2px outside it. */
+.ed .milkdown .milkdown-toolbar .toolbar-item:focus-visible,
+.ed .milkdown :is(.milkdown-link-preview, .milkdown-link-edit) [data-os-kb]:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: -1px; background: var(--bg-3);
+}
 
 .ed .milkdown :is(.milkdown-link-preview, .milkdown-link-edit) > :is(.link-preview, .link-edit) {
   height: var(--ctl-h); padding: 0 var(--sp-2); gap: var(--sp-2); align-items: center;

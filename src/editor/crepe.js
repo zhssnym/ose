@@ -6,6 +6,7 @@ import '@milkdown/crepe/theme/common/style.css';
 import { editorViewCtx, parserCtx, prosePluginsCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
+import { indentPlugin } from '@milkdown/kit/plugin/indent';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
@@ -100,6 +101,13 @@ async function installExtras(editor, o) {
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);
+  // D2/E1/E2/L2: `plugin-indent` is the last handler in the Tab chain, and what it does is type
+  // four literal spaces — which re-parse as an indented code block, so a paragraph silently
+  // became code on the next reload. Tab is decided in commands.js instead, and nothing in the
+  // editor ever writes a space for it. Removing a plugin only edits the store before `create()`.
+  // Only the shortcut goes: `indent` is `[indentConfig, indentPlugin]`, and Crepe's own builder
+  // configures `indentConfig` at create time, so taking the ctx slice away throws there.
+  await editor.remove(indentPlugin);
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */
@@ -157,14 +165,51 @@ export function readMarkdown(crepe, original) {
   return verify(crepe, postProcess(crepe.getMarkdown()), original);
 }
 
-function verify(crepe, canonical, original) {
+/**
+ * The reconcile pass asks, for every block of the file on disk, what the editor would write
+ * for that block on its own; a block whose answer is what the editor is writing now is a
+ * block the user did not touch, and it keeps its bytes. That is one parse per block, so the
+ * answers are memoised: the same blocks come back on every save of the same page.
+ *
+ * The whole-file check at the end is the guarantee, unchanged since batch 9: nothing is
+ * written unless re-reading it gives back the document that is on screen. Each block was
+ * already verified on its own, so it holds except where two restorations changed each other's
+ * meaning — which the block boundaries make impossible, and which is measured at 0 over the
+ * vault. If it ever does happen, the canonical text is written instead.
+ */
+function verify(crepe, canonical, original, legacy) {
   if (!original) return canonical;
-  for (const opt of [{ lines: true }, { lines: false }]) {
-    const candidate = reconcile(canonical, original, opt);
-    if (candidate === canonical) return canonical;
-    if (canonicalise(crepe, candidate) === canonical) return candidate;
+  const canon = memo(crepe);
+  // `legacy` is batch 9's engine — line-keyed reconcile, whole-file verify, all or nothing.
+  // Nothing in the app asks for it; the harness does, so the before and after of batch 12 are
+  // one measurement by one instrument over one vault.
+  if (legacy) {
+    for (const opt of [{ lines: true }, { lines: false }]) {
+      const candidate = reconcile(canonical, original, opt);
+      if (candidate === canonical) return canonical;
+      if (canon(candidate) === canonical) return candidate;
+    }
+    return canonical;
   }
-  return canonical;
+  const candidate = reconcile(canonical, original, { canon });
+  if (candidate === canonical) return canonical;
+  return canon(candidate) === canonical ? candidate : canonical;
+}
+
+const CANON_CACHE = new WeakMap();
+const CANON_MAX = 8000;
+
+function memo(crepe) {
+  let cache = CANON_CACHE.get(crepe);
+  if (!cache) { cache = new Map(); CANON_CACHE.set(crepe, cache); }
+  return (md) => {
+    const hit = cache.get(md);
+    if (hit !== undefined) return hit;
+    const out = canonicalise(crepe, md);
+    if (cache.size >= CANON_MAX) cache.clear();
+    cache.set(md, out);
+    return out;
+  };
 }
 
 /** Parse a markdown string and serialise it straight back, with no view involved. */
@@ -173,9 +218,15 @@ export function canonicalise(crepe, markdown) {
     postProcess(ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown))));
 }
 
-/** What the editor would write for `markdown` if it were opened and saved unchanged. */
-export function roundTrip(crepe, markdown) {
-  return verify(crepe, canonicalise(crepe, markdown), markdown);
+/**
+ * What the editor would write for `markdown` if it were opened and saved unchanged.
+ *
+ * `original` is the text the reconcile pass is allowed to put back, and defaults to `markdown`
+ * itself, which is the open-and-save case. The harness passes the two apart to ask the other
+ * question: given the file on disk and a document with one line edited, what gets written?
+ */
+export function roundTrip(crepe, markdown, original = markdown, opt = {}) {
+  return verify(crepe, canonicalise(crepe, markdown), original, opt.legacy);
 }
 
 /**

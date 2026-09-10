@@ -21,7 +21,7 @@
 // the browser — a NodeSelection when the range holds exactly one node, otherwise a TextSelection
 // spanning it — but nothing here reads it back except as a starting point.
 
-import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@milkdown/kit/prose/state';
+import { AllSelection, NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import { slashMenuOpen } from './slash.js';
 
@@ -45,7 +45,7 @@ export function blockAt($pos) {
 }
 
 /** The range the keys act on: the block selection, a node selection, else the caret's block. */
-function actingRange(state) {
+export function actingRange(state) {
   const s = BLOCK_KEY.getState(state);
   if (s) return s;
   const sel = state.selection;
@@ -104,10 +104,23 @@ function collapse(view) {
 // ---------------------------------------------------------------------------
 // the four actions
 
-function selectBlock(view) {
+export function selectBlock(view) {
   const range = actingRange(view.state);
   if (!range) return false;
   return setRange(view, { from: range.from, to: range.to, head: 'end' });
+}
+
+/**
+ * The whole body, from a block selection (L19). Notion's widening: Esc selects the block,
+ * Ctrl+A from there takes the body. `index.js` (P5) carries the next press on to the title,
+ * and reads an `AllSelection` — what Milkdown's own `selectAll` leaves — as the signal.
+ */
+export function selectBody(view) {
+  const tr = view.state.tr.setMeta(BLOCK_KEY, null);
+  tr.setSelection(new AllSelection(tr.doc));
+  view.dispatch(tr);
+  view.focus();
+  return true;
 }
 
 /** Grow or shrink the range by one sibling at the head end. */
@@ -151,7 +164,7 @@ function extend(view, dir) {
 }
 
 /** Remove the range and put the caret in the block after it, or before it at the end. */
-function deleteRange(view) {
+export function deleteRange(view) {
   const { state } = view;
   const range = actingRange(state);
   if (!range) return false;
@@ -175,8 +188,32 @@ function deleteRange(view) {
   return true;
 }
 
+/**
+ * Copy the range in below itself and put the caret in the copy (E28, Ctrl+D). A block
+ * selection stays a block selection, over the copy.
+ */
+export function duplicateRange(view) {
+  const { state } = view;
+  const range = actingRange(state);
+  if (!range) return false;
+  const slice = state.doc.slice(range.from, range.to);
+  const held = BLOCK_KEY.getState(state);
+  const offset = state.selection.from - range.from;
+  const tr = state.tr.insert(range.to, slice.content);
+  const at = range.to;
+  const moved = { from: at, to: at + (range.to - range.from), head: range.head || 'end' };
+  if (held) return setRange(view, moved, tr);
+  tr.setMeta(BLOCK_KEY, null);
+  const caret = Math.max(0, Math.min(at + offset, tr.doc.content.size));
+  tr.setSelection(Selection.near(tr.doc.resolve(caret), 1));
+  tr.scrollIntoView();
+  view.dispatch(tr);
+  view.focus();
+  return true;
+}
+
 /** Move the range over its neighbouring sibling, keeping whatever was selected selected. */
-function moveRange(view, dir) {
+export function moveRange(view, dir) {
   const { state } = view;
   const range = actingRange(state);
   if (!range) return false;
@@ -217,10 +254,21 @@ function busy(view, event) {
 }
 
 function handleKeyDown(view, event) {
+  // An IME conversion is not a gesture: while a composition is running, Escape and the arrows
+  // belong to the candidate window (E44).
+  if (event.isComposing || event.keyCode === 229) return false;
   if (busy(view, event)) return false;
   const key = event.key;
   const mod = event.ctrlKey || event.metaKey;
   const held = BLOCK_KEY.getState(view.state);
+
+  // D2/L21: while a block is selected, a printable character does not replace it. The
+  // selection collapses to a caret at the end of the block first, and the character is then
+  // typed there by the browser — losing a paragraph to a stray Esc is not an editor's job.
+  if (held && !mod && key.length === 1) { collapse(view); return false; }
+
+  // Notion's widening (L19): from a block selection, Ctrl+A takes the whole body.
+  if (held && mod && !event.shiftKey && !event.altKey && key.toLowerCase() === 'a') return selectBody(view);
 
   if (mod && event.shiftKey && !event.altKey) {
     if (key === 'Backspace' || key === 'Delete') return deleteRange(view);

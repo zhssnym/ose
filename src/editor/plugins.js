@@ -112,8 +112,19 @@ export const strikethroughRule = $inputRule((ctx) =>
 
 export const FIND_KEY = new PluginKey('os-find');
 
-const EMPTY_FIND = { query: '', hits: [], index: -1, decos: DecorationSet.empty };
+const EMPTY_FIND = { query: '', hits: [], index: -1, decos: DecorationSet.empty, caseSensitive: false, wholeWord: false };
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The matcher for one query. `wholeWord` is a look-around on letters, digits and underscore
+ * rather than `\b`, so it means the same thing on a French word as on an English one; the `u`
+ * flag makes the classes match accented letters.
+ */
+function findRe(query, { caseSensitive = false, wholeWord = false } = {}) {
+  const body = escapeRe(query);
+  const pattern = wholeWord ? `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])` : body;
+  return new RegExp(pattern, caseSensitive ? 'gu' : 'giu');
+}
 
 /**
  * Every `[from, to)` where `query` occurs, case-insensitively, in document order. Each
@@ -123,9 +134,10 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * CodeMirror node view has no contentDOM, so a hit inside one is counted and can be jumped
  * to, but its decoration is not drawn.
  */
-function findHits(doc, query) {
+function findHits(doc, query, opts) {
   if (!query) return [];
-  const re = new RegExp(escapeRe(query), 'gi');
+  let re;
+  try { re = findRe(query, opts); } catch { return []; }
   const hits = [];
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
@@ -169,12 +181,18 @@ export function findPlugin() {
         if (meta && meta.clear) return EMPTY_FIND;
         if (meta && typeof meta.query === 'string') {
           const query = meta.query;
-          if (!query) return EMPTY_FIND;
-          const hits = findHits(tr.doc, query);
-          // A new query starts at the caret; the same one typed again keeps its place.
-          const index = query === prev.query && prev.index >= 0 && prev.index < hits.length
-            ? prev.index : hitAtOrAfter(hits, tr.selection.from);
-          return { query, hits, index, decos: findDecorations(tr.doc, hits, index) };
+          const caseSensitive = !!meta.caseSensitive;
+          const wholeWord = !!meta.wholeWord;
+          if (!query) return { ...EMPTY_FIND, caseSensitive, wholeWord };
+          const opts = { caseSensitive, wholeWord };
+          const hits = findHits(tr.doc, query, opts);
+          const same = query === prev.query && caseSensitive === prev.caseSensitive && wholeWord === prev.wholeWord;
+          // A replacement says where it left off; a new query starts at the caret; the same
+          // one typed again keeps its place.
+          const index = typeof meta.at === 'number' ? hitAtOrAfter(hits, meta.at)
+            : (same && prev.index >= 0 && prev.index < hits.length
+              ? prev.index : hitAtOrAfter(hits, tr.selection.from));
+          return { query, hits, index, decos: findDecorations(tr.doc, hits, index), ...opts };
         }
         if (meta && meta.step && prev.hits.length) {
           const n = prev.hits.length;
@@ -182,7 +200,7 @@ export function findPlugin() {
           return { ...prev, index, decos: findDecorations(tr.doc, prev.hits, index) };
         }
         if (tr.docChanged && prev.query) {
-          const hits = findHits(tr.doc, prev.query);
+          const hits = findHits(tr.doc, prev.query, prev);
           const index = hits.length ? Math.min(Math.max(prev.index, 0), hits.length - 1) : -1;
           return { ...prev, hits, index, decos: findDecorations(tr.doc, hits, index) };
         }

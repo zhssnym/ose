@@ -453,6 +453,9 @@ class SlashView {
   }
 
   key(e) {
+    // An IME conversion is not a menu gesture: while a composition runs, Escape, Enter and the
+    // arrows belong to the candidate window (E44).
+    if (e.isComposing || e.keyCode === 229) return;
     if (!this.shown || e.ctrlKey || e.metaKey || e.altKey) return;
     const view = this.view();
     // The menu never eats a key for anything else: if the editor is not the focus any more,
