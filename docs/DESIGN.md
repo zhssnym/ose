@@ -58,6 +58,10 @@ Key tokens (see the file for the full list):
 --font-ui --font-mono --font-title
 --radius (2px)  --titlebar-h (36px)  --statusbar-h (24px)  --sidebar-w (260px)
 --page-w (720px)  --page-pad-top (80px)
+--code-key --code-str --code-num --code-fn --code-type --code-var --code-punc --code-com
+              code-block highlighting, each measured >= 4.5:1 on --bg-2 in both themes
+--zoom        the root font size factor (90 to 150 %); every size token is written in rem so
+              the whole window scales, and at 100 % each is the pixel value it names
 ```
 
 ## Components, canonical forms

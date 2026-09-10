@@ -27,3 +27,6 @@ ci/fake-vault/.trash/
 # graph graphify builds: session artefacts, never shipped.
 work/
 graphify-out/
+
+# The vault state folder an exe writes when the repo itself is opened as a vault.
+.ose/

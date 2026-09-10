@@ -33,7 +33,9 @@ src/
   bridge/           facade + Tauri adapter + dev HTTP adapter
   styles/           tokens.css (all colours, fonts, sizes) and base.css (components)
   shell/            titlebar, sidebar, palette, statusbar, settings, router, dialogs, state
-  editor/           Crepe (Milkdown) page editor, autosave, round-trip safe serialisation
+  editor/           Crepe (Milkdown) page editor, autosave, round-trip safe serialisation;
+                    one module per feature (table, code, commands, menu, image, source,
+                    versions, backlinks, linkstate, wikitrigger) joined by extensions.js
   views/            day, week, month, journal
   lib/              shared parsers (timetable, monthly plan with systems, jsonl, tasks)
 dev/                bridge-plugin.mjs: Node implementation of the bridge for the browser
@@ -49,6 +51,7 @@ Development (browser, hot reload, same vault):
 ```
 npm install
 npm run dev            # http://127.0.0.1:5173, dev bridge serves D:\os
+npm run dev:test       # http://127.0.0.1:5174, serves work/vault (a throwaway copy) for proving changes
 ```
 
 Host in dev mode (real window, UI from the dev server):
@@ -77,8 +80,9 @@ CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
   emphasis, H1 and body text, no runs of blank lines, LF endings, UTF-8 without BOM.
 - Never write to a real vault file while testing. Use `Scratchpad/` and clean up.
-- No new dependency without a reason written in the commit message. The UI has four:
-  Milkdown Crepe and kit for the editor, marked and DOMPurify for rendering.
+- No new dependency without a reason written in the commit message. The UI has five:
+  Milkdown Crepe and kit for the editor, marked and DOMPurify for rendering, and CodeMirror's
+  language pack for code blocks. The host has one plugin beyond Tauri's: single-instance.
 - Colours, fonts and sizes come from `tokens.css` only. No hex values in module CSS. Spacing
   comes from the spacing scale in `tokens.css`; no bare pixel paddings in module CSS.
 - Both themes, every time. Keyboard reachable, every time: every action has a command, every
