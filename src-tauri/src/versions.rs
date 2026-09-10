@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use crate::{arg_str, vault, Ctx};
+use crate::{arg_str, civil_from_days, vault, Ctx};
 
 /// Where every version lives, vault-relative.
 const ROOT_DIR: &str = ".ose/versions";
@@ -36,6 +36,9 @@ const MAX_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
 
 /// `2026-09-10-201500`, UTC, from epoch milliseconds. The `at` a listing reports is the file's
 /// mtime, so the UI shows local time; the id only has to sort and be unique.
+///
+/// The civil date comes from lib.rs, which needs the same twelve lines for the log stamp: with
+/// batch 12 merged there is one copy in the crate.
 fn id_from_ms(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -46,22 +49,6 @@ fn id_from_ms(ms: i64) -> String {
         (rem % 3600) / 60,
         rem % 60
     )
-}
-
-/// Days since the Unix epoch to a civil date (Howard Hinnant's algorithm). lib.rs has the same
-/// twelve lines for the log stamp and keeps them private; a version id must not depend on a
-/// module another package owns, so it carries its own copy rather than asking for a `pub`.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// An id is a file name we built: digits and hyphens only. Anything else could climb out of
@@ -295,20 +282,31 @@ pub fn list(root: &Path, rel: &str) -> Result<Value, String> {
     Ok(to_json(&entries(root, rel)?))
 }
 
+/// A version is a copy of the file's own bytes, so it comes back exactly as it went in, a
+/// byte-order mark included (F14: `vault::read_text` keeps it too, and `doc.js` owns it —
+/// stripping it here would make a restore drop the BOM the file had).
 pub fn read(root: &Path, rel: &str, id: &str) -> Result<String, String> {
     check_id(id)?;
     let full = dir_for(root, rel)?.join(format!("{id}.md"));
     let bytes = fs::read(&full).map_err(|e| format!("version {id} of {rel}: {e}"))?;
-    let text = String::from_utf8(bytes).map_err(|_| format!("not valid UTF-8: version {id}"))?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
+    String::from_utf8(bytes).map_err(|_| format!("not valid UTF-8: version {id}"))
 }
 
 /// The current text becomes a version (always: this is the one moment losing it would be the
 /// user's own doing), then the chosen version is written over the file, atomically.
+///
+/// Only `NotFound` means "there is nothing to keep". Every other read error — a file locked by
+/// a sync client, a transient EBUSY, bytes that are not UTF-8 — is a file whose content this
+/// process cannot see, and writing the old version over it would destroy text no version holds.
+/// The restore fails instead, and the file is left exactly as it was.
 pub fn restore(root: &Path, rel: &str, id: &str) -> Result<Value, String> {
     let text = read(root, rel, id)?;
     let full = vault::resolve(root, rel)?;
-    let current = fs::read_to_string(&full).unwrap_or_default();
+    let current = match fs::read_to_string(&full) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{rel}: {e}")),
+    };
     let kept = if current.is_empty() || current == text {
         json!({ "kept": false, "id": null })
     } else {
@@ -389,7 +387,7 @@ mod tests {
     #[test]
     fn an_id_is_a_utc_timestamp() {
         assert_eq!(id_from_ms(0), "1970-01-01-000000");
-        // 2026-09-10 20:15:00 UTC
+        // 2025-09-10 20:15:00 UTC
         assert_eq!(id_from_ms(1_757_535_300_000), "2025-09-10-201500");
         assert!(check_id("2026-09-10-201500").is_ok());
         assert!(check_id("../../etc/passwd").is_err());
@@ -465,6 +463,45 @@ mod tests {
         let listed = entries(root, "c.md").unwrap();
         assert_eq!(listed.len(), 2);
         assert_eq!(read(root, "c.md", &listed[0].id).unwrap(), "# now\n");
+    }
+
+    /// F3: only "there is no file" means there is nothing to keep. A file this process cannot
+    /// read holds text no version has, so the restore fails and writes nothing.
+    #[test]
+    fn restore_refuses_when_the_current_file_cannot_be_read() {
+        let t = Tmp::new("restore-unreadable");
+        let root = &t.0;
+        let raw: &[u8] = &[0xff, 0xfe, 0x00, 0x41];
+        fs::write(root.join("d.md"), raw).unwrap();
+        plant(root, "d.md", "2026-01-01-000000", "# then\n");
+        let e = restore(root, "d.md", "2026-01-01-000000").unwrap_err();
+        assert!(e.contains("d.md"), "the error names the file: {e}");
+        assert_eq!(
+            fs::read(root.join("d.md")).unwrap(),
+            raw,
+            "the file the restore could not read is left exactly as it was"
+        );
+        assert_eq!(count(root, "d.md"), 1, "and nothing was kept");
+
+        // A file that is not there at all is nothing to keep, and the restore goes through.
+        plant(root, "e.md", "2026-01-01-000000", "# then\n");
+        let r = restore(root, "e.md", "2026-01-01-000000").unwrap();
+        assert_eq!(r["kept"], json!(false));
+        assert_eq!(fs::read_to_string(root.join("e.md")).unwrap(), "# then\n");
+    }
+
+    /// F14: a version is the file's own bytes, mark and all, so a restore puts the mark back.
+    #[test]
+    fn a_version_keeps_the_byte_order_mark() {
+        let t = Tmp::new("bom");
+        let root = &t.0;
+        let with_bom = "\u{feff}# one\n";
+        fs::write(root.join("f.md"), "# two\n").unwrap();
+        let r = keep(root, "f.md", with_bom, true).unwrap();
+        let id = r["id"].as_str().unwrap().to_string();
+        assert_eq!(read(root, "f.md", &id).unwrap(), with_bom);
+        restore(root, "f.md", &id).unwrap();
+        assert_eq!(fs::read(root.join("f.md")).unwrap(), b"\xEF\xBB\xBF# one\n");
     }
 
     #[test]

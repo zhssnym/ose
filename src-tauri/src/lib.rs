@@ -167,8 +167,9 @@ fn stamp() -> String {
     )
 }
 
-/// Days since the Unix epoch to a civil date (Howard Hinnant's algorithm).
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+/// Days since the Unix epoch to a civil date (Howard Hinnant's algorithm). The log stamp above
+/// and `versions.rs`'s version ids are the two callers; there is one copy of it in the crate.
+pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -255,6 +256,23 @@ pub mod commands {
         if let Some(r) = vaults::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
+
+        // `search` walks every file in the vault and `tree` reads every directory: both are
+        // synchronous, and on a big vault either would hold a tokio worker for the length of
+        // the walk. Each runs on a blocking worker and is awaited here, exactly as the update
+        // commands do above. Everything else in vault.rs touches one path and stays inline.
+        if vault::BLOCKING.contains(&cmd.as_str()) {
+            let root = match st.require_root() {
+                Ok(r) => r,
+                Err(e) => return log_err(st, &cmd, Err(e)),
+            };
+            let (c, a) = (cmd.clone(), args.clone());
+            let r = tauri::async_runtime::spawn_blocking(move || vault::dispatch(&root, &c, &a))
+                .await
+                .unwrap_or_else(|e| Err(format!("{cmd} worker failed: {e}")));
+            return log_err(st, &cmd, r);
+        }
+
         if let Some(r) = vault::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }

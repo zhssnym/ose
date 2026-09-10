@@ -55,7 +55,7 @@ watcher handle) so modules do not import each other.
 Argument shapes and return shapes are those of CONTRACT.md (the .NET host's `Bridge.cs` and
 `Vault.cs` are the reference implementation; port them, do not redesign). Paths in and out are
 vault-relative with forward slashes; anything resolving outside the root is an error
-`path escapes the vault: <p>`. Text is UTF-8 without BOM, line endings preserved. Hidden names:
+`path escapes the vault: <p>`. Text is UTF-8 and comes back byte for byte: a BOM and the line endings are kept (the editor strips and restores the BOM itself). Hidden names:
 `.git .obsidian .claude .vscode .trash node_modules App .tmp.driveupload .makemd .space os.exe
 os.pdb .ose` and any name starting with a dot (`.ose` holds the state file). `_Archive` is not
 hidden. Sorting: folders first then natural numeric (the web side re-sorts anyway).

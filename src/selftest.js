@@ -76,6 +76,10 @@ function skipped(name, why) { skip++; report('skip', 'SKIP', name, why); }
 // 1x1 transparent png, 70 bytes decoded.
 const PNG1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const DIR = 'selftest';
+// The versions round trip writes a page like a user would, so it uses the scratch folder the
+// vault already has for exactly that; the folder is only removed again when it was not there.
+const SCRATCH = 'Scratchpad';
+const VFILE = `${SCRATCH}/selftest-versions.md`;
 
 bridge.on('fs', (d) => info(`event fs ${trim(JSON.stringify(d), 160)}`));
 bridge.on('window', (d) => info(`event window ${trim(JSON.stringify(d), 160)}`));
@@ -166,6 +170,22 @@ async function run() {
     skipped('forgetVault', remembered === null ? 'vaultInfo failed' : 'this machine remembers a vault; not deleting it');
   }
 
+  // The vaults this machine has opened (CONTRACT.md "Vault resolution", S46). Shape only: the
+  // list is the user's own history, and a self-test must not care what is in it. The dev bridge
+  // answers with the one vault it serves, which satisfies the same shape.
+  await test('recentVaults', async () => {
+    const r = await bridge.recentVaults();
+    assert(Array.isArray(r), 'not an array: ' + trim(JSON.stringify(r), 120));
+    assert(r.length <= 10, `more than ten remembered: ${r.length}`);
+    for (const v of r) {
+      assert(v && typeof v.path === 'string' && v.path.length > 0, 'no path: ' + trim(JSON.stringify(v), 120));
+      assert(typeof v.name === 'string' && typeof v.exists === 'boolean' && typeof v.current === 'boolean',
+        'bad entry: ' + trim(JSON.stringify(v), 120));
+    }
+    assert(r.filter((v) => v.current).length <= 1, 'two vaults claim to be the open one');
+    return `${r.length} remembered${r.length ? `, first=${r[0].name}` : ''}`;
+  });
+
   await test('exists(.selftest marker)', async () => {
     mutable = (await bridge.exists('.selftest')) === true;
     return mutable ? 'present, mutating tests enabled' : 'absent, mutating tests skipped';
@@ -208,11 +228,13 @@ async function run() {
     return 'false';
   });
 
+  // A byte-order mark is a byte of the file, not a character of the document: the bridge hands
+  // it over as it found it and the editor's `doc.js` strips and restores it (F14). Nothing is
+  // asserted about this particular file, which may have one or not.
   await test('readText', async () => {
     const t = await bridge.readText(sample.path);
     assert(typeof t === 'string' && t.length > 0, 'empty');
-    assert(t.charCodeAt(0) !== 0xFEFF, 'BOM leaked into the text');
-    return `${sample.path}, ${t.length} chars`;
+    return `${sample.path}, ${t.length} chars${t.charCodeAt(0) === 0xFEFF ? ', with a BOM' : ''}`;
   });
 
   await test('path escape rejected', async () => {
@@ -289,8 +311,71 @@ async function run() {
       assert((await bridge.exists(DIR)) === false, 'still present');
       return 'sent to the trash';
     });
+
+    /* ------------------------------------------------------- versions */
+
+    // The four version commands (CONTRACT.md batch 12, "Versions") against one scratch page:
+    // keep it, list it, read it back, then restore it over a changed file. The page and its
+    // history go at the end, and the scratch folder too when this test is what created it.
+    let hadScratch = true, kept = null;
+    await test('versionKeep', async () => {
+      hadScratch = await bridge.exists(SCRATCH);
+      await bridge.writeText(VFILE, '# one\n');
+      const r = await bridge.versionKeep(VFILE, '# one\n', true);
+      assert(r && r.kept === true && typeof r.id === 'string' && r.id.length > 0,
+        'nothing kept: ' + trim(JSON.stringify(r), 120));
+      assert(/^\d{4}-\d{2}-\d{2}-\d{6}$/.test(r.id), 'not a timestamp id: ' + r.id);
+      kept = r.id;
+      // The same text is never kept twice, forced or not.
+      const again = await bridge.versionKeep(VFILE, '# one\n', true);
+      assert(again && again.kept === false, 'the same text was kept twice: ' + trim(JSON.stringify(again), 120));
+      return `id=${kept}`;
+    });
+
+    await test('versionList', async () => {
+      const l = await bridge.versionList(VFILE);
+      assert(Array.isArray(l) && l.length === 1, 'expected one version: ' + trim(JSON.stringify(l), 120));
+      const v = l[0];
+      assert(v.id === kept, `listed ${v.id}, kept ${kept}`);
+      assert(typeof v.at === 'number' && v.at > 0 && typeof v.bytes === 'number' && v.bytes > 0,
+        'bad entry: ' + trim(JSON.stringify(v), 120));
+      return `${l.length} version, ${v.bytes} bytes`;
+    });
+
+    await test('versionRead', async () => {
+      const t = await bridge.versionRead(VFILE, kept);
+      assert(t === '# one\n', 'content mismatch: ' + JSON.stringify(t));
+      try { await bridge.versionRead(VFILE, '../../../secret'); } catch { return 'text back, a bad id refused'; }
+      throw new Error('a version id that is not a timestamp was accepted');
+    });
+
+    await test('versionRestore', async () => {
+      await bridge.writeText(VFILE, '# two\n');
+      const r = await bridge.versionRestore(VFILE, kept);
+      assert(r && r.kept === true && typeof r.id === 'string', 'the replaced text was not kept: ' + trim(JSON.stringify(r), 120));
+      assert((await bridge.readText(VFILE)) === '# one\n', 'the version was not written over the file');
+      const l = await bridge.versionList(VFILE);
+      assert(l.length === 2, 'expected two versions: ' + trim(JSON.stringify(l), 160));
+      assert((await bridge.versionRead(VFILE, r.id)) === '# two\n', 'the kept text is not the text that was replaced');
+      return `restored ${kept}, kept ${r.id}`;
+    });
+
+    await test('versions cleaned up', async () => {
+      await sleep(300); // the watcher again
+      await bridge.trash(VFILE);
+      await bridge.trash(`.ose/versions/${VFILE}`);
+      assert((await bridge.exists(VFILE)) === false, 'the page is still there');
+      assert((await bridge.exists(`.ose/versions/${VFILE}`)) === false, 'the history is still there');
+      // A folder this test created holds nothing else, history included.
+      if (!hadScratch) {
+        await bridge.trash(SCRATCH);
+        await bridge.trash(`.ose/versions/${SCRATCH}`);
+      }
+      return hadScratch ? 'page and history gone' : `page, history and ${SCRATCH} gone`;
+    });
   } else {
-    for (const n of ['mkdir', 'writeText', 'appendText', 'writeBinary', 'rename', 'trash']) {
+    for (const n of ['mkdir', 'writeText', 'appendText', 'writeBinary', 'rename', 'trash',
+      'versionKeep', 'versionList', 'versionRead', 'versionRestore']) {
       skipped(n, 'no .selftest marker at the vault root; refusing to write');
     }
   }

@@ -704,7 +704,8 @@ Home/End min/max, Enter reset.
 **Commands.**
 
 ```
-groups: 'navigate' | 'page' | 'tree' | 'view' | 'app'
+groups: 'navigate' | 'page' | 'format' | 'block' | 'table' | 'editor' | 'image' | 'tree'
+      | 'view' | 'app'   (that order; shell/palette.js GROUP_ORDER is the list)
 commands.register({ id, title, group, hint?, shortcut?, icon?, when?, run(...args) })
   icon: a name from shell/icons.js; the sidebar's context menu draws it.
   commands.run(id, ...args) passes args to run; tree.* take an optional {path, kind} target.
@@ -934,13 +935,13 @@ The decisions taken for the whole batch:
 ### The extension seam (extensions.js)
 
 `src/editor/extensions.js` imports one module per package (`table`, `code`, `commands`, `menu`,
-`image`, `source`, `versions`, `backlinks`, `wikitrigger`). A module may export
+`image`, `source`, `versions`, `backlinks`, `wikitrigger`, `linkstate`). A module may export
 `plugins(ctx, o) -> Plugin[]` (ProseMirror plugins, asked before Milkdown's keymap and before
 blocks.js, in list order: tables first), `featureConfig(o) -> {[CrepeFeature]: options}` (merged
 one level deep over crepe.js's own), and `registerCommands(api)` (called once at boot from
 index.js). `api` is `editorApi` in index.js: `hasPage, getPage, getView, getCrepe, getPath,
-getDoc, focusTitle, focusBody, markDirty, saveNow, reopenInPlace, attachFile` — accessors, never
-the page object, and modules never import index.js. index.js calls
+getDoc, focusTitle, focusBody, markDirty, saveNow, reopenInPlace, attachFile, openFind` —
+accessors, never the page object, and modules never import index.js. index.js calls
 `keepVersion(path, previous, next)` from versions.js before every write.
 
 ### Keyboard map, batch 12
@@ -1036,7 +1037,11 @@ longer eat a paragraph.
 
 Every action inside the body is a registered command, so the palette lists it, the context menu
 draws it and the chord is only a shortcut to it. Groups: `format` (marks and inline),
-`block` (whole blocks). `when` is "a page is open and the caret is in the body".
+`block` (whole blocks), `table` (the caret inside a table), `editor` (the code block's own two,
+`code.language` and `code.copy`) and `image` (the caret or the click on an image). All five are
+in `shell/palette.js GROUP_ORDER`, in that order, between `page` and `tree`: a group the palette
+does not know sorts under a heading nothing declares. `when` is "a page is open and the caret is
+in the body".
 
 ```
 format.bold          Bold                     Mod+B
@@ -1133,7 +1138,7 @@ Copy as markdown                       (only with a selection)
 —
 Turn into…                             (a second menu: Paragraph, Heading 1…6, Bullet list,
                                         Numbered list, Task list, Quote, Code block)
-Link…  ·  Remove link                  (Remove only inside a link)
+Link…  ·  Remove link  ·  Clear formatting   (Remove only inside a link)
 —
 table.* when the caret is inside a table (Add row above/below, Add column left/right,
         Delete row, Delete column, Delete table, Align left/center/right)
@@ -1236,8 +1241,8 @@ them case-insensitively against the pack's names and aliases. A name the pack do
 `defaultHighlightStyle` outright (`getHighlighters` prefers any real highlighter over a
 `fallback: true` one), so not one of CodeMirror's hard-coded hexes reaches the screen. The style
 is declared with `class:` names, not inline styles: every token gets an `os-t-*` class and
-`code.css` colours it from tokens — `--code-keyword`, `--code-string`, `--code-number`,
-`--code-function`, `--code-type` (added to `tokens.css` by P8), with comments on `--fg-3`,
+`code.css` colours it from tokens — `--code-key`, `--code-str`, `--code-num`, `--code-fn`,
+`--code-type`, `--code-var` (added to `tokens.css` by P8), with comments on `--code-com`,
 punctuation and operators on `--fg-2`, and an existing token as the fallback of every
 `var(--code-*, …)` so the file is legible in both themes even before the tokens land.
 
@@ -1299,13 +1304,21 @@ strip, the properties strip and the meta line do not change; only the body host 
 - An external change to a clean page reloads the source buffer in place, as it does in block
   mode. A read-only page (the file is gone) makes CodeMirror read-only too.
 - Ctrl+F in source mode opens CodeMirror's own search panel (`@codemirror/search`), styled from
-  `tokens.css`; `page.find` routes to it. Esc closes it.
+  `tokens.css`; `page.find` routes to it. Esc closes it. The panel takes the same
+  `open({query, replace})` the block editor's bar takes: `query` seeds the field (a vault-search
+  hit hands its term over), and `replace` — Ctrl+H, `page.replace` — puts the caret in
+  CodeMirror's own replacement field. `page.replace` asks index.js for the open page's bar, so
+  it reaches whichever kind the page has.
 - **Non-markdown text files** — the list is P7's `paths.js TEXT_EXTS` (`txt csv jsonl py log
   tex json yaml toml`), and anything that is not `.md` opens this way — open directly in source
   mode with **no title strip**: the meta line shows the file name. They are never parsed as
   markdown and `composeDoc` is never applied to them, so what is written back is byte for byte
   what CodeMirror holds. `page.source-toggle` on one of them says so and changes nothing.
-  `openPage` takes them like any other page; the router may route any of them to it.
+  `openPage` takes them like any other page; the router may route any of them to it, and a
+  rename of one seen by the watcher is followed like any other page's, not read as a deletion.
+  `page.source-toggle` is guarded on `hasPage` alone so that sentence is the one the user gets.
+  `page.copy-markdown` works in source mode (`compose()` is the text verbatim);
+  `page.outline` is the block editor's alone and is not offered in source mode.
 - The mode is remembered per page in `.ose/state.json` under `sourcePages: [path, …]` (P5's
   key, capped at 200 entries, written through `patchState`). A page in that list opens in
   source mode.
@@ -1338,6 +1351,8 @@ versionRestore(path, id)         -> {kept: bool, id: string|null}
   a version is never optional. A version identical to the newest one is never written twice.
 - Caps: **20 versions per file** and **50 MB per vault**, oldest pruned first (the per-vault
   sweep never removes the newest version of a file).
+- `versionRestore` fails and writes nothing when the current file exists but cannot be read (a
+  lock, a permission, bytes that are not UTF-8); only a missing file counts as nothing to keep.
 - `versionRestore` keeps the file's current text as a version first (forced), then writes the
   chosen version over the file.
 - Every write under `.ose/versions` and the restore itself is atomic: a temp file beside the
@@ -1450,8 +1465,13 @@ the undo history gone and a toast saying so.
 - **Rewriting.** `lib/links.js rewriteInboundMany(pairs)` now rewrites, in a moved file, the
   hrefs that point **outside** the move set as well, so a page moved to another folder keeps
   its own links and its `attachments/` images working. It also rewrites `[ref]: path`
-  definitions. The candidate search runs uncapped (`bridge.search(q, {limit: 0})`) so a rename
-  finds every inbound link, and the toast reports the exact count.
+  definitions. Neither scan reads inside a fenced code block: a path in a code sample is
+  documentation, not a link. Every file it is about to rewrite has its current text kept as a
+  version first (`bridge.versionKeep(path, text, false)`, swallowed and logged) — this is the
+  one write in the app with no undo, no dirty flag and no baseline check, and one gesture can
+  touch hundreds of files. The candidate search runs uncapped (`bridge.search(q, {limit: 0})`)
+  so a rename finds every inbound link, and the toast reports the exact count; a file whose
+  write failed is named in a toast of its own, from the editor's rename as well as the tree's.
 - **A rename seen by the watcher** (`fs` event with `to`) that the app did not make offers a
   toast `update N links` that runs the same rewriter.
 
@@ -1651,6 +1671,13 @@ and is told it does not exist calls `vaultLost()`, which is idempotent.
   (`dim:false`) is not modal and does not claim to be (S40).
 - `--fg-3` moved in both themes so small chrome text clears 4.5:1 on `--bg`, `--bg-2` **and**
   `--bg-3`: light `#6B6759` (5.37 / 5.01 / 4.53), dark `#959182` (5.56 / 5.28 / 4.61) (L28).
+  Not on `--bg-4` (4.05 / 4.00), and it cannot be: the value that would clear it lands on top of
+  `--fg-2`. The two grounds made of `--bg-4` — a multi-selected tree row, an active row — put
+  their dim text on `--fg-2` instead (5.00 / 5.07).
+- `--accent` is for bars, borders and fills; accent-coloured **text** takes `--accent-ink`
+  (`#A2492B`, 5.66 / 5.27), because `--accent` itself is 2.96:1 on `--bg` in the light theme.
+  The fuzzy-match characters in quick open and in the search results, and the status bar's
+  `update` button, are text. Dark aliases `--accent-ink` back to `--accent`.
 - Eight code-highlight tokens, both themes, each measured on `--bg-2`: `--code-key`,
   `--code-str`, `--code-num`, `--code-fn`, `--code-type`, `--code-var`, `--code-punc`,
   `--code-com`.

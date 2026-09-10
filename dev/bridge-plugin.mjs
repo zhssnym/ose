@@ -309,12 +309,20 @@ export function bridgePlugin() {
     out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     return out;
   };
-  const vWrite = async (full, text) => {
+  // Temp-plus-rename, the way the host writes every file (vault.rs `write_atomic`, S25): the
+  // new bytes are on disk before the name changes, so an interrupted write cannot leave half a
+  // file where a whole one was. The counter beside the pid is what keeps two writes inside one
+  // process from choosing the same temp name. Every write in this bridge goes through here —
+  // the dev bridge is where every agent tests, so it must not be the softer of the two (QA
+  // severity 4, "Dev bridge writes are not atomic").
+  let tmpN = 0;
+  const atomicWrite = async (full, data, enc) => {
     await fs.mkdir(path.dirname(full), { recursive: true });
-    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.${process.pid}.tmp`);
-    await fs.writeFile(tmp, text, 'utf8');
+    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.${process.pid}.${tmpN++}.tmp`);
+    await fs.writeFile(tmp, data, enc);
     await fs.rename(tmp, full);
   };
+  const vWrite = (full, text) => atomicWrite(full, text, 'utf8');
   const vPruneFile = async (p) => {
     const dir = vDir(p);
     for (const e of (await vList(p)).slice(V_PER_FILE)) { try { await fs.unlink(path.join(dir, e.id + '.md')); } catch { } }
@@ -368,9 +376,9 @@ export function bridgePlugin() {
     stat: async (p) => { try { const st = await fs.stat(abs(p)); return { exists: true, kind: st.isDirectory() ? 'dir' : 'file', mtime: st.mtimeMs, size: st.size }; } catch { return { exists: false }; } },
     exists: async (p) => fss.existsSync(abs(p)),
     readText: async (p) => fs.readFile(abs(p), 'utf8'),
-    writeText: async (p, text) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, text, 'utf8'); },
+    writeText: async (p, text) => { await atomicWrite(abs(p), text, 'utf8'); },
     appendText: async (p, text) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.appendFile(f, text, 'utf8'); },
-    writeBinary: async (p, b64) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.writeFile(f, Buffer.from(b64, 'base64')); },
+    writeBinary: async (p, b64) => { await atomicWrite(abs(p), Buffer.from(b64, 'base64'), null); },
     mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
     // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
     // silently swallow it, and the UI relies on the refusal to report the collision (batch 9, B8).
@@ -422,10 +430,14 @@ export function bridgePlugin() {
       if (!vOk(id)) throw new Error('not a version id: ' + id);
       return fs.readFile(path.join(vDir(p), id + '.md'), 'utf8');
     },
+    // Only "there is no file" means there is nothing to keep (F3, versions.rs `restore`): a
+    // file that cannot be read holds text no version has, so the restore fails and writes
+    // nothing rather than putting the old version over content it never saw.
     versionRestore: async (p, id) => {
       const text = await cmds.versionRead(p, id);
       let current = '';
-      try { current = await fs.readFile(abs(p), 'utf8'); } catch { }
+      try { current = await fs.readFile(abs(p), 'utf8'); }
+      catch (e) { if (e.code !== 'ENOENT') throw e; }
       const kept = (!current || current === text) ? { kept: false, id: null } : await cmds.versionKeep(p, current, true);
       await vWrite(abs(p), text);
       return kept;

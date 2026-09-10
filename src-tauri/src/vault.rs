@@ -504,12 +504,15 @@ pub fn exists(root: &Path, rel: &str) -> Result<bool, String> {
     Ok(resolve(root, rel)?.exists())
 }
 
-/// UTF-8, byte-order mark stripped like .NET's `File.ReadAllText`, line endings untouched.
+/// UTF-8, exactly the characters the file holds: line endings untouched, and a byte-order mark
+/// kept (F14). The mark is a byte of the file, not a character of the document, and the editor
+/// is the one place that knows the difference: `doc.js parseDoc` strips it and `serializeDoc`
+/// puts it back, so a file that had one still has one after a save. Stripping it here made that
+/// code unreachable and lost the mark on the first edit.
 pub fn read_text(root: &Path, rel: &str) -> Result<String, String> {
     let full = resolve(root, rel)?;
     let bytes = fs::read(&full).map_err(|e| format!("{rel}: {e}"))?;
-    let text = String::from_utf8(bytes).map_err(|_| format!("not valid UTF-8: {rel}"))?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
+    String::from_utf8(bytes).map_err(|_| format!("not valid UTF-8: {rel}"))
 }
 
 // ---- writes ----------------------------------------------------------------
@@ -561,7 +564,8 @@ fn write_atomic(full: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// UTF-8 without a byte-order mark, bytes exactly as given.
+/// UTF-8, the bytes exactly as given: nothing is added and nothing is stripped, so a text that
+/// starts with a byte-order mark is written back with it and one that does not never gains one.
 pub fn write_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
     ensure_parent(&full)?;
@@ -970,6 +974,11 @@ const COMMANDS: &[&str] = &[
     "search",
 ];
 
+/// The two commands that walk the whole vault. `rpc` (lib.rs) sends these to a blocking worker
+/// instead of running them inline on a tokio worker thread; the dispatch below is the same
+/// either way.
+pub const BLOCKING: &[&str] = &["tree", "search"];
+
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
     if !COMMANDS.contains(&cmd) {
         return None;
@@ -993,7 +1002,9 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
     Some(dispatch(&root, cmd, args))
 }
 
-fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
+/// The synchronous half of `handle`, for a caller that already has the root and wants to run
+/// the command somewhere else (lib.rs's blocking worker).
+pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
     let ok = Ok(Value::Null);
     match cmd {
         "tree" => to_value(tree(root)?),
@@ -1254,6 +1265,28 @@ mod tests {
         assert!(leftovers.is_empty(), "left behind: {leftovers:?}");
         write_binary(root, "notes/x.bin", "aGVsbG8=").unwrap();
         assert_eq!(fs::read(root.join("notes/x.bin")).unwrap(), b"hello");
+    }
+
+    /// F14: the mark is a byte of the file. `read_text` hands it to the editor, `write_text`
+    /// writes back what it is given, and neither invents one — so `doc.js` can strip it on
+    /// open and restore it on save, and a file without one never grows one.
+    #[test]
+    fn a_byte_order_mark_survives_a_round_trip() {
+        let t = Tmp::new("bom");
+        let root = &t.0;
+        fs::write(root.join("bom.md"), "\u{feff}# one\n".as_bytes()).unwrap();
+        let text = read_text(root, "bom.md").unwrap();
+        assert_eq!(text, "\u{feff}# one\n", "the mark reaches the editor");
+
+        // What the editor sends back is what lands on disk, byte for byte.
+        write_text(root, "bom.md", "\u{feff}# two\n").unwrap();
+        assert_eq!(fs::read(root.join("bom.md")).unwrap(), b"\xEF\xBB\xBF# two\n");
+        assert_eq!(read_text(root, "bom.md").unwrap(), "\u{feff}# two\n");
+
+        // And a file that never had one is not given one.
+        write_text(root, "plain.md", "# three\n").unwrap();
+        assert_eq!(fs::read(root.join("plain.md")).unwrap(), b"# three\n");
+        assert_eq!(read_text(root, "plain.md").unwrap(), "# three\n");
     }
 
     #[test]
