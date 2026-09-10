@@ -1,0 +1,120 @@
+/* Code blocks (P4). Two jobs: colour the tokens code.js names, and take away the chrome
+   `basicSetup` brings that no editor shows inside a note. Every selector here is one class
+   longer than the matching one in editor.css, which is the only way to win: Crepe builds the
+   CodeMirror extension array itself and the gutters cannot be taken out of it. */
+
+/* ------------------------------------------------------------------ chrome */
+
+/* Line numbers, the fold gutter and the active-line gutter, all off (E17). */
+.ed .milkdown .milkdown-code-block .cm-editor .cm-gutters { display: none; }
+
+/* No stripe under the caret, and no green flash on the words matching the selection. */
+.ed .milkdown .milkdown-code-block .cm-editor .cm-activeLine,
+.ed .milkdown .milkdown-code-block .cm-editor .cm-activeLineGutter { background: transparent; }
+.ed .milkdown .milkdown-code-block .cm-editor .cm-selectionMatch { background: var(--bg-3); }
+.ed .milkdown .milkdown-code-block .cm-editor .cm-matchingBracket,
+.ed .milkdown .milkdown-code-block .cm-editor .cm-focused .cm-matchingBracket {
+  background: var(--bg-4); color: inherit;
+}
+.ed .milkdown .milkdown-code-block .cm-editor .cm-nonmatchingBracket,
+.ed .milkdown .milkdown-code-block .cm-editor .cm-focused .cm-nonmatchingBracket {
+  background: var(--err-soft); color: inherit;
+}
+
+/* Esc leaves CodeMirror and selects the block. The node view marks itself `.selected` rather
+   than taking ProseMirror's own class, and Crepe draws that as an outline; a selected block in
+   this app is `--accent-soft` with a 2px `--accent` bar, the same as editor.css draws for every
+   other block, so the same thing looks the same here. */
+.ed .milkdown .milkdown-code-block.selected {
+  outline: none;
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.ed .milkdown .milkdown-code-block .cm-editor .cm-content { padding: var(--sp-2) 0; }
+.ed .milkdown .milkdown-code-block .cm-editor .cm-line { padding: 0 var(--sp-3); }
+.ed .milkdown .milkdown-code-block .cm-editor .cm-scroller { font-family: inherit; }
+
+/* Crepe's own picker never opens (code.js takes the click before Vue sees it) and its empty
+   host would otherwise sit in the tools row. The trigger button stays: it is the label. */
+.ed .milkdown .milkdown-code-block .language-picker { display: none; }
+
+/* Crepe fades every tool in on hover. The copy button may stay that way — it is chrome — but
+   the language is what the fence says, so it is always legible, as a quiet label that becomes
+   a button under the pointer or the focus ring. */
+.ed .milkdown .milkdown-code-block .tools .language-button {
+  opacity: 1; background: transparent; border-color: transparent; color: var(--fg-3);
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.ed .milkdown .milkdown-code-block:hover .tools .language-button,
+.ed .milkdown .milkdown-code-block .tools .language-button:focus-visible,
+.ed .milkdown .milkdown-code-block .tools .language-button[data-os-open='true'] {
+  background: var(--bg); border-color: var(--border); color: var(--fg-2);
+}
+
+/* ------------------------------------------------------------------ tokens */
+
+.ed .milkdown .milkdown-code-block .os-t-key { color: var(--code-key); }
+.ed .milkdown .milkdown-code-block .os-t-str { color: var(--code-str); }
+.ed .milkdown .milkdown-code-block .os-t-num { color: var(--code-num); }
+.ed .milkdown .milkdown-code-block .os-t-com { color: var(--code-com); }
+.ed .milkdown .milkdown-code-block .os-t-fn { color: var(--code-fn); }
+.ed .milkdown .milkdown-code-block .os-t-type { color: var(--code-type); }
+.ed .milkdown .milkdown-code-block .os-t-punc { color: var(--code-punc); }
+.ed .milkdown .milkdown-code-block .os-t-var { color: var(--code-var); }
+.ed .milkdown .milkdown-code-block .os-t-ins { color: var(--code-str); }
+.ed .milkdown .milkdown-code-block .os-t-del { color: var(--err); }
+.ed .milkdown .milkdown-code-block .os-t-invalid { color: var(--err); text-decoration: underline wavy; }
+
+/* Markdown, YAML and the other prose-ish grammars, drawn the way the page itself is. */
+.ed .milkdown .milkdown-code-block .os-t-link { color: var(--accent); }
+.ed .milkdown .milkdown-code-block .os-t-strong { font-weight: 600; }
+.ed .milkdown .milkdown-code-block .os-t-em { font-style: italic; }
+.ed .milkdown .milkdown-code-block .os-t-strike { text-decoration: line-through; }
+.ed .milkdown .milkdown-code-block .os-t-head { color: var(--code-fn); font-weight: 600; }
+.ed .milkdown .milkdown-code-block .os-t-quote { color: var(--code-com); }
+
+/* ------------------------------------------------------------------ the language picker */
+
+/* Portalled to document.body: no ancestor of the block can clip it (L5), and it sits above
+   the page the way every other floating menu does. */
+.os-lang {
+  position: fixed; z-index: 60; width: 15rem;             /* 240 */
+  display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-menu); overflow: hidden;
+}
+
+.os-lang-head { padding: var(--sp-1); border-bottom: 1px solid var(--border); }
+.os-lang-input {
+  width: 100%; height: var(--ctl-h); box-sizing: border-box;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0 var(--sp-2);
+}
+.os-lang-input:focus { outline: none; border-color: var(--accent); }
+.os-lang-input::placeholder { color: var(--fg-3); }
+
+.os-lang-list { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto; }
+
+.os-lang-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  height: var(--row-h); padding: 0 var(--sp-2); cursor: pointer;
+  border-left: 2px solid transparent;                      /* the active row's bar, always reserved */
+  transition: background var(--t-fast);
+}
+.os-lang-row:hover { background: var(--bg-3); }
+/* The row the keyboard is on, drawn the way the palette draws its own (shell.css `.pal-row`):
+   one list idiom for the whole app. The language the block already has is marked in the accent
+   ink instead, because accent means current. */
+.os-lang-row[data-active='true'] { background: var(--accent-soft); border-left-color: var(--accent); }
+
+.os-lang-name {
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.os-lang-row[data-current='true'] .os-lang-name { color: var(--accent-ink); }
+.os-lang-hint {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto;
+}
