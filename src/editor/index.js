@@ -22,6 +22,8 @@ import { createFind } from './find.js';
 import { pickHeading } from './outline.js';
 import { bodyStartLine, titleLineNo, posForBodyLine } from './lines.js';
 import { caretAt, scrollerOf } from './reveal.js';
+import { registerExtensionCommands } from './extensions.js';
+import { keepVersion } from './versions.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, detectLang, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
@@ -752,6 +754,9 @@ function saveFailed(p, e) {
 
 /** The write itself. `rev` is the edit count `text` was composed at. */
 async function writeOut(p, text, rev) {
+  // Batch 12 (P5): the previous content is kept under .ose/versions before it is replaced.
+  // A failure to keep a version never blocks the save; it is logged by versions.js.
+  await keepVersion(p.path, p.baseline, text);
   p.selfWriteAt = Date.now();
   await bridge.writeText(p.path, text);
   p.baseline = text;
@@ -936,7 +941,28 @@ async function reopenInPlace(p) {
 
 const hasPage = () => !!page;
 
+/**
+ * What the batch-12 modules (extensions.js) get of the open page. Accessors, never the
+ * object itself, because `page` is replaced on every open. Modules must go through this and
+ * not import index.js, so the graph stays a tree (docs/CONTRACT.md batch 12).
+ */
+const editorApi = {
+  hasPage,
+  getPage: () => page,
+  getView: () => (page && page.crepe ? editorView(page.crepe) : null),
+  getCrepe: () => (page ? page.crepe : null),
+  getPath: () => (page ? page.path : null),
+  getDoc: () => (page ? page.doc : null),
+  focusTitle: () => { if (page) focusTitle(page); },
+  focusBody: () => focusBody(),
+  markDirty: () => { if (page) markDirty(page); },
+  saveNow: (opts) => saveNow(opts),
+  reopenInPlace: () => (page ? reopenInPlace(page) : Promise.resolve()),
+  attachFile: (file) => (page ? attachFile(page, file) : Promise.reject(new Error('no page'))),
+};
+
 function registerCommands() {
+  registerExtensionCommands(editorApi);
   commands.register({
     id: 'page.new', title: 'New page', group: 'page', shortcut: 'Ctrl+N',
     run: () => void newPage(),

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:test": "node dev/test-server.mjs",
     "build": "vite build",
     "ship": "npm run tauri:build && node scripts/ship.mjs",
     "tauri": "tauri",

@@ -19,6 +19,7 @@ pub mod protocol;
 pub mod state;
 pub mod update;
 pub mod vault;
+pub mod versions;
 pub mod watcher;
 
 /// The error every command that touches files returns while no vault is open.
@@ -225,6 +226,9 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = versions::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = platform::handle(&ctx, &cmd, &args) {

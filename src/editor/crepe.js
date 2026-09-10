@@ -11,6 +11,7 @@ import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
 import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
 import { dropPlugin } from './drop.js';
+import { extensionPlugins, extensionFeatureConfigs } from './extensions.js';
 
 // A token read at construction time, for the one Crepe option that takes a colour string and
 // not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
@@ -55,7 +56,8 @@ export async function makeCrepe(o) {
       [CrepeFeature.AI]: false,
       [CrepeFeature.BlockEdit]: false,
     },
-    featureConfigs: {
+    // The batch-12 modules (extensions.js) merge their own feature options over these.
+    featureConfigs: extensionFeatureConfigs(o, {
       [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
       [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: true },
       [CrepeFeature.LinkTooltip]: { inputPlaceholder: 'Paste or type a link' },
@@ -66,7 +68,7 @@ export async function makeCrepe(o) {
         inlineUploadPlaceholderText: 'or paste a link',
         blockCaptionPlaceholderText: 'Caption',
       },
-    },
+    }),
   });
 
   configureStringify(crepe.editor);
@@ -92,7 +94,9 @@ async function installExtras(editor, o) {
   const first = [urlPastePlugin()];
   if (typeof o.attachFile === 'function') first.push(dropPlugin({ attach: o.attachFile, pagePath: o.pagePath || (() => null) }));
   editor.config((ctx) => {
-    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin()]);
+    // The batch-12 module plugins (extensions.js) come after ours and before Milkdown's keymap,
+    // which is appended after this whole list, so a table keymap can answer Enter first.
+    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin(), ...extensionPlugins(ctx, o)]);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);

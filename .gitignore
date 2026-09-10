@@ -22,3 +22,8 @@ selftest.log
 # state written by self-test runs against the fake vault
 ci/fake-vault/.ose/
 ci/fake-vault/.trash/
+
+# The orchestration desk (agent briefs, inbox, reports, a throwaway test vault) and the code
+# graph graphify builds: session artefacts, never shipped.
+work/
+graphify-out/
