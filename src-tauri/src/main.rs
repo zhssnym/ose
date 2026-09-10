@@ -86,8 +86,10 @@ fn main() {
     // First plugin, as the plugin's own documentation requires: a second launch hands its
     // argv over and exits before anything else in this process runs (S14). Not for the
     // self-test: it must run beside a person's open window, and it must never redirect that
-    // window to the fake vault, which is what a handover would do.
-    if !selftest {
+    // window to the fake vault, which is what a handover would do. Nor for the headless
+    // update: `os --update` from a script must swap the file even while a window is open
+    // (renaming a running image is allowed; the window keeps its old image until it restarts).
+    if !selftest && !headless {
         builder = builder.plugin(tauri_plugin_single_instance::init(on_second_instance));
     }
     let app = builder
