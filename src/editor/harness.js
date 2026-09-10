@@ -63,9 +63,17 @@ function isMarkerLine(l) {
 //   raw + edit.line       append `edit.append` to that 1-based line of the *body*; every other
 //                         line of the body must come back byte for byte. `expect` (the whole
 //                         expected body) defaults to exactly that.
+//   raw + compose.body    the body the *editor* holds, composed back into the file. The one
+//                         shape a markdown source cannot spell: an empty paragraph at the top
+//                         of the body is a blank line that no file wrote (D5).
+//   raw + canonical       the body written with no file underneath — a page the editor made,
+//                         where there is nothing to reconcile against and the canonical text
+//                         is what lands on disk.
 //
 // `todo: true` marks a fixture for a finding that is not fixed yet: it still runs and still
-// reports, but it is counted apart so the gate stays honest about what is green today.
+// reports, but it is counted apart so the gate stays honest about what is green today. Nothing
+// carries it today — every fixture is in the failing column, which is where a fixture that
+// passes belongs (batch 12, QA D7).
 
 const LONG_LIST = Array.from({ length: 90 }, (_, i) => `- item ${i + 1}`).join('\n');
 
@@ -105,6 +113,20 @@ const FIXTURES = [
     expect: '| Name     | Qty |\n|----------|-----|\n| Apples   | 30  |\n| Oranges  | 12  |\n',
   },
   {
+    // the shape the vault actually writes: a heading and the table under it with no blank line
+    // between them, which is one block. Asking whether the block *starts* with a table is what
+    // reflowed twenty tables in seven files on every edit (QA D1).
+    path: 'M1 a table under a heading, one cell edited',
+    raw: '# T\n\n### Head\n| Name     | Qty |\n|----------|-----|\n| Apples   | 3   |\n| Oranges  | 12  |\n',
+    edit: { line: 4, append: '0' },
+    expect: '### Head\n| Name     | Qty |\n|----------|-----|\n| Apples   | 30  |\n| Oranges  | 12  |\n',
+  },
+  {
+    path: 'M1 a table under a heading, the heading edited and the table untouched',
+    raw: '# T\n\n### Head\n| Name     | Qty |\n|----------|-----|\n| Apples   | 3   |\n| Oranges  | 12  |\n',
+    edit: { line: 1, append: '!' },
+  },
+  {
     path: 'M2 paragraph followed by --- is a setext heading',
     raw: '# S\n\nSome prose that is really a heading\n---\n\nBody after.\n',
   },
@@ -113,18 +135,15 @@ const FIXTURES = [
     raw: '# S\n\nSome prose that is really a heading\n---\n\nBody after.\n',
     edit: { line: 1, append: '!' },
     expect: 'Some prose that is really a heading!\n---\n\nBody after.\n',
-    todo: true,
   },
   {
     path: 'M3 <br> kept',
     raw: '# B\n\nline one<br>line two\n',
-    todo: true,
   },
   {
     path: 'M3 <br> kept in the block being edited',
     raw: '# B\n\nline one<br>line two\n',
     edit: { line: 1, append: '!' },
-    todo: true,
   },
   {
     path: 'M4 four-space nested list, one item edited',
@@ -151,9 +170,27 @@ const FIXTURES = [
     edit: { line: 3, append: '!' },
   },
   {
+    // remark is right that these asterisks are literal — `%**` before a letter cannot close a
+    // strong run — but it is wrong to write the backslashes the file never had (QA D2)
+    path: 'M8 a strong run that stops being one gains no backslash',
+    raw: '# E\n\n**Success Rate: 70%**\n',
+    edit: { line: 1, append: 'x' },
+  },
+  {
+    path: 'M8 a leading underscore gains no backslash',
+    raw: '# E\n\n_gap: written at the end of the month.\n',
+    edit: { line: 1, append: 'x' },
+  },
+  {
+    // the other direction: an escape the file wrote itself is content, and the block the user
+    // edited keeps every one of them
+    path: 'M8 a backslash the file wrote itself is kept on an edited line',
+    raw: '# E\n\nliterally a \\_word\\_ and a \\*star\\* here\n',
+    edit: { line: 1, append: '.' },
+  },
+  {
     path: 'M9 html entities kept',
     raw: '# H\n\nAT&amp;T and a&nbsp;gap and &copy; 2026.\n',
-    todo: true,
   },
   {
     // the entity itself cannot survive the parse — remark decodes it into the character it
@@ -162,28 +199,23 @@ const FIXTURES = [
     raw: '# H\n\nAT&amp;T and a&nbsp;gap and &copy; 2026.\n',
     edit: { line: 1, append: '!' },
     expect: 'AT&T and a\u00A0gap and \u00A9 2026.!\n',
-    todo: true,
   },
   {
     path: 'M11 reference links and their definitions kept',
     raw: '# R\n\nSee [the docs][docs] and [more].\n\n[docs]: https://example.com/docs\n[more]: https://example.com/more\n',
-    todo: true,
   },
   {
     path: 'M12 markers preserved: * bullets, 1), ***, ~~~',
     raw: '# M\n\n* star one\n* star two\n\n1) first\n2) second\n\n***\n\n~~~js\nconst a = 1;\n~~~\n',
-    todo: true,
   },
   {
     path: 'M13 fence info string beyond the language',
     raw: '# F\n\n```js title="a.js" {1,3}\nconst a = 1;\n```\n',
-    todo: true,
   },
   {
     path: 'M13 the fence info string survives an edit inside the block',
     raw: '# F\n\n```js title="a.js" {1,3}\nconst a = 1;\nconst b = 2;\n```\n',
     edit: { line: 2, append: ' // x' },
-    todo: true,
   },
   { path: 'M14 no final newline', raw: '# N\n\nlast line with no newline' },
   { path: 'M15 mixed line endings kept per line', raw: '# X\r\n\r\nCRLF line\r\nLF line\nCRLF again\r\n' },
@@ -200,30 +232,32 @@ const FIXTURES = [
   {
     path: 'M21 callout with a list gains no quote line',
     raw: '# C\n\n> [!tip] T\n> - a\n> - b\n',
-    todo: true,
   },
   {
     path: 'M21 an edited callout with a list gains no quote line',
     raw: '# C\n\n> [!tip] T\n> - a\n> - b\n',
     edit: { line: 2, append: '!' },
-    todo: true,
   },
   {
     path: 'M22 a code span containing a pipe inside a table cell',
     raw: '# P\n\n| a | b |\n|---|---|\n| `x \\| y` | c |\n',
-    todo: true,
   },
   {
     path: 'M22 the code span keeps its pipe when the row is edited',
     raw: '# P\n\n| a | b |\n|---|---|\n| `x \\| y` | c |\n| d | e |\n',
     edit: { line: 4, append: '!' },
-    todo: true,
   },
   {
     path: 'M23 mailto link stays a mailto link',
     raw: '# M\n\nWrite to [Hassan](mailto:h@example.com) about it.\n',
     edit: { line: 1, append: '!' },
-    todo: true,
+  },
+  {
+    // the vault's own shape (`6-documents/3-hassan/PROFILE.md`): the label *is* the address,
+    // which is the one case `resourceLink: false` collapses to an autolink (QA D4)
+    path: 'M23 a mailto link whose label is the address keeps its brackets',
+    raw: '# M\n\nMail [a@b.com](mailto:a@b.com) about it.\n',
+    edit: { line: 1, append: '!' },
   },
   { path: 'M24 trailing spaces on untouched lines', raw: '# W\n\nline with two trailing spaces  \nnext line\n' },
   {
@@ -237,8 +271,33 @@ const FIXTURES = [
     expectDoc: { title: 'Title' },
   },
 
+  {
+    // one list to remark, because of the blank line before the last bullet, and a loose list is
+    // written with a blank line between every item. The file has none and editing one item is
+    // no reason to gain three (QA D3).
+    path: 'M12 a tight list stays tight when the list is loose further down',
+    raw: '# T\n\n- Finance management\n- Backup cash reserve\n- Car fix\n\n- writing something?\n',
+    edit: { line: 3, append: 'X' },
+  },
+  {
+    path: 'M10 an empty paragraph at the top of the body writes no run of blank lines',
+    raw: '# QA blank\n\nonly paragraph\n',
+    // what the editor holds after pressing Enter at the very start of the page: a blank line in
+    // front of the body, which meets the blank line the gap after the title already has (QA D5)
+    compose: { body: '\nonly paragraph' },
+    expect: '# QA blank\n\nonly paragraph\n',
+  },
+
   // ---- L: the live editor -------------------------------------------------
-  { path: 'L1 an empty list item stays `- `', raw: '# L\n\n- one\n- \n- two\n', todo: true },
+  { path: 'L1 an empty list item keeps the file\'s own bytes', raw: '# L\n\n- one\n- \n- two\n' },
+  {
+    // and one the *editor* makes is written `-`: a marker with nothing after it, which reads
+    // back as the same empty item and leaves no trailing space on the line (QA D6)
+    path: 'L1 an empty list item the editor writes is a bare `-`',
+    raw: '# L\n\n- one\n- \n- two\n',
+    canonical: true,
+    expect: '- one\n-\n- two\n',
+  },
   {
     path: 'L20 the table delimiter row is left as written',
     raw: '# D\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n| c | d |\n|:---|---:|\n| 3 | 4 |\n',
@@ -249,20 +308,17 @@ const FIXTURES = [
     raw: 'first half\n',
     insert: { after: 'first half', text: 'second half' },
     expect: 'first half\nsecond half\n',
-    todo: true,
   },
   {
     path: 'M3/E33 a break the editor inserts in a table cell is <br>',
     raw: '| a | b |\n| --- | --- |\n| x | c |\n',
     insert: { after: 'x', text: 'y' },
     expect: '| a | b |\n| --- | --- |\n| x<br>y | c |\n',
-    todo: true,
   },
   {
     path: 'L17/E33 the hard break stays a bare newline when the paragraph is edited',
     raw: '# HB\n\nfirst half\nsecond half\n',
     edit: { line: 1, append: '!' },
-    todo: true,
   },
 
   // ---- E: editing ---------------------------------------------------------
@@ -338,6 +394,22 @@ function runFixture(f) {
     doc.frontmatterRaw = raw;
     const rebuilt = composeDoc(doc, { title: doc.title, body: doc.body });
     return result(f, rebuilt === f.expect, rebuilt === f.expect ? null : diff(f.expect, rebuilt, 200));
+  }
+
+  // 1b. a body the editor holds that no markdown source can spell, composed back into the file
+  if (f.compose) {
+    const doc = parseDoc(f.raw);
+    const body = roundTrip(crepe, f.compose.body, doc.body);
+    const rebuilt = composeDoc(doc, { title: doc.title, body });
+    return result(f, rebuilt === f.expect, rebuilt === f.expect ? null : diff(f.expect, rebuilt, 200));
+  }
+
+  // 1c. the body written with no file underneath: a page the editor made, where there is
+  //     nothing to reconcile against and the canonical text is what lands on disk
+  if (f.canonical) {
+    const doc = parseDoc(f.raw);
+    const got = roundTrip(crepe, doc.body, '');
+    return result(f, got === f.expect, got === f.expect ? null : diff(f.expect, got, 200));
   }
 
   // 2. one line edited: only that line may change
@@ -546,7 +618,8 @@ async function run() {
 
   $('summary').innerHTML =
     `<b>bytes ${exact}/${live.length}</b> · lenient ${lenient}/${live.length} · ` +
-    `${bad.length} different · ${err.length} errors · known-broken fixtures ${todoOk}/${todo.length} · ${ms}ms`;
+    `${bad.length} different · ${err.length} errors · ` +
+    (todo.length ? `known-broken fixtures ${todoOk}/${todo.length} · ` : '') + `${ms}ms`;
   $('state').textContent = 'done';
 
   $('list').innerHTML = [...err, ...bad, ...todo.filter((r) => !r.exact && !r.error)].map((r) => `
@@ -581,9 +654,15 @@ async function run() {
 //
 // The measurement CLAUDE.md's rule is written against. For every non-blank line of every body
 // in the vault: append one character to that line, run the save path (serialise, reconcile
-// against what is on disk, verify), and compare with the body that has only that line changed.
+// against what is on disk, verify), and compare with the file that has only that line changed.
 // Anything else that moved is collateral damage. Tables are counted apart because they were
 // the bulk of it (M1) and are fixed by their own pass.
+//
+// The comparison is the *file*, not the body: the edited body goes back through `composeDoc`,
+// so the BOM, the final newline and every line's own ending are part of what is measured and
+// the vault's ten CRLF files are swept with their endings intact. The sweep used to strip CRLF
+// before it started, which meant those ten files were never tested against an edit at all
+// (QA D8).
 
 const SAVE_KEY = 'os.harness.edits';
 const saved = () => { try { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch { return null; } };
@@ -611,18 +690,23 @@ async function runEdits(opt = {}) {
     const path = list[f];
     let raw;
     try { raw = await bridge.readText(path); } catch { continue; }
-    const doc = parseDoc(String(raw).replace(/\r\n/g, '\n'));
+    const doc = parseDoc(raw);
     const lines = doc.body.split('\n');
+    // Everything `composeDoc` puts in front of the body, so a line of the body can be named by
+    // its line in the file — which is what the two texts being compared are.
+    const head = doc.frontmatterRaw + doc.preTitle + (doc.titleLine !== null ? doc.titleLine + doc.gap : '');
+    const offset = head ? head.split('\n').length - 1 : 0;
+    const file = (body) => composeDoc(doc, { title: doc.title, body });
     stats.files++;
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       if (opt.max && stats.edits >= opt.max) break;
       const edited = lines.slice();
       edited[i] = typeInto(edited[i]);
-      const expected = edited.join('\n');
+      const expected = file(edited.join('\n'));
       let got;
-      try { got = roundTrip(crepe, expected, doc.body, opt); } catch (e) { got = 'ERROR ' + String(e.message || e); }
-      const d = editDelta(expected, got, i);
+      try { got = file(roundTrip(crepe, edited.join('\n'), doc.body, opt)); } catch (e) { got = 'ERROR ' + String(e.message || e); }
+      const d = editDelta(expected, got, offset + i);
       stats.edits++;
       const onTable = isTableRow(lines[i]);
       if (onTable) stats.tableEdits++;
@@ -656,7 +740,7 @@ async function runEdits(opt = {}) {
     `<b>${stats.edits} one-line edits · ${stats.spread} changed another line</b> ` +
     `(${(100 * stats.spread / Math.max(1, stats.edits)).toFixed(1)}%) · ${stats.collateral} collateral lines · ` +
     `tables ${stats.spreadTable} · fence/rule markers ${stats.spreadMarker} · elsewhere ${stats.spreadOther} · ` +
-    `${stats.dirty} rewrote their own line · ${stats.engine} · ${stats.ms}ms`;
+    `${stats.dirty} rewrote their own line · ${stats.engine}, whole files · ${stats.ms}ms`;
   $('state').textContent = 'done';
   $('list').innerHTML = examples.map((e) => `
     <details class="file">

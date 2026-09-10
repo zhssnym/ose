@@ -1709,11 +1709,39 @@ exactly what the editor was going to write. The assembled file is checked once m
 way before it is handed to the caller; if that check ever fails the canonical text is written.
 Measured over the vault, it never fails.
 
+One difference is allowed at the block level and nowhere else: the blank lines between the items
+of one list. Whether a list is loose is a property of the whole list, not of the four items that
+happen to sit in one block — a list with a blank line and one more bullet further down is *one*
+loose list, so the canonical text puts a blank line between every item while the file has none.
+A block written tight is accepted when it re-serialises to the canonical block with only those
+blank lines missing, the candidate itself has none left, and every blank line of the canonical
+block sits between two items of a list. Two paragraphs are never joined by it, and the whole-file
+check is what proves the result: the blank line further down is still in the file, so the list is
+still loose when it is read back.
+
 **Tables.** An edited table is restored row by row: a row whose cells did not change keeps its
 own padding, so a one-cell edit rewrites one row. The delimiter row is markup, not content, and
 is kept byte for byte whenever the column count and the alignments are unchanged. A delimiter
 row the editor writes is `| --- |`, with alignment colons kept (`:---`, `---:`, `:---:`), never
-mdast's minimal `| - |`.
+mdast's minimal `| - |`. The table does not have to be the first line of its block: Hassan writes
+the heading and the table under it with no blank line between them, which is one block in the
+file, and the table is found wherever inside the block it starts. Whatever sits above or below it
+in the same block goes through the ordinary line pass.
+
+**Backslashes.** An edited line never gains a backslash the file did not have. mdast escapes any
+character that *could* open a construct at that position, and `postProcess` undoes the handful it
+can prove unnecessary from the line alone; the reconcile pass has more to go on — the block as
+the file wrote it. A backslash in front of a character the original block never escaped is
+dropped, and only where dropping it leaves the block saying the same thing, which is the same
+re-serialisation test every other restoration has to pass. So `**Rate: 70%**` with a letter typed
+after it stays `**Rate: 70%**x` rather than becoming `\*\*Rate: 70%\*\*x`, and a `\_` or `\*` the
+file wrote itself is content and is kept.
+
+**Links the file spelled out.** `[a@b.com](mailto:a@b.com)`, `<a@b.com>` and `a@b.com` all parse
+to the same link, and `resourceLink: false` writes the shortest of the three. On an untouched line
+the line pass puts the file's own spelling back (`lineKey` ignores the difference); on the line
+the user was on the spelling is looked up in the block instead, so a `[text](mailto:…)` stays
+`[text](mailto:…)` when the label is the address as well as when it is not.
 
 **The file's own bytes.** `doc.js parseDoc` reads and `composeDoc` writes back:
 
@@ -1728,6 +1756,16 @@ mdast's minimal `| - |`.
 it is blank, a `#` comment, a `key: value`, an indented continuation or a `- item`; otherwise it
 is a thematic break and the prose under it reaches the editor. A closing `#` sequence on the H1
 (`# Title #`) is markup: the title is `Title`.
+
+The gap between the title line and the body is the file's own bytes and is written back
+unchanged. What the *editor* puts in front of the body is not: an empty paragraph at the top of
+the page is written as nothing at all, but it still leaves a blank line, and that blank line
+meets the one the gap already ends with. So the body's leading blank lines are trimmed to what
+the gap leaves room for — never more than one blank line at the seam, which is CLAUDE.md's rule
+against runs of blank lines. They can only ever come from the editor: `parseDoc` puts every
+newline after the title line into `gap`. An empty list item the editor makes is written `-`, a
+marker with nothing after it: it reads back as the same empty item and leaves no trailing space
+on the line. An empty item the file wrote as `- ` keeps its bytes like any other untouched line.
 
 **What the parse used to destroy.** Two of Milkdown's remark plugins are left out of the editor,
 because both deleted markdown before anything downstream could see it. `remark-preserve-empty-line`
@@ -1775,19 +1813,23 @@ parseDoc(text) -> { ..., bom, eol, eols: string[], lines: string[] }
 ```
 
 **Measured** (`work/vault`, batch 12): every file comes back byte for byte on open and save with
-no edit — 173 of 173, against 65 of 171 before — and every one of the 41 fixtures passes,
-including the 18 written for findings that were broken when the batch started. Of 4,387
-one-character edits, one to each non-blank body line in the vault, 117 changed any other line:
-81 of them a table row whose cell count changed, 9 a fence or `---` marker whose block stopped
-being that block, and 27 an ordinary line. Before: 1,064 of the same 4,387, and 23,531
-collateral lines against 618.
+no edit — 178 of 178, against 65 of 171 before — and every one of the 50 fixtures passes, none of
+them flagged `todo`. Of 4,416 one-character edits, one to each non-blank body line in the vault,
+**10** changed any other line, and all ten are a fence or a `---` marker whose block stops being
+that block when a character is typed into it. Nothing spreads out of a table, a list or a line of
+prose any more, and no edited line gains a backslash: 0 of 4,416, against 189. Before the block
+engine: 1,064 of 4,387, and 23,531 collateral lines against 133. The file counts move between
+runs because scratch pages come and go.
 
 **The harness** (`/src/editor/harness.html`, `npm run dev`) has two columns and three runs.
 `run all` opens and saves every file in the vault with no edit: **bytes** compares the file byte
 for byte and is the column that fails; **lenient** is the batch-9 comparison through `norm()`,
 kept only so the two numbers together say what the old column was hiding. `run edits` appends
 one character to every non-blank body line in the vault, one at a time, and counts the lines
-that changed other than that one; `run edits (batch 9)` is the same sweep through the previous
-engine, which is how the two columns above were measured by one instrument. Fixtures cover each
-numbered finding of the batch-12 markdown research by name; a fixture for a finding that is not
-fixed yet is marked `todo` and counted apart.
+that changed other than that one; it compares whole *files*, through `composeDoc`, so the BOM,
+the final newline and every line's own ending are part of the measurement and the vault's ten
+CRLF files are swept with their endings intact. `run edits (batch 9)` is the same sweep through
+the previous engine, which is how the two columns above were measured by one instrument.
+Fixtures cover each numbered finding of the batch-12 markdown research by name; a fixture for a
+finding that is not fixed yet is marked `todo` and counted apart, and none carries the flag
+today — a fixture that passes belongs in the column that fails.

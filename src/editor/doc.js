@@ -105,13 +105,24 @@ export function composeDoc(doc, { title, body }) {
   const titleLine = hasTitle ? (titleChanged ? '# ' + String(title).trim() : doc.titleLine) : null;
 
   let out = doc.frontmatterRaw + doc.preTitle;
+  let text = body;
   if (titleLine !== null) {
     out += titleLine;
     let gap = doc.gap;
-    if (!gap) gap = body.trim() ? '\n\n' : '\n';
+    if (!gap) gap = text.trim() ? '\n\n' : '\n';
     out += gap;
+    // The gap the file wrote already ends the title's line and usually leaves one blank line
+    // after it. An empty paragraph at the top of the body writes nothing but a blank line of
+    // its own, and the two together are a run of them, which no file in the vault has and
+    // CLAUDE.md forbids; press Enter at the top of a page twice and the run grows. So the
+    // body's leading blank lines are trimmed to what the gap leaves room for — they can only
+    // ever come from the editor, because `parseDoc` puts every newline after the title line
+    // into `gap` (D5). The gap itself is the file's own bytes and is never touched.
+    const lead = (/^\n*/.exec(text) || [''])[0].length;
+    const keep = Math.max(0, Math.min(lead, 2 - gap.length));
+    if (keep < lead) text = text.slice(lead - keep);
   }
-  out += body;
+  out += text;
 
   // Nothing is normalised but the final newline, and that follows the file: 96 of the vault's
   // 172 files have none, and adding one changes a file the user only looked at (M14). The

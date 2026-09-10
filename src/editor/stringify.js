@@ -283,6 +283,11 @@ function align(a, b, window = 80) {
   let j = 0;
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) { map[j] = i; i++; j++; continue; }
+    // One line replaced by one line: the pair after it lines up again. Taking that in
+    // preference to a longer jump is what keeps an edited line from handing its identity to a
+    // repeated line further down — two list items with the same continuation under them, and
+    // the second one is put back where the first belonged.
+    if (i + 1 < a.length && j + 1 < b.length && a[i + 1] === b[j + 1]) { i++; j++; continue; }
     let found = false;
     for (let d = 1; d <= window && !found; d++) {
       if (i + d < a.length && a[i + d] === b[j]) { i += d; found = true; }
@@ -441,8 +446,31 @@ function matchBlocks(A, B, canon, bLines) {
   const confirmed = (ai, bj) => {
     const k = same(ai, bj);
     if (k < 0) return -1;
-    if (ai + 1 >= A.length || bj + k + 1 >= B.length) return k;
+    if (ai + 1 >= A.length) return k;          // the last block of the file: nothing to confirm
+    // There is another original block but no canonical block left to hold it: following this
+    // match would orphan the rest of the file. The last block of a page is very often the same
+    // one line as an earlier block (`- None this month` twice under two headings), which is
+    // exactly the evidence `confirmed` exists to refuse.
+    if (bj + k + 1 >= B.length) return -1;
     return same(ai + 1, bj + k + 1) >= 0 ? k : -1;
+  };
+
+  /**
+   * How many canonical blocks the block the user edited accounts for. Its own canonical width is
+   * the first guess and usually right — a paragraph and the list under it are one block in the
+   * file and two after remark. But an edit can change that width: a list that is loose because
+   * of a blank line further down comes back as one canonical block per item, and taking one
+   * block for it leaves the other items unclaimed, each written out with the blank line remark
+   * put in front of it (D3). The next original block, which did not change, says where this one
+   * ends, and it has to be confirmed by the one after it like every other resynchronisation.
+   */
+  const claim = (i, j) => {
+    const w0 = Math.min(Math.max(1, width(i)), B.length - j);
+    if (i + 1 >= A.length) return w0;
+    if (confirmed(i + 1, j + w0) >= 0) return w0;
+    const limit = Math.min(GROUP_MAX, B.length - j);
+    for (let w = 1; w <= limit; w++) if (w !== w0 && confirmed(i + 1, j + w) >= 0) return w;
+    return w0;
   };
 
   let i = 0;
@@ -457,7 +485,7 @@ function matchBlocks(A, B, canon, bLines) {
     // into: a paragraph and the list under it, written with no blank line between them, are
     // one block in the file and two after remark, and editing the paragraph must not put a
     // blank line in. So it claims that whole run and is reconciled against it as one piece.
-    const w = k >= 0 ? k + 1 : Math.min(width(i), B.length - j);
+    const w = k >= 0 ? k + 1 : claim(i, j);
     from[j] = i;
     span[j] = w - 1;
     if (k >= 0) { unchanged[j] = 1; for (let x = 1; x < w; x++) from[j + x] = i; }
@@ -506,15 +534,20 @@ function reconcileBlocks(out, original, rawCanon) {
 /**
  * The one block the user changed, written from the canonical text but keeping everything of
  * the original that still says the same thing: the untouched rows of a table, the untouched
- * lines of a list, the underline of a setext heading. Verified on its own, so a block that
- * cannot be put back costs nothing but itself.
+ * lines of a list, the underline of a setext heading, the spelling of a link, and never a
+ * backslash the file did not have. Verified on its own, so a block that cannot be put back
+ * costs nothing but itself.
  */
 function editedBlock(next, prev, canon, style) {
   // The style pass goes first, on the canonical text alone: after it the block is spelled the
   // way the file is, and the lines the user did not touch can be matched and put back on top.
   let candidate = applyStyle(next, style);
   if (prev) {
-    candidate = isTable(candidate) && isTable(prev) ? restoreRows(candidate, prev) : restoreLinesIn(candidate, prev);
+    // A table is restored row by row wherever it sits in the block — a heading and the table
+    // under it with no blank line between them is one block, and the table inside it is still
+    // a table (D1). Everything around it goes through the line pass.
+    const table = restoreTableIn(candidate, prev);
+    candidate = table !== null ? table : restoreLinesIn(candidate, prev);
     candidate = keepSetext(candidate, prev);
     // The original was one block, so it had no blank lines in it: any that remain are ones
     // remark put between the several canonical blocks it turns into. The file did not have
@@ -522,8 +555,48 @@ function editedBlock(next, prev, canon, style) {
     // one level in: the blank line between two blocks of a blockquote, which is how a callout
     // with a list under its title gains a line (M21).
     candidate = dropBlanks(candidate, prev);
+    candidate = keepMailto(candidate, prev);
+    candidate = dropEscapes(candidate, prev, canon, next);
   }
-  return candidate !== next && canon(candidate) === next ? candidate : next;
+  return candidate !== next && says(candidate, next, canon) ? candidate : next;
+}
+
+/**
+ * Does this candidate say exactly what the editor is writing?
+ *
+ * Re-serialising it has to give back the canonical block, with one difference allowed: the
+ * blank lines between the items of one list. Whether a list is loose is a property of the whole
+ * list and not of the four items that happen to sit in one block — `- a\n- b` with a blank line
+ * and one more bullet further down is *one* loose list, so the canonical text puts a blank line
+ * between every item and the file has none. Writing the block tight keeps the file as it was
+ * and the list as loose as it was, because the blank line further down is still there; the
+ * whole-file check in crepe.js is what proves that, and it is the reason this is safe here.
+ * Nothing else may differ: the candidate itself must have no blank line left in it, and every
+ * blank line of the canonical block must sit between two items of a list.
+ */
+function says(candidate, next, canon) {
+  const k = canon(candidate);
+  if (k === next) return true;
+  if (/\n[ \t]*\n/.test(candidate) || !blanksAreListGaps(next)) return false;
+  return squeeze(k) === squeeze(next);
+}
+
+const isItemLine = (l) => /^[ \t]*(?:[-*+]|\d+[.)])(?:[ \t]|$)/.test(l);
+
+/** Every blank line of `text` sits between the items of one list, and there is at least one. */
+function blanksAreListGaps(text) {
+  const l = text.split('\n');
+  let seen = false;
+  for (let i = 0; i < l.length; i++) {
+    if (l[i].trim()) continue;
+    if (i === 0 || i === l.length - 1) return false;
+    if (!isItemLine(l[i + 1])) return false;
+    let k = i - 1;
+    while (k >= 0 && !l[k].trim()) k--;
+    if (k < 0 || !(isItemLine(l[k]) || /^[ \t]+\S/.test(l[k]))) return false;
+    seen = true;
+  }
+  return seen;
 }
 
 const isEmptyQuoteLine = (l) => /^[ \t]*>[ \t]*$/.test(l);
@@ -577,6 +650,107 @@ function restoreLinesIn(next, prev) {
   const last = map[B.items.length - 1];
   const tail = last === A.items.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1];
   return result + '\n'.repeat(tail);
+}
+
+/** Map a function over the lines of a block, leaving fenced code alone. */
+function mapLines(text, fn) {
+  const fence = fenceTracker();
+  return text.split('\n').map((l) => (fence(l) ? l : fn(l))).join('\n');
+}
+
+/**
+ * The three spellings of a mailto link parse to the same thing, and `resourceLink: false` makes
+ * remark write the shortest of them: `[a@b.com](mailto:a@b.com)` comes back as `<a@b.com>`. On
+ * a line the user did not touch the line pass puts the file's own spelling back (`lineKey`
+ * ignores the difference); on the line the user was on there is nothing to put back, so the
+ * file's own spelling is looked up in the block instead (M23, D4).
+ */
+function keepMailto(text, prev) {
+  if (!/<(?:mailto:)?[^\s<>]+@[^\s<>]+>/.test(text)) return text;
+  const forms = new Map();
+  for (const m of String(prev).matchAll(/\[([^\]\n]+)\]\(mailto:([^)\s]+)\)/g)) {
+    if (m[1] === m[2] || m[1] === 'mailto:' + m[2]) forms.set(m[2], m[0]);
+  }
+  if (!forms.size) return text;
+  return mapLines(text, (l) =>
+    l.replace(/<(?:mailto:)?([^\s<>]+@[^\s<>]+)>/g, (m, addr) => forms.get(addr) || m));
+}
+
+// An escape mdast writes is always in front of ASCII punctuation, and a `\\` is a backslash the
+// user typed: it is one unit and it is never touched.
+const ESCAPABLE = /[!-/:-@[-`{-~]/;
+
+/**
+ * An edited line never gains a backslash the file did not have (M8).
+ *
+ * mdast escapes any character that *could* open a construct at that position, and `postProcess`
+ * undoes the handful of those it can prove unnecessary from the line alone. Here there is more
+ * to go on: the block as the file wrote it. A backslash in front of a character the original
+ * block never escaped is a backslash the file did not have, and it is dropped — but only where
+ * dropping it leaves the block saying the same thing, which is the same re-serialisation test
+ * every other restoration in this file has to pass. `\*\*Rate: 70%\*\*x` becomes
+ * `**Rate: 70%**x` because both parse to the same literal text; a `\*` that really is holding
+ * emphasis apart parses differently without it and stays.
+ *
+ * All of them go at once when that verifies, which is the usual case and one parse. When it does
+ * not, they are tried one at a time and each is kept only on its own evidence.
+ */
+function dropEscapes(text, prev, canon, next) {
+  const all = stripEscapes(text, prev, -1);
+  if (all === text) return text;
+  if (says(all, next, canon)) return all;
+  let out = text;
+  let k = 0;
+  for (let guard = 0; guard < 32; guard++) {
+    const one = stripEscapes(out, prev, k);
+    if (one === out) break;
+    if (says(one, next, canon)) out = one;
+    else k++;
+  }
+  return out;
+}
+
+/**
+ * `text` with the added escapes removed: the `only`-th of them, or every one when `only` is -1.
+ * "Added" means the original block does not escape that character anywhere, so a hand-written
+ * `\_` in the file keeps every `\_` in the block. Code spans are left alone, like everywhere.
+ */
+function stripEscapes(text, prev, only = -1) {
+  const had = new Set();
+  for (let i = 0; i < prev.length - 1; i++) {
+    if (prev[i] !== '\\') continue;
+    had.add(prev[i + 1]);
+    i++;                                   // `\\` is one unit: the next char is not an escape
+  }
+  let n = 0;
+  return mapLines(text, (line) => {
+    let out = '';
+    let i = 0;
+    let ticks = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === '`') {
+        let c = 0;
+        while (line[i + c] === '`') c++;
+        if (!ticks) ticks = c; else if (c === ticks) ticks = 0;
+        out += line.slice(i, i + c);
+        i += c;
+        continue;
+      }
+      const nx = line[i + 1];
+      if (!ticks && ch === '\\' && nx && nx !== '\\' && ESCAPABLE.test(nx) && !had.has(nx)) {
+        const drop = only < 0 || only === n;
+        n++;
+        out += drop ? nx : ch + nx;
+        i += 2;
+        continue;
+      }
+      if (!ticks && ch === '\\' && nx === '\\') { out += '\\\\'; i += 2; continue; }
+      out += ch;
+      i++;
+    }
+    return out;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -667,10 +841,49 @@ function keepSetext(next, prev) {
 const isTableRow = (l) => /^\s*\|/.test(l);
 const isDelimiterRow = (l) => /^\s*\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$/.test(l);
 
-/** True for a block that is a table: a row, then a delimiter row. */
-function isTable(text) {
-  const l = text.split('\n');
-  return l.length >= 2 && isTableRow(l[0]) && isDelimiterRow(l[1]);
+/**
+ * Where the table inside these lines starts and ends, or null. A table is a row followed by a
+ * delimiter row and then every row under it, and it does not have to be the first line of its
+ * block: Hassan writes `### Head` and the table with no blank line between them, which is one
+ * block in the file. Asking only about line 0 is what left twenty tables in seven `PROFILE.md`
+ * files reflowed on every edit (D1).
+ */
+function tableSpan(lines) {
+  const fence = fenceTracker();
+  const inFence = lines.map((l) => fence(l));
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (inFence[i] || inFence[i + 1]) continue;
+    if (!isTableRow(lines[i]) || !isDelimiterRow(lines[i + 1])) continue;
+    let j = i + 1;
+    while (j + 1 < lines.length && !inFence[j + 1] && isTableRow(lines[j + 1])) j++;
+    return { start: i, end: j };
+  }
+  return null;
+}
+
+/**
+ * One edited block that contains a table: the table is restored row by row and whatever sits
+ * above or below it goes through the ordinary line pass. Null when either side has no table,
+ * which is every other block.
+ */
+function restoreTableIn(next, prev) {
+  const b = next.split('\n');
+  const a = prev.split('\n');
+  const nb = tableSpan(b);
+  const pb = tableSpan(a);
+  if (!nb || !pb) return null;
+  const seg = (l, from, to) => l.slice(from, to).join('\n');
+  const parts = [];
+  if (nb.start) {
+    const head = seg(b, 0, nb.start);
+    parts.push(pb.start ? restoreLinesIn(head, seg(a, 0, pb.start)) : head);
+  }
+  parts.push(restoreRows(seg(b, nb.start, nb.end + 1), seg(a, pb.start, pb.end + 1)));
+  if (nb.end + 1 < b.length) {
+    const tail = seg(b, nb.end + 1, b.length);
+    parts.push(pb.end + 1 < a.length ? restoreLinesIn(tail, seg(a, pb.end + 1, a.length)) : tail);
+  }
+  return parts.join('\n');
 }
 
 /** Column alignments of a delimiter row, as one string per table: `l`, `r`, `c` or `-`. */
