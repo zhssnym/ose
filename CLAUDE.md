@@ -66,6 +66,10 @@ Ship (build the UI, embed it, publish the exe, copy to the root):
 npm run ship
 ```
 
+Headless: `os --version` prints the stamp, `os --update` checks, downloads, swaps and relaunches
+with no window, `os --selftest --root <vault> --log <file>` runs the host self-test. Both run
+outside the single-instance group, so they work beside an open window.
+
 The host is Tauri 2 (Rust). On this machine Rust is installed per user (rustup, gnu host) with
 MinGW from winget for the linker tools; no admin rights are needed. Shipped binaries come from
 CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
