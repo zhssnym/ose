@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use sha2::Digest as _;
@@ -605,6 +605,81 @@ pub fn swap_windows(lay: &Layout, args: &[String], relaunch: bool) -> Result<Pat
     Ok(exe.clone())
 }
 
+/// The argv the relaunched build gets: the original one, minus any `--after-pid` a previous
+/// swap left in it, plus this process's pid, which the new build waits out before it starts
+/// (main.rs). Without that wait the single-instance plugin sees the old build still alive,
+/// hands the launch over to it, and the new build never runs.
+pub fn relaunch_args(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len() + 2);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--after-pid" {
+            it.next();
+            continue;
+        }
+        out.push(a.clone());
+    }
+    out.push("--after-pid".to_string());
+    out.push(std::process::id().to_string());
+    out
+}
+
+/// True while a process with that id is alive. `tasklist` on Windows, `kill -0` elsewhere:
+/// no dependency, called a few times a second for at most a few seconds.
+pub fn process_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        let out = crate::platform::quiet_command("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output();
+        match out {
+            Ok(o) => String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
+/// The build that spawned us did not say its pid (it predates `--after-pid`), but it left
+/// `.old` beside us, so it is exiting right now: wait until `.old` can be removed, which on
+/// Windows is the moment the old image is unlocked, or a short grace period elsewhere.
+pub fn wait_for_previous_without_pid() {
+    let Some(lay) = layout() else { return };
+    if !lay.old.exists() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let start = Instant::now();
+        while fs::remove_file(&lay.old).is_err() && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    #[cfg(not(windows))]
+    std::thread::sleep(Duration::from_millis(1500));
+}
+
+/// Waits until `pid` is gone, or `timeout` has passed. Returns whether it is gone.
+pub fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while process_alive(pid) {
+        if start.elapsed() > timeout {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    true
+}
+
 #[cfg(windows)]
 fn relaunch_windows(exe: &Path, args: &[String]) -> Result<(), String> {
     use std::os::windows::process::CommandExt as _;
@@ -612,7 +687,7 @@ fn relaunch_windows(exe: &Path, args: &[String]) -> Result<(), String> {
     // must not be tied to whatever started it.
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     Command::new(exe)
-        .args(args)
+        .args(relaunch_args(args))
         .creation_flags(CREATE_NEW_PROCESS_GROUP)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -666,9 +741,7 @@ pub fn swap_macos(lay: &Layout, args: &[String], relaunch: bool) -> Result<PathB
     if relaunch {
         let mut c = Command::new("/usr/bin/open");
         c.arg("-n").arg(bundle);
-        if !args.is_empty() {
-            c.arg("--args").args(args);
-        }
+        c.arg("--args").args(relaunch_args(args));
         c.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
@@ -709,6 +782,20 @@ fn find_bundle(tmp: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn process_alive_knows_itself_and_a_ghost() {
+        assert!(super::process_alive(std::process::id()));
+        assert!(!super::process_alive(4_000_000));
+    }
+
+    #[test]
+    fn relaunch_args_replaces_the_pid() {
+        let a = super::relaunch_args(&["--root".into(), "x".into(), "--after-pid".into(), "7".into()]);
+        assert_eq!(a[..2], ["--root".to_string(), "x".to_string()]);
+        assert_eq!(a[2], "--after-pid");
+        assert_eq!(a[3], std::process::id().to_string());
+    }
+
     use super::*;
 
     #[test]

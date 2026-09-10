@@ -111,6 +111,11 @@ geometry, 400 ms, exit. macOS swap: `ditto -x -k zip os-update-tmp/`, `os.app` �
 `tmp/os.app` → `os.app`, remove tmp and zip, `open -n os.app --args <argv>`, exit. Any failure
 after the first rename restores `.old`.
 
+Relaunch and single instance: the relaunched build is started with `--after-pid <pid>` and
+waits for that process to exit before it builds the app, otherwise the single-instance plugin
+would hand the launch to the old build, which is exiting; a build relaunched without the flag
+waits until `.old` can be removed (the old image unlocks at exit) instead.
+
 Cleanup: `setup` runs `finish_previous` on a thread — removes `.old`/`.new`/zip/tmp, retrying
 for 5 s because on Windows `.old` stays locked until the parent that spawned us exits. A build
 that will not start leaves `.old` beside it for a manual rename back.

@@ -27,6 +27,15 @@ Pass --root <folder>, set OSE_ROOT, or start it from inside a vault (a folder wi
 fn main() {
     let opts = args::parse(std::env::args().skip(1));
 
+    // Relaunched by an update swap: the build that spawned us is still exiting, and the
+    // single-instance plugin below would hand this launch to it. Wait it out first.
+    match opts.after_pid {
+        Some(pid) => {
+            update::wait_for_exit(pid, Duration::from_secs(15));
+        }
+        None => update::wait_for_previous_without_pid(),
+    }
+
     if opts.version {
         // The release binary has no console of its own; borrowing the parent's makes the line
         // land in the terminal that asked.
