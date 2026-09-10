@@ -43,30 +43,50 @@ export function highlight(text, hits) {
 }
 
 /**
- * Rank a list of vault paths against a query, the quick-open way: the whole path must match as
- * a subsequence, a match on the file name counts double, and recently opened files float up
- * (strongly with an empty query, gently once the user is typing).
+ * Rank a list of vault paths against a query, the quick-open way (L26).
+ *
+ * The query is split on spaces and **every word** must match, each one either the page's title
+ * or its path, as a subsequence. That is what makes `zz live` find `2-learning/zz/living.md`:
+ * one word from the folder, one from the name, in any order. A match on the title counts
+ * double, and recently opened files float up — strongly with an empty query, gently once the
+ * user is typing.
+ *
+ * `titles` (optional) is a `path -> first H1` map: with it the list matches and shows what the
+ * page calls itself rather than what its file is called. Without it the file name is the title,
+ * which is what every caller had before.
  *
  * `paths` is `allPages()`; `recent` is `recentFiles()`; both come from the caller so this file
  * stays free of imports that would close a cycle.
  * Returns [{ path, title, hint, score, hits, recent }], best first, capped at `limit`.
  */
-export function pageItems(paths, query, { recent = [], limit = 200 } = {}) {
-  const q = String(query || '').trim().toLowerCase();
+export function pageItems(paths, query, { recent = [], limit = 200, titles = null } = {}) {
+  const words = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rank = new Map(recent.map((p, i) => [p, i]));
   const out = [];
   for (const p of paths) {
-    const name = titleOf(p);
-    const m = fuzzy(p.toLowerCase(), q);
-    if (!m) continue;
-    const nm = fuzzy(name.toLowerCase(), q);
+    const title = (titles && titles.get(p)) || titleOf(p);
+    const lowPath = p.toLowerCase();
+    const lowTitle = title.toLowerCase();
+    let score = 0;
+    let hits = null;
+    let ok = true;
+    for (const w of words) {
+      const inTitle = fuzzy(lowTitle, w);
+      const inPath = fuzzy(lowPath, w);
+      if (!inTitle && !inPath) { ok = false; break; }
+      score += Math.max(inTitle ? inTitle.score * 2 : -Infinity, inPath ? inPath.score : -Infinity);
+      // Only the title's matched characters are drawn bold, because the title is the only
+      // part of the row a highlight can land on.
+      if (inTitle && inTitle.hits) hits = hits ? new Set([...hits, ...inTitle.hits]) : inTitle.hits;
+    }
+    if (!ok) continue;
     const r = rank.has(p) ? rank.get(p) : 999;
     out.push({
       path: p,
-      title: name,
+      title,
       hint: dirName(p),
-      score: m.score + (nm ? nm.score * 2 : 0) + (r < 999 ? (40 - r) * (q ? 0.4 : 1) : 0),
-      hits: nm ? nm.hits : null,
+      score: score + (r < 999 ? (40 - r) * (words.length ? 0.4 : 1) : 0),
+      hits,
       recent: r < 999,
     });
   }

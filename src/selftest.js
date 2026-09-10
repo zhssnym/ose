@@ -221,11 +221,18 @@ async function run() {
   });
 
   await test('search', async () => {
+    // Batch 12: the answer is `{hits, files, total, capped, stale}`, the limit counts files,
+    // and `line: 0` is a file- or folder-name match.
     const r = await bridge.search('the', { limit: 25 });
-    assert(Array.isArray(r), 'not an array');
-    assert(r.length <= 25, `limit ignored (${r.length} hits)`);
-    if (r.length) assert(r[0].path && r[0].line > 0 && typeof r[0].text === 'string', 'bad hit shape: ' + JSON.stringify(r[0]));
-    return `${r.length} hits${r.length ? `, first=${r[0].path}:${r[0].line}` : ''}`;
+    assert(r && Array.isArray(r.hits), 'not a {hits} answer');
+    const files = new Set(r.hits.map((h) => h.path)).size;
+    assert(files <= 25, `limit ignored (${files} files)`);
+    assert(typeof r.total === 'number' && typeof r.capped === 'boolean', 'no total/capped');
+    if (r.hits.length) {
+      const h = r.hits[0];
+      assert(h.path && h.line >= 0 && typeof h.text === 'string', 'bad hit shape: ' + JSON.stringify(h));
+    }
+    return `${r.hits.length} hits in ${r.files} of ${r.total} files${r.hits.length ? `, first=${r.hits[0].path}:${r.hits[0].line}` : ''}`;
   });
 
   await test('getState / setState round trip', async () => {

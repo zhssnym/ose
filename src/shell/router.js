@@ -1,11 +1,19 @@
-// Router. Two route shapes: {type:'page', path, line?} and {type:'view', name}. `line` is a
-// 1-based line of the file to land on (C7): a search hit, a task row. It is carried, never
-// part of a route's identity, so two routes to one page are the same page.
+// Router. Two route shapes: {type:'page', path, line?, col?, heading?, query?} and
+// {type:'view', name}. `line` is a 1-based line of the file to land on (C7): a search hit, a
+// task row. `col` is the 1-based column inside it (N36), `heading` a `#fragment` the router
+// turns into a line before the page mounts (N3), and `query` the search text the editor opens
+// find with so the hit is highlighted. None of them is part of a route's identity, so two
+// routes to one page are the same page.
 // Owns the teardown/mount cycle for the main column, the back/forward stack, the 'route'
 // event, and the recent-files list the quick-open palette reads.
-import { bus, store, status, views, debounce, esc } from '../registry.js';
+import { bus, store, status, views, commands, debounce, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { openPage, closePage, scrollToLine } from '../editor/index.js';
+// A namespace import as well, for the batch-12 entry points P5 is adding (`currentSelection`):
+// a named import of something that is not exported yet would not build, and the router must
+// not be the thing that blocks on another package.
+import * as Editor from '../editor/index.js';
+import { headingLine } from '../editor/lines.js';
 import { patchState, stateCache, flushState } from './state.js';
 import { titleOf, clean, dirName } from './paths.js';
 import { toast } from './dialog.js';
@@ -17,6 +25,8 @@ const MAX_RECENT = 40;
 const START_RECENT = 8;
 // Scroll positions kept per route key (C16). Fifty is more than the back stack holds.
 const MAX_SCROLL_MEMORY = 50;
+// Routes `clearRoute` dropped, newest first, for `app.reopen-closed` (N43, Ctrl+Shift+T).
+const MAX_CLOSED = 20;
 
 let mainEl = null;
 let scrollEl = null;
@@ -26,6 +36,11 @@ let stack = [];
 let index = -1;
 let seq = 0;
 const scrollMemory = new Map();
+// routeKey -> {from, to}, the caret the page was left with, so back and forward put it back
+// where it was rather than at the top (N44, N21). The editor is asked for it on the way out
+// and handed it on the way in; it ignores what it does not understand.
+const caretMemory = new Map();
+let closed = [];
 
 export function currentRoute() { return current; }
 export function routeKey(r) {
@@ -43,10 +58,30 @@ function normalize(route) {
     const r = { type: 'page', path: clean(route.path) };
     // Only a real line survives: a 0, a float or a string would make the editor guess (C7).
     if (Number.isInteger(route.line) && route.line > 0) r.line = route.line;
+    if (Number.isInteger(route.col) && route.col > 0) r.col = route.col;
+    // A `#fragment` as the link carried it; `resolveHeading` turns it into a line, once, on
+    // the way to the editor, so nothing downstream has to know what a heading is (N3, L13).
+    if (typeof route.heading === 'string' && route.heading.trim()) r.heading = route.heading.trim();
+    if (typeof route.query === 'string' && route.query) r.query = route.query;
+    if (route.selection && Number.isInteger(route.selection.from)) r.selection = route.selection;
     return r;
   }
   if (route.type === 'view' && route.name) return { type: 'view', name: String(route.name) };
   return null;
+}
+
+/**
+ * The 1-based file line of a route's heading, or 0 when the file has no such heading (and 0
+ * when the route carries none). One read; the file is about to be read again by the editor,
+ * and a heading link is rare enough that a second read is cheaper than a cache that can lie.
+ */
+async function resolveHeading(route) {
+  if (!route || route.type !== 'page' || !route.heading || route.line) return 0;
+  try {
+    return headingLine(await bridge.readText(route.path), route.heading);
+  } catch {
+    return 0;
+  }
 }
 
 export function recentFiles() {
@@ -81,6 +116,26 @@ export function initRouter(el) {
     }
   }, 300);
   bus.on('fs', refresh);
+
+  // Mouse buttons 4 and 5 are back and forward everywhere else on Windows, and the webview
+  // would otherwise navigate its own history with them, which in a single-page app means
+  // nothing at all (N45). `auxclick` and `mousedown` are cancelled so neither happens twice.
+  const swallow = (e) => { if (e.button === 3 || e.button === 4) { e.preventDefault(); e.stopPropagation(); } };
+  window.addEventListener('mousedown', swallow, true);
+  window.addEventListener('auxclick', swallow, true);
+  window.addEventListener('mouseup', (e) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.button === 3) back(); else forward();
+  }, true);
+
+  commands.register({
+    id: 'app.reopen-closed', title: 'Reopen closed page', group: 'navigate',
+    hint: 'the last page closed with Ctrl+W',
+    when: canReopenClosed,
+    run: () => void reopenClosed(),
+  });
 
   // No startup route (CONTRACT.md batch 2), but not a bare rectangle either: the empty
   // surface is drawn now, without taking focus from the sidebar the user is about to use.
@@ -123,6 +178,14 @@ function rememberScroll() {
   scrollMemory.delete(key);
   scrollMemory.set(key, scrollEl.scrollTop);
   while (scrollMemory.size > MAX_SCROLL_MEMORY) scrollMemory.delete(scrollMemory.keys().next().value);
+  // The caret too (N44). `currentSelection` is the editor's (P5); until it exists the page
+  // simply comes back scrolled, which is what it did before.
+  if (current.type !== 'page' || typeof Editor.currentSelection !== 'function') return;
+  let sel = null;
+  try { sel = Editor.currentSelection(); } catch (e) { console.warn('[shell] selection', e); }
+  caretMemory.delete(key);
+  if (sel && Number.isInteger(sel.from)) caretMemory.set(key, sel);
+  while (caretMemory.size > MAX_SCROLL_MEMORY) caretMemory.delete(caretMemory.keys().next().value);
 }
 
 /**
@@ -169,7 +232,13 @@ async function renderPage(scroll, route) {
   }
 }
 
-async function mountPage(scroll, { path, line }) {
+async function mountPage(scroll, route) {
+  const { path, col, query } = route;
+  // A heading becomes a line here, once, so the editor is only ever told about lines (N3).
+  const line = route.line || (await resolveHeading(route)) || 0;
+  if (route.heading && !line) toast(`no heading “${route.heading}” in ${path}`, 'info', 2600);
+  // The caret the page was left with, when the caller has not asked for a line instead (N44).
+  const selection = route.selection || (line ? null : caretMemory.get(routeKey(route)) || null);
   let st = null;
   // A stat that throws is not the same thing as a file that is not there: the first is a
   // locked file or a bridge fault and must never be offered "Create it", because that button
@@ -212,7 +281,7 @@ async function mountPage(scroll, { path, line }) {
   try {
     // The third argument is the route's line (C7). The editor is free to ignore it, and does
     // until it learns to scroll to a line; passing it now is what lets that land editor-side.
-    await openPage(host, path, { line });
+    await openPage(host, path, { line, col, query, selection });
     mounted = host.childElementCount > 0;
   } catch (e) {
     console.error('[shell] openPage', e);
@@ -300,6 +369,23 @@ async function renderStart(scroll, my, opts) {
   if (opts.focus !== false) settleFocus(scroll);
 }
 
+/**
+ * The window title (S13): `<Note> · <vault>`, `<View> · <vault>`, or the vault's name alone on
+ * the start surface. `bridge.setTitle` is P8's; until it lands this is a no-op and the title
+ * bar the app draws itself is unchanged either way.
+ */
+function setWindowTitle(route) {
+  if (typeof bridge.setTitle !== 'function') return;
+  const vault = (store.get('root') && store.get('root').name) || 'os';
+  let text = vault;
+  if (route && route.type === 'page') text = `${titleOf(route.path)} · ${vault}`;
+  else if (route && route.type === 'view') {
+    const v = views.get(route.name);
+    text = `${(v && v.title) || route.name} · ${vault}`;
+  }
+  try { void bridge.setTitle(text); } catch (e) { console.warn('[shell] setTitle', e); }
+}
+
 async function show(route, opts = {}) {
   const my = ++seq;
   await teardown();
@@ -315,6 +401,7 @@ async function show(route, opts = {}) {
     current = null;
     store.set('route', null);
     status.set('path', null);
+    setWindowTitle(null);
     bus.emit('route', null);
     await renderStart(scroll, my, opts);
     return;
@@ -323,6 +410,7 @@ async function show(route, opts = {}) {
   current = route;
   store.set('route', route);
   status.set('path', routeLabel(route));
+  setWindowTitle(route);
   bus.emit('route', route);
 
   if (route.type === 'page') {
@@ -344,15 +432,22 @@ export function navigate(route, opts = {}) {
   if (!r) return Promise.resolve();
 
   const same = !!current && routeKey(current) === routeKey(r);
-  // The open page asked for again with a line (a second search hit in the same file): the
-  // request must still reach the editor, so it is shown as if forced, but it is the same
-  // page and gets no second history entry; the current entry just learns the line (C7).
-  if (same && !opts.force && r.line) {
+  // The open page asked for again with a line or a heading (a second search hit in the same
+  // file, an anchor into it): the request must still reach the editor, so it is shown as if
+  // forced, but it is the same page and gets no second history entry; the current entry just
+  // learns where to land (C7, N3).
+  if (same && !opts.force && (r.line || r.heading)) {
     if (index >= 0) stack[index] = r;
     // The editor scrolls its mounted page in place; a remount would lose the caret and the
     // undo history for a jump within the same file.
-    if (scrollToLine(r.line)) return Promise.resolve();
-    return show(r, opts);
+    return (async () => {
+      const line = r.line || (await resolveHeading(r));
+      if (!line) {
+        if (r.heading) toast(`no heading “${r.heading}” on this page`, 'info', 2600);
+        return;
+      }
+      if (!scrollToLine(line, r.col)) await show({ ...r, line }, opts);
+    })();
   }
   if (same && !opts.force) return Promise.resolve();
 
@@ -384,9 +479,24 @@ export function canForward() { return index >= 0 && index < stack.length - 1; }
  * in its place.
  */
 export function clearRoute(opts = {}) {
+  // What was closed can be reopened (N43): the route goes on a small stack that Ctrl+Shift+T
+  // pops. Only a real route, and never the same one twice in a row.
+  if (current && (!closed.length || routeKey(closed[0]) !== routeKey(current))) {
+    closed.unshift(current);
+    closed = closed.slice(0, MAX_CLOSED);
+  }
   stack = stack.slice(0, index + 1);
   return show(null, opts);
 }
+
+/** `app.reopen-closed` (Ctrl+Shift+T): the last route Ctrl+W dropped, back where it was. */
+export function reopenClosed() {
+  const r = closed.shift();
+  if (!r) { toast('nothing to reopen', 'info', 2000); return Promise.resolve(); }
+  return navigate(r, { force: true });
+}
+
+export function canReopenClosed() { return closed.length > 0; }
 
 /** Used by the sidebar after a rename/trash of the page currently open. */
 export function reopenCurrent() {

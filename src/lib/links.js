@@ -12,9 +12,11 @@
 import { bridge } from '../bridge/index.js';
 import { resolveHref, relativeHref, basename } from '../editor/paths.js';
 
-// Room for a common name: the confirm step throws the false hits away, but a hit list cut at
-// the limit would silently lose real links.
-const SEARCH_LIMIT = 5000;
+// A rename has to find *every* inbound link, so this pass is the one search that runs with no
+// cap at all (N20; `limit: 0` means "no cap" in both bridges). The confirm step throws the
+// false hits away; a hit list cut at a limit would silently lose real links and the toast
+// would then report a count that is not the truth.
+const SEARCH_LIMIT = 0;
 
 const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
@@ -37,13 +39,7 @@ function needlesFor(path) {
  */
 function linkSpans(text) {
   const out = [];
-  const re = /\]\(\s*(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)/g;
-  let m;
-  while ((m = re.exec(text))) {
-    const raw = m[1];
-    const angled = raw.startsWith('<');
-    const start = m.index + m[0].length - raw.length + (angled ? 1 : 0);
-    const href = angled ? raw.slice(1, -1) : raw;
+  const push = (start, href) => {
     const tailAt = href.search(/[#?]/);
     out.push({
       start,
@@ -51,36 +47,96 @@ function linkSpans(text) {
       href: tailAt < 0 ? href : href.slice(0, tailAt),
       tail: tailAt < 0 ? '' : href.slice(tailAt),
     });
+  };
+  const re = /\]\(\s*(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const raw = m[1];
+    const angled = raw.startsWith('<');
+    push(m.index + m[0].length - raw.length + (angled ? 1 : 0), angled ? raw.slice(1, -1) : raw);
   }
+  // Reference definitions (N18): `[ref]: path "optional title"`, at the start of a line, up to
+  // three spaces of indent. Only the destination is a span; the label and the title are not
+  // touched. `[ref]:` inside a fenced code block is left alone — a path in a code sample is
+  // documentation, not a link — which is why the scan is line by line rather than one regex.
+  const lines = text.split('\n');
+  let at = 0;
+  let fence = null;
+  for (const line of lines) {
+    const f = /^[ \t]{0,3}(```+|~~~+)/.exec(line);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (line.trim().startsWith(fence)) fence = null;
+    } else if (!fence) {
+      const d = /^([ \t]{0,3}\[[^\]\n]+\]:[ \t]*)(<[^>\n]*>|\S+)/.exec(line);
+      if (d) {
+        const angled = d[2].startsWith('<');
+        push(at + d[1].length + (angled ? 1 : 0), angled ? d[2].slice(1, -1) : d[2]);
+      }
+    }
+    at += line.length + 1;
+  }
+  out.sort((a, b) => a.start - b.start);
   return out;
 }
 
+/** Both search answers: the array older hosts return, and the `{hits}` object of batch 12. */
+const hitsOf = (r) => (Array.isArray(r) ? r : Array.isArray(r && r.hits) ? r.hits : []);
+
 /** The files (by their current path) that a search for any of `needles` turns up. */
-async function candidates(needles) {
-  const paths = new Set();
+async function candidates(needles, seed = []) {
+  const paths = new Set(seed.map(clean).filter(Boolean));
   for (const q of needles) {
-    const hits = await bridge.search(q, { limit: SEARCH_LIMIT });
-    for (const h of Array.isArray(hits) ? hits : []) if (h && h.path) paths.add(clean(h.path));
+    for (const h of hitsOf(await bridge.search(q, { limit: SEARCH_LIMIT }))) {
+      if (h && h.path) paths.add(clean(h.path));
+    }
   }
   return [...paths];
 }
 
 /**
- * The pages that link to `targetPath`, with how many links each carries.
- * -> [{ path, count }], most links first. Throws only when the search itself fails.
+ * The pages that link to `targetPath`, with how many links each carries and where.
+ * -> [{ path, count, lines: [{ line, text }] }], most links first; `lines` is 1-based and
+ * carries the trimmed source line, which is what the backlinks list shows (N6). Throws only
+ * when the search itself fails. A page never counts as linking to itself.
  */
 export async function findInbound(targetPath) {
   const target = clean(targetPath);
   const out = [];
   for (const path of await candidates(needlesFor(target))) {
+    if (path === target) continue;
     let text;
     try { text = await bridge.readText(path); } catch { continue; }
-    let count = 0;
-    for (const span of linkSpans(text)) if (resolveHref(path, span.href) === target) count++;
-    if (count) out.push({ path, count });
+    const starts = lineStarts(text);
+    const lines = [];
+    for (const span of linkSpans(text)) {
+      if (resolveHref(path, span.href) !== target) continue;
+      const n = lineAt(starts, span.start);
+      const last = lines[lines.length - 1];
+      if (last && last.line === n) continue;   // two links on one line are one row
+      lines.push({ line: n, text: (text.split('\n')[n - 1] || '').trim().slice(0, 240) });
+    }
+    if (lines.length) out.push({ path, count: lines.length, lines });
   }
   out.sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
   return out;
+}
+
+/** Offsets every line of `text` starts at, so a span offset can be turned into a line number. */
+function lineStarts(text) {
+  const out = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') out.push(i + 1);
+  return out;
+}
+
+/** 1-based line holding `offset`, by binary search over `lineStarts`. */
+function lineAt(starts, offset) {
+  let lo = 0, hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= offset) lo = mid; else hi = mid - 1;
+  }
+  return lo + 1;
 }
 
 /**
@@ -92,6 +148,12 @@ export async function findInbound(targetPath) {
  * (that is what they were written against) and rewritten relative to the new one; a link
  * from one moved file to another, still right after the move, comes out unchanged and is not
  * counted. `bridge.writeText` failures are collected, not thrown.
+ *
+ * N16: a moved file's hrefs that point *outside* the move set are rewritten too. `[x](other.md)`
+ * in a page moved from a subfolder to the root used to be left as written and then resolved
+ * against the root, where `other.md` is not; an `attachments/` image src broke the same way.
+ * Those files are read whether or not the name search turned them up, because a page need not
+ * mention its own name to hold links written from where it used to be.
  * -> { files, links, failed: [path] }
  */
 export async function rewriteInboundMany(pairs) {
@@ -105,18 +167,25 @@ export async function rewriteInboundMany(pairs) {
   const fromFor = new Map(moves.map((p) => [p.to, p.from]));
   const needles = [...new Set(moves.flatMap((p) => needlesFor(p.from)))];
 
-  for (const path of await candidates(needles)) {
+  for (const path of await candidates(needles, moves.map((m) => m.to))) {
     let text;
     try { text = await bridge.readText(path); } catch { continue; }
     // The hrefs in a file were written relative to where it was; `was` is that place.
     const was = fromFor.get(path) || path;
+    const moved = was !== path;
     const edits = [];
     for (const span of linkSpans(text)) {
       const target = resolveHref(was, span.href);
       if (target === null) continue;
+      // An href with no scheme that starts with `/` is vault-root-relative: it means the same
+      // file wherever the page lands, so moving the page must not rewrite it.
+      if (!moved && span.href.trim().startsWith('/')) continue;
       const to = toFor.get(target);
-      if (!to) continue;
-      const next = relativeHref(path, to) + span.tail;
+      // Outside the move set: only a file that moved needs its own hrefs rewritten, and only
+      // to say the same thing from the new folder.
+      if (!to && !moved) continue;
+      if (!to && span.href.trim().startsWith('/')) continue;
+      const next = relativeHref(path, to || target) + span.tail;
       if (next === span.href + span.tail) continue;
       edits.push({ start: span.start, end: span.end, next });
     }

@@ -42,7 +42,8 @@ const HIDDEN: &[&str] = &[
 ];
 
 const MAX_DEPTH: usize = 24;
-const DEFAULT_SEARCH_LIMIT: usize = 200;
+/// Files, not lines (N34): the answer says "showing N of M files" when it cut the list.
+const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SNIPPET: usize = 240;
 
 pub fn is_hidden(name: &str) -> bool {
@@ -514,8 +515,48 @@ pub fn read_text(root: &Path, rel: &str) -> Result<String, String> {
 // ---- writes ----------------------------------------------------------------
 
 fn ensure_parent(full: &Path) -> Result<(), String> {
+    if full.file_name().is_none() {
+        return Err("no file name to write".to_string());
+    }
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    Ok(())
+}
+
+/// Write `bytes` to `full` without ever leaving the target half-written (S25): a temp file
+/// beside it, then a rename over it, the way `state.rs write_locked` does. A rename within one
+/// folder is atomic on NTFS, APFS and ext4, so a crash mid-write loses the new text, never the
+/// old file. The temp name carries the process id and a counter so two writes to one path (two
+/// windows, a save racing a link rewrite) cannot use the same scratch file; a failed write
+/// takes its temp file with it.
+fn write_atomic(full: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, AtomicOrdering::Relaxed);
+    let name = full
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".into());
+    let tmp = full.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()));
+    let write = (|| {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    })();
+    if let Err(e) = write {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    // Windows refuses a rename onto an existing file, so the target goes first. Losing the
+    // race here means losing the old file, which is why the new bytes are already on disk.
+    #[cfg(windows)]
+    if full.exists() {
+        let _ = fs::remove_file(full);
+    }
+    if let Err(e) = fs::rename(&tmp, full) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
     }
     Ok(())
 }
@@ -524,7 +565,7 @@ fn ensure_parent(full: &Path) -> Result<(), String> {
 pub fn write_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
     ensure_parent(&full)?;
-    fs::write(&full, text.as_bytes()).map_err(|e| format!("{rel}: {e}"))
+    write_atomic(&full, text.as_bytes()).map_err(|e| format!("{rel}: {e}"))
 }
 
 pub fn append_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
@@ -544,7 +585,7 @@ pub fn write_binary(root: &Path, rel: &str, b64: &str) -> Result<(), String> {
         .map_err(|e| format!("not base64: {e}"))?;
     let full = resolve(root, rel)?;
     ensure_parent(&full)?;
-    fs::write(&full, bytes).map_err(|e| format!("{rel}: {e}"))
+    write_atomic(&full, &bytes).map_err(|e| format!("{rel}: {e}"))
 }
 
 pub fn mkdir(root: &Path, rel: &str) -> Result<(), String> {
@@ -554,17 +595,50 @@ pub fn mkdir(root: &Path, rel: &str) -> Result<(), String> {
 
 /// Never overwrites: the .NET host moved with `overwrite: false` and the UI relies on that
 /// to keep a rename from swallowing an existing page.
+///
+/// `Notes.md` -> `notes.md` is a real rename, not a collision (N17). On a case-insensitive
+/// filesystem `dst.exists()` is true because it is the same file, and `fs::rename` may or may
+/// not change the name on disk, so a case-only change goes through a temporary name: two
+/// renames, neither of which can be mistaken for an overwrite.
 pub fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     let src = resolve(root, from)?;
     let dst = resolve(root, to)?;
     if !src.exists() {
         return Err(format!("nothing to rename: {from}"));
     }
-    if dst.exists() && src != dst {
+    if src == dst {
+        return Ok(());
+    }
+    if case_only(&src, &dst) {
+        ensure_parent(&dst)?;
+        let name = dst
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "item".into());
+        let via = src.with_file_name(format!(".{name}.{}.case", std::process::id()));
+        let _ = fs::remove_file(&via);
+        fs::rename(&src, &via).map_err(|e| format!("{from} -> {to}: {e}"))?;
+        return match fs::rename(&via, &dst) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let _ = fs::rename(&via, &src);
+                Err(format!("{from} -> {to}: {e}"))
+            }
+        };
+    }
+    if dst.exists() {
         return Err(format!("target already exists: {to}"));
     }
     ensure_parent(&dst)?;
     fs::rename(&src, &dst).map_err(|e| format!("{from} -> {to}: {e}"))
+}
+
+/// Two vault paths that differ only in letter case — the same file on Windows and on a
+/// default macOS volume, a different one on Linux (where the plain rename does the right
+/// thing anyway, and the two-step is merely a longer way to the same result).
+fn case_only(a: &Path, b: &Path) -> bool {
+    let (a, b) = (a.to_string_lossy(), b.to_string_lossy());
+    a != b && a.to_lowercase() == b.to_lowercase()
 }
 
 /// The recycle bin, never a permanent delete.
@@ -585,75 +659,295 @@ pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err("trash thread panicked".to_string()));
     match shell {
         Ok(()) => Ok(()),
-        Err(first) => {
-            let bin = root.join(".trash");
-            std::fs::create_dir_all(&bin).map_err(|e| format!("{rel}: {first}; and .trash: {e}"))?;
-            let stamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            let name = full.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "item".into());
-            let dest = bin.join(format!("{stamp}-{name}"));
-            std::fs::rename(&full, &dest).map_err(|e| format!("{rel}: {first}; and .trash: {e}"))
-        }
+        Err(first) => into_vault_bin(root, rel, &full, &first),
     }
+}
+
+/// `.trash/<stamp>-<name>` inside the vault: the settings choice "deleted files go to the
+/// vault" (S37), and the fallback when the platform's bin refuses. Still never a permanent
+/// delete, and the folder is hidden from the tree, the search and the watcher.
+pub fn trash_into_vault(root: &Path, rel: &str) -> Result<(), String> {
+    let full = resolve(root, rel)?;
+    if full == root {
+        return Err("refusing to trash the vault root".to_string());
+    }
+    if !full.exists() {
+        return Err(format!("nothing to trash: {rel}"));
+    }
+    into_vault_bin(root, rel, &full, "")
+}
+
+fn into_vault_bin(root: &Path, rel: &str, full: &Path, first: &str) -> Result<(), String> {
+    // `first` is the platform bin's complaint when this is a fallback, and empty when the vault
+    // bin is what the user asked for; the error says which of the two failed either way.
+    let why = |e: std::io::Error| {
+        if first.is_empty() {
+            format!("{rel}: .trash: {e}")
+        } else {
+            format!("{rel}: {first}; and .trash: {e}")
+        }
+    };
+    let bin = root.join(".trash");
+    std::fs::create_dir_all(&bin).map_err(why)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let name = full
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "item".into());
+    std::fs::rename(full, bin.join(format!("{stamp}-{name}"))).map_err(why)
 }
 
 // ---- search ----------------------------------------------------------------
 
-/// Case-insensitive substring over every `*.md` outside the hidden names.
-pub fn search(root: &Path, query: &str, limit: usize) -> Vec<Value> {
-    let mut hits = Vec::new();
-    if query.is_empty() {
-        return hits;
-    }
-    let limit = if limit == 0 { DEFAULT_SEARCH_LIMIT } else { limit };
-    let needle = query.to_lowercase();
-    search_dir(root, root, &needle, limit, &mut hits, 0);
-    hits
+/// Every extension the search reads. Markdown is the vault; the rest are the text files a
+/// person keeps beside it and expects to find (N39). Anything else is a name match only.
+const SEARCH_EXTS: &[&str] = &[
+    "md", "txt", "csv", "jsonl", "py", "log", "tex", "json", "yaml", "toml",
+];
+
+/// At most this many lines are reported per file: the cap counts files, and a file that says
+/// the word two hundred times must not push every other file out of the answer (N34).
+const LINES_PER_FILE: usize = 20;
+
+/// The typed query, taken apart (N32, N38): the words that must all appear somewhere in a
+/// file, and the two filters that narrow which files are looked at at all.
+#[derive(Default, Debug, PartialEq)]
+pub struct Query {
+    /// Lowercased. A `"quoted phrase"` is one term, spaces and all.
+    pub terms: Vec<String>,
+    /// `path:<prefix>` — the vault-relative path must start with one of these (lowercased).
+    pub paths: Vec<String>,
+    /// `file:<substring>` — the file's own name must contain one of these (lowercased).
+    pub files: Vec<String>,
 }
 
+impl Query {
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty() && self.paths.is_empty() && self.files.is_empty()
+    }
+}
+
+/// Split on whitespace, except inside double quotes; `path:` and `file:` prefixes (which may
+/// themselves be quoted: `path:"My Folder"`) become filters rather than terms.
+pub fn parse_query(q: &str) -> Query {
+    let mut out = Query::default();
+    let chars: Vec<char> = q.chars().collect();
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        // The prefix is read before the quotes, so `path:"a b"` filters on `a b`.
+        let mut kind = 0u8; // 0 term, 1 path, 2 file
+        for (word, k) in [("path:", 1u8), ("file:", 2u8)] {
+            let n = word.chars().count();
+            if i + n <= chars.len()
+                && chars[i..i + n]
+                    .iter()
+                    .collect::<String>()
+                    .eq_ignore_ascii_case(word)
+            {
+                kind = k;
+                i += n;
+                break;
+            }
+        }
+        let mut word = String::new();
+        if i < chars.len() && chars[i] == '"' {
+            i += 1;
+            while i < chars.len() && chars[i] != '"' {
+                word.push(chars[i]);
+                i += 1;
+            }
+            i += 1; // the closing quote, or the end of the string
+        } else {
+            while i < chars.len() && !chars[i].is_whitespace() {
+                word.push(chars[i]);
+                i += 1;
+            }
+        }
+        let word = word.trim().to_lowercase();
+        if word.is_empty() {
+            continue;
+        }
+        match kind {
+            1 => out.paths.push(word.replace('\\', "/")),
+            2 => out.files.push(word),
+            _ => out.terms.push(word),
+        }
+    }
+    out
+}
+
+/// One file that matched, before the cap and the ordering are applied.
+struct FileHit {
+    path: String,
+    kind: &'static str,
+    name_hit: bool,
+    total: usize,
+    lines: Vec<Value>,
+}
+
+/// Generation counters, one per caller channel, so a newer query cancels the older one (S33)
+/// without a search from somewhere else cancelling it by accident. The search overlay passes
+/// `chan: "overlay"` and every keystroke abandons the walk the previous one started; the link
+/// rewriter passes no channel and is never cancelled, because it must see the whole vault.
+static SEARCH_GEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+    std::sync::OnceLock::new();
+
+fn next_gen(chan: &str) -> u64 {
+    let map = SEARCH_GEN.get_or_init(Default::default);
+    let mut map = map.lock().unwrap_or_else(|p| p.into_inner());
+    let n = map.entry(chan.to_string()).or_insert(0);
+    *n += 1;
+    *n
+}
+
+fn gen_is_current(chan: &str, gen: u64) -> bool {
+    let map = SEARCH_GEN.get_or_init(Default::default);
+    let map = map.lock().unwrap_or_else(|p| p.into_inner());
+    map.get(chan).copied().unwrap_or(0) == gen
+}
+
+/// The vault search (N32 to N39). Every term must appear in the file (or in its path); the
+/// lines reported are the ones holding any term. `limit` counts **files**; 0 means no cap,
+/// which is what the rename pass asks for. The answer is
+/// `{hits, files, total, capped, stale}` — `hits` flat and ordered, file by file.
+pub fn search(root: &Path, query: &str, limit: usize, chan: Option<&str>) -> Value {
+    let q = parse_query(query);
+    if q.is_empty() {
+        return json!({ "hits": [], "files": 0, "total": 0, "capped": false, "stale": false });
+    }
+    let gen = chan.map(|c| (c.to_string(), next_gen(c)));
+    let mut found: Vec<FileHit> = Vec::new();
+    let stale = !search_dir(root, root, &q, gen.as_ref(), &mut found, 0);
+
+    // A name match first, then the file with the most hits, then the path so two equal files
+    // never swap places between two identical searches.
+    found.sort_by(|a, b| {
+        b.name_hit
+            .cmp(&a.name_hit)
+            .then(b.total.cmp(&a.total))
+            .then(natural_compare(&a.path, &b.path))
+    });
+    let total = found.len();
+    let cap = if limit == 0 { usize::MAX } else { limit };
+    let capped = total > cap;
+    found.truncate(cap);
+
+    let mut hits = Vec::new();
+    for f in &found {
+        if f.name_hit {
+            hits.push(json!({ "path": f.path, "line": 0, "col": 0, "text": f.path, "kind": f.kind }));
+        }
+        hits.extend(f.lines.iter().cloned());
+    }
+    json!({
+        "hits": hits,
+        "files": found.len(),
+        "total": total,
+        "capped": capped,
+        "stale": stale,
+    })
+}
+
+/// False when a newer search has started and this one gave up.
 fn search_dir(
     root: &Path,
     dir: &Path,
-    needle: &str,
-    limit: usize,
-    hits: &mut Vec<Value>,
+    q: &Query,
+    gen: Option<&(String, u64)>,
+    found: &mut Vec<FileHit>,
     depth: usize,
-) {
-    if hits.len() >= limit || depth > MAX_DEPTH {
-        return;
+) -> bool {
+    if depth > MAX_DEPTH {
+        return true;
+    }
+    if let Some((chan, n)) = gen {
+        if !gen_is_current(chan, *n) {
+            return false;
+        }
     }
     for (path, meta) in visible(dir) {
-        if hits.len() >= limit {
-            return;
-        }
+        let rel = relative(root, &path);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
         if meta.is_dir() {
-            search_dir(root, &path, needle, limit, hits, depth + 1);
+            // A folder is a name and nothing else: it matches when every term is in its name
+            // and the filters allow it (N35).
+            if allowed(q, &rel, &name) && !q.terms.is_empty() && q.terms.iter().all(|t| name.contains(t)) {
+                found.push(FileHit { path: rel.clone(), kind: "dir", name_hit: true, total: 0, lines: Vec::new() });
+            }
+            if !search_dir(root, &path, q, gen, found, depth + 1) {
+                return false;
+            }
             continue;
         }
-        let is_md = path
+        if !allowed(q, &rel, &name) {
+            continue;
+        }
+        let name_hit = !q.terms.is_empty() && q.terms.iter().all(|t| name.contains(t));
+        let searchable = path
             .extension()
-            .map(|e| e.eq_ignore_ascii_case("md"))
+            .map(|e| {
+                let e = e.to_string_lossy().to_lowercase();
+                SEARCH_EXTS.iter().any(|x| *x == e)
+            })
             .unwrap_or(false);
-        if !is_md {
+        if !searchable {
+            if name_hit {
+                found.push(FileHit { path: rel, kind: "file", name_hit: true, total: 0, lines: Vec::new() });
+            }
             continue;
         }
         let Ok(bytes) = fs::read(&path) else { continue };
         let text = String::from_utf8_lossy(&bytes);
-        let rel = relative(root, &path);
+        let lower = text.to_lowercase();
+        let path_lower = rel.to_lowercase();
+        // AND across the file: a term found in the path counts, so `philosophy kant` finds a
+        // page about Kant inside a philosophy folder.
+        if !q.terms.iter().all(|t| lower.contains(t) || path_lower.contains(t)) {
+            if name_hit {
+                found.push(FileHit { path: rel, kind: "file", name_hit: true, total: 0, lines: Vec::new() });
+            }
+            continue;
+        }
+        let mut lines = Vec::new();
+        let mut total = 0usize;
         for (i, line) in text.lines().enumerate() {
-            if !line.to_lowercase().contains(needle) {
+            let low = line.to_lowercase();
+            let Some(at) = q.terms.iter().filter_map(|t| low.find(t.as_str())).min() else { continue };
+            total += 1;
+            if lines.len() >= LINES_PER_FILE {
                 continue;
             }
-            let trimmed = line.trim();
-            let snippet: String = trimmed.chars().take(SNIPPET).collect();
-            hits.push(json!({ "path": rel, "line": i + 1, "text": snippet }));
-            if hits.len() >= limit {
-                return;
-            }
+            // `col` is 1-based, counted in characters of the trimmed line, which is the text
+            // the row shows and the column the editor lands the caret on (N36). `at` comes
+            // from `find`, so it is always a character boundary.
+            let before = &low[..at];
+            let lead = before.chars().take_while(|c| c.is_whitespace()).count();
+            let col = before.chars().count().saturating_sub(lead) + 1;
+            let snippet: String = line.trim().chars().take(SNIPPET).collect();
+            lines.push(json!({ "path": rel, "line": i + 1, "col": col, "text": snippet, "kind": "file" }));
+        }
+        if !lines.is_empty() || name_hit {
+            found.push(FileHit { path: rel, kind: "file", name_hit, total, lines });
         }
     }
+    true
+}
+
+/// The `path:` and `file:` filters (N38). No filter of a kind means every file passes it.
+fn allowed(q: &Query, rel: &str, name: &str) -> bool {
+    let rel = rel.to_lowercase();
+    (q.paths.is_empty() || q.paths.iter().any(|p| rel.starts_with(p.trim_end_matches('/'))))
+        && (q.files.is_empty() || q.files.iter().any(|f| name.contains(f)))
 }
 
 // ---- dispatch --------------------------------------------------------------
@@ -728,17 +1022,30 @@ fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
             ok
         }
         "trash" => {
-            trash(root, &arg_str(args, 0)?)?;
+            // {mode: "system"|"vault"} from settings (S37); anything else means the bin.
+            if crate::opt_field_str(args, 1, "mode").as_deref() == Some("vault") {
+                trash_into_vault(root, &arg_str(args, 0)?)?;
+            } else {
+                trash(root, &arg_str(args, 0)?)?;
+            }
             ok
         }
         "search" => {
+            // `limit: 0` is "no cap", which the rename pass asks for so it finds every inbound
+            // link (N20); a negative number is nonsense and takes the default.
             let limit = opt_field_i64(args, 1, "limit", DEFAULT_SEARCH_LIMIT as i64);
-            let limit = if limit <= 0 {
+            let limit = if limit < 0 {
                 DEFAULT_SEARCH_LIMIT
             } else {
                 limit as usize
             };
-            Ok(Value::Array(search(root, &arg_str(args, 0)?, limit)))
+            let chan = args
+                .get(1)
+                .and_then(|v| v.get("chan"))
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            Ok(search(root, &arg_str(args, 0)?, limit, chan.as_deref()))
         }
         _ => Err(format!("unknown command: {cmd}")),
     }
@@ -835,6 +1142,139 @@ mod tests {
             parse_remembered(&format!("\u{feff}{p}\r\nsecond line")).unwrap(),
             normalize(Path::new(p))
         );
+    }
+
+    #[test]
+    fn a_query_splits_on_spaces_and_quotes_and_prefixes() {
+        let q = parse_query("kant  ethics");
+        assert_eq!(q.terms, vec!["kant", "ethics"]);
+        let q = parse_query("\"critique of reason\" kant");
+        assert_eq!(q.terms, vec!["critique of reason", "kant"]);
+        let q = parse_query("path:2-learning/ file:index kant");
+        assert_eq!(q.terms, vec!["kant"]);
+        assert_eq!(q.paths, vec!["2-learning/"]);
+        assert_eq!(q.files, vec!["index"]);
+        let q = parse_query("PATH:\"My Folder\" Word");
+        assert_eq!(q.paths, vec!["my folder"]);
+        assert_eq!(q.terms, vec!["word"]);
+        assert!(parse_query("   ").is_empty());
+        // An unterminated quote takes the rest of the line rather than losing it.
+        assert_eq!(parse_query("\"two words").terms, vec!["two words"]);
+    }
+
+    /// The whole of the batch-12 search contract on one small vault.
+    #[test]
+    fn search_ands_terms_matches_names_and_counts_files() {
+        let t = Tmp::new("search");
+        let root = &t.0;
+        fs::create_dir_all(root.join("notes")).unwrap();
+        fs::write(root.join("notes/alpha.md"), "# Alpha\nkant and ethics here\nkant again\n").unwrap();
+        fs::write(root.join("notes/beta.md"), "kant only\n").unwrap();
+        fs::write(root.join("notes/gamma.txt"), "ethics and kant in a text file\n").unwrap();
+        fs::write(root.join("kant.md"), "nothing relevant\n").unwrap();
+
+        let r = search(root, "kant ethics", 100, None);
+        let hits = r["hits"].as_array().unwrap();
+        let paths: Vec<&str> = hits.iter().map(|h| h["path"].as_str().unwrap()).collect();
+        // beta.md has no `ethics` anywhere: the terms are ANDed within a file (N33).
+        assert!(!paths.contains(&"notes/beta.md"));
+        // .txt is searched (N39).
+        assert!(paths.contains(&"notes/gamma.txt"));
+        // kant.md matches on its name alone, with line 0 (N35).
+        let name_hit = hits.iter().find(|h| h["path"] == "kant.md");
+        assert!(name_hit.is_none(), "kant.md does not hold `ethics`, so it is not a hit");
+
+        // A one-term search does match the name, and the name hit comes first (N34 ordering).
+        let r = search(root, "kant", 100, None);
+        let hits = r["hits"].as_array().unwrap();
+        assert_eq!(hits[0]["path"], "kant.md");
+        assert_eq!(hits[0]["line"], 0);
+        assert_eq!(r["total"], 4);
+        assert_eq!(r["capped"], false);
+
+        // The cap counts files, and the answer says how many there were (N34).
+        let r = search(root, "kant", 2, None);
+        assert_eq!(r["files"], 2);
+        assert_eq!(r["total"], 4);
+        assert_eq!(r["capped"], true);
+
+        // limit 0 is no cap at all: what the rename pass asks for (N20).
+        let r = search(root, "kant", 0, None);
+        assert_eq!(r["files"], 4);
+        assert_eq!(r["capped"], false);
+
+        // `col` is 1-based in the trimmed line (N36).
+        let r = search(root, "again", 100, None);
+        let h = &r["hits"].as_array().unwrap()[0];
+        assert_eq!(h["line"], 3);
+        assert_eq!(h["col"], 6);
+        assert_eq!(h["text"], "kant again");
+    }
+
+    #[test]
+    fn search_filters_by_path_and_file() {
+        let t = Tmp::new("filters");
+        let root = &t.0;
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::create_dir_all(root.join("b")).unwrap();
+        fs::write(root.join("a/one.md"), "word\n").unwrap();
+        fs::write(root.join("b/two.md"), "word\n").unwrap();
+
+        let r = search(root, "path:a word", 100, None);
+        let hits = r["hits"].as_array().unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["path"], "a/one.md");
+
+        let r = search(root, "file:two word", 100, None);
+        let hits = r["hits"].as_array().unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["path"], "b/two.md");
+
+        // A folder whose name matches is a hit of its own, with line 0 (N35).
+        let r = search(root, "a", 100, None);
+        let hits = r["hits"].as_array().unwrap();
+        assert!(hits.iter().any(|h| h["path"] == "a" && h["kind"] == "dir"));
+    }
+
+    #[test]
+    fn a_write_never_leaves_the_target_half_written() {
+        let t = Tmp::new("atomic");
+        let root = &t.0;
+        write_text(root, "notes/page.md", "# one\n").unwrap();
+        assert_eq!(read_text(root, "notes/page.md").unwrap(), "# one\n");
+        write_text(root, "notes/page.md", "# two\n").unwrap();
+        assert_eq!(read_text(root, "notes/page.md").unwrap(), "# two\n");
+        // No scratch file is left behind, under any name.
+        let leftovers: Vec<String> = fs::read_dir(root.join("notes"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n != "page.md")
+            .collect();
+        assert!(leftovers.is_empty(), "left behind: {leftovers:?}");
+        write_binary(root, "notes/x.bin", "aGVsbG8=").unwrap();
+        assert_eq!(fs::read(root.join("notes/x.bin")).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn a_case_only_rename_goes_through(
+    ) {
+        let t = Tmp::new("case");
+        let root = &t.0;
+        write_text(root, "Notes.md", "# n\n").unwrap();
+        rename(root, "Notes.md", "notes.md").unwrap();
+        // The bytes survived and the name on disk is the new one, whatever the filesystem's
+        // idea of case is.
+        assert_eq!(read_text(root, "notes.md").unwrap(), "# n\n");
+        let names: Vec<String> = fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["notes.md".to_string()]);
+        // A real collision is still refused.
+        write_text(root, "other.md", "x\n").unwrap();
+        assert!(rename(root, "other.md", "notes.md").is_err());
     }
 
     #[test]

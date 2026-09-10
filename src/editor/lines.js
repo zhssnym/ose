@@ -13,6 +13,7 @@
 
 import { blockMarkdown } from './crepe.js';
 import { lineKey } from './stringify.js';
+import { headingSlug } from './paths.js';
 
 const count = (s, ch) => { let n = 0; for (const c of s) if (c === ch) n++; return n; };
 /** Letters and digits only, lowercased: enough to recognise a list item's line. */
@@ -30,6 +31,38 @@ export function titleLineNo(doc) {
   return doc.titleLine === null ? 0 : 1 + count(doc.frontmatterRaw + doc.preTitle, '\n');
 }
 
+/**
+ * The 1-based line of `text` holding the heading a link's `#fragment` names, or 0 (N3, N4).
+ *
+ * Three spellings are accepted, in this order: GitHub's slug (what `[text](#a-heading)` is
+ * written against), the raw heading text, and the fragment with its percent-escapes decoded
+ * (Obsidian writes `#Some%20Heading`). Comparison is case-insensitive and ignores the
+ * trailing `#`s of a closed ATX heading. Lines inside a fenced code block are not headings.
+ */
+export function headingLine(text, heading) {
+  const want = String(heading || '').trim();
+  if (!want) return 0;
+  const slug = headingSlug(want);
+  const raw = want.toLowerCase();
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  let fence = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const f = /^[ \t]{0,3}(```+|~~~+)/.exec(line);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (line.trim().startsWith(fence)) fence = null;
+      continue;
+    }
+    if (fence) continue;
+    const h = /^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line);
+    if (!h) continue;
+    const title = h[1].replace(/\s+/g, ' ').trim();
+    if (headingSlug(title) === slug || title.toLowerCase() === raw) return i + 1;
+  }
+  return 0;
+}
+
 /** Index of the first line at or after `from` whose key is `key`, or -1. */
 function findLine(keys, tightKeys, key, from) {
   if (!key) return -1;
@@ -44,7 +77,7 @@ function findLine(keys, tightKeys, key, from) {
  * inside the block, or the list item / quoted paragraph, that starts on the last found line
  * at or before it. The start of the body when nothing was found.
  */
-export function posForBodyLine(crepe, view, body, line) {
+export function posForBodyLine(crepe, view, body, line, col) {
   const lines = String(body || '').replace(/\r\n/g, '\n').split('\n');
   const keys = lines.map(lineKey);
   const tightKeys = keys.map(tight);
@@ -84,5 +117,22 @@ export function posForBodyLine(crepe, view, body, line) {
       return false;
     });
   });
-  return best;
+  return withColumn(doc, best, col);
+}
+
+/**
+ * `col` characters into the textblock `pos` sits in (1-based, N36). The column counts the
+ * trimmed source line, which still carries a list bullet or a heading's `#`s, so the caret
+ * can land a character or two past the match; it is clamped to the block and never leaves it.
+ * The highlight the user actually sees comes from the find bar, opened with the same query.
+ */
+function withColumn(doc, pos, col) {
+  const c = Math.floor(Number(col) || 0);
+  if (c < 2) return pos;
+  try {
+    const $at = doc.resolve(Math.max(0, Math.min(pos, doc.content.size)));
+    if (!$at.parent || !$at.parent.isTextblock) return pos;
+    const start = $at.start();
+    return Math.min(start + c - 1, start + $at.parent.content.size);
+  } catch { return pos; }
 }

@@ -13,8 +13,12 @@ import { prompt, confirm, contextMenu, pickFolder, toast, copyText, focusOrigin,
 import { shortcutFor } from './keys.js';
 import { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder } from './focus.js';
 import { getSource } from '../lib/sources.js';
-import { rewriteInboundMany } from '../lib/links.js';
+import { vaultLost } from './vault.js';
+import { rewriteInboundMany, findInbound } from '../lib/links.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isHiddenName, segments } from './paths.js';
+import { relativeHref, isTextFile } from '../editor/paths.js';
+import { openSearch } from './search.js';
+import './nav.css';
 
 let el = null, scrollEl = null;
 let tree = null;
@@ -174,10 +178,17 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
-  if (data.path && data.pin !== '1' && selected.has(data.path)) b.classList.add('selected');
+  const inTree = !!data.path && data.pin !== '1';
+  if (inTree && selected.has(data.path)) b.classList.add('selected');
   b.style.setProperty('--d', depth);
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
   if (data.path) b.draggable = true; // moves within the vault; see the drag and drop section
+  // A tree to a screen reader, not a list of unrelated buttons (S39, P8's request): the level
+  // is 1-based, `aria-selected` is on every selectable row so the reader can say "not
+  // selected" too, and only a folder claims to expand.
+  b.setAttribute('role', 'treeitem');
+  b.setAttribute('aria-level', String(depth + 1));
+  if (inTree) b.setAttribute('aria-selected', String(selected.has(data.path)));
   if (chevron !== null) b.setAttribute('aria-expanded', String(!!chevron));
   b.innerHTML =
     `<span class="tw${chevron ? ' open' : ''}">${chevron === null ? '' : icon('chevron')}</span>` +
@@ -206,6 +217,20 @@ function viewIcon(v) {
   return icon(hasIcon(v.name) ? v.name : 'view');
 }
 
+/**
+ * A `role="tree"` box for one section, so every `treeitem` has a tree to belong to (S39).
+ * One tree per section rather than one for the whole sidebar: the sections are separate lists
+ * with separate names, and claiming otherwise would make a reader announce wrong positions.
+ */
+function treeBox(frag, label) {
+  const box = document.createElement('div');
+  box.className = 'sb-group';
+  box.setAttribute('role', 'tree');
+  box.setAttribute('aria-label', label);
+  frag.appendChild(box);
+  return box;
+}
+
 /** Pinned pages and folders, in pin order. Hidden entirely while nothing is pinned. */
 function renderPinned(frag) {
   if (!pins.length) return;
@@ -215,13 +240,14 @@ function renderPinned(frag) {
   for (const p of pins) names.set(baseName(p), (names.get(baseName(p)) || 0) + 1);
 
   frag.appendChild(label('pinned'));
+  const box = treeBox(frag, 'Pinned');
   for (const p of pins) {
     const node = findNode(p);
     const dir = node ? node.kind === 'dir' : !baseName(p).includes('.');
     const name = dir ? baseName(p) : titleOf(p);
     const ambiguous = (names.get(baseName(p)) || 0) > 1;
     const parent = dirName(p);
-    frag.appendChild(rowEl({
+    box.appendChild(rowEl({
       cls: 'sb-pin ' + (dir ? 'dir' : 'file') + (curPath === p ? ' current' : ''),
       depth: 0,
       glyphHtml: icon(dir ? 'folder' : 'page'),
@@ -237,9 +263,10 @@ function renderViews(frag) {
   const list = views.list();
   if (!list.length) return;
   frag.appendChild(label('views'));
+  const box = treeBox(frag, 'Views');
   const r = currentRoute();
   for (const v of list) {
-    frag.appendChild(rowEl({
+    box.appendChild(rowEl({
       cls: 'sb-view' + (r && r.type === 'view' && r.name === v.name ? ' current' : ''),
       depth: 0,
       glyphHtml: viewIcon(v),
@@ -265,9 +292,14 @@ function renderNode(node, depth, frag, curPath) {
     }
   } else {
     const md = isMd(node.name);
+    // A non-markdown row says what it is, in the chrome voice, rather than wearing the page
+    // glyph and hoping the extension in the name is noticed (N28). A file with no extension
+    // gets no badge: there is nothing to say.
+    const ext = md ? '' : extOf(node.name);
     frag.appendChild(rowEl({
       cls: 'file' + (md ? '' : ' other') + (curPath === node.path ? ' current' : ''),
       depth, glyphHtml: icon('page'), text: md ? titleOf(node.name) : node.name,
+      hint: ext,
       data: { path: node.path, kind: 'file', md: md ? '1' : '0' },
     }));
   }
@@ -304,6 +336,9 @@ function renderScratch(frag, curPath) {
   }
   const box = document.createElement('div');
   box.className = 'sb-scratch';
+  box.setAttribute('role', 'tree');
+  box.setAttribute('aria-label', 'Scratch');
+  box.setAttribute('aria-multiselectable', 'true');
   for (const c of kids) renderNode(c, 0, box, curPath);
   frag.appendChild(box);
 }
@@ -350,6 +385,9 @@ function renderTree() {
     const root = focus ? findNode(focus) : tree;
     const pages = document.createElement('div');
     pages.className = 'sb-pages';
+    pages.setAttribute('role', 'tree');
+    pages.setAttribute('aria-label', 'Pages');
+    pages.setAttribute('aria-multiselectable', 'true');
     if (focus && (!root || root.kind !== 'dir')) {
       const d = document.createElement('div');
       d.className = 'empty sb-empty';
@@ -468,7 +506,11 @@ function selectableRows() {
 const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.pin !== '1';
 
 function paintSelection() {
-  for (const r of selectableRows()) r.classList.toggle('selected', selected.has(r.dataset.path));
+  for (const r of selectableRows()) {
+    const on = selected.has(r.dataset.path);
+    r.classList.toggle('selected', on);
+    r.setAttribute('aria-selected', String(on));
+  }
 }
 
 function pruneSelection() {
@@ -528,8 +570,17 @@ function activateRow(row) {
   if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
   const path = row.dataset.path;
   if (row.dataset.kind === 'dir') { toggleDir(row); return; }
-  if (row.dataset.md === '1') navigate({ type: 'page', path });
-  else bridge.reveal(path).catch((err) => toast(err.message || err, 'err'));
+  if (row.dataset.md === '1') { navigate({ type: 'page', path }); return; }
+  // A text file the editor can show opens in it (source mode, P5's); everything else — a PDF,
+  // an image, a spreadsheet — goes to the application the platform uses for it (N24, N25).
+  // Revealing it in Explorer, which is what this used to do, is a folder away from useful.
+  if (isTextFile(path)) { navigate({ type: 'page', path }); return; }
+  openWith(path);
+}
+
+/** `bridge.openPath`, with the refusal said out loud rather than left in a console (N10). */
+function openWith(path) {
+  bridge.openPath(path).catch((err) => toast(err.message || err, 'err'));
 }
 
 // Type-ahead: letters typed within 700ms of each other form one prefix, searched from the row
@@ -597,7 +648,16 @@ function onTreeKey(e) {
   } else if (k === 'Enter') { e.preventDefault(); activateRow(row); return; }
   else if (k === ' ') { e.preventDefault(); if (isDir) toggleDir(row); return; }
   else if (k === 'F2') { if (!target) return; e.preventDefault(); void renameAt(target.path, target.kind); return; }
-  else if (k === 'Delete') { if (!target) return; e.preventDefault(); void trashAt(batchFor(target) || [target]); return; }
+  // Delete is the Windows key, Backspace the macOS one; both do the same thing everywhere,
+  // because a keyboard that has one is not always the machine the vault is on (S21).
+  else if (k === 'Delete' || k === 'Backspace') { if (!target) return; e.preventDefault(); void trashAt(batchFor(target) || [target]); return; }
+  // Shift+F10 and the Menu key are the Windows convention for "the context menu of the thing
+  // that has focus", and the tree is the one place in the app with a context menu (S12).
+  else if (k === 'ContextMenu' || (k === 'F10' && e.shiftKey)) {
+    e.preventDefault();
+    openMenuAt(row);
+    return;
+  }
   else if (k === 'Escape') {
     // A selection goes first; the page gets focus on the next Esc, so neither is lost.
     e.preventDefault();
@@ -638,6 +698,13 @@ export async function refreshTree() {
     tree = await bridge.tree();
   } catch (e) {
     console.error('[shell] tree', e);
+    // A read that fails because the folder itself is gone is not a tree bug, and a toast per
+    // failed call is noise on top of a vault that has been unplugged (S29, P8): the shell has
+    // one dialog for it, and `vaultLost` is idempotent while that dialog is up.
+    if (/os error 2|no such file|cannot find the path|not a directory/i.test(String(e.message || e))) {
+      vaultLost();
+      return;
+    }
     toast('tree failed: ' + (e.message || e), 'err');
     return;
   }
@@ -648,18 +715,25 @@ export async function refreshTree() {
 
 /* ------------------------------------------------------------------ mutations */
 
-export async function newPageIn(folder) {
+/**
+ * A new page in `folder`. With no `name` it is `Untitled.md` and the title is selected so the
+ * first thing typed names it (C12); with one — quick open's Shift+Enter (N41) — the file and
+ * the H1 carry that name and the caret goes to the body instead, because the name is settled.
+ */
+export async function newPageIn(folder, name) {
   const dir = clean(folder || '');
+  const base = safeName(String(name || '').trim(), '') || 'Untitled';
   try {
-    let path = join(dir, 'Untitled.md');
-    for (let n = 2; n < 500 && await bridge.exists(path); n++) path = join(dir, `Untitled ${n}.md`);
-    await bridge.writeText(path, '# Untitled\n');
+    let path = join(dir, `${base}.md`);
+    for (let n = 2; n < 500 && await bridge.exists(path); n++) path = join(dir, `${base} ${n}.md`);
+    await bridge.writeText(path, `# ${base}\n`);
     if (dir) { expanded.add(dir); expandAncestors(path); persistExpanded(); }
     await refreshTree();
     await navigate({ type: 'page', path });
     // A new page wants its name first: the title, selected, the way the editor's own page.new
-    // leaves it. DOM level only, since the title element belongs to the editor.
-    const title = document.querySelector('.main .page-title[contenteditable]');
+    // leaves it. DOM level only, since the title element belongs to the editor. A page created
+    // with a name has one already, so the caret is left where the editor put it.
+    const title = name ? null : document.querySelector('.main .page-title[contenteditable]');
     if (title) {
       title.focus({ preventScroll: true });
       const range = document.createRange();
@@ -719,6 +793,9 @@ const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') 
  */
 async function afterMoves(moves, verb) {
   for (const m of moves) {
+    // The watcher will report this rename in a moment; N19 must not offer to fix what we
+    // are about to fix ourselves.
+    for (const p of m.pairs || [{ from: m.from, to: m.to }]) noteSelfMove(p.from, p.to);
     for (const p of [...expanded]) { const n = followMove(p, m.from, m.to); if (n) { expanded.delete(p); expanded.add(n); } }
     repinMoved(m.from, m.to);
     // The row the user was on has a new name; the next render focuses it there (B4, D1).
@@ -754,6 +831,93 @@ async function afterMoves(moves, verb) {
   for (const p of res.failed) toast('could not update links in ' + p, 'err');
 }
 
+/* ------------------------------------------------- renames made outside the app (N19) */
+
+// A move the app made itself: the watcher reports it a moment later, and the links have
+// already been rewritten by `afterMoves`. Keyed `from>to`, forgotten after a few seconds.
+const selfMoves = new Map();
+const SELF_MOVE_MS = 8000;
+
+function noteSelfMove(from, to) {
+  const now = Date.now();
+  selfMoves.set(from + '>' + to, now);
+  for (const [k, at] of selfMoves) if (now - at > SELF_MOVE_MS) selfMoves.delete(k);
+}
+
+const wasSelfMove = (from, to) => {
+  const at = selfMoves.get(from + '>' + to);
+  return !!at && Date.now() - at <= SELF_MOVE_MS;
+};
+
+// Renames the watcher has reported and we have not asked about yet. They are collected rather
+// than handled one by one, because moving a folder in Explorer arrives as one event per file.
+let pendingRenames = [];
+let askingRenames = false;
+
+/**
+ * A file renamed or moved from outside — Explorer, an agent, a terminal — leaves every link
+ * into it pointing at a name that is gone (N19). The app cannot silently rewrite files the
+ * user did not ask it to touch, so it asks, once, and only when there is something to fix:
+ * the question names the count, and answering no leaves every file exactly as it is.
+ *
+ * The watcher has to have paired the two halves of the rename (`fs` `{kind:'rename', to}`),
+ * which the host does and the dev bridge cannot; in a browser an external rename still shows
+ * up as a delete and nothing is offered.
+ */
+async function askAboutRenames() {
+  if (askingRenames || !pendingRenames.length) return;
+  askingRenames = true;
+  const moves = pendingRenames;
+  pendingRenames = [];
+  try {
+    // Which of them anything actually links to. One search per moved name; a rename nobody
+    // linked to is never mentioned at all.
+    const real = [];
+    let links = 0;
+    let files = new Set();
+    for (const m of moves) {
+      let inbound = [];
+      try { inbound = await findInbound(m.from); } catch (e) { console.error('[shell] links', e); continue; }
+      if (!inbound.length) continue;
+      real.push(m);
+      for (const p of inbound) { links += p.count; files.add(p.path); }
+    }
+    if (!real.length) return;
+    const one = real.length === 1 ? real[0] : null;
+    const ok = await confirm({
+      title: 'Update links?',
+      body: one
+        ? `${baseName(one.from)} was moved to ${one.to} outside the app. `
+          + `${links} link${links === 1 ? '' : 's'} in ${files.size} page${files.size === 1 ? '' : 's'} still point at the old name.`
+        : `${real.length} files were moved outside the app. `
+          + `${links} link${links === 1 ? '' : 's'} in ${files.size} page${files.size === 1 ? '' : 's'} still point at their old names.`,
+      ok: `Update ${links} link${links === 1 ? '' : 's'}`,
+    });
+    if (!ok) return;
+    const res = await rewriteInboundMany(real);
+    toast(res.links
+      ? `${res.links} link${res.links === 1 ? '' : 's'} in ${res.files} page${res.files === 1 ? '' : 's'} updated`
+      : 'nothing to update', 'info', 2600);
+    for (const p of res.failed) toast('could not update links in ' + p, 'err');
+  } finally {
+    askingRenames = false;
+    if (pendingRenames.length) void askAboutRenames();
+  }
+}
+
+/** The `fs` half: collect the paired renames that were not ours. */
+function onFsRenames(payload) {
+  const changes = payload && Array.isArray(payload.changes) ? payload.changes : [];
+  for (const c of changes) {
+    if (!c || c.kind !== 'rename' || !c.to || !c.path) continue;
+    const from = clean(c.path), to = clean(c.to);
+    if (!from || !to || from === to || wasSelfMove(from, to)) continue;
+    // Only markdown carries links worth chasing; an attachment that moved is a link into a
+    // file, and `findInbound` finds those too, so both kinds are collected.
+    pendingRenames.push({ from, to });
+  }
+}
+
 /**
  * A name the filesystem accepts, keeping the extension the file already had when the user
  * did not type one. A folder is passed '' and keeps no extension. Mirrors the editor's own
@@ -775,7 +939,10 @@ async function renameAt(path, kind) {
   const to = join(dirName(path), safe);
   if (to === path) return;
   try {
-    if (await bridge.exists(to)) { toast(safe + ' already exists here', 'err'); return; }
+    // `Notes.md` -> `notes.md` is the same file on Windows, so `exists` says yes and the
+    // rename used to be refused; the host performs a case-only rename through a temporary
+    // name, and this guard has to let it through (N17).
+    if (to.toLowerCase() !== path.toLowerCase() && await bridge.exists(to)) { toast(safe + ' already exists here', 'err'); return; }
     const pairs = filePairs(path, to);
     await bridge.rename(path, to);
     await afterMoves([{ from: path, to, pairs }], 'renamed');
@@ -866,7 +1033,21 @@ export function revealFolder(path) {
   });
 }
 
-/** Breadcrumb click: expand the folder in the tree and open its first page. */
+/**
+ * Breadcrumb click (N31): the folder is revealed in the tree and its row takes focus. It used
+ * to open the folder's first `.md` as well, which is an arbitrary page the user did not ask
+ * for; a crumb says where you are, and clicking it should show you that place, not move you.
+ */
+export function focusFolder(path) {
+  const dir = clean(path);
+  revealFolder(dir);
+  requestAnimationFrame(() => {
+    const row = rowFor(dir);
+    if (row) focusRow(row);
+  });
+}
+
+/** Kept for callers that really do want a page: reveal, then the folder's first `.md`. */
 export async function openFolder(path) {
   const dir = clean(path);
   revealFolder(dir);
@@ -1008,10 +1189,22 @@ function bindDnd(host) {
 
 /* ------------------------------------------------------- tree commands and menu */
 
-// Only what a markdown link cannot carry is escaped: a vault path is meant to stay readable, so
-// `1-personal/3-execution` is left alone and a space becomes %20 (CONTRACT.md batch 5).
-const URL_ESCAPES = { ' ': '%20', '(': '%28', ')': '%29', '<': '%3C', '>': '%3E' };
-const linkUrl = (path, dir) => clean(path).replace(/[ ()<>]/g, (c) => URL_ESCAPES[c]) + (dir ? '/' : '');
+/**
+ * The href a link to `path` should carry (N14, N15). It is the editor's `relativeHref` and
+ * nothing else, resolved against the page that is open: paste the result into that page and
+ * it works, which is the whole point of the command and is what it did not do before — it
+ * wrote a vault-absolute path with four characters escaped, so `Chapter #3.md` was truncated
+ * at the `#` and a link pasted anywhere but the vault root did not resolve.
+ *
+ * With no page open there is nothing to be relative to, so the vault-root form is written with
+ * a leading `/`, which `resolveHref` reads as "from the root" wherever it is later pasted.
+ */
+function linkUrl(path, dir) {
+  const r = currentRoute();
+  const from = r && r.type === 'page' ? r.path : null;
+  const href = from ? relativeHref(from, clean(path)) : '/' + relativeHref('', clean(path));
+  return (href || baseName(path)) + (dir ? '/' : '');
+}
 
 /** `copy path` and `copy link` (CONTRACT.md batch 5). A folder links as `[name](path/)`. */
 async function copyPath(path) {
@@ -1043,6 +1236,45 @@ function treeTarget() {
 const folderOf = (t) => (t.kind === 'dir' ? t.path : dirName(t.path));
 const reveal = (path) => bridge.reveal(path).catch((e) => toast(e.message || e, 'err'));
 
+/** `Name 2.md` beside a file, byte for byte, then the tree shows it (N23). Files only. */
+async function duplicateAt(path) {
+  const src = clean(path);
+  const dot = baseName(src).lastIndexOf('.');
+  const ext = dot > 0 ? baseName(src).slice(dot) : '';
+  const stem = dot > 0 ? baseName(src).slice(0, dot) : baseName(src);
+  const dir = dirName(src);
+  try {
+    let to = join(dir, `${stem} 2${ext}`);
+    for (let n = 3; n < 500 && await bridge.exists(to); n++) to = join(dir, `${stem} ${n}${ext}`);
+    // Text through readText/writeText so the bytes are not re-encoded through base64 for
+    // nothing; anything else could be binary and has no business being read as UTF-8.
+    if (isMd(src) || isTextFile(src)) await bridge.writeText(to, await bridge.readText(src));
+    else { toast('only text files can be duplicated from the tree', 'warn'); return; }
+    focusAfterRender = 'path:' + to;
+    await refreshTree();
+    toast('duplicated · ' + baseName(to), 'info', 2200);
+  } catch (e) { toast('could not duplicate: ' + (e.message || e), 'err'); }
+}
+
+/** Every folder in the tree, or none of them (N26). One persist, one render. */
+function setAllExpanded(open) {
+  if (!open) { expanded = new Set(); }
+  else {
+    const all = new Set();
+    const walk = (n) => {
+      for (const c of n.children || []) {
+        if (c.kind !== 'dir' || isHiddenName(c.name)) continue;
+        all.add(c.path);
+        walk(c);
+      }
+    };
+    if (tree) walk(tree);
+    expanded = all;
+  }
+  persistExpanded();
+  render();
+}
+
 // One table for the palette and the context menu, so the two cannot drift: the menu is built
 // from these entries (label, icon, shortcut all come from the registered command) and each
 // entry's `applies(target)` decides both the palette's `when` and the menu's rows. The
@@ -1067,14 +1299,27 @@ const TREE_COMMANDS = [
     applies: (t) => !!t.path, run: (t) => void renameAt(t.path, t.kind) },
   // A lone folder is not offered Move to… (it drags); a selection may hold folders, and each
   // is checked against the destination when it lands.
+  // A folder can be moved from the menu now as well as dragged (N22): dragging is a mouse,
+  // and everything in this app has to be reachable without one.
   { id: 'tree.move', title: 'Move to…', icon: 'folder', group: 'tree',
-    applies: (t) => !!t.path && (t.kind !== 'dir' || !!batchFor(t)), run: (t) => void moveTo(batchFor(t) || [t]) },
+    applies: (t) => !!t.path, run: (t) => void moveTo(batchFor(t) || [t]) },
+  { id: 'tree.duplicate', title: 'Duplicate', icon: 'copy', group: 'tree',
+    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void duplicateAt(t.path) },
   { id: 'tree.copy-path', title: 'Copy path', icon: 'copy', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
+  { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
+    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => openWith(t.path) },
   { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
     applies: () => true, run: (t) => void reveal(t.path) },
+  // Search, already narrowed: the overlay opens with `path:<folder>/` typed for you (N38).
+  { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',
+    applies: (t) => !!t.path && t.kind === 'dir', run: (t) => openSearch({ prefill: `path:${t.path}/ ` }) },
+  { id: 'tree.collapse-all', title: 'Collapse all folders', icon: 'chevron', group: 'tree',
+    applies: () => true, run: () => setAllExpanded(false) },
+  { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
+    applies: () => true, run: () => setAllExpanded(true) },
   { id: 'tree.trash', title: 'Move to trash', icon: 'trash', group: 'tree', danger: true,
     applies: (t) => !!t.path, run: (t) => void trashAt(batchFor(t) || [t]) },
 ];
@@ -1096,9 +1341,11 @@ const MENU = [
   'tree.new-page', 'tree.new-folder',
   null,
   'tree.pin', 'tree.unpin', 'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
-  'tree.rename', 'tree.move',
+  'tree.rename', 'tree.move', 'tree.duplicate',
   null,
-  'tree.copy-path', 'tree.copy-link', 'tree.reveal',
+  'tree.copy-path', 'tree.copy-link',
+  null,
+  'tree.search-here', 'tree.open-external', 'tree.reveal',
   null,
   'tree.trash',
 ];
@@ -1146,6 +1393,25 @@ function multiMenu(batch) {
     if (it) items.push(it);
   }
   return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+}
+
+/**
+ * The menu for a row, whichever way it was asked for: right-click, Shift+F10 or the Menu key.
+ * A row inside a selection of several gets the selection's menu; any other row drops the
+ * selection first, so a menu is never about rows the user is not pointing at.
+ */
+function menuItemsForRow(row) {
+  const target = { path: row.dataset.path, kind: row.dataset.kind };
+  const batch = isSelectable(row) ? batchFor(target) : null;
+  if (!batch && isSelectable(row)) clearSelection();
+  return batch ? multiMenu(batch) : menuFor(row.dataset.path, row.dataset.kind);
+}
+
+/** The keyboard's context menu (S12): under the row, aligned with where its name starts. */
+function openMenuAt(row) {
+  if (!row || row.dataset.path === undefined) return;
+  const r = row.getBoundingClientRect();
+  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), menuItemsForRow(row));
 }
 
 /** Right-click on the empty space under the tree: create in scratch, or in the focus folder. */
@@ -1209,16 +1475,14 @@ export function initSidebar(node) {
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
-    const target = { path: row.dataset.path, kind: row.dataset.kind };
-    const batch = isSelectable(row) ? batchFor(target) : null;
-    if (!batch && isSelectable(row)) clearSelection();
-    contextMenu(e.clientX, e.clientY, batch ? multiMenu(batch) : menuFor(row.dataset.path, row.dataset.kind));
+    contextMenu(e.clientX, e.clientY, menuItemsForRow(row));
   });
 
   bindDnd(scrollEl);
 
   const onFs = debounce(() => refreshTree(), 350);
-  bus.on('fs', onFs);
+  const askLater = debounce(() => void askAboutRenames(), 600);
+  bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFs(); });
   bus.on('route', () => { const r = currentRoute(); if (r && r.type === 'page') expandAncestors(r.path); render(); scrollToCurrent(); });
   bus.on('booted', () => render());
   bus.on('focus', () => { render(); scrollToCurrent(); });

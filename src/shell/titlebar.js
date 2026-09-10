@@ -3,18 +3,20 @@
 // frameless window these buttons are the only way to minimise or close, so they are ordinary
 // tab stops (D6). They sit first in the DOM and so first in the tab ring; putting them last
 // would take a positive tabindex or a re-ordered shell, neither worth it for three buttons.
-import { bus, esc } from '../registry.js';
+import { bus, commands, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
-import { glyph } from './icons.js';
+import { glyph, icon } from './icons.js';
 import { segments, titleOf, clean, baseName } from './paths.js';
-import { openFolder } from './sidebar.js';
+import { focusFolder } from './sidebar.js';
 import { getFocus, isUnderFocus } from './focus.js';
-import { currentRoute } from './router.js';
+import { currentRoute, canBack, canForward } from './router.js';
+import { shortcutFor } from './keys.js';
 
 let el = null;
 let crumbsEl = null;
 let dirtyEl = null;
 let maxBtn = null;
+let navEls = null;
 let maximized = false;
 
 // A real window: WebView2 or Tauri. The browser has its own frame and no window control.
@@ -69,7 +71,7 @@ function renderCrumbs(route) {
 
   parts.forEach((p, i) => {
     if (i) crumbsEl.appendChild(sep());
-    crumbsEl.appendChild(crumb(p.text, p.folder ? () => openFolder(p.folder) : null, (p.cur ? 'cur' : '') + (p.focus ? ' focus' : '')));
+    crumbsEl.appendChild(crumb(p.text, p.folder ? () => focusFolder(p.folder) : null, (p.cur ? 'cur' : '') + (p.focus ? ' focus' : '')));
   });
 }
 
@@ -78,6 +80,10 @@ export function initTitlebar(node) {
   el.className = 'titlebar';
   el.innerHTML = `
     <div class="tb-mark" title="os editor"><span>os</span></div>
+    <div class="tb-nav">
+      <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
+      <button class="tb-nav-btn" data-nav="forward" type="button">${icon('forward')}</button>
+    </div>
     <nav class="tb-crumbs mono" aria-label="location"></nav>
     <span class="tb-dirty" title="unsaved changes" hidden></span>
     <div class="tb-drag"></div>
@@ -90,6 +96,20 @@ export function initTitlebar(node) {
   crumbsEl = el.querySelector('.tb-crumbs');
   dirtyEl = el.querySelector('.tb-dirty');
   maxBtn = el.querySelector('[data-w="max"]');
+
+  // Back and forward, where every browser and every file manager puts them (N45, L23). The
+  // chord is in the tooltip, not on a label: the title bar is chrome, not a toolbar.
+  navEls = { back: el.querySelector('[data-nav="back"]'), forward: el.querySelector('[data-nav="forward"]') };
+  for (const name of ['back', 'forward']) {
+    const b = navEls[name];
+    const chord = shortcutFor('app.' + name);
+    const label = name === 'back' ? 'Back' : 'Forward';
+    b.title = chord ? `${label} (${chord})` : label;
+    b.setAttribute('aria-label', label);
+    b.addEventListener('mousedown', (e) => e.stopPropagation());
+    b.addEventListener('click', () => commands.run('app.' + name));
+  }
+  updateNav();
 
   el.querySelectorAll('.tb-btn').forEach((b) => {
     // Drawn dim and inert in the browser, so not tab stops there either.
@@ -120,10 +140,17 @@ export function initTitlebar(node) {
   bridge.on('window', (d) => { if (d && typeof d.maximized === 'boolean') setMaximized(d.maximized); });
   if (HOST()) bridge.win.isMaximized().then(setMaximized).catch(() => { });
 
-  bus.on('route', (r) => { renderCrumbs(r); setDirty(false); });
+  bus.on('route', (r) => { renderCrumbs(r); updateNav(); setDirty(false); });
   bus.on('focus', () => renderCrumbs(currentRoute()));
   bus.on('doc:dirty', (d) => setDirty(d && d.dirty));
   bus.on('doc:saved', () => setDirty(false));
 }
 
 export function setDirty(v) { if (dirtyEl) dirtyEl.hidden = !v; }
+
+/** Disabled when there is nowhere to go: the buttons say what only the chords knew before. */
+export function updateNav() {
+  if (!navEls) return;
+  navEls.back.disabled = !canBack();
+  navEls.forward.disabled = !canForward();
+}

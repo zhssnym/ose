@@ -21,9 +21,10 @@ import * as image from './image.js';
 import * as source from './source.js';
 import * as versions from './versions.js';
 import * as backlinks from './backlinks.js';
+import * as linkstate from './linkstate.js';
 import * as wikitrigger from './wikitrigger.js';
 
-const MODULES = [table, code, commandsMod, menu, image, source, versions, backlinks, wikitrigger];
+const MODULES = [table, code, commandsMod, menu, image, source, versions, backlinks, linkstate, wikitrigger];
 
 /** @returns {import('@milkdown/kit/prose/state').Plugin[]} */
 export function extensionPlugins(ctx, o) {

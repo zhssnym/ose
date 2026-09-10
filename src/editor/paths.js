@@ -62,6 +62,51 @@ export function resolveHref(fromFile, href) {
   return joinPath(dirname(fromFile), decoded);
 }
 
+/**
+ * A `#fragment` as the user meant it: percent-escapes decoded, `+` left alone (a heading may
+ * hold one). An undecodable fragment is kept as written rather than thrown away.
+ */
+function decodeFragment(frag) {
+  const f = String(frag || '');
+  try { return decodeURIComponent(f); } catch { return f; }
+}
+
+/**
+ * A markdown href split into what it points at and where inside it (N3, N4, L13):
+ * `{ path, heading }`, or null when the href is external or empty. A bare `#heading` points
+ * at `fromFile` itself. `heading` is '' when the href carries no fragment.
+ *
+ * `resolveHref` stays what it was — a path and nothing else — because everything that only
+ * wants a file (images, the link rewriter, the tree) would have to strip the fragment again.
+ */
+export function linkTarget(fromFile, href) {
+  let h = String(href || '').trim();
+  if (!h || isExternal(h)) return null;
+  const hash = h.indexOf('#');
+  const heading = hash < 0 ? '' : decodeFragment(h.slice(hash + 1));
+  if (hash >= 0) h = h.slice(0, hash);
+  if (!h.split('?')[0]) return heading ? { path: normalize(fromFile), heading } : null;
+  const path = resolveHref(fromFile, h);
+  return path === null ? null : { path, heading };
+}
+
+/**
+ * GitHub's heading slug: lowercased, punctuation dropped, spaces to hyphens. The one
+ * `[text](#some-heading)` is written against, and the first thing `lines.js headingLine`
+ * compares a heading with.
+ */
+export const headingSlug = (s) =>
+  String(s || '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s+/g, '-');
+
+/**
+ * Files that are text but not markdown: the editor opens them in source mode rather than
+ * handing them to the platform (N25). Everything else non-markdown is `bridge.openPath`.
+ */
+export const TEXT_EXTS = new Set(['txt', 'csv', 'jsonl', 'py', 'log', 'tex', 'json', 'yaml', 'toml']);
+
+export const isMarkdown = (p) => extname(p) === 'md';
+export const isTextFile = (p) => TEXT_EXTS.has(extname(p));
+
 /** Write a vault path back as an href relative to `fromFile`, with %20-style escaping. */
 export function relativeHref(fromFile, target) {
   const from = dirname(fromFile).split('/').filter(Boolean);

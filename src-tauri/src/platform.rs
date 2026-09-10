@@ -27,6 +27,7 @@ pub(crate) fn quiet_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
     match cmd {
         "openExternal" => Some(cmd_open_external(args)),
+        "openPath" => Some(cmd_open_path(ctx, args)),
         "reveal" => Some(cmd_reveal(ctx, args)),
         "platform" => Some(Ok(platform_info(ctx))),
         _ => None,
@@ -41,6 +42,28 @@ fn cmd_open_external(args: &[Value]) -> Result<Value, String> {
 fn cmd_reveal(ctx: &Ctx, args: &[Value]) -> Result<Value, String> {
     reveal(ctx, &arg_str(args, 0)?)?;
     Ok(Value::Null)
+}
+
+fn cmd_open_path(ctx: &Ctx, args: &[Value]) -> Result<Value, String> {
+    open_path(ctx, &arg_str(args, 0)?)?;
+    Ok(Value::Null)
+}
+
+// ---- openPath -------------------------------------------------------------
+
+/// A vault file in the platform's default application (N10, N24). The argument is a
+/// vault-relative path and nothing else: it is resolved through `vault::resolve`, so it can
+/// never leave the root, and `opener::open` is handed the resolved *path*, never a string the
+/// UI composed — a `file:` or `vscode:` url in the argument is a path segment here, not a
+/// scheme, which is why `openExternal` can keep refusing every scheme it does not know.
+fn open_path(ctx: &Ctx, rel: &str) -> Result<(), String> {
+    let root = ctx.st.require_root()?;
+    let full = crate::vault::resolve(&root, rel)?;
+    let meta = std::fs::symlink_metadata(&full).map_err(|_| format!("nothing to open: {rel}"))?;
+    if meta.file_type().is_symlink() {
+        return Err(format!("refusing to open a symlink: {rel}"));
+    }
+    opener::open(&full).map_err(|e| format!("failed to open {rel}: {e}"))
 }
 
 // ---- openExternal ---------------------------------------------------------
