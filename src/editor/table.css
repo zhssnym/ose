@@ -1,0 +1,122 @@
+/* Tables (batch 12, package P2). Imported from table.js.
+ *
+ * Two jobs. First, make Milkdown's row/column popover reachable without a mouse: its handles are
+ * hidden with `opacity: 0` and its button groups with `display: none`, both driven by a
+ * `data-show` attribute that only `pointermove` ever sets, so focus alone left them invisible.
+ * Second, draw the handles like the rest of the app — square corners, 1px hairlines, tokens
+ * only, no shadows, `--sp-*` spacing. Milkdown's own table.css is a pill-shaped, drop-shadowed
+ * Material control; every rule here that repeats one of its selectors is overriding that.
+ *
+ * The cell borders, the mono header row and the selected-cell tint stay in editor.css (P3);
+ * nothing here touches a cell.
+ */
+
+/* --- reachable from the keyboard ---------------------------------------- */
+
+/* A handle parked on the caret's cell (table.js) or hovered stays lit while focus is in it. */
+.ed .milkdown .milkdown-table-block .handle:focus-within,
+.ed .milkdown .milkdown-table-block .handle:focus-visible {
+  opacity: 1;
+}
+
+/* The add-row / add-column button is the whole line handle; show it on hover or focus. */
+.ed .milkdown .milkdown-table-block .line-handle:hover,
+.ed .milkdown .milkdown-table-block .line-handle:focus-within {
+  opacity: 1;
+}
+
+/* Milkdown hides the alignment / delete group with `display: none` until a pointer opens it. */
+.ed .milkdown .milkdown-table-block .cell-handle:focus-within .button-group[data-show='false'] {
+  display: flex;
+}
+
+.ed .milkdown .milkdown-table-block .handle:focus-visible,
+.ed .milkdown .milkdown-table-block .handle button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- drawn like the rest of the app -------------------------------------- */
+
+.ed .milkdown .milkdown-table-block .cell-handle {
+  background-color: var(--bg-2);
+  color: var(--fg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle:hover,
+.ed .milkdown .milkdown-table-block .cell-handle:focus-visible {
+  background-color: var(--bg-3);
+  color: var(--fg-2);
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle:has(.button-group:hover) {
+  background-color: var(--bg-2);
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle .button-group {
+  gap: var(--sp-half);
+  padding: var(--sp-half);
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle .button-group button {
+  margin: 0;
+  padding: var(--sp-1);
+  color: var(--fg-2);
+  border-radius: var(--radius);
+  transition: background-color 120ms ease-out;
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle .button-group button svg {
+  width: var(--sp-4);
+  height: var(--sp-4);
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle .button-group button:hover {
+  border-radius: var(--radius);
+  background-color: var(--bg-3);
+}
+
+.ed .milkdown .milkdown-table-block .cell-handle .button-group button:active {
+  background-color: var(--accent-soft);
+}
+
+/* The 1px insertion line and the round add button that rides on it. */
+.ed .milkdown .milkdown-table-block .line-handle {
+  background-color: var(--accent);
+}
+
+.ed .milkdown .milkdown-table-block .line-handle .add-button {
+  background-color: var(--bg-2);
+  color: var(--fg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  transition: background-color 120ms ease-out;
+}
+
+.ed .milkdown .milkdown-table-block .line-handle .add-button:hover {
+  background-color: var(--bg-3);
+}
+
+.ed .milkdown .milkdown-table-block .line-handle .add-button:active {
+  background-color: var(--accent-soft);
+}
+
+.ed .milkdown .milkdown-table-block svg {
+  fill: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ed .milkdown .milkdown-table-block .handle,
+  .ed .milkdown .milkdown-table-block .handle button {
+    transition: none;
+  }
+}
