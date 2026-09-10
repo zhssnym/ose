@@ -76,8 +76,8 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.ghost:hover { background: var(--bg-3); }
 .btn.icon { width: var(--ctl-h); padding: 0; justify-content: center; }
-.btn.sm { height: 22px; padding: 0 var(--sp-2); font-size: var(--fs-chrome-sm); }
-.btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.btn.sm { height: 1.375rem; padding: 0 var(--sp-2); font-size: var(--fs-chrome-sm); }
+.btn svg { width: 1rem; height: 1rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* input */
 .input {
@@ -95,7 +95,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 
 /* chip */
 .chip {
-  height: 20px; padding: 0 var(--sp-2);
+  height: 1.25rem; padding: 0 var(--sp-2);
   display: inline-flex; align-items: center; gap: var(--sp-1);
   background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
@@ -122,7 +122,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .row:hover { background: var(--bg-3); }
 .row.current { background: var(--accent-soft); border-left-color: var(--accent); }
 .row.active { background: var(--bg-4); }
-.row svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--fg-3); }
+.row svg { width: 1rem; height: 1rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--fg-3); }
 .row .hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
 
 /* panel header: one bar height for every bar with a label in it (E2) */
@@ -140,14 +140,14 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 
 /* checkbox */
 .check {
-  width: 16px; height: 16px; flex: none;
+  width: 1rem; height: 1rem; flex: none;
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   background: var(--bg); display: inline-grid; place-items: center;
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 .check.on { background: var(--accent); border-color: var(--accent); }
 .check.on::after {
-  content: ""; width: 9px; height: 5px;
+  content: ""; width: 0.5625rem; height: 0.3125rem;
   border-left: 2px solid var(--accent-fg); border-bottom: 2px solid var(--accent-fg);
   transform: translateY(-1px) rotate(-45deg);
 }
@@ -155,7 +155,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 /* kbd */
 .kbd {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  padding: 0 var(--sp-1); height: 18px; display: inline-flex; align-items: center;
+  padding: 0 var(--sp-1); height: 1.125rem; display: inline-flex; align-items: center;
   border: 1px solid var(--border); border-bottom-width: 2px; border-radius: var(--radius);
   color: var(--fg-2); background: var(--bg);
 }
@@ -190,6 +190,10 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   max-width: calc(var(--page-w) + var(--page-pad-x) * 2);
   margin: 0 auto; padding: var(--page-pad-top) var(--page-pad-x) calc(2 * var(--page-pad-top));
 }
+/* Settings' `Readable width`, off: the column stops being a column and fills the window, the
+   side air alone keeping the text off the edges (S3). One class on <html>, so the editor and
+   every view follow it without knowing it exists. */
+:root.full-width .page-col { max-width: none; }
 .page-title {
   font-family: var(--font-title); font-size: var(--fs-title); font-weight: 400;
   line-height: 1.2; margin: 0 0 var(--sp-5); color: var(--fg); letter-spacing: -.01em;

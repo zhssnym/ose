@@ -19,6 +19,7 @@ pub mod protocol;
 pub mod state;
 pub mod update;
 pub mod vault;
+pub mod vaults;
 pub mod versions;
 pub mod watcher;
 
@@ -184,6 +185,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 /// at the root therefore collides with its own macro (E0255). Commands live in a submodule.
 pub mod commands {
     use super::*;
+    use tauri::Manager as _;
 
     /// The whole bridge. `cmd` is the CONTRACT.md method name in camelCase; errors are plain strings.
     #[tauri::command]
@@ -209,10 +211,36 @@ pub mod commands {
 
         log_line(st, &format!("rpc {cmd}"));
 
+        // Quitting goes through the window's close path, never around it: `close()` raises
+        // CloseRequested, the adapter holds it open until the editor's last save has settled,
+        // and only then destroys the window (S16). Cmd+Q and Ctrl+Q therefore save like the
+        // close button does.
+        if cmd == "quit" {
+            return match app.get_webview_window("main") {
+                Some(w) => {
+                    log_line(st, "quit requested by the UI");
+                    w.close().map(|_| Value::Null).map_err(|e| e.to_string())
+                }
+                None => {
+                    app.exit(0);
+                    Ok(Value::Null)
+                }
+            };
+        }
+
         // The folder picker is the one command that waits on the user, so it is awaited here
         // rather than dispatched through the synchronous module handlers.
         if cmd == "pickVault" {
             let r = vault::pick_vault(&ctx).await;
+            // A vault the user chose is a vault they may want back: the recent list is written
+            // here, where both the picker and `openVault` pass through.
+            if let Ok(Value::Object(o)) = &r {
+                if let Some(p) = o.get("root").and_then(Value::as_str) {
+                    if let Err(e) = vaults::record(&app, std::path::Path::new(p)) {
+                        log_line(st, &format!("recent vaults: {e}"));
+                    }
+                }
+            }
             return log_err(st, &cmd, r);
         }
 
@@ -222,6 +250,11 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
 
+        // Before vault.rs: the recent list owns `recentVaults`, `openVault` and the
+        // one-argument `forgetVault`; the no-argument one falls through to vault.rs.
+        if let Some(r) = vaults::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
         if let Some(r) = vault::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
@@ -294,6 +327,32 @@ mod tests {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(19_000), (2022, 1, 8));
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
+    }
+
+    /// `tauri.macos.conf.json` is merged into `tauri.conf.json` with RFC 7396, and RFC 7396
+    /// replaces an array wholesale: a key added to the base window object and not repeated in
+    /// the macOS one silently disappears on macOS. That is how `dragDropEnabled: false` was
+    /// lost, and how every drop and drag-to-move on a Mac stopped working (S17/S49). The two
+    /// files carry no comments — tauri parses them as strict JSON — so the rule is a test:
+    /// every key of the base window must appear in the macOS window.
+    #[test]
+    fn the_macos_window_mirrors_every_key_of_the_base_window() {
+        const BASE: &str = include_str!("../tauri.conf.json");
+        const MAC: &str = include_str!("../tauri.macos.conf.json");
+        let window = |text: &str| -> serde_json::Map<String, Value> {
+            serde_json::from_str::<Value>(text).expect("config is valid JSON")["app"]["windows"][0]
+                .as_object()
+                .expect("one window object")
+                .clone()
+        };
+        let (base, mac) = (window(BASE), window(MAC));
+        let missing: Vec<&String> = base.keys().filter(|k| !mac.contains_key(*k)).collect();
+        assert!(
+            missing.is_empty(),
+            "tauri.macos.conf.json must repeat every window key of tauri.conf.json; missing: {missing:?}"
+        );
+        // The one that matters most, spelled out so a future merge cannot quietly drop it.
+        assert_eq!(mac.get("dragDropEnabled"), Some(&Value::Bool(false)));
     }
 
     #[test]

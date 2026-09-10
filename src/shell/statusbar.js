@@ -5,6 +5,7 @@ import { bus, store, status, commands, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { resolvedTheme } from './theme.js';
 import { statusItem } from './update.js';
+import { zoomLabel } from './settings.js';
 
 let leftEl = null, rightEl = null;
 let sawFs = false;
@@ -18,8 +19,13 @@ function renderLeft() {
 
 function renderRight() {
   const upd = statusItem();
+  // The zoom shows only while it is not 100 %: a bar that always says `100%` teaches nobody
+  // anything, and one that says `110%` explains why the window looks different (S4). It is a
+  // button, so clicking or tabbing to it and pressing Enter puts the app back to 100 %.
+  const zoom = zoomLabel();
   rightEl.innerHTML =
     (upd ? `<button type="button" class="st-item st-update" title="A newer build is published">${esc(upd)}</button><span class="st-sep"></span>` : '') +
+    (zoom ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button><span class="st-sep"></span>` : '') +
     `<span class="st-item st-hint">ctrl+, settings</span>` +
     `<span class="st-sep"></span>` +
     `<span class="st-item">${esc(resolvedTheme())}</span>` +
@@ -35,9 +41,11 @@ export function initStatusbar(node) {
 
   status.watch(renderLeft);
   bus.on('theme', renderRight);
+  bus.on('settings', renderRight);
   store.watch('update', renderRight);
   rightEl.addEventListener('click', (e) => {
     if (e.target.closest('.st-update')) commands.run('app.update');
+    else if (e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
   });
   renderLeft();
   renderRight();

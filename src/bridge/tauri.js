@@ -29,12 +29,15 @@ export function vaultUrl(path, platform) {
   return platform === 'windows' ? `http://vault.localhost/${p}` : `vault://localhost/${p}`;
 }
 
-// Closing: the window is destroyed once every `closing` handler has settled, but never before
-// CLOSE_FLOOR (a handler that returns nothing, like the router's state flush today, still
-// gets the time the old flat delay gave it) and never later than CLOSE_CEILING (a hung save
-// must not make the window unclosable).
+// Closing: the window is destroyed once every `closing` handler has settled, and not before.
+// CLOSE_FLOOR is the minimum (a handler that returns nothing, like the router's state flush,
+// still gets the time the old flat delay gave it). There is deliberately no ceiling any more
+// (S28): a save that is slow — a big file, a sync client holding it, a network drive — used to
+// be cut off at three seconds along with the process, which is the one thing an editor must
+// never do. After CLOSE_NOTICE the window says it is still saving and keeps waiting; the save
+// itself decides when it is done, and a save that fails vetoes the close with its own message.
 const CLOSE_FLOOR = 400;
-const CLOSE_CEILING = 3000;
+const CLOSE_NOTICE = 3000;
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function create() {
@@ -62,6 +65,9 @@ export async function create() {
       .catch((err) => console.error(`[bridge] listen(${name}) failed`, err));
   forward('fs');
   forward('update');
+  // A second launch that named another folder: the host has adopted it and the page reloads
+  // into it (S14). One window per vault, so this is how the other vault arrives.
+  forward('vault');
 
   // ---------------------------------------------------------------- window events
   let maximized = false;
@@ -101,15 +107,30 @@ export async function create() {
     e.preventDefault();
     const pending = fanout({ event: 'window', data: { closing: true } })
       .filter((r) => r && typeof r.then === 'function');
-    const [outcome] = await Promise.all([
-      Promise.race([Promise.allSettled(pending), delay(CLOSE_CEILING).then(() => 'timeout')]),
-      delay(CLOSE_FLOOR),
-    ]);
-    if (outcome === 'timeout') console.warn('[bridge] closing handlers did not settle in time');
+
+    // Past three seconds the window is still there and nothing on screen says why. One toast,
+    // which stays up until the save settles, is the whole notice.
+    let dismiss = null;
+    const notice = setTimeout(async () => {
+      try {
+        const { toast } = await import('../shell/dialog.js');
+        dismiss = toast('still saving…', 'warn', 10 * 60 * 1000);
+      } catch { /* no shell (the self-test page): the console line is enough */ }
+      console.warn('[bridge] a closing handler is taking longer than 3s; waiting');
+    }, CLOSE_NOTICE);
+
+    let outcome;
+    try {
+      [outcome] = await Promise.all([Promise.allSettled(pending), delay(CLOSE_FLOOR)]);
+    } finally {
+      clearTimeout(notice);
+      if (dismiss) dismiss();
+    }
+
     // A handler that resolved `false` vetoes the close: the editor does this when the last
-    // save needs an answer (the file changed on disk). Its dialog is up; the user answers and
-    // closes again, which starts this over.
-    if (Array.isArray(outcome) && outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
+    // save needs an answer (the file changed on disk), and when the save itself failed. Its
+    // dialog or its toast is up; the user answers and closes again, which starts this over.
+    if (outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
       closing = false;
       return;
     }
@@ -145,6 +166,13 @@ export async function create() {
         return w.startResizeDragging(dir);
       },
       setTheme: (theme) => w.setTheme(theme === 'light' || theme === 'dark' ? theme : null),
+      // The window title says what is open, the way every editor's does (S13). The document
+      // title follows it too, so the two never disagree.
+      setTitle: (text) => {
+        const s = String(text ?? '');
+        try { document.title = s; } catch { /* no document: nothing to mirror */ }
+        return w.setTitle(s);
+      },
     },
   };
 }

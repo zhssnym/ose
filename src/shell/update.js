@@ -125,7 +125,7 @@ export function openUpdateDialog() {
   if (dialog) { dialog.ok.focus(); return; }
   const u = current();
   if (!u.behind) { toast('up to date', 'info'); return; }
-  const ov = openOverlay({ width: 480, className: 'dlg-ov', onClose: () => { dialog = null; } });
+  const ov = openOverlay({ width: 480, className: 'dlg-ov', title: 'Update available', onClose: () => { dialog = null; } });
   ov.box.classList.add('dlg');
   const from = u.current ? u.current.short : '?';
   const to = u.latest ? u.latest.short : '?';

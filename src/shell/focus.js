@@ -6,15 +6,35 @@
 // leaves it: only the `exit` control in the sidebar or the command `app.focus-exit`.
 import { bus, store, commands } from '../registry.js';
 import { patchState, stateCache } from './state.js';
-import { clean, baseName } from './paths.js';
+import { clean, baseName, dirName } from './paths.js';
+import { newPageMode } from './settings.js';
+import { getSource } from '../lib/sources.js';
 
 let focus = null;
 
 /** The focused folder, or null. */
 export function getFocus() { return focus; }
 
-/** '' (the vault root) when not focused, so `join(defaultNewFolder(), name)` always works. */
-export function defaultNewFolder() { return focus || ''; }
+/**
+ * Where a new page goes (S34). A focused folder always wins: focus mode means the app is
+ * narrowed to that folder, and creating outside it would be a surprise. Otherwise the setting
+ * decides: `focus` is what the app has always done (nothing here, so `page.new` falls through
+ * to the open page's folder and then the scratch source), `scratch` names the scratch folder
+ * outright, `page` names the folder of the page on screen.
+ *
+ * Always a vault-relative folder path or '' (the vault root), so `join(defaultNewFolder(),
+ * name)` works whatever the answer is.
+ */
+export function defaultNewFolder() {
+  if (focus) return focus;
+  const mode = newPageMode();
+  if (mode === 'scratch') return clean(getSource('scratch')) || '';
+  if (mode === 'page') {
+    const route = store.get('route');
+    if (route && route.type === 'page' && route.path) return dirName(route.path);
+  }
+  return '';
+}
 
 /** True when nothing is focused, or when `path` is the focus folder or inside it. */
 export function isUnderFocus(path) {

@@ -16,6 +16,7 @@ import { initUpdate } from './update.js';
 import { initKeys } from './keys.js';
 import { icon } from './icons.js';
 import { initFocus, loadFocus, getFocus, defaultNewFolder } from './focus.js';
+import { vaultLost, vaultFound, reloadIntoVault } from './vault.js';
 import { loadSources } from '../lib/sources.js';
 
 export { navigate, back, forward, clearRoute };
@@ -26,23 +27,48 @@ export { getFocus, defaultNewFolder };
 export { scratchFolder } from './sidebar.js';
 // The page picker behind the editor's `Link` item and the `page.link` command.
 export { pickPage, pageTitle, copyText } from './dialog.js';
+// Settings other modules read: where an attachment goes, whether to spellcheck, where a
+// deleted file goes and what to call that place in the confirmation (S35, S36, S37).
+export { settings, attachmentFolder, spellcheckOn, trashMode, trashDestination } from './settings.js';
+// "The vault is gone": the watcher says it, and anything that reads the root and is told it
+// does not exist may say it too (S29).
+export { vaultLost } from './vault.js';
 
 const MIN_MAIN = 340;
 const S_MIN = 200, S_MAX = 420;
+// L25: the sidebar never takes more than this share of the window, and under NARROW it steps
+// out of the way altogether. 420px of sidebar in a 700px window is a sidebar with a page
+// stapled to it; the preference is not touched, only what is drawn.
+const S_SHARE = 0.4;
+const NARROW = 640;
 
 let shell = null;
 let wantS = 260;
+let autoHidden = false;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /* ------------------------------------------------------------------ layout */
 
-/** The sidebar gives way before the page column does: the page keeps MIN_MAIN on a narrow window. */
+/**
+ * The sidebar gives way before the page column does: the page keeps MIN_MAIN on a narrow
+ * window, the sidebar never exceeds S_SHARE of it, and under NARROW it hides itself and comes
+ * back when the window is wide again (L25). `sidebar.open` — the user's preference — is never
+ * written by any of this; `autoHidden` is what the window did, and toggling the sidebar by
+ * hand clears it, so an explicit Ctrl+\ still opens it on a small window.
+ */
 function fit() {
   if (!shell) return;
   const avail = window.innerWidth;
-  const sOpen = !!store.get('sidebar.open');
-  let s = sOpen ? wantS : 0;
+  const narrow = avail < NARROW;
+  const wanted = !!store.get('sidebar.open');
+  if (narrow && wanted && !autoHidden) autoHidden = true;
+  else if (!narrow && autoHidden) autoHidden = false;
+
+  const sOpen = wanted && !autoHidden;
+  shell.classList.toggle('no-sidebar', !sOpen);
+
+  let s = sOpen ? Math.min(wantS, Math.max(S_MIN, Math.round(avail * S_SHARE))) : 0;
   const over = s + MIN_MAIN - avail;
   if (over > 0 && s > 0) { const cut = clamp(over, 0, Math.max(0, s - S_MIN)); s -= cut; }
   shell.style.setProperty('--sidebar-w', (sOpen ? s : wantS) + 'px');
@@ -118,8 +144,9 @@ function measureMain(w) {
   if (next === wide) return;
   wide = next;
   if (next) {
-    shell.style.setProperty('--page-w', '800px');
-    shell.style.setProperty('--page-pad-x', 'max(48px, 6vw)');
+    // rem, like the tokens they override, so a wide window zooms with everything else.
+    shell.style.setProperty('--page-w', '50rem');
+    shell.style.setProperty('--page-pad-x', 'max(3rem, 6vw)');
   } else {
     shell.style.removeProperty('--page-w');
     shell.style.removeProperty('--page-pad-x');
@@ -182,6 +209,69 @@ function guardWindowDrops() {
   });
 }
 
+/* ------------------------------------------------------------- the vault itself */
+
+/**
+ * The folder the whole window is open on can stop existing (S29): renamed in Explorer,
+ * unmounted, deleted. The host's watcher says so once — `fs` with `{lost:true}` — instead of
+ * failing every call with a toast of its own, and says so again when it comes back. The other
+ * half is a second launch naming a different folder, which the host adopts and announces on
+ * `vault`; the page reloads into it, because every module read its world at boot.
+ */
+function watchVault() {
+  bridge.on('fs', (d) => {
+    if (!d || typeof d.lost !== 'boolean') return;
+    if (d.lost) vaultLost();
+    else vaultFound();
+  });
+  bridge.on('vault', (d) => { if (d && d.changed) reloadIntoVault(); });
+}
+
+/* --------------------------------------------------- the browser underneath */
+
+// S27. The web view is a browser, and a browser's own accelerators are still live in it: F5
+// and Ctrl+R reload the app — which throws away an unsaved buffer and every scrap of state
+// the page holds — Ctrl+U shows the source, F7 turns on caret browsing. Tauri exposes none of
+// wry's `browser_accelerator_keys`, so the page refuses them itself; Chromium lets a page do
+// that for all of these (they are not reserved shortcuts). Zoom's own hotkeys are off at the
+// web view (`zoomHotkeysEnabled: false` in both window configs), which is what leaves
+// Ctrl+= / Ctrl+- / Ctrl+0 free for our zoom commands.
+//
+// Ctrl+O is deliberately not here: it is quick open (keys.js), which already takes the event
+// in the capture phase, so the web view's Open-file dialog never gets a chance either way. A
+// key this guard swallows must be one nothing in the app wants.
+const BROWSER_KEYS = new Set([
+  'f5', 'ctrl+f5', 'shift+f5', 'ctrl+r', 'ctrl+shift+r', 'ctrl+u', 'f7',
+]);
+
+function guardBrowserKeys() {
+  window.addEventListener('keydown', (e) => {
+    const k = String(e.key || '').toLowerCase();
+    if (!k) return;
+    const combo = (e.ctrlKey || e.metaKey ? 'ctrl+' : '') + (e.shiftKey ? 'shift+' : '') + k;
+    if (!BROWSER_KEYS.has(combo) && !BROWSER_KEYS.has(k)) return;
+    // F5 with no modifier is in the set by its bare name; anything with Alt is not ours.
+    if (e.altKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+}
+
+// The web view's own context menu carries Reload and Back, either of which loses the buffer
+// (S11/S27). Anything that has its own menu — the tree, the editor — has called preventDefault
+// by the time this runs; what is left is the browser's, and it does not belong in the app.
+//
+// Shift+right-click is the one way through, and it is deliberate: no browser tells a page
+// which word is underlined, so the web view's own menu is the only place a spelling suggestion
+// can come from (P3's editor menu leaves that gesture unclaimed for exactly this). It is the
+// same escape hatch Chromium itself uses for a page that overrides the menu.
+function guardContextMenu() {
+  window.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented || e.shiftKey) return;
+    e.preventDefault();
+  });
+}
+
 /* ------------------------------------------------------------------ boot */
 
 export async function initShell(rootEl) {
@@ -189,6 +279,11 @@ export async function initShell(rootEl) {
   // macOS keeps its native traffic lights over the web title bar (TAURI.md "Window"), so the
   // whole shell shifts the bar's contents right and drops our own window buttons.
   if (bridge.platform === 'macos') document.documentElement.classList.add('mac');
+  // `data-os` is set from the user agent in index.html, before first paint, because the mac
+  // font stack in tokens.css must be right on the very first frame. Here the host has answered
+  // for itself, which is the authority: keys.js branches on it for the mac chords.
+  document.documentElement.dataset.os =
+    bridge.platform === 'macos' ? 'mac' : bridge.platform === 'linux' ? 'other' : 'win';
   initTheme();
   // Both are read by the views on their first mount, and initViews runs after initShell.
   loadSources(stateCache());
@@ -220,9 +315,13 @@ export async function initShell(rootEl) {
 
   // The sidebar tracks the store; its width is a CSS variable so nothing re-lays-out in JS.
   store.set('sidebar.open', sb.open !== false);
-  const syncSidebar = (v) => { shell.classList.toggle('no-sidebar', !v); fit(); };
-  store.watch('sidebar.open', (v) => { syncSidebar(v); patchState({ sidebar: { ...(stateCache().sidebar || {}), open: !!v } }); });
-  syncSidebar(store.get('sidebar.open'));
+  store.watch('sidebar.open', (v) => {
+    // An explicit toggle is the user overruling the window's own decision (L25).
+    autoHidden = false;
+    fit();
+    patchState({ sidebar: { ...(stateCache().sidebar || {}), open: !!v } });
+  });
+  fit();
 
   makeResizer(shell.querySelector('.rs-sidebar'), {
     min: S_MIN, max: S_MAX,
@@ -242,12 +341,22 @@ export async function initShell(rootEl) {
   initFocus();
   buildEdges();
   guardWindowDrops();
+  guardBrowserKeys();
+  guardContextMenu();
+  watchVault();
 
   commands.register({ id: 'app.back', title: 'Back', group: 'navigate', when: canBack, run: back });
   commands.register({ id: 'app.forward', title: 'Forward', group: 'navigate', when: canForward, run: forward });
   // The other half of `app.focus-sidebar` (sidebar.js, Ctrl+Shift+E). No chord: Esc from the
   // tree does it, and the palette has it for everywhere else (D2).
   commands.register({ id: 'app.focus-page', title: 'Focus page', group: 'app', hint: 'the editor, or the view', run: () => { focusMain(); } });
+  // Quit goes to the host, which closes the window rather than exiting: the same path the
+  // close button takes, so the last save is awaited (S16). P3 binds Ctrl+Q / Cmd+Q.
+  commands.register({
+    id: 'app.quit', title: 'Quit', group: 'app', hint: 'saves the page first',
+    when: () => bridge.kind !== 'http',
+    run: () => { bridge.quit().catch((e) => console.error('[shell] quit', e)); },
+  });
 
   watchMainWidth(els.main);
 

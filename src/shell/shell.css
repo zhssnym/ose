@@ -33,14 +33,14 @@
 }
 
 .tb-mark {
-  width: 16px; height: 16px; flex: none;
+  width: 1rem; height: 1rem; flex: none;
   display: grid; place-items: center;
   background: var(--accent); color: var(--accent-fg);
   border-radius: var(--radius);
 }
-/* two letters inside a 16px square: the one size in the app smaller than --fs-chrome-sm */
+/* two letters inside a 1rem square: the one size in the app smaller than --fs-chrome-sm */
 .tb-mark span {
-  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  font-family: var(--font-mono); font-size: 0.5625rem; font-weight: 700;
   letter-spacing: -.02em; line-height: 1;
 }
 
@@ -51,8 +51,8 @@
   white-space: nowrap; overflow: hidden;
 }
 .tb-crumb {
-  height: 20px; padding: 0 var(--sp-1); line-height: 20px;
-  flex: 0 1 auto; min-width: 0; max-width: 320px;
+  height: 1.25rem; padding: 0 var(--sp-1); line-height: 1.25rem;
+  flex: 0 1 auto; min-width: 0; max-width: 20rem;
   display: inline-block; overflow: hidden; text-overflow: ellipsis;
   color: inherit; border-radius: var(--radius);
   font: inherit; white-space: nowrap;
@@ -64,15 +64,15 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
 .tb-crumb.focus { color: var(--accent); }
 
 .tb-dirty {
-  width: 6px; height: 6px; flex: none; margin-left: var(--sp-2);
+  width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
   border-radius: 50%; background: var(--accent);
 }
 
-.tb-drag { flex: 1; align-self: stretch; min-width: 16px; }
+.tb-drag { flex: 1; align-self: stretch; min-width: 1rem; }
 
 .tb-win { display: flex; align-self: stretch; margin-left: auto; flex: none; }
 .tb-btn {
-  width: 46px; align-self: stretch;
+  width: 2.875rem; align-self: stretch;
   display: grid; place-items: center;
   color: var(--fg-2);
   transition: background var(--t-fast), color var(--t-fast);
@@ -87,7 +87,7 @@ html.mac .titlebar { padding-left: 78px; }
 html.mac .tb-win { display: none; }
 
 .glyph {
-  width: 10px; height: 10px;
+  width: 0.625rem; height: 0.625rem;
   stroke: currentColor; fill: none; stroke-width: 1;
   shape-rendering: crispEdges;
 }
@@ -106,32 +106,36 @@ html.mac .tb-win { display: none; }
 .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
 
-/* One grid for every sidebar row: 16px chevron slot, 14px glyph, name, optional mono tail.
-   A folder and a page at the same depth put their text at the same x (CONTRACT.md batch 3).
-   The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 + 16 + --sp-1 + 14 +
-   --sp-1 = 48, and each depth steps in by one glyph width. Those two widths are geometry,
-   not spacing, and stay as numbers; change one and --tree-inset in tokens.css moves with it. */
+/* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
+   optional mono tail. A folder and a page at the same depth put their text at the same x
+   (CONTRACT.md batch 3). The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 +
+   1rem + --sp-1 + 0.875rem + --sp-1 = 3rem at 100 %, and each depth steps in by one glyph
+   width. Those two widths are geometry, not spacing, and stay as numbers — in rem, so the
+   whole row follows the zoom; change one and --tree-inset in tokens.css moves with it. */
 .sb-row {
   width: 100%; text-align: left; cursor: default;
   display: grid;
-  grid-template-columns: 16px 14px minmax(0, 1fr) auto;
+  grid-template-columns: 1rem 0.875rem minmax(0, 1fr) auto;
   align-items: center;
   column-gap: var(--sp-1);
-  padding-left: calc(var(--sp-2) + var(--d, 0) * 14px);
+  padding-left: calc(var(--sp-2) + var(--d, 0) * 0.875rem);
   padding-right: var(--sp-2);
 }
-.sb-row .tw { width: 16px; height: 16px; display: grid; place-items: center; }
-.sb-row .tw svg { width: 11px; height: 11px; color: var(--fg-3); transition: transform var(--t-fast); }
+.sb-row .tw { width: 1rem; height: 1rem; display: grid; place-items: center; }
+.sb-row .tw svg { width: 0.6875rem; height: 0.6875rem; color: var(--fg-3); transition: transform var(--t-fast); }
 .sb-row .tw.open svg { transform: rotate(90deg); }
-.sb-row .gl { width: 14px; height: 14px; display: grid; place-items: center; }
-/* The glyphs are the 16-unit icon set drawn at 14px, which would thin their 1.5 stroke to
-   1.31px on screen; 1.5 x 16 / 14 = 1.71 in the viewBox puts it back at 1.5 (E7). */
-.sb-row svg { width: 14px; height: 14px; stroke-width: 1.71; }
+.sb-row .gl { width: 0.875rem; height: 0.875rem; display: grid; place-items: center; }
+/* The glyphs are the 16-unit icon set drawn at 0.875rem, which would thin their 1.5 stroke
+   to 1.31px on screen; 1.5 x 16 / 14 = 1.71 in the viewBox puts it back at 1.5 (E7). */
+.sb-row svg { width: 0.875rem; height: 0.875rem; stroke-width: 1.71; }
 .sb-row .grow { overflow: hidden; text-overflow: ellipsis; }
+/* A symlink or a junction: shown, because it is there, and greyed, because the app does not
+   walk into it. The `title` says so in words (S31). */
+.sb-row.link .gl, .sb-row.link .grow { color: var(--fg-3); }
 /* The parent folder of an ambiguous pin: right-aligned, mono, capped. `width: max-content`
    is what stops the auto track from collapsing next to the 1fr name column. */
 .sb-row .par {
-  justify-self: end; width: max-content; max-width: 120px;
+  justify-self: end; width: max-content; max-width: 7.5rem;
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -178,11 +182,11 @@ html.mac .tb-win { display: none; }
 }
 .sb-focus-exit {
   flex: none; align-self: center;
-  width: 16px; height: 16px; display: grid; place-items: center;
+  width: 1rem; height: 1rem; display: grid; place-items: center;
   color: var(--fg-3); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
-.sb-focus-exit svg { width: 11px; height: 11px; }
+.sb-focus-exit svg { width: 0.6875rem; height: 0.6875rem; }
 .sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
 
 /* ------------------------------------------------------------------ main */
@@ -212,7 +216,7 @@ html.mac .tb-win { display: none; }
   margin-top: var(--sp-6); color: var(--fg-3);
 }
 .start-recent:empty + .start-keys { margin-top: 0; }
-.start-keys .kbd { height: 16px; padding: 0 var(--sp-1); border-bottom-width: 1px; margin-right: var(--sp-1); }
+.start-keys .kbd { height: 1rem; padding: 0 var(--sp-1); border-bottom-width: 1px; margin-right: var(--sp-1); }
 .start-dot { color: var(--fg-3); }
 
 /* A page that is not there, a view that failed: a heading in the chrome voice, the path, the
@@ -228,7 +232,7 @@ html.mac .tb-win { display: none; }
 .miss-path { color: var(--fg-2); max-width: 100%; word-break: break-all; }
 .miss-why {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
-  max-width: 420px; word-break: break-word;
+  max-width: 26.25rem; word-break: break-word;
 }
 
 .fallback .fallback-md {
@@ -262,6 +266,21 @@ html.mac .tb-win { display: none; }
 .vault-hint:empty { display: none; }
 .vault-err { max-width: 60ch; color: var(--err); word-break: break-word; }
 
+/* The vaults this machine has opened before (S46), in the first-run column and in the
+   `Change vault…` dialog. One list row component, as everywhere: name in the UI face, path in
+   the chrome voice, `current` and `missing` as the palette's hint. A folder that is no longer
+   there is dimmed rather than hidden — it is still the vault the user is looking for. */
+.vault-recent { width: 100%; max-width: 34rem; text-align: left; }
+.vault-recent .label { padding-left: 0; }
+.vault-list { display: flex; flex-direction: column; }
+.vault-row { width: 100%; text-align: left; cursor: default; }
+.vault-name { flex: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+.vault-path { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+.vault-row.gone { opacity: .55; }
+.vault-row .pal-hint.gone { color: var(--err); }
+.vault-pick .dlg-body { padding-bottom: var(--sp-2); }
+.vault-pick .vault-list { margin: 0 calc(-1 * var(--sp-3)); }
+
 /* ------------------------------------------------------------------ resizers */
 
 /* A 7px grab zone centred on the 1px border it drags: 3px either side. Geometry, not spacing. */
@@ -289,12 +308,16 @@ body.resizing * { cursor: col-resize !important; }
 }
 .st-left { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-right { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
-.st-sep { width: 1px; height: 10px; background: var(--border-strong); }
+.st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
 /* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
 .st-hint { color: var(--fg-2); }
 /* a newer build is published: the one accent in the bar, and a button so Tab reaches it */
 .st-update { color: var(--accent); cursor: pointer; }
 .st-update:hover { color: var(--accent-hover); }
+/* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
+   bar's own colour and only warms up under the pointer (S4) */
+.st-zoom { color: var(--fg-2); cursor: pointer; }
+.st-zoom:hover { color: var(--fg); }
 
 /* ------------------------------------------------------------------ window edges */
 
@@ -331,7 +354,7 @@ html.maximized .edge { display: none; }
 }
 .pal-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
 .pal-icon svg {
-  width: 16px; height: 16px;
+  width: 1rem; height: 1rem;
   stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
 }
 .pal-input {
@@ -414,22 +437,34 @@ html.maximized .edge { display: none; }
 .upd-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* context menu */
-.menu { min-width: 210px; padding: var(--sp-1) 0; }
+.menu { min-width: 13.125rem; padding: var(--sp-1) 0; }
 .menu-row { width: 100%; text-align: left; cursor: default; }
 .menu-row.danger { color: var(--err); }
 .menu-row.danger svg { color: var(--err); }
 .menu .divider { margin: var(--sp-1) 0; }
 
-/* settings. Rows are grouped by whitespace, not by hairlines (E4): eleven rules in one dialog
-   read as a form; twelve pixels of air between rows read as a list. */
+/* settings. Rows are grouped by whitespace, not by hairlines (E4): the rules in one dialog
+   read as a form; twelve pixels of air between rows read as a list. A row is the same grid as
+   a source row — name and control on one line, one sentence underneath — so the whole dialog
+   is one list of the same thing (DESIGN.md's settings pattern). */
 .set-body { padding: var(--sp-2) var(--sp-3) var(--sp-3); overflow-y: auto; }
 .set-row {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start; gap: var(--sp-1) var(--sp-3);
   padding: var(--sp-3) 0;
 }
-.set-label { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-ui); }
-.set-note { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
-.set-ctl { flex: none; }
+.set-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
+.set-ctl { grid-column: 2; grid-row: 1; justify-self: end; }
+.set-note {
+  grid-column: 1; grid-row: 2; max-width: 64ch;
+  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
+}
+.set-note code { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
+/* the folder chosen for attachments, in the same slot a source row shows its path */
+.set-attach-path {
+  grid-column: 1; grid-row: 3; margin-top: var(--sp-1);
+  color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .seg-b {
   height: var(--ctl-h); padding: 0 var(--sp-3);
@@ -497,7 +532,7 @@ html.maximized .edge { display: none; }
   pointer-events: none;
 }
 .toast {
-  max-width: 440px; padding: var(--sp-2) var(--sp-3); pointer-events: auto;
+  max-width: 27.5rem; padding: var(--sp-2) var(--sp-3); pointer-events: auto;
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.5;
   color: var(--fg-2); background: var(--bg);
 }

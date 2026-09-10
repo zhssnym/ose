@@ -54,7 +54,7 @@ const call = async (cmd, ...args) => { await ready; return adapter.call(cmd, arg
 const WIN_RPC = {
   minimize: 'winMinimize', maximize: 'winMaximize', close: 'winClose',
   isMaximized: 'winIsMaximized', startDrag: 'winStartDrag',
-  startResize: 'winStartResize', setTheme: 'winSetTheme',
+  startResize: 'winStartResize', setTheme: 'winSetTheme', setTitle: 'winSetTitle',
 };
 const winCall = async (name, ...args) => {
   await ready;
@@ -82,7 +82,12 @@ export const bridge = {
   // `vaultInfo` adds where the root came from; `forgetVault` drops the remembered root.
   vaultInfo: () => call('vaultInfo'),
   pickVault: () => call('pickVault'),
-  forgetVault: () => call('forgetVault'),
+  // The vaults this machine has opened, newest first, at most ten (S46): `recentVaults` lists
+  // them, `openVault` adopts one without a dialog, and `forgetVault(path)` drops one line.
+  // `forgetVault()` with no path still means "stop remembering a root at all".
+  recentVaults: () => call('recentVaults'),
+  openVault: (path) => call('openVault', path),
+  forgetVault: (path) => (path === undefined ? call('forgetVault') : call('forgetVault', path)),
   // The host's own description of itself: {os, version, exe, exeDir, root}. The chooser names
   // `exeDir` as its suggestion; nothing else needs it.
   platformInfo: () => call('platform'),
@@ -96,8 +101,17 @@ export const bridge = {
   writeBinary: (path, base64) => call('writeBinary', path, base64),
   mkdir: (path) => call('mkdir', path),
   rename: (from, to) => call('rename', from, to),
-  trash: (path) => call('trash', path),
+  // `mode`: 'system' (the recycle bin, the default) or 'vault' (`.trash` inside the vault),
+  // from settings (S37). A host that does not know the option ignores it and uses the bin.
+  trash: (path, opts) => (opts === undefined ? call('trash', path) : call('trash', path, opts)),
   search: (query, opts = {}) => call('search', query, opts),
+  // Versions (CONTRACT.md batch 12): the text a save is about to replace, kept under
+  // `.ose/versions/<path>/<yyyy-mm-dd-hhmmss>.md`. `versionKeep` answers {kept, id} and keeps
+  // nothing when the newest version of that file is younger than five minutes, unless `force`.
+  versionKeep: (path, text, force = false) => call('versionKeep', path, text, force),
+  versionList: (path) => call('versionList', path),
+  versionRead: (path, id) => call('versionRead', path, id),
+  versionRestore: (path, id) => call('versionRestore', path, id),
   assetUrl: (path) => (adapter && adapter.assetUrl ? adapter.assetUrl(path) : staticAssetUrl(path)),
 
   win: {
@@ -108,10 +122,21 @@ export const bridge = {
     startDrag: () => winCall('startDrag'),
     startResize: (edge) => winCall('startResize', edge),
     setTheme: (theme) => winCall('setTheme', theme),
+    setTitle: (text) => winCall('setTitle', text),
   },
+
+  // The window's own title (S13): "<page> — <vault>" in the host, the tab title in a browser.
+  // Called by the router on every route change; never rejects the caller's flow.
+  setTitle: (text) => winCall('setTitle', String(text ?? '')),
+  // Quit through the close path, so the editor's last save is awaited exactly as it is when
+  // the window's close button is pressed (S16). No-op in the browser.
+  quit: () => call('quit'),
 
   openExternal: (url) => call('openExternal', url),
   reveal: (path) => call('reveal', path),
+  // A vault file in the platform's default application (batch 12, N10/N24). Vault-relative, so
+  // the host resolves it inside the root; `openExternal` keeps refusing every unknown scheme.
+  openPath: (path) => call('openPath', path),
   // Self-update (CONTRACT.md "Self-update"): the check never throws and answers
   // {current, latest, behind, commits, asset, error}; the download streams the asset beside
   // the executable and emits `update` events {phase:'download', received, total}; apply swaps,

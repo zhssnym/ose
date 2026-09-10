@@ -15,7 +15,9 @@
         "hiddenTitle": true,
         "shadow": true,
         "visible": false,
-        "backgroundColor": "#1A1917"
+        "backgroundColor": "#1A1917",
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false
       }
     ]
   }

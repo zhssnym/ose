@@ -24,5 +24,10 @@ export async function create() {
       return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); wv.postMessage({ id, cmd, args }); });
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+    // The retired .NET host has no `winSetTitle`; the document title is the whole of it here
+    // (S13), and this adapter is reference only anyway.
+    win: {
+      setTitle: (text) => { try { document.title = String(text ?? ''); } catch { /* none */ } },
+    },
   };
 }

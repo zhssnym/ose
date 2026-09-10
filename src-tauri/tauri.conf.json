@@ -25,7 +25,8 @@
         "shadow": true,
         "visible": false,
         "backgroundColor": "#1A1917",
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {

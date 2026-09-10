@@ -8,10 +8,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::webview::PageLoadEvent;
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, log_line, protocol, state, update, vault, AppState, Root, Source};
+use ose::{args, log_line, protocol, state, update, vault, vaults, AppState, Root, Source};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
@@ -73,8 +73,11 @@ fn main() {
     }
     let headless = opts.update;
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(app_state)
+        // First plugin, as the plugin's own documentation requires: a second launch hands its
+        // argv over and exits before anything else in this process runs (S14).
+        .plugin(tauri_plugin_single_instance::init(on_second_instance))
         // The native folder picker behind `pickVault` (`pick_folder` below); used from Rust
         // only, so no capability entry is needed: permissions gate the webview's own invoke,
         // not host code.
@@ -99,9 +102,166 @@ fn main() {
             }
         })
         .setup(move |app| setup(app, selftest, headless))
+        // The one menu item with an action of ours: Quit takes the close path, so the editor's
+        // last save is awaited exactly as it is when the window's close button is pressed.
+        .on_menu_event(|app, event| {
+            if event.id() == MENU_QUIT {
+                quit_through_the_save_path(app);
+            }
+        })
         .on_window_event(on_window_event)
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("os failed to start");
+
+    app.run(on_run_event);
+}
+
+/// Quitting must not skip the save (S16). `ExitRequested` with no code is the app being asked
+/// to go — `app.quit`, and on Windows and Linux the last window closing. While the main window
+/// is still there the exit is held and the window is asked to close instead, which is the one
+/// path that waits for the editor: CloseRequested -> the adapter's `closing` notice -> destroy.
+/// Once the window is gone the same event means "nothing left to save", and the app exits.
+///
+/// A code (`app.exit(n)`, the update's restart) is honoured as asked.
+///
+/// macOS: the system's own Quit (the Apple menu, the Dock, `terminate:`) reaches tao as
+/// `applicationWillTerminate`, which is already past the point of no return and arrives here as
+/// `RunEvent::Exit`, not `ExitRequested`. The app menu's Quit item must therefore be a custom
+/// item that runs the `quit` command, never `PredefinedMenuItem::quit()` — see the message to
+/// P3 and docs/TAURI.md. `Exit` still writes the geometry, so at worst a forced quit loses the
+/// unsaved buffer, never the window position.
+fn quit_through_the_save_path(app: &tauri::AppHandle) {
+    let st = app.state::<AppState>();
+    match app.get_webview_window("main") {
+        Some(window) => {
+            log_line(st.inner(), "quit: closing the window through the save path");
+            let _ = window.close();
+        }
+        None => app.exit(0),
+    }
+}
+
+fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
+    match event {
+        tauri::RunEvent::ExitRequested { code: None, api, .. } => {
+            if app.get_webview_window("main").is_none() {
+                return;
+            }
+            api.prevent_exit();
+            quit_through_the_save_path(app);
+        }
+        tauri::RunEvent::Exit => {
+            save_for_restart(app);
+        }
+        _ => {}
+    }
+}
+
+/// The macOS menu bar, and the whole reason S16 needed more than a `RunEvent` handler.
+///
+/// Tauri gives a macOS app a default menu whose Quit is `PredefinedMenuItem::quit()`. That item
+/// sends `terminate:` to NSApp; tao catches it in `applicationWillTerminate`, which is already
+/// past the point of no return, and it reaches the app as `RunEvent::Exit` — never
+/// `ExitRequested`, so there is nothing to prevent and no way to wait for the editor. Cmd+Q
+/// with that item loses unsaved work, whatever `on_run_event` does.
+///
+/// So the app submenu's Quit is a plain item with the same accelerator, and choosing it runs
+/// the same close path as the close button: `window.close()` -> CloseRequested -> the adapter
+/// holds it open until the last save has settled -> destroy -> exit.
+///
+/// The Edit submenu is not decoration: on macOS the standard editing accelerators
+/// (Cmd+C/V/X/A/Z) come from the menu bar, and a window with a menu that does not carry them
+/// loses copy and paste in the web view.
+///
+/// Built on every platform so it compiles and type-checks in CI on Windows too, and installed
+/// on macOS alone: Windows and Linux draw their own title bar and want no menu bar at all.
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem as P, Submenu};
+
+    let quit = MenuItem::with_id(app, MENU_QUIT, "Quit os", true, Some("Cmd+Q"))?;
+    let about = P::about(app, Some("About os"), Some(AboutMetadata::default()))?;
+    let app_menu = Submenu::with_items(
+        app,
+        "os",
+        true,
+        &[
+            &about,
+            &P::separator(app)?,
+            &P::services(app, None)?,
+            &P::separator(app)?,
+            &P::hide(app, None)?,
+            &P::hide_others(app, None)?,
+            &P::show_all(app, None)?,
+            &P::separator(app)?,
+            &quit,
+        ],
+    )?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &P::undo(app, None)?,
+            &P::redo(app, None)?,
+            &P::separator(app)?,
+            &P::cut(app, None)?,
+            &P::copy(app, None)?,
+            &P::paste(app, None)?,
+            &P::select_all(app, None)?,
+        ],
+    )?;
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[&P::minimize(app, None)?, &P::fullscreen(app, None)?],
+    )?;
+    Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
+}
+
+/// The id of the one menu item with an action of our own.
+const MENU_QUIT: &str = "app.quit";
+
+/// A second `os` launched while one is running. The plugin has already handed us its argv and
+/// ended that process, so this decides what the launch meant: the same vault (or none named)
+/// brings the window forward, another folder is adopted and the window reloads into it — one
+/// window per vault, and never two watchers on one folder (S14).
+fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
+    let st = app.state::<AppState>();
+    log_line(st.inner(), &format!("second instance: {}", argv.join(" ")));
+
+    let opts = args::parse(argv.into_iter().skip(1));
+    let asked = opts.root.as_deref().map(|r| {
+        let p = PathBuf::from(r);
+        if p.is_absolute() { p } else { Path::new(&cwd).join(p) }
+    });
+    let asked = asked.filter(|p| p.is_dir()).map(|p| vault::normalize(&p));
+
+    let open = st.root();
+    let different = matches!((&asked, &open), (Some(a), Some(o)) if !vaults::same(a, o))
+        || (asked.is_some() && open.is_none());
+
+    if different {
+        let dir = asked.expect("different implies a folder was named");
+        let ctx = ose::Ctx { app, st: st.inner() };
+        match vault::adopt(&ctx, &dir, Source::Picked) {
+            Ok(_) => {
+                if let Err(e) = vaults::record(app, &dir) {
+                    log_line(st.inner(), &format!("recent vaults: {e}"));
+                }
+                // The page reloads itself into the new root; the UI has no other way to swap
+                // every module's idea of where it is (shell/vault.js `reloadIntoVault`).
+                let _ = app.emit("vault", serde_json::json!({ "changed": true }));
+            }
+            Err(e) => log_line(st.inner(), &format!("second instance: {e}")),
+        }
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 /// The `ose::FolderPicker` for this binary: the dialog plugin's native folder picker, parented
@@ -135,7 +295,29 @@ fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box
             None => log_line(st.inner(), "no vault: the UI will ask for a folder"),
         }
     }
+    // The menu bar (macOS only; see `build_menu`). Built everywhere so a mistake here is a
+    // compile error on every runner, installed only where a menu bar belongs.
+    match build_menu(&handle) {
+        Ok(menu) => {
+            if cfg!(target_os = "macos") {
+                if let Err(e) = handle.set_menu(menu) {
+                    log_line(st.inner(), &format!("menu: {e}"));
+                }
+            }
+        }
+        Err(e) => log_line(st.inner(), &format!("menu: {e}")),
+    }
+
     let root = st.root();
+
+    // Whatever we ended up opening — argument, exe folder, environment, remembered — belongs
+    // at the top of the recent list, so the chooser and `Change vault…` know about the vault
+    // the app opens by itself as well as the ones that were picked (S46).
+    if let Some(root) = &root {
+        if let Err(e) = vaults::record(&handle, root) {
+            log_line(st.inner(), &format!("recent vaults: {e}"));
+        }
+    }
 
     // This build started, so the one it replaced can go (update.rs `finish_previous`).
     update::finish_previous_in_background(handle.clone());

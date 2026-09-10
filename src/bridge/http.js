@@ -104,6 +104,10 @@ export async function create() {
       return j.result;
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+    // In a browser the window title is the tab title, and there is nothing else to set (S13).
+    win: {
+      setTitle: (text) => { try { document.title = String(text ?? ''); } catch { /* none */ } },
+    },
     close() { closed = true; clearTimeout(timer); timer = null; try { es?.close(); } catch { } es = null; },
   };
 }

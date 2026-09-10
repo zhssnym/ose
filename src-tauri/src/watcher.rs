@@ -27,6 +27,8 @@ const DEBOUNCE: Duration = Duration::from_millis(150);
 const POLL: Duration = Duration::from_millis(25);
 /// A flood (a git checkout, a sync) is flushed rather than accumulated.
 const MAX_PENDING: usize = 2000;
+/// How often the watcher asks whether the vault folder is still there (S29).
+const LIVENESS: Duration = Duration::from_secs(1);
 
 /// Stops the watcher thread when dropped.
 pub struct Handle {
@@ -51,7 +53,26 @@ pub fn start(app: AppHandle, root: PathBuf) -> Handle {
     let thread = thread::Builder::new()
         .name("fs-watcher".to_string())
         .spawn(move || {
+            // The vault folder itself going away used to be an error line a second, for ever,
+            // with an empty tree and a toast per failed call. It is said once, as a fact about
+            // the vault rather than about the watcher, and once more when it comes back (S29).
+            let mut lost = false;
             while !flag.load(Ordering::Relaxed) {
+                // Asked before the watcher is (re)built, so the folder coming back is noticed
+                // in the same breath as the watch that succeeds on it.
+                let gone = !root.is_dir();
+                if gone != lost {
+                    lost = gone;
+                    eprintln!(
+                        "vault root {}: {}",
+                        if lost { "lost" } else { "back" },
+                        root.display()
+                    );
+                    // `changes` stays present and empty: every subscriber reads it.
+                    if let Err(e) = app.emit("fs", json!({ "changes": [], "lost": lost })) {
+                        eprintln!("fs event dropped: {e}");
+                    }
+                }
                 match run(&app, &root, &flag) {
                     Ok(()) => break,
                     Err(e) => eprintln!("watcher error: {e}; restarting"),
@@ -85,10 +106,22 @@ fn run(app: &AppHandle, root: &Path, stop: &AtomicBool) -> Result<(), String> {
 
     let mut batch = Batch::default();
     let mut last = Instant::now();
+    let mut checked = Instant::now();
 
     loop {
         if stop.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        // The vault folder can go away without notify saying a word: on Windows the backend
+        // holds a handle to the directory and simply stops reporting when the drive is
+        // unplugged or the folder is deleted from underneath it — the loop below would wait
+        // for ever on a vault that is not there (S29). One metadata call a second is what it
+        // costs to notice, and returning Err hands it to the restart loop, which says it once.
+        if checked.elapsed() >= LIVENESS {
+            checked = Instant::now();
+            if !root.is_dir() {
+                return Err("the vault root is gone".to_string());
+            }
         }
         match rx.recv_timeout(POLL) {
             Ok(Ok(ev)) => {

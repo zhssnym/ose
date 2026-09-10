@@ -1,8 +1,18 @@
 /* os editor: design tokens. The only place colours, fonts and sizes are defined.
    Light is the default. Dark is :root[data-theme="dark"]. See DESIGN.md. */
 
+/* Zoom (S4). Every size below that should grow when the user zooms is written in rem, and the
+   root font size is the one place the factor is applied: five steps, 90 / 100 / 110 / 125 /
+   150 %, set by the shell as `--zoom` on <html> and remembered per vault. At 1 every rem here
+   is exactly the pixel value it replaced, so 100 % is the app as it was.
+
+   What stays in px: hairlines and radii (a 1px border is 1px at any zoom), the window's own
+   geometry (the sidebar width the shell measures against window.innerWidth), and the grab
+   zones on the frameless window's edges. Everything a person reads scales. */
 :root {
   color-scheme: light;
+  --zoom: 1;
+  font-size: calc(var(--zoom) * 100%);
 
   /* surfaces */
   --bg: #FAF9F5;
@@ -17,7 +27,10 @@
   /* text */
   --fg: #1F1E1D;
   --fg-2: #5C5952;
-  --fg-3: #767264;
+  /* L28: the old #767264 read 4.26:1 on --bg-2 at 11px, under the 4.5 a small chrome face
+     needs. Darkened by 11 on every channel, so the hue and the warmth are untouched, and now
+     5.37 on --bg, 5.01 on --bg-2, 4.53 on --bg-3 (a hint in a hovered row). */
+  --fg-3: #6B6759;
 
   /* accent */
   --accent: #D97757;
@@ -56,6 +69,26 @@
   --c-rest: #B9B4A4;
   --c-sleep: #8F8B7F;
 
+  /* code highlighting (P4). One token per kind of thing a highlighter names, drawn from the
+     same families as the rest of the palette rather than a borrowed theme: keyword in the
+     terracotta line, string in the olive, type in the amber, function in the blue, number in
+     the one purple the week grid already uses. Every one of them is measured against --bg-2,
+     the code block's ground, and clears 4.5:1 there and on --bg (light: key 5.98, str 5.69,
+     num 5.54, fn 5.82, type 5.16, com 5.01, punc 6.18, var 14.73). */
+  --code-key: #9A3F1F;
+  --code-str: #4C6639;
+  --code-num: #7E4E8C;
+  --code-fn: #3F5F86;
+  --code-type: #7E610F;
+  --code-var: var(--fg);
+  --code-punc: var(--fg-2);
+  --code-com: var(--fg-3);
+  /* a diff inside a fence: the one place a fence carries meaning rather than syntax, so the
+     two lines get colours of their own rather than borrowing --ok and --err, which are chrome
+     signals. Measured the same way (light ins 5.49, del 5.82 on --bg-2). */
+  --code-ins: #3D6B45;
+  --code-del: #A33A29;
+
   /* type. The default stack is Windows'; :root[data-os="mac"] below replaces it wholesale
      rather than relying on fallback, because a Mac with Office installed has Consolas and
      would otherwise get it instead of SF Mono. */
@@ -63,40 +96,43 @@
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
 
-  --fs-chrome: 12px;
-  --fs-chrome-sm: 11px;
-  --fs-ui: 13px;
-  --fs-content: 15px;       /* content-sized inputs: the palette query, a dialog title */
-  --fs-body: 16px;
-  --fs-title: 34px;
-  --lh-body: 1.65;
+  /* rem, so the zoom factor above carries them. The px each one is at 100 % is in the comment. */
+  --fs-chrome: 0.75rem;         /* 12 */
+  --fs-chrome-sm: 0.6875rem;    /* 11 */
+  --fs-ui: 0.8125rem;           /* 13 */
+  --fs-content: 0.9375rem;      /* 15 — content-sized inputs: the palette query, a dialog title */
+  --fs-body: 1rem;              /* 16 — settings' `Body text` overrides this, also in rem */
+  --fs-title: 2.125rem;         /* 34 */
+  --lh-body: 1.65;              /* settings' `Line height`: 1.5 / 1.65 / 1.8 */
 
   /* space. The only paddings, margins and gaps a module stylesheet may use. Optical nudges
      (a 1px baseline shift, a 2px inset) are the one exception and say so in a comment. */
-  --sp-half: 2px;
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 24px;
-  --sp-6: 32px;
-  --sp-7: 48px;
+  --sp-half: 0.125rem;      /* 2 */
+  --sp-1: 0.25rem;          /* 4 */
+  --sp-2: 0.5rem;           /* 8 */
+  --sp-3: 0.75rem;          /* 12 */
+  --sp-4: 1rem;             /* 16 */
+  --sp-5: 1.5rem;           /* 24 */
+  --sp-6: 2rem;             /* 32 */
+  --sp-7: 3rem;             /* 48 */
 
   /* geometry */
-  --radius: 2px;
-  --titlebar-h: 36px;
-  --statusbar-h: 24px;
-  --panelhead-h: 32px;      /* every bar with a label in it: panel heads, box heads, dialog heads */
-  --barhead-h: 44px;        /* the one taller bar: the palette's input row and a dialog's foot */
-  --row-h: 28px;
-  --tree-inset: 48px;       /* x of a depth-0 row's name in the sidebar: 2+8+16+4+14+4 */
-  --ctl-h: 28px;
+  --radius: 2px;            /* a hairline radius is a hairline at every zoom */
+  --titlebar-h: 2.25rem;    /* 36 */
+  --statusbar-h: 1.5rem;    /* 24 */
+  --panelhead-h: 2rem;      /* 32 — every bar with a label in it: panel heads, box heads, dialog heads */
+  --barhead-h: 2.75rem;     /* 44 — the one taller bar: the palette's input row and a dialog's foot */
+  --row-h: 1.75rem;         /* 28 */
+  --tree-inset: 3rem;       /* 48 — x of a depth-0 row's name in the sidebar: 2+8+16+4+14+4 */
+  --ctl-h: 1.75rem;         /* 28 */
+  /* The sidebar's width is window geometry: the shell measures it against window.innerWidth
+     and writes it back in px, so it is the one size that does not follow the zoom. */
   --sidebar-w: 260px;
   --sidebar-min: 200px;
   --sidebar-max: 420px;
-  --page-w: 720px;
-  --page-pad-top: 80px;
-  --page-pad-x: 48px;
+  --page-w: 45rem;          /* 720 */
+  --page-pad-top: 5rem;     /* 80 */
+  --page-pad-x: 3rem;       /* 48 */
 
   /* effects */
   --shadow-menu: 0 8px 24px rgba(0, 0, 0, .18);
@@ -128,7 +164,10 @@
 
   --fg: #ECE9E1;
   --fg-2: #A9A497;
-  --fg-3: #8B8779;
+  /* The dark half of L28: #8B8779 cleared --bg and --bg-2 (4.89 / 4.64) but only reached 4.05
+     on --bg-3, so it is lightened the same way its light twin was darkened — 5.56 / 5.28 /
+     4.61. Small chrome text clears 4.5 on every surface it lands on, in both themes. */
+  --fg-3: #959182;
 
   --accent: #D97757;
   --accent-hover: #E38A6C;
@@ -162,6 +201,16 @@
   --c-work: #8C877A;
   --c-rest: #5A574F;
   --c-sleep: #4C493F;
+
+  /* dark: key 6.74, str 8.07, num 7.12, fn 7.42, type 8.32, punc 6.70, com 5.28 on --bg-2 */
+  --code-key: #E58F6E;
+  --code-str: #9FBE82;
+  --code-num: #C79AD1;
+  --code-fn: #8FB0D6;
+  --code-type: #D6B44A;
+  /* dark: ins 7.90, del 5.27 on --bg-2 */
+  --code-ins: #86C08F;
+  --code-del: #E0705A;
 
   --shadow-menu: 0 8px 24px rgba(0, 0, 0, .5);
   --scrim: rgba(0, 0, 0, .5);

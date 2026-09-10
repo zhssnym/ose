@@ -37,11 +37,16 @@ export function overlayHasInputFocus() {
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
- * openOverlay({ width, top, at:{x,y}, dim, className, onClose })
+ * openOverlay({ width, top, at:{x,y}, dim, className, title, onClose })
  * Returns { el, box, close }. `box` is the .surface to fill.
+ *
+ * `title` names the dialog for a screen reader (S40); a caller that draws its own heading can
+ * instead set `aria-labelledby` on the box afterwards, which is what settings does. A dimmed
+ * overlay is a modal one and says so with `aria-modal`; a menu (dim:false) is not modal and
+ * must not claim to be.
  */
 export function openOverlay(opts = {}) {
-  const { width = 420, top = null, at = null, dim = true, className = '', onClose = null } = opts;
+  const { width = 420, top = null, at = null, dim = true, className = '', title = '', onClose = null } = opts;
 
   const prevFocus = document.activeElement;
   const el = document.createElement('div');
@@ -50,6 +55,8 @@ export function openOverlay(opts = {}) {
   const box = document.createElement('div');
   box.className = 'surface ov-box ' + className;
   box.setAttribute('role', 'dialog');
+  if (dim) box.setAttribute('aria-modal', 'true');
+  if (title) box.setAttribute('aria-label', title);
   box.tabIndex = -1;
   if (width) box.style.width = typeof width === 'number' ? width + 'px' : width;
   if (top) box.style.marginTop = '0';
@@ -136,10 +143,16 @@ function bindMenuKeys(box) {
   });
 }
 
+// Every dialog head gets an id so the box can point `aria-labelledby` at it: the heading a
+// sighted user reads first is the name a screen reader announces first (S40).
+let headSeq = 0;
+
 function dialogShell(box, { title, danger }) {
   box.classList.add('dlg');
+  const headId = `dlg-head-${++headSeq}`;
+  box.setAttribute('aria-labelledby', headId);
   box.innerHTML = `
-    <div class="dlg-head">${esc(title || '')}</div>
+    <div class="dlg-head" id="${headId}">${esc(title || '')}</div>
     <div class="dlg-body"></div>
     <div class="dlg-foot">
       <button class="btn" data-act="cancel">Cancel</button>
@@ -255,7 +268,7 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
-    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', onClose: () => { if (!done) { done = true; resolve(null); } } });
+    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', title, onClose: () => { if (!done) { done = true; resolve(null); } } });
     ov.box.innerHTML = `
       <div class="pal-head">
         <span class="pal-icon">${icon(iconName)}</span>
@@ -389,7 +402,7 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
-    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', onClose: () => { if (!done) { done = true; resolve(null); } } });
+    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', title, onClose: () => { if (!done) { done = true; resolve(null); } } });
     ov.box.innerHTML = `
       <div class="pal-head">
         <span class="pal-icon">${icon('page')}</span>

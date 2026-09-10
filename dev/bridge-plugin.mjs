@@ -47,21 +47,115 @@ export function bridgePlugin() {
     if (n.kind === 'dir') n.children = await Promise.all((await listDir(full)).map(c => c.kind === 'dir' ? tree(path.join(full, c.name)) : c));
     return n;
   };
-  const search = async (q, { limit = 200 } = {}) => {
-    const out = [], needle = String(q || '').toLowerCase();
+  // The vault search, the same semantics as the host (src-tauri/src/vault.rs `search`): terms
+  // ANDed within a file, `path:` and `file:` filters, quoted phrases, names matched, the text
+  // extensions read, a `col` on every line hit, a cap that counts files, and one generation
+  // counter per caller channel so a newer query abandons the walk the older one started.
+  const SEARCH_EXTS = new Set(['md', 'txt', 'csv', 'jsonl', 'py', 'log', 'tex', 'json', 'yaml', 'toml']);
+  const LINES_PER_FILE = 20;
+  const searchGen = new Map();
+
+  /** `a "b c" path:x file:y` -> { terms, paths, files }, everything lowercased. */
+  const parseQuery = (q) => {
+    const out = { terms: [], paths: [], files: [] };
+    const s = String(q || '');
+    let i = 0;
+    while (i < s.length) {
+      if (/\s/.test(s[i])) { i++; continue; }
+      let kind = 0;
+      for (const [word, k] of [['path:', 1], ['file:', 2]]) {
+        if (s.slice(i, i + word.length).toLowerCase() === word) { kind = k; i += word.length; break; }
+      }
+      let word = '';
+      if (s[i] === '"') {
+        i++;
+        while (i < s.length && s[i] !== '"') word += s[i++];
+        i++;
+      } else {
+        while (i < s.length && !/\s/.test(s[i])) word += s[i++];
+      }
+      word = word.trim().toLowerCase();
+      if (!word) continue;
+      if (kind === 1) out.paths.push(word.replace(/\\/g, '/'));
+      else if (kind === 2) out.files.push(word);
+      else out.terms.push(word);
+    }
+    return out;
+  };
+
+  const searchAllowed = (q, rel, name) => {
+    const r = rel.toLowerCase();
+    return (!q.paths.length || q.paths.some((p) => r.startsWith(p.replace(/\/+$/, ''))))
+      && (!q.files.length || q.files.some((f) => name.includes(f)));
+  };
+
+  const search = async (q, { limit = 100, chan = null } = {}) => {
+    const query = parseQuery(q);
+    if (!query.terms.length && !query.paths.length && !query.files.length) {
+      return { hits: [], files: 0, total: 0, capped: false, stale: false };
+    }
+    let gen = 0;
+    if (chan) { gen = (searchGen.get(chan) || 0) + 1; searchGen.set(chan, gen); }
+    const current = () => !chan || searchGen.get(chan) === gen;
+
+    const found = [];
+    let stale = false;
     const walk = async (full) => {
+      if (!current()) { stale = true; return; }
       for (const c of await listDir(full)) {
-        if (out.length >= limit) return;
-        if (c.kind === 'dir') await walk(path.join(full, c.name));
-        else if (c.ext === 'md') {
-          let lines;
-          try { lines = (await fs.readFile(path.join(full, c.name), 'utf8')).split(/\r?\n/); } catch { continue; }
-          lines.forEach((t, i) => { if (out.length < limit && t.toLowerCase().includes(needle)) out.push({ path: c.path, line: i + 1, text: t.trim().slice(0, 240) }); });
+        if (!current()) { stale = true; return; }
+        const name = c.name.toLowerCase();
+        const ok = searchAllowed(query, c.path, name);
+        const nameHit = !!query.terms.length && query.terms.every((t) => name.includes(t));
+        if (c.kind === 'dir') {
+          if (ok && nameHit) found.push({ path: c.path, kind: 'dir', nameHit: true, total: 0, lines: [] });
+          await walk(path.join(full, c.name));
+          continue;
         }
+        if (!ok) continue;
+        if (!SEARCH_EXTS.has(c.ext)) {
+          if (nameHit) found.push({ path: c.path, kind: 'file', nameHit: true, total: 0, lines: [] });
+          continue;
+        }
+        let text;
+        try { text = await fs.readFile(path.join(full, c.name), 'utf8'); } catch { continue; }
+        const lower = text.toLowerCase();
+        const relLower = c.path.toLowerCase();
+        // A term found in the path counts, so `philosophy kant` finds a page about Kant that
+        // sits in a philosophy folder without repeating the word.
+        if (!query.terms.every((t) => lower.includes(t) || relLower.includes(t))) {
+          if (nameHit) found.push({ path: c.path, kind: 'file', nameHit: true, total: 0, lines: [] });
+          continue;
+        }
+        const lines = [];
+        let total = 0;
+        text.split(/\r?\n/).forEach((line, i) => {
+          const low = line.toLowerCase();
+          let at = -1;
+          for (const t of query.terms) { const k = low.indexOf(t); if (k >= 0 && (at < 0 || k < at)) at = k; }
+          if (at < 0) return;
+          total++;
+          if (lines.length >= LINES_PER_FILE) return;
+          const before = low.slice(0, at);
+          const lead = (/^\s*/.exec(before) || [''])[0].length;
+          lines.push({ path: c.path, line: i + 1, col: before.length - lead + 1, text: line.trim().slice(0, 240), kind: 'file' });
+        });
+        if (lines.length || nameHit) found.push({ path: c.path, kind: 'file', nameHit, total, lines });
       }
     };
-    if (needle) await walk(root);
-    return out;
+    await walk(root);
+
+    found.sort((a, b) => (b.nameHit - a.nameHit) || (b.total - a.total) || a.path.localeCompare(b.path, 'fr', { numeric: true }));
+    const total = found.length;
+    const cap = limit === 0 ? Infinity : limit;
+    const capped = total > cap;
+    const kept = capped ? found.slice(0, cap) : found;
+    const hits = [];
+    for (const f of kept) {
+      if (f.nameHit) hits.push({ path: f.path, line: 0, col: 0, text: f.path, kind: f.kind });
+      hits.push(...f.lines);
+    }
+    return { hits, files: kept.length, total, capped, stale };
   };
 
   // ---------------------------------------------------------------- events (SSE)
@@ -156,6 +250,19 @@ export function bridgePlugin() {
     }
   };
 
+  // `openPath` (N10, N24): a vault file in the platform's default application. The argument is
+  // vault-relative and goes through `abs`, so it can never leave the root, and the file has to
+  // exist — the host refuses the same way, and neither ever sees a scheme.
+  const openPath = async (p) => {
+    const full = abs(p);
+    if (!fss.existsSync(full)) throw new Error('nothing to open: ' + p);
+    if (IS_WIN) {
+      spawn('cmd.exe', ['/d', '/s', '/c', `start "" "${full}"`], { windowsHide: true, windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [full], { detached: true, stdio: 'ignore' }).unref();
+    }
+  };
+
   const reveal = async (p) => {
     const full = abs(p);
     const exists = fss.existsSync(full);
@@ -165,6 +272,76 @@ export function bridgePlugin() {
       spawn('explorer.exe', [arg], { windowsHide: true, windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
     } else {
       spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [exists ? path.dirname(full) : full], { detached: true, stdio: 'ignore' }).unref();
+    }
+  };
+
+  // ---------------------------------------------------------------- versions (batch 12, P5)
+  // The same rules as the host (src-tauri/src/versions.rs): `.ose/versions/<rel>/<id>.md`, the
+  // page's own name used as a folder, ids in UTC so they sort, one version per file per five
+  // minutes unless forced, 20 per file, 50 MB per vault, every write atomic (temp then rename).
+  const V_ROOT = '.ose/versions';
+  const V_INTERVAL = 5 * 60 * 1000;
+  const V_PER_FILE = 20;
+  const V_TOTAL = 50 * 1024 * 1024;
+  const vId = (ms) => {
+    const d = new Date(ms), p2 = (n) => String(n).padStart(2, '0');
+    return `${String(d.getUTCFullYear()).padStart(4, '0')}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}-${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}`;
+  };
+  const vOk = (id) => /^[0-9-]{1,40}$/.test(String(id ?? ''));
+  // `abs` only promises the vault; `.ose/versions/../pages` is inside it and outside the
+  // history, so containment in the history is checked here as well.
+  const vDir = (p) => {
+    const rel = String(p ?? '').replace(/\\/g, '/').trim().replace(/^\/+/, '');
+    if (!rel) throw new Error('a version needs a file');
+    const base = abs(V_ROOT), full = abs(V_ROOT + '/' + rel);
+    if (full === base || !full.startsWith(base + path.sep)) throw new Error('path escapes the version history: ' + p);
+    return full;
+  };
+  const vList = async (p) => {
+    const dir = vDir(p);
+    let names = [];
+    try { names = await fs.readdir(dir); } catch { return []; }
+    const out = [];
+    for (const n of names) {
+      if (!n.endsWith('.md') || !vOk(n.slice(0, -3))) continue;
+      try { const st = await fs.stat(path.join(dir, n)); if (st.isFile()) out.push({ id: n.slice(0, -3), at: st.mtimeMs, bytes: st.size }); } catch { }
+    }
+    out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    return out;
+  };
+  const vWrite = async (full, text) => {
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.${process.pid}.tmp`);
+    await fs.writeFile(tmp, text, 'utf8');
+    await fs.rename(tmp, full);
+  };
+  const vPruneFile = async (p) => {
+    const dir = vDir(p);
+    for (const e of (await vList(p)).slice(V_PER_FILE)) { try { await fs.unlink(path.join(dir, e.id + '.md')); } catch { } }
+  };
+  const vPruneVault = async () => {
+    const all = [];
+    const walk = async (dir, depth) => {
+      if (depth > 32) return;
+      let ents;
+      try { ents = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of ents) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { await walk(full, depth + 1); continue; }
+        if (!e.name.endsWith('.md') || !vOk(e.name.slice(0, -3))) continue;
+        try { const st = await fs.stat(full); all.push({ dir, full, id: e.name.slice(0, -3), bytes: st.size }); } catch { }
+      }
+    };
+    await walk(abs(V_ROOT), 0);
+    let total = all.reduce((n, e) => n + e.bytes, 0);
+    if (total <= V_TOTAL) return;
+    all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const left = new Map();
+    for (const e of all) left.set(e.dir, (left.get(e.dir) || 0) + 1);
+    for (const e of all) {
+      if (total <= V_TOTAL) break;
+      if ((left.get(e.dir) || 1) <= 1) continue;            // never the last version of a file
+      try { await fs.unlink(e.full); left.set(e.dir, left.get(e.dir) - 1); total -= e.bytes; } catch { }
     }
   };
 
@@ -181,6 +358,10 @@ export function bridgePlugin() {
       ? { root: null, name: null, remembered: false, source: null }
       : { root, name: path.basename(root), remembered: false, source: 'dev' }),
     pickVault: async () => ({ root, name: path.basename(root) }),
+    // Recent vaults are the host's business (src-tauri/src/vaults.rs): the dev bridge has one
+    // configured root and no per-user config folder, so the list is the vault it is serving.
+    recentVaults: async () => (noVault ? [] : [{ path: root, name: path.basename(root), exists: true, current: true }]),
+    openVault: async () => ({ root, name: path.basename(root) }),
     forgetVault: async () => null,
     tree: async () => { const t = await tree(root); t.name = path.basename(root); t.path = ''; return t; },
     list: async (p) => listDir(abs(p)),
@@ -193,15 +374,62 @@ export function bridgePlugin() {
     mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
     // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
     // silently swallow it, and the UI relies on the refusal to report the collision (batch 9, B8).
+    // `Notes.md` -> `notes.md` is a real rename, not a collision (N17): on Windows and on a
+    // default macOS volume `existsSync` says the target is there because it *is* the source.
+    // It goes through a temporary name, exactly as the host does (vault.rs `rename`).
     rename: async (a, b) => {
       const src = abs(a), dst = abs(b);
       if (!fss.existsSync(src)) throw new Error('nothing to rename: ' + a);
-      if (src !== dst && fss.existsSync(dst)) throw new Error('already exists: ' + b);
+      if (src === dst) return;
+      if (src !== dst && src.toLowerCase() === dst.toLowerCase()) {
+        const via = path.join(path.dirname(dst), `.${path.basename(dst)}.${process.pid}.case`);
+        await fs.rename(src, via);
+        await fs.rename(via, dst);
+        return;
+      }
+      if (fss.existsSync(dst)) throw new Error('already exists: ' + b);
       await fs.mkdir(path.dirname(dst), { recursive: true });
       await fs.rename(src, dst);
     },
-    trash: async (p) => { const t = path.join(root, '.trash'); await fs.mkdir(t, { recursive: true }); await fs.rename(abs(p), path.join(t, Date.now() + '-' + path.basename(p))); },
+    // `mode` is 'system' or 'vault' (settings, S37). Node has no recycle bin, so the dev
+    // bridge always does what 'vault' means and never deletes anything outright.
+    trash: async (p, opts) => {
+      const t = path.join(root, '.trash');
+      await fs.mkdir(t, { recursive: true });
+      await fs.rename(abs(p), path.join(t, Date.now() + '-' + path.basename(p)));
+      if (opts && opts.mode && opts.mode !== 'vault') console.log('[bridge] trash: no recycle bin in the dev bridge, used .trash');
+    },
     search: async (q, opts) => search(q, opts),
+
+    versionKeep: async (p, text, force = false) => {
+      if (!text) return { kept: false, id: null };
+      const dir = vDir(p);
+      const list = await vList(p);
+      const newest = list[0];
+      if (newest) {
+        try { if (await fs.readFile(path.join(dir, newest.id + '.md'), 'utf8') === text) return { kept: false, id: null }; } catch { }
+        if (!force && Date.now() - newest.at < V_INTERVAL) return { kept: false, id: null };
+      }
+      let ms = Date.now(), id = vId(ms);
+      while (list.some((e) => e.id === id)) { ms += 1000; id = vId(ms); }
+      await vWrite(path.join(dir, id + '.md'), text);
+      await vPruneFile(p);
+      await vPruneVault();
+      return { kept: true, id };
+    },
+    versionList: async (p) => vList(p),
+    versionRead: async (p, id) => {
+      if (!vOk(id)) throw new Error('not a version id: ' + id);
+      return fs.readFile(path.join(vDir(p), id + '.md'), 'utf8');
+    },
+    versionRestore: async (p, id) => {
+      const text = await cmds.versionRead(p, id);
+      let current = '';
+      try { current = await fs.readFile(abs(p), 'utf8'); } catch { }
+      const kept = (!current || current === text) ? { kept: false, id: null } : await cmds.versionKeep(p, current, true);
+      await vWrite(abs(p), text);
+      return kept;
+    },
 
     log: async (text) => { console.log('[selftest]', String(text)); },
     platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
@@ -214,10 +442,12 @@ export function bridgePlugin() {
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
-    openExternal, reveal,
+    openExternal, reveal, openPath,
 
     winMinimize: async () => { }, winMaximize: async () => { }, winClose: async () => { }, winIsMaximized: async () => false,
     winStartDrag: async () => { }, winStartResize: async () => { }, winSetTheme: async () => { },
+    winSetTitle: async () => { },
+    quit: async () => { },
   };
 
   return {
