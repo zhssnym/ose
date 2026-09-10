@@ -29,7 +29,25 @@ export const STRINGIFY_OPTIONS = {
   resourceLink: false,    // a bare url stays an autolink `<...>`
   setext: false,          // ATX headings only
   tightDefinitions: true,
+  handlers: HANDLERS(),
 };
+
+/**
+ * The one mdast handler we replace (D7, E33, L17, M3).
+ *
+ * A hard break is written `\` then a newline by `mdast-util-to-markdown`, and a visible
+ * trailing backslash is unlike anything in the vault; where a newline is not allowed at all —
+ * inside a table row — it is written as a *space*, so the break is silently lost. Obsidian
+ * writes a bare newline in a paragraph and a literal `<br>` in a cell, and so do we. The
+ * matching read is already there: `remarkLineBreak` turns a soft newline inside a paragraph
+ * into a hard break, and a `<br>` in a cell is an inline html node.
+ */
+function HANDLERS() {
+  return {
+    break: (_node, _parent, state) =>
+      (state.stack.includes('tableCell') || state.stack.includes('headingAtx') ? '<br>' : '\n'),
+  };
+}
 
 /**
  * remark-gfm options. Tables are what matters: by default mdast pads every cell so the pipes
@@ -46,7 +64,13 @@ export const GFM_OPTIONS = {
 /** Apply both option sets to a Milkdown editor. Must be called before `create()`. */
 export function configureStringify(editor) {
   editor.config((ctx) => {
-    ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, ...STRINGIFY_OPTIONS }));
+    // `handlers` is merged, not replaced: Milkdown installs its own for emphasis, strong and
+    // text, and those are what keep the vault's mix of `_x_` and `*x*` as it was written.
+    ctx.update(remarkStringifyOptionsCtx, (prev) => ({
+      ...prev,
+      ...STRINGIFY_OPTIONS,
+      handlers: { ...(prev?.handlers || {}), ...STRINGIFY_OPTIONS.handlers },
+    }));
     ctx.update(remarkGFMPlugin.options.key, (prev) => ({ ...(prev || {}), ...GFM_OPTIONS }));
   });
   return editor;
@@ -67,39 +91,44 @@ export function configureStringify(editor) {
 export function postProcess(md) {
   let out = String(md ?? '');
 
-  // 1. An empty document serialises as a single `<br />` (one empty paragraph). An empty file
-  //    must stay an empty file.
-  if (out.trim() === '<br />') return '';
-
-  // 2. Milkdown's image-block node keeps the aspect ratio in the markdown `alt` slot
-  //    (`![1.00](x.png)`). That is a Milkdown-ism, not markdown; strip it so the files stay
-  //    portable. Cost: alt text on a block image is not round-tripped. See the report.
-  out = out.replace(/!\[\d+\.\d{2}\]\(/g, '![](');
+  // Two rules that were here are gone in batch 12, and both were deletions:
+  //
+  //   the `<br />` sweep — an empty paragraph, an empty table cell and an empty list item were
+  //   all written as `<br />` by `remark-preserve-empty-line` and swept up again here, which
+  //   also swept up a `<br>` the file itself contained (M3, L1). The plugin is left out of the
+  //   editor now (crepe.js), so none of those markers is ever written and a `<br>` is a
+  //   `<br>`;
+  //   the `![1.00](` strip — Milkdown's image-block node used to keep an aspect ratio in the
+  //   markdown alt slot. Its runners write `![alt|width](src)` now (image.js, M7), so the alt
+  //   slot is text and nothing here may touch it.
 
   const src = out.split('\n');
   const lines = [];
   const fence = fenceTracker();
-  let dropped = false;
   for (let i = 0; i < src.length; i++) {
     if (fence(src[i])) { lines.push(src[i]); continue; }
-
-    // 3. Any empty block serialises as `<br />`: an empty paragraph of its own, or an empty
-    //    table cell. Neither belongs in a markdown file. Removing the paragraph also removes
-    //    the blank line that separated it from the next block, so no gap is left behind.
-    if (/^\s*<br \/>\s*$/.test(src[i])) { dropped = true; continue; }
-    let line = src[i];
-    if (isTableRow(line)) line = line.replace(/(\|\s*)<br \/>(\s*(?=\|))/g, '$1$2');
-
-    line = unescapeLine(line);
-    if (!line.trim()) {
-      if (dropped) { dropped = false; continue; }
-      if (lines.length && !lines[lines.length - 1].trim()) continue;
-    } else {
-      dropped = false;
-    }
+    const line = unescapeLine(src[i], isDelimiterRow(src[i + 1] || ''));
+    // Never two blank lines in a row: remark does not write them and Hassan does not either.
+    if (!line.trim() && lines.length && !lines[lines.length - 1].trim()) continue;
     lines.push(line);
   }
+
+  // 4. mdast writes the shortest legal delimiter row, `| - |`. Every table in the vault is
+  //    written `| --- |` or `|---|`, and so is every table Obsidian makes, so a table the
+  //    editor creates should look like the ones around it (L20). Alignment colons are kept.
+  widenDelimiters(lines);
   return lines.join('\n');
+}
+
+/** `| - | :- |` -> `| --- | :--- |`, in place, for every delimiter row outside a fence. */
+function widenDelimiters(lines) {
+  const fence = fenceTracker();
+  for (let i = 0; i < lines.length; i++) {
+    const inFence = fence(lines[i]);
+    if (inFence || i === 0) continue;
+    if (!isDelimiterRow(lines[i]) || !isTableRow(lines[i - 1])) continue;
+    lines[i] = lines[i].replace(/(\|\s*)(:?)-+(:?)(\s*(?=\|))/g, (m, a, l, r, b) => a + l + '---' + r + b);
+  }
 }
 
 /** Stateful fence detector: true for a fence marker line and for every line inside a fence. */
@@ -116,8 +145,15 @@ function fenceTracker() {
   };
 }
 
-/** Walk one line outside code spans and undo the over-escapes. */
-function unescapeLine(line) {
+/**
+ * Walk one line outside code spans and undo the over-escapes.
+ * `opensTable` says the next line is a delimiter row, which is the one place where an
+ * unescaped `|` would turn this line into a table header.
+ */
+function unescapeLine(line, opensTable) {
+  // Outside a table a `|` is an ordinary character, and the vault has them in prose and in
+  // image widths (`![alt|420](x.png)`). remark escapes them anyway.
+  const pipeSafe = !opensTable && !isTableRow(line);
   // A lone `~` cannot open strikethrough; mdast escapes it anyway. Only safe when the line
   // has no `~~` pair at all, so `~~struck~~` keeps its escapes.
   const tildeSafe = !/~~/.test(line.replace(/\\~/g, '~'));
@@ -147,7 +183,30 @@ function unescapeLine(line) {
       const loneStar = next === '*'
         && /^\s*$/.test(out.slice(-1))
         && /^\s*$/.test(line[i + 2] || '');
-      if ((next === '~' && tildeSafe) || (next === '[' && bracketSafe) || loneStar) out += next;
+      // `]\(` is the other half of `bracketSafe`: mdast escapes both brackets of a literal
+      // `[text](url)` so it stays text, and un-escaping only the `[` leaves the stray
+      // backslash of E22. Un-escape the `(` too, which is what the user typed and meant.
+      const linkParen = next === '(' && out.endsWith(']');
+      // An `_` between two word characters can neither open nor close emphasis (CommonMark
+      // 6.2, the intraword rule), so `snake_case_var` needs no backslashes — and gaining a
+      // pair of them on a line the user edited is M8.
+      const wordUnderscore = next === '_'
+        && /\w$/.test(out) && /^\w/.test(line[i + 2] || '');
+      // `#` opens a heading only when the run of hashes is followed by a space or ends the
+      // line. `#tag` at the start of a line is a paragraph, and its backslash is noise.
+      // `&` only starts something when a character reference follows it. remark decodes
+      // `AT&amp;T` into `AT&T` at parse and then escapes the `&` on the way out, so a line the
+      // user edited came back with a backslash in it that was never in the file (M9).
+      const ampersand = next === '&' && !/^(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#[xX][0-9a-fA-F]+);/.test(line.slice(i + 2));
+      let hashTag = false;
+      if (next === '#' && !out.trim()) {
+        let n = 1;
+        while (line[i + 1 + n] === '#') n++;
+        const after = line[i + 1 + n];
+        hashTag = !!after && !/\s/.test(after);
+      }
+      if ((next === '~' && tildeSafe) || (next === '[' && bracketSafe) || (next === '|' && pipeSafe)
+        || loneStar || linkParen || wordUnderscore || hashTag || ampersand) out += next;
       else out += ch + next;
       i += 2;
       continue;
@@ -238,11 +297,19 @@ function align(a, b, window = 80) {
  * @param {string} out       canonical output of postProcess()
  * @param {string} original  the file as it is on disk
  * @param {object} [opt]
- * @param {boolean} [opt.lines=true] also restore lines that differ only in escaping or spacing
+ * @param {(md:string)=>string} [opt.canon]  parse-and-serialise, from the editor. When it is
+ *        given, reconciliation is block by block (the batch-12 engine); without it the old
+ *        line-only pass runs, which no caller in the app uses any more.
+ * @param {boolean} [opt.lines=true] line pass only: restore lines that differ only in escaping
  * @returns {string} a candidate the caller must verify by re-parsing
  */
 export function reconcile(out, original, opt = {}) {
   if (!original) return out;
+  if (typeof opt.canon === 'function') return reconcileBlocks(out, original, opt.canon);
+  return reconcileLines(out, original, opt);
+}
+
+function reconcileLines(out, original, opt = {}) {
   const restoreLines = opt.lines !== false;
 
   const text = restoreTables(out, original);
@@ -268,6 +335,327 @@ export function reconcile(out, original, opt = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// The block engine (batch 12).
+//
+// A line is the wrong unit. remark does not rewrite lines, it rewrites blocks: a paragraph
+// followed by `---` comes back as `## text`, a four-space nested list comes back indented by
+// two, a table comes back reflowed. Compared line by line none of those match, so the old pass
+// gave up and the whole file was rewritten because of one construct it could not follow (M5).
+//
+// So the unit is the block. `blocks()` cuts both texts at blank lines — which is where every
+// top-level markdown block ends, fenced code excepted — and each original block is keyed by
+// what the editor would write for it *on its own*. A block whose key equals the canonical
+// block is the same block, however differently it is spelled: it keeps its original bytes,
+// exactly. A block that does not match is the one the user edited: it is written from the
+// canonical text with the line pass applied inside it, and verified on its own. Nothing that
+// happens to one block can reach another.
+
+// A `---` on a line of its own is two different things. After a paragraph line it is the
+// underline of a setext heading and belongs to it; anywhere else it is a thematic break, which
+// is a block of its own even with no blank line around it. Both have to be cut correctly or
+// the two block lists stop lining up.
+const BREAK_LINE = /^\s{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
+const OPENS_BLOCK = /^\s{0,3}(?:#{1,6}[ \t]|>|[-*+][ \t]|\d+[.)][ \t]|\||`{3,}|~{3,})/;
+const isParagraphLine = (l) => !!l && !!l.trim() && !BREAK_LINE.test(l) && !OPENS_BLOCK.test(l);
+
+/** Top-level blocks: maximal runs of non-blank lines, fenced code kept whole. */
+export function blocks(text) {
+  const lines = String(text).split('\n');
+  const fence = fenceTracker();
+  const list = [];
+  const gaps = [];
+  let gap = 0;
+  let cur = null;
+  const close = () => { if (cur) { list.push(cur); cur = null; } };
+  for (let i = 0; i < lines.length; i++) {
+    const inFence = fence(lines[i]);
+    if (!inFence && !lines[i].trim()) { close(); gap++; continue; }
+    const rule = !inFence && BREAK_LINE.test(lines[i]);
+    if (rule && !isParagraphLine(lines[i - 1])) close();   // a thematic break, not an underline
+    if (!cur) { cur = { start: i, end: i, lines: [] }; gaps.push(gap); gap = 0; }
+    cur.lines.push(lines[i]);
+    cur.end = i;
+    if (rule) close();                                     // and nothing follows it in its block
+  }
+  close();
+  gaps.push(gap);
+  for (const b of list) b.text = b.lines.join('\n');
+  return { list, gaps };
+}
+
+// How far apart two block sequences may drift before the walk gives up and pairs by position.
+// Blocks are coarse: a dozen is a whole screen of prose.
+const BLOCK_WINDOW = 12;
+
+// How many canonical blocks one original block may turn into. Hassan writes densely — a
+// paragraph and the list under it with no blank line between them is one block in the file and
+// two after remark, which puts a blank line between every pair of blocks.
+const GROUP_MAX = 8;
+
+/** Runs of blank lines removed: what two texts that differ only in looseness have in common. */
+const squeeze = (s) => s.replace(/\n{2,}/g, '\n');
+
+/**
+ * Walk the two block lists together. For each canonical block j the walk records
+ *   from[j]  the original block it corresponds to, or -1 when there is none,
+ *   span[j]  how many further canonical blocks that same original block accounts for,
+ *   same[j]  whether it is the *same block* — unchanged, and so restorable byte for byte.
+ *
+ * Two blocks are the same when they are the same bytes, or when the editor writes the original
+ * as the canonical one. That second test costs a parse, so it is only asked when the first
+ * fails, and the answer is remembered: most blocks of most saves come back byte for byte and
+ * cost nothing at all. Where it fails, the walk still advances both sides by one block, which
+ * is the pairing: everything around the block the user edited is anchored, so the one in the
+ * middle can only be the one in the middle.
+ */
+function matchBlocks(A, B, canon, bLines) {
+  const from = new Int32Array(B.length).fill(-1);
+  const span = new Int32Array(B.length);
+  const unchanged = new Uint8Array(B.length);
+  const keys = new Array(A.length);
+  const key = (i) => (keys[i] === undefined ? (keys[i] = canon(A[i].text)) : keys[i]);
+  /** How many canonical blocks this original block turns into. */
+  const width = (i) => Math.max(1, blocks(key(i)).list.length);
+
+  /** -1 when they are not the same block, else how many extra canonical blocks it swallows. */
+  const same = (i, j) => {
+    if (A[i].text === B[j].text) return 0;
+    const k0 = key(i);
+    if (k0 === B[j].text) return 0;
+    // Looseness is a property of the whole list, not of the four items that happen to sit in
+    // one block: `- a\n- b` on its own is a tight list, and the same two items in a list that
+    // has a blank line further down come back with a blank line between them. So the run is
+    // also compared with its blank lines taken out, which is the only thing that can differ.
+    const s0 = squeeze(k0);
+    for (let k = 1; k <= GROUP_MAX && j + k < B.length; k++) {
+      const text = bLines.slice(B[j].start, B[j + k].end + 1).join('\n');
+      if (text.length > k0.length + 2 * k) break;
+      if (text === k0 || squeeze(text) === s0) return k;
+    }
+    return -1;
+  };
+
+  // Resynchronising needs two blocks in a row, not one. A file with `---` between its sections
+  // has a dozen blocks that are all the same block, and one of them matching further down is no
+  // evidence at all — following it would orphan everything in between.
+  const confirmed = (ai, bj) => {
+    const k = same(ai, bj);
+    if (k < 0) return -1;
+    if (ai + 1 >= A.length || bj + k + 1 >= B.length) return k;
+    return same(ai + 1, bj + k + 1) >= 0 ? k : -1;
+  };
+
+  let i = 0;
+  let j = 0;
+  while (i < A.length && j < B.length) {
+    let k = same(i, j);
+    for (let d = 1; d <= BLOCK_WINDOW && k < 0; d++) {
+      if (i + d < A.length && confirmed(i + d, j) >= 0) { i += d; k = same(i, j); }
+      else if (j + d < B.length && confirmed(i, j + d) >= 0) { j += d; k = same(i, j); }
+    }
+    // The block the user edited still accounts for every canonical block its original turns
+    // into: a paragraph and the list under it, written with no blank line between them, are
+    // one block in the file and two after remark, and editing the paragraph must not put a
+    // blank line in. So it claims that whole run and is reconciled against it as one piece.
+    const w = k >= 0 ? k + 1 : Math.min(width(i), B.length - j);
+    from[j] = i;
+    span[j] = w - 1;
+    if (k >= 0) { unchanged[j] = 1; for (let x = 1; x < w; x++) from[j + x] = i; }
+    i++;
+    j += w;
+  }
+  return { from, span, unchanged };
+}
+
+function reconcileBlocks(out, original, rawCanon) {
+  // A serialisation always ends in a newline and a block never does, so every comparison in
+  // here goes through this: what the editor writes for a block, as a block.
+  const canon = (text) => rawCanon(text).replace(/^\n+|\n+$/g, '');
+  const A = blocks(original);
+  const B = blocks(out);
+  if (!A.list.length || !B.list.length) return out;
+
+  const bLines = out.split('\n');
+  const { from, span, unchanged } = matchBlocks(A.list, B.list, canon, bLines);
+  const style = detectStyle(original);
+
+  let result = '';
+  let prev = -1;      // the original block the last piece of output came from
+  let first = true;
+  let lastFrom = -1;
+  for (let j = 0; j < B.list.length; j += span[j] + 1) {
+    const p = from[j];
+    // The original's blank lines describe this boundary only when both sides of it survived
+    // and were adjacent in the original; anywhere the user inserted something, keep remark's.
+    const keepsBoundary = p >= 0 && (first ? p === 0 : prev === p - 1);
+    const gap = keepsBoundary ? A.gaps[p] : B.gaps[j];
+    result += '\n'.repeat(first ? gap : gap + 1);
+    if (p >= 0 && unchanged[j]) result += A.list[p].text;
+    else {
+      const next = bLines.slice(B.list[j].start, B.list[j + span[j]].end + 1).join('\n');
+      result += editedBlock(next, p >= 0 ? A.list[p].text : null, canon, style);
+    }
+    prev = p;
+    lastFrom = p;
+    first = false;
+  }
+  const tail = lastFrom === A.list.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1];
+  return result + '\n'.repeat(tail);
+}
+
+/**
+ * The one block the user changed, written from the canonical text but keeping everything of
+ * the original that still says the same thing: the untouched rows of a table, the untouched
+ * lines of a list, the underline of a setext heading. Verified on its own, so a block that
+ * cannot be put back costs nothing but itself.
+ */
+function editedBlock(next, prev, canon, style) {
+  // The style pass goes first, on the canonical text alone: after it the block is spelled the
+  // way the file is, and the lines the user did not touch can be matched and put back on top.
+  let candidate = applyStyle(next, style);
+  if (prev) {
+    candidate = isTable(candidate) && isTable(prev) ? restoreRows(candidate, prev) : restoreLinesIn(candidate, prev);
+    candidate = keepSetext(candidate, prev);
+    // The original was one block, so it had no blank lines in it: any that remain are ones
+    // remark put between the several canonical blocks it turns into. The file did not have
+    // them and editing a line of it is no reason to gain them. A bare `>` is the same thing
+    // one level in: the blank line between two blocks of a blockquote, which is how a callout
+    // with a list under its title gains a line (M21).
+    candidate = dropBlanks(candidate, prev);
+  }
+  return candidate !== next && canon(candidate) === next ? candidate : next;
+}
+
+const isEmptyQuoteLine = (l) => /^[ \t]*>[ \t]*$/.test(l);
+
+/** Blank lines removed, except inside a fence where they are code. */
+function dropBlanks(text, prev) {
+  const quotes = !/^[ \t]*>[ \t]*$/m.test(prev);
+  if (!/\n[ \t]*\n/.test(text) && !(quotes && /^[ \t]*>[ \t]*$/m.test(text))) return text;
+  const fence = fenceTracker();
+  return text.split('\n')
+    .filter((l) => fence(l) || (l.trim() && !(quotes && isEmptyQuoteLine(l))))
+    .join('\n');
+}
+
+/**
+ * Line for line inside one block: a line whose content did not change keeps its bytes, and so
+ * does the blank line in front of it. The two texts are one block of one file, so the walk
+ * cannot drift the way it could over a whole file.
+ *
+ * The one line that did change — the one the user was on — is written from the canonical text,
+ * but indented the way this file indents. That is not guessed: it is read off the lines that
+ * did match. A file that nests with four spaces under a bullet and four under `1.` says so in
+ * every other line of the same list, and remark's two and three are translated back.
+ */
+function restoreLinesIn(next, prev) {
+  const A = units(prev);
+  const B = units(next);
+  if (!A.items.length || !B.items.length) return next;
+  const map = align(A.items.map(lineKey), B.items.map(lineKey), 400);
+
+  const indentOf = (l) => (/^[ \t]*/.exec(l) || [''])[0];
+  const widths = new Map();
+  for (let j = 0; j < B.items.length; j++) {
+    if (map[j] < 0) continue;
+    const w = indentOf(B.items[j]).length;
+    if (!widths.has(w)) widths.set(w, indentOf(A.items[map[j]]));
+  }
+
+  let result = '';
+  for (let j = 0; j < B.items.length; j++) {
+    const i = map[j];
+    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : map[j - 1] === i - 1);
+    const gap = keepsBoundary ? A.gaps[i] : B.gaps[j];
+    result += '\n'.repeat(j === 0 ? gap : gap + 1);
+    if (i >= 0) { result += A.items[i]; continue; }
+    const line = B.items[j];
+    const ind = indentOf(line);
+    const want = widths.get(ind.length);
+    result += want !== undefined && want !== ind ? want + line.slice(ind.length) : line;
+  }
+  const last = map[B.items.length - 1];
+  const tail = last === A.items.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1];
+  return result + '\n'.repeat(tail);
+}
+
+// ---------------------------------------------------------------------------
+// The file's own markers (M12).
+//
+// remark writes one spelling of each construct — `-` bullets, `1.` numbers, `---` rules,
+// backtick fences, two-space nesting — and STRINGIFY_OPTIONS picks the spellings Hassan's
+// files use. A file written the other way (a `*` list, a `~~~` fence, four-space nesting)
+// keeps its own bytes wherever it is untouched, because that is a block that matched; the
+// block the user edited is the one that would come back in the house style. So an edited
+// block is put back in the style of the file it lives in, and verified like everything else.
+
+const DEFAULT_STYLE = { bullet: '-', ordered: '.', rule: '---', fence: '`', indent: 2 };
+
+/** What this file is written with. Only what the serialiser would otherwise override. */
+export function detectStyle(text) {
+  const style = { ...DEFAULT_STYLE };
+  const lines = String(text).split('\n');
+  const fence = fenceTracker();
+  let seenBullet = false;
+  let seenIndent = false;
+  for (const line of lines) {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    const inFence = fence(line);
+    if (f) { style.fence = f[1][0]; continue; }
+    if (inFence) continue;
+    const rule = /^\s{0,3}((?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.exec(line);
+    if (rule) { style.rule = rule[1].trimEnd(); continue; }
+    const item = /^([ \t]*)([-*+]|\d+[.)])[ \t]/.exec(line);
+    if (!item) continue;
+    if (/[-*+]/.test(item[2]) && !seenBullet) { style.bullet = item[2]; seenBullet = true; }
+    if (/\d/.test(item[2])) style.ordered = item[2].slice(-1);
+    if (item[1] && !seenIndent) { style.indent = item[1].replace(/\t/g, '    ').length; seenIndent = true; }
+  }
+  return style;
+}
+
+const isDefaultStyle = (s) =>
+  s.bullet === '-' && s.ordered === '.' && s.rule === '---' && s.fence === '`' && s.indent === 2;
+
+/** One block rewritten in `style`. Idempotent on lines that are already in it. */
+function applyStyle(text, style) {
+  if (!style || isDefaultStyle(style)) return text;
+  const fence = fenceTracker();
+  return text.split('\n').map((line) => {
+    const f = /^\s{0,3}(`{3,})/.exec(line);
+    const inFence = fence(line);
+    if (f && style.fence === '~') return line.replace(/`/g, '~');
+    if (inFence) return line;
+    if (/^\s{0,3}-{3,}\s*$/.test(line)) return style.rule;
+    let out = line;
+    // Only remark's own two-space nesting is rescaled, and only in a block with no original to
+    // read the indent off (`restoreLinesIn` does that better). Three spaces is what an ordered
+    // list's continuation gets, and scaling it would land between two levels.
+    if (style.indent !== 2) {
+      out = out.replace(/^ +/, (m) => (m.length % 2 ? m : ' '.repeat((m.length / 2) * style.indent)));
+    }
+    if (style.bullet !== '-') out = out.replace(/^([ \t]*)-([ \t])/, `$1${style.bullet}$2`);
+    if (style.ordered !== '.') out = out.replace(/^([ \t]*\d+)\.([ \t])/, `$1${style.ordered}$2`);
+    return out;
+  }).join('\n');
+}
+
+/**
+ * A heading written `Text` over `-----` is a setext H2, and `setext: false` turns it into
+ * `## Text` — deleting a line of the file to gain one it never had (M2). When the block that
+ * was a setext heading comes back as an ATX heading of the same level, put it back.
+ */
+function keepSetext(next, prev) {
+  const a = prev.split('\n');
+  if (a.length !== 2) return next;
+  const rule = a[1].match(/^\s{0,3}(=+|-+)\s*$/);
+  if (!rule || /^\s{0,3}(?:#{1,6}\s|[-*+>]\s|\|)/.test(a[0]) || !a[0].trim()) return next;
+  const atx = next.match(/^(#{1,6})[ \t]+(.*)$/);
+  if (!atx || atx[1].length !== (rule[1][0] === '=' ? 1 : 2)) return next;
+  return atx[2] + '\n' + a[1];
+}
+
+// ---------------------------------------------------------------------------
 // Tables.
 //
 // remark rewrites every table into one canonical shape. The vault uses several (`|---|---|`,
@@ -278,6 +666,62 @@ export function reconcile(out, original, opt = {}) {
 
 const isTableRow = (l) => /^\s*\|/.test(l);
 const isDelimiterRow = (l) => /^\s*\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$/.test(l);
+
+/** True for a block that is a table: a row, then a delimiter row. */
+function isTable(text) {
+  const l = text.split('\n');
+  return l.length >= 2 && isTableRow(l[0]) && isDelimiterRow(l[1]);
+}
+
+/** Column alignments of a delimiter row, as one string per table: `l`, `r`, `c` or `-`. */
+const alignments = (row) =>
+  splitCells(row).map((c) => {
+    const t = c.trim();
+    return (t.startsWith(':') ? 'l' : '') + (t.endsWith(':') ? 'r' : '') || '-';
+  }).join(',');
+
+/**
+ * One edited table, row by row (M1). Every row whose cells did not change keeps its own
+ * padding; only the row the user was in is rewritten. The delimiter row is markup, not
+ * content, so it is kept exactly as written whenever the columns and their alignments are
+ * unchanged — that is the whole of it, because a cell edit changes neither.
+ */
+function restoreRows(next, prev) {
+  const b = next.split('\n');
+  const a = prev.split('\n');
+  const out = new Array(b.length);
+  out[0] = lineKey(b[0]) === lineKey(a[0]) ? a[0] : repad(b[0], a[0]);
+  out[1] = alignments(b[1]) === alignments(a[1]) ? a[1] : b[1];
+  const bk = b.slice(2).map(lineKey);
+  const ak = a.slice(2).map(lineKey);
+  const map = align(ak, bk, 200);
+  for (let j = 0; j < bk.length; j++) {
+    out[j + 2] = map[j] >= 0 ? a[map[j] + 2]
+      : repad(b[j + 2], a[Math.min(j, ak.length - 1) + 2] || a[2]);
+  }
+  return out.join('\n');
+}
+
+/**
+ * The row the user was in, in the column widths the table is written with. remark writes every
+ * cell padded by one space; a row like that dropped into a table whose columns are aligned by
+ * hand looks broken, and the padding is not content — it does not change what the row says.
+ */
+function repad(next, prev) {
+  if (!prev || !isTableRow(prev)) return next;
+  const nc = splitCells(next);
+  const pc = splitCells(prev);
+  if (nc.length !== pc.length) return next;
+  const indent = (/^\s*/.exec(prev) || [''])[0];
+  const cells = pc.map((old, k) => {
+    const m = /^([ \t]*)[\s\S]*?([ \t]*)$/.exec(old);
+    const body = nc[k].trim();
+    const left = m[1] || (body ? ' ' : ' ');
+    const pad = old.length - left.length - body.length;
+    return left + body + (pad > 0 ? ' '.repeat(pad) : (m[2] ? ' ' : ''));
+  });
+  return `${indent}|${cells.join('|')}|`;
+}
 
 function findTables(md) {
   const lines = md.split('\n');

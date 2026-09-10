@@ -13,24 +13,60 @@
 // line in its original order (so a stray H1 further down stays exactly where it is) and the
 // header shows the file name instead.
 
-const FRONTMATTER = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
-const ATX_H1 = /^#[ \t]+(.*?)[ \t]*$/;
+import { detectStyle } from './stringify.js';
+
+const FRONTMATTER = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/;
+// The closing `#` sequence of an ATX heading is markup, not text: `# Title #` is titled
+// `Title` (CommonMark 4.2). It only closes when a space separates it from the text, so
+// `# C#` keeps its hash.
+const ATX_H1 = /^#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+
+// A `---` on line 1 only opens frontmatter when what follows looks like a YAML mapping and
+// the block closes. Otherwise it is a thematic break and the text under it is prose, which
+// must reach the editor instead of being hidden in a read-only properties strip (M17).
+const FM_MAX_LINES = 64;
+const FM_LINE = [
+  /^\s*$/,                       // blank
+  /^#/,                          // comment
+  /^[^\s:#][^:]*:(?:[ \t].*)?$/, // key: value, or a bare `key:` opening a block
+  /^\s+\S/,                      // an indented continuation or nested key
+  /^-(?:[ \t].*)?$/,             // a sequence item at column 0
+];
+
+function looksLikeFrontmatter(inner) {
+  const lines = inner.split('\n');
+  if (lines.length > FM_MAX_LINES) return false;
+  return lines.every((l) => FM_LINE.some((re) => re.test(l)));
+}
 
 /**
  * @param {string} text raw file content
- * @returns {{eol:string, endsWithNewline:boolean, frontmatterRaw:string, frontmatter:Array|null,
- *            preTitle:string, titleLine:string|null, title:string, gap:string, body:string}}
+ * @returns {{eol:string, eols:string[], lines:string[], bom:boolean, endsWithNewline:boolean,
+ *            style:object, frontmatterRaw:string, frontmatter:Array|null, preTitle:string,
+ *            titleLine:string|null, title:string, gap:string, body:string}}
+ * `style` is how this file spells its bullets, numbers, rules, fences and list indent (M12).
  */
 export function parseDoc(text) {
-  const src = String(text ?? '');
-  const eol = /\r\n/.test(src) ? '\r\n' : '\n';
+  let src = String(text ?? '');
+  // A UTF-8 BOM is a byte of the file, not a character of the document: it must not reach the
+  // title regex or the editor, and it must be written back (M16). The bridge keeps it on read.
+  const bom = src.charCodeAt(0) === 0xFEFF;
+  if (bom) src = src.slice(1);
+
+  // Line endings are recorded per line, not per file: a file with 99 CRLF lines and 8 LF ones
+  // keeps all 107 as they are (M15). `eol` is only what a line the editor *adds* gets.
+  const eols = src.split('\n').map((l) => (l.endsWith('\r') ? '\r\n' : '\n'));
+  let crlf = 0;
+  for (const e of eols) if (e === '\r\n') crlf++;
+  const eol = crlf * 2 > eols.length ? '\r\n' : '\n';
   const lf = src.replace(/\r\n/g, '\n');
+  const lines = lf.split('\n');
   const endsWithNewline = /\n$/.test(lf);
 
   let rest = lf;
   let frontmatterRaw = '';
   const fm = rest.match(FRONTMATTER);
-  if (fm && fm.index === 0) {
+  if (fm && fm.index === 0 && looksLikeFrontmatter(fm[1])) {
     frontmatterRaw = fm[0];
     rest = rest.slice(fm[0].length);
   }
@@ -42,7 +78,7 @@ export function parseDoc(text) {
 
   if (!h1 || !h1[1]) {
     return {
-      eol, endsWithNewline, frontmatterRaw,
+      eol, eols, lines, bom, endsWithNewline, frontmatterRaw, style: detectStyle(rest),
       frontmatter: frontmatterRaw ? parseFrontmatter(frontmatterRaw) : null,
       preTitle: '', titleLine: null, title: '', gap: '',
       body: rest,
@@ -52,7 +88,7 @@ export function parseDoc(text) {
   const afterTitle = after.slice(firstLine.length);
   const gap = (afterTitle.match(/^\n*/) || [''])[0];
   return {
-    eol, endsWithNewline, frontmatterRaw,
+    eol, eols, lines, bom, endsWithNewline, frontmatterRaw, style: detectStyle(rest),
     frontmatter: frontmatterRaw ? parseFrontmatter(frontmatterRaw) : null,
     preTitle, titleLine: firstLine, title: h1[1], gap,
     body: afterTitle.slice(gap.length),
@@ -77,11 +113,41 @@ export function composeDoc(doc, { title, body }) {
   }
   out += body;
 
-  // Only the very end is normalised. Nothing else is touched: stripping trailing spaces or
-  // collapsing blank lines globally would corrupt fenced code blocks.
-  out = out.replace(/\n+$/, '');
-  if (doc.endsWithNewline || titleLine === null || body.trim()) out += '\n';
-  return doc.eol === '\r\n' ? out.replace(/\n/g, '\r\n') : out;
+  // Nothing is normalised but the final newline, and that follows the file: 96 of the vault's
+  // 172 files have none, and adding one changes a file the user only looked at (M14). The
+  // blank lines in front of it are the body's own — the reconcile pass copies the original's.
+  if (doc.endsWithNewline) { if (!out.endsWith('\n')) out += '\n'; }
+  else out = out.replace(/\n$/, '');
+
+  return withBom(doc, restoreEols(out, doc));
+}
+
+const withBom = (doc, out) => (doc.bom ? '\uFEFF' + out : out);
+
+/**
+ * Give every line back the ending it had. The two texts are nearly identical, so the lines
+ * that certainly still mean what they meant are the common prefix and the common suffix;
+ * those keep their recorded ending and everything between them gets the file's usual one.
+ * A file that was pure LF (all but ten in the vault) short-circuits.
+ */
+function restoreEols(out, doc) {
+  const A = doc.lines;
+  if (!A || !doc.eols || !doc.eols.includes('\r\n')) return out;
+  const B = out.split('\n');
+  const m = Math.min(A.length, B.length);
+  let p = 0;
+  while (p < m && A[p] === B[p]) p++;
+  let s = 0;
+  while (s < m - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+
+  let r = '';
+  for (let i = 0; i < B.length; i++) {
+    r += B[i];
+    if (i === B.length - 1) break;
+    const j = i < p ? i : i >= B.length - s ? A.length - (B.length - i) : -1;
+    r += (j >= 0 && doc.eols[j]) || doc.eol;
+  }
+  return r;
 }
 
 /** Read `key: value` lines out of a frontmatter block for the read-only properties strip. */

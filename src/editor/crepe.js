@@ -6,6 +6,7 @@ import '@milkdown/crepe/theme/common/style.css';
 import { editorViewCtx, parserCtx, prosePluginsCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
+import { remarkInlineLinkPlugin, remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark';
 import { indentPlugin } from '@milkdown/kit/plugin/indent';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
 import { slashPlugin } from './slash.js';
@@ -13,6 +14,7 @@ import { blockKeysPlugin } from './blocks.js';
 import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
 import { dropPlugin } from './drop.js';
 import { extensionPlugins, extensionFeatureConfigs } from './extensions.js';
+import { extendCodeBlock, extendLink, definitionSchema, remarkResolveReferences } from './fidelity.js';
 
 // A token read at construction time, for the one Crepe option that takes a colour string and
 // not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
@@ -98,6 +100,10 @@ async function installExtras(editor, o) {
     // The batch-12 module plugins (extensions.js) come after ours and before Milkdown's keymap,
     // which is appended after this whole list, so a table keymap can answer Enter first.
     ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin(), ...extensionPlugins(ctx, o)]);
+    // M13/M11: a fence keeps the part of its info string past the language, and the link mark
+    // learns the reference form (fidelity.js).
+    extendCodeBlock(ctx);
+    extendLink(ctx);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);
@@ -108,6 +114,19 @@ async function installExtras(editor, o) {
   // Only the shortcut goes: `indent` is `[indentConfig, indentPlugin]`, and Crepe's own builder
   // configures `indentConfig` at create time, so taking the ctx slice away throws there.
   await editor.remove(indentPlugin);
+  // M3: `remark-preserve-empty-line` visits the parsed tree and splices out *every* html node
+  // whose value is a `<br>`, so `line one<br>line two` in a file came back as `line oneline
+  // two` — the editor deleting a character sequence the vault is allowed to contain. Its
+  // purpose was the other direction: an empty paragraph is written as `<br />` so it survives
+  // a round trip. Without it an empty paragraph is simply not written, which is what Obsidian
+  // does and what the vault contains, and `<br>` is an ordinary inline html node again.
+  await editor.remove(remarkPreserveEmptyLinePlugin);
+  // M11: `remark-inline-links` rewrites `[text][ref]` into `[text](url)` and deletes the
+  // definition, at parse time, before anything downstream can see either. Out it goes, and
+  // `definition` becomes a node of its own (fidelity.js) so the block has somewhere to live.
+  await editor.remove(remarkInlineLinkPlugin);
+  editor.use(definitionSchema);
+  editor.use(remarkResolveReferences);
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */
