@@ -110,7 +110,9 @@ Block handle and slash menu on the left gutter, visible on hover only. Headings 
 in `--font-ui` semibold. Task checkboxes are 16px squares with 1px `--border-strong`, filled
 `--accent` with a white check when done, text struck through in `--fg-3`. Images are full column
 width, square corners, 1px border. Code blocks in `--font-mono` 13px on `--bg-2`. Tables have
-1px borders and mono header cells. Links are `--accent`, underline on hover only.
+1px borders and mono header cells. Links, and any accent-coloured text, are `--accent-ink`
+(`--accent` itself is 2.96:1 on the page and is for surfaces, borders and the hover underline),
+underline on hover only.
 
 ## Views (week, habits, journal, tasks)
 
