@@ -1526,7 +1526,9 @@ the undo history gone and a toast saying so.
 bridge.openPath(relPath)   -> null    opens a vault file in the platform's default application
                                       (host: `opener`, on the resolved path; dev bridge:
                                       start / open / xdg-open). Never a scheme, never outside
-                                      the vault, and an error when the file is not there.
+                                      the vault, and an error when the file is not there. An
+                                      executable or script (exe bat cmd ps1 sh py jar lnk …)
+                                      is revealed in the file manager instead, never run.
 bridge.search(q, {limit})  -> {hits:[{path,line,col,text}], files, total, capped}
                                       limit counts files; 0 means no cap.
 ```

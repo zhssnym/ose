@@ -176,7 +176,7 @@
 }
 .ed .milkdown .ProseMirror > :first-child { margin-top: 0; }
 
-.ed .milkdown a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.ed .milkdown a { color: var(--accent-ink); text-decoration: none; cursor: pointer; }
 .ed .milkdown a:hover { text-decoration: underline; }
 
 .ed .milkdown strong { font-weight: 600; }

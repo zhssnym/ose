@@ -126,7 +126,7 @@ function build(view, event) {
     ].filter(Boolean),
     rows('table.row-above', 'table.row-below', 'table.col-left', 'table.col-right',
       'table.delete-row', 'table.delete-col', 'table.delete',
-      'table.align-left', 'table.align-centre', 'table.align-center', 'table.align-right'),
+      'table.align-left', 'table.align-center', 'table.align-right'),
     onImage ? rows('image.open', 'image.copy-path', 'image.caption') : [],
     rows('block.select', 'block.duplicate', 'block.delete'),
   ]);

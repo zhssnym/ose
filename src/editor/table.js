@@ -360,6 +360,7 @@ function removeTable(view) {
 // the keymap
 
 function handleKeyDown(view, event) {
+  if (event.isComposing || event.keyCode === 229) return false;      // E44
   if (!view.editable) return false;
   const { state } = view;
   if (!isInTable(state)) return false;              // never claim a key outside a table

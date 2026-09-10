@@ -225,7 +225,9 @@ async function openVersions() {
   }
   if (!rows.length) { toast('no versions of this page yet', 'info'); return; }
 
-  const ov = await openOverlay({ width: 520, className: 'dlg-ov' });
+  // `title` is what `openOverlay` puts on the box as its aria-label: a dialog with no
+  // accessible name is announced as just "dialog" (CONTRACT "Access and look", QA F19).
+  const ov = await openOverlay({ width: 520, className: 'dlg-ov', title: 'Versions' });
   const id = ov ? await versionsOverlay(ov, path, rows) : await versionsFallback(rows);
   if (id) await restore(path, id);
 }

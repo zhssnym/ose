@@ -21,6 +21,24 @@ const SEARCH_LIMIT = 0;
 const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
 /**
+ * Keep the text a rewrite is about to replace (batch 12, "Versions"). This is the only write
+ * in the app that edits files the user is not looking at, and a folder move can touch hundreds
+ * of them at once: with no version kept, a regex that misfires misfires everywhere and nothing
+ * can get any of it back. Same shape as `editor/versions.js keepVersion` — swallowed and
+ * logged, never a precondition for the write — and inlined rather than imported, because
+ * `lib/` does not depend on `editor/` for anything but the pure path helpers above.
+ */
+async function keep(path, previous) {
+  if (!path || !previous) return;
+  try {
+    await bridge.versionKeep(path, previous, true);
+  } catch (e) {
+    // An old host has no `versionKeep`; a full disk has no room. Neither stops the rewrite.
+    console.warn('[links] version not kept', path, e && e.message ? e.message : e);
+  }
+}
+
+/**
  * The name a link to `path` has to contain, in the two spellings the app writes: as typed,
  * and with the characters a markdown href cannot carry escaped (`%20` for a space; sidebar.js
  * linkUrl and editor/paths.js relativeHref agree on every character that matters here). A
@@ -48,25 +66,22 @@ function linkSpans(text) {
       tail: tailAt < 0 ? '' : href.slice(tailAt),
     });
   };
-  const re = /\]\(\s*(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)/g;
-  let m;
-  while ((m = re.exec(text))) {
-    const raw = m[1];
-    const angled = raw.startsWith('<');
-    push(m.index + m[0].length - raw.length + (angled ? 1 : 0), angled ? raw.slice(1, -1) : raw);
-  }
-  // Reference definitions (N18): `[ref]: path "optional title"`, at the start of a line, up to
+  // One pass over the lines does two things: it marks the fenced code blocks, and it takes the
+  // reference definitions (N18) — `[ref]: path "optional title"`, at the start of a line, up to
   // three spaces of indent. Only the destination is a span; the label and the title are not
-  // touched. `[ref]:` inside a fenced code block is left alone — a path in a code sample is
-  // documentation, not a link — which is why the scan is line by line rather than one regex.
+  // touched. Nothing inside a fence is a link at all: a path in a code sample is documentation
+  // (QA F15 — the inline scan below used to be the one half of this function that ignored that,
+  // so a rename rewrote `[a](old.md)` inside a ``` block).
   const lines = text.split('\n');
+  const fenced = [];                                  // [start, end) offsets of fenced blocks
   let at = 0;
   let fence = null;
+  let fenceFrom = 0;
   for (const line of lines) {
     const f = /^[ \t]{0,3}(```+|~~~+)/.exec(line);
     if (f) {
-      if (!fence) fence = f[1][0];
-      else if (line.trim().startsWith(fence)) fence = null;
+      if (!fence) { fence = f[1][0]; fenceFrom = at; }
+      else if (line.trim().startsWith(fence)) { fence = null; fenced.push([fenceFrom, at + line.length + 1]); }
     } else if (!fence) {
       const d = /^([ \t]{0,3}\[[^\]\n]+\]:[ \t]*)(<[^>\n]*>|\S+)/.exec(line);
       if (d) {
@@ -75,6 +90,21 @@ function linkSpans(text) {
       }
     }
     at += line.length + 1;
+  }
+  // An unclosed fence runs to the end of the file, which is how a renderer reads it too.
+  if (fence) fenced.push([fenceFrom, text.length]);
+  const inFence = (i) => fenced.some(([a, b]) => i >= a && i < b);
+
+  // The inline scan stays one regex over the whole text rather than line by line, because a
+  // destination may sit on the line after `](`; the fence ranges above are what keeps it out
+  // of code samples.
+  const re = /\]\(\s*(<[^>\n]*>|[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    if (inFence(m.index)) continue;
+    const raw = m[1];
+    const angled = raw.startsWith('<');
+    push(m.index + m[0].length - raw.length + (angled ? 1 : 0), angled ? raw.slice(1, -1) : raw);
   }
   out.sort((a, b) => a.start - b.start);
   return out;
@@ -147,7 +177,9 @@ function lineAt(starts, offset) {
  * A moved file is found at its new path, so its own hrefs are resolved against its old path
  * (that is what they were written against) and rewritten relative to the new one; a link
  * from one moved file to another, still right after the move, comes out unchanged and is not
- * counted. `bridge.writeText` failures are collected, not thrown.
+ * counted. `bridge.writeText` failures are collected, not thrown. Every file that is about to
+ * be rewritten has its current text kept as a version first (`keep` above): this is the one
+ * write with no undo, no dirty flag and no baseline check.
  *
  * N16: a moved file's hrefs that point *outside* the move set are rewritten too. `[x](other.md)`
  * in a page moved from a subfolder to the root used to be left as written and then resolved
@@ -194,6 +226,7 @@ export async function rewriteInboundMany(pairs) {
     let out = text;
     for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.next + out.slice(e.end);
     try {
+      await keep(path, text);
       await bridge.writeText(path, out);
       res.files++;
       res.links += edits.length;

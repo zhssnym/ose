@@ -384,6 +384,7 @@ function codeBlockAt(view) {
 }
 
 function handleKeyDown(view, event) {
+  if (event.isComposing || event.keyCode === 229) return false;      // E44
   if (event.key !== 'Enter' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
   const pos = selectedCodeBlock(view);
   if (pos != null) return enterBlock(view, pos);

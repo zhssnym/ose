@@ -147,9 +147,16 @@ html.mac .tb-win { display: none; }
 .sb-row.current { color: var(--fg); }
 .sb-row.current .gl svg { color: var(--accent); }
 /* Multi-select (C17): a selected row sits one surface up; the current page keeps its accent
-   over that, so the open page is never lost inside a selection. */
+   over that, so the open page is never lost inside a selection. That one surface up is --bg-4,
+   the one ground --fg-3 does not clear 4.5:1 on (4.05 light / 4.00 dark — tokens.css says so),
+   so the dim spans on a selected row step up to --fg-2: 5.00 / 5.07 (QA F17). */
 .sb-row.selected { background: var(--bg-4); }
 .sb-row.selected.current { background: var(--accent-soft); }
+.sb-row.selected .par,
+.sb-row.selected.file.other .grow,
+.sb-row.selected.archive,
+.sb-row.selected.link .gl,
+.sb-row.selected.link .grow { color: var(--fg-2); }
 .sb-view svg { color: var(--fg-3); }
 .sb-view.current svg { color: var(--accent); }
 /* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
@@ -276,7 +283,10 @@ html.mac .tb-win { display: none; }
 .vault-row { width: 100%; text-align: left; cursor: default; }
 .vault-name { flex: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
 .vault-path { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
-.vault-row.gone { opacity: .55; }
+/* A vault that is no longer there: the name and the path dim, the `missing` chip does not.
+   Dimming the whole row took --err under every threshold (~2.6:1) and defeated the one word
+   the row is there to say (QA F18). */
+.vault-row.gone .vault-name, .vault-row.gone .vault-path { opacity: .55; }
 .vault-row .pal-hint.gone { color: var(--err); }
 .vault-pick .dlg-body { padding-bottom: var(--sp-2); }
 .vault-pick .vault-list { margin: 0 calc(-1 * var(--sp-3)); }
@@ -311,9 +321,12 @@ body.resizing * { cursor: col-resize !important; }
 .st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
 /* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
 .st-hint { color: var(--fg-2); }
-/* a newer build is published: the one accent in the bar, and a button so Tab reaches it */
-.st-update { color: var(--accent); cursor: pointer; }
-.st-update:hover { color: var(--accent-hover); }
+/* a newer build is published: the one accent in the bar, and a button so Tab reaches it.
+   Accent-coloured *text* takes --accent-ink: --accent itself is 2.96:1 on --bg and 2.76 on
+   --bg-2, which is under the 4.5 an 11px face needs (L28's rule, QA F16). The hover keeps the
+   ink and underlines instead, because there is no darker accent than the ink. */
+.st-update { color: var(--accent-ink); cursor: pointer; }
+.st-update:hover { text-decoration: underline; }
 /* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
    bar's own colour and only warms up under the pointer (S4) */
 .st-zoom { color: var(--fg-2); cursor: pointer; }
@@ -369,8 +382,10 @@ html.maximized .edge { display: none; }
 .pal-row { cursor: default; padding-right: var(--sp-3); }
 .pal-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
 .pal-row .grow { overflow: hidden; text-overflow: ellipsis; }
-.pal-row b { color: var(--accent); font-weight: 600; }
-.pal-row.active b { color: var(--accent); }
+/* the matched characters: --accent-ink, not --accent, so 13px text clears 4.5:1 in the light
+   theme too (5.66 on --bg, 5.27 on --bg-2; dark aliases the ink back to --accent) (QA F16) */
+.pal-row b { color: var(--accent-ink); font-weight: 600; }
+.pal-row.active b { color: var(--accent-ink); }
 .pal-hint {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -401,7 +416,7 @@ html.maximized .edge { display: none; }
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis;
 }
-.sr-row b { color: var(--accent); font-weight: 700; }
+.sr-row b { color: var(--accent-ink); font-weight: 700; }
 .sr-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
 .sr-row.active .grow { color: var(--fg); }
 

@@ -348,7 +348,7 @@ export function registerCommands(editorApi) {
   commands.register({
     id: 'page.replace', title: 'Find and replace', group: 'page',
     when: () => !!api.getPath(),
-    run: () => { void openReplace(); },
+    run: () => openReplace(),
   });
 }
 
@@ -359,10 +359,13 @@ async function closePage() {
   clearRoute();
 }
 
-async function openReplace() {
-  const { currentFind } = await import('./find.js');
-  const bar = currentFind();
-  if (bar) bar.open({ replace: true });
+/**
+ * Ctrl+H. index.js knows which bar the open page has — the block editor's, or CodeMirror's
+ * own panel in source mode, where replace is built in. Asking `find.js currentFind()` here
+ * meant the chord did nothing at all on a page in source mode (QA F5).
+ */
+function openReplace() {
+  api.openFind({ replace: true });
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, drawSelection, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { closeSearchPanel, openSearchPanel, search, searchKeymap, searchPanelOpen } from '@codemirror/search';
+import { SearchQuery, closeSearchPanel, openSearchPanel, search, searchKeymap, searchPanelOpen, setSearchQuery } from '@codemirror/search';
 import { HighlightStyle, bracketMatching, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
 import { tags } from '@lezer/highlight';
@@ -39,7 +39,9 @@ async function rememberedSet() {
   if (remembered) return remembered;
   const state = await readState();
   const list = Array.isArray(state.sourcePages) ? state.sourcePages : [];
-  remembered = new Set(list.filter((p) => typeof p === 'string').slice(0, REMEMBER_CAP));
+  // The newest 200, the same end `rememberSource` writes: hydrating from the *oldest* 200 threw
+  // away exactly the pages most likely to be opened again (QA F22).
+  remembered = new Set(list.filter((p) => typeof p === 'string').slice(-REMEMBER_CAP));
   return remembered;
 }
 
@@ -66,7 +68,7 @@ export async function renameRemembered(from, to) {
   if (!set.has(from)) return;
   set.delete(from);
   set.add(to);
-  await patchState({ sourcePages: [...set] });
+  await patchState({ sourcePages: [...set].slice(-REMEMBER_CAP) });
 }
 
 // ---------------------------------------------------------------------------
@@ -227,8 +229,29 @@ export function createSourceView(o) {
       });
     },
     focus: () => view.focus(),
-    openFind: () => { openSearchPanel(view); },
+    /**
+     * CodeMirror's own search panel, opened the way the block editor's bar opens (C1, S22):
+     * `query` seeds the field outright — a vault-search hit hands its term over and expects to
+     * see it highlighted (N36) — and `replace: true` puts the caret in the replacement field,
+     * which is what Ctrl+H means here. The panel is CodeMirror's, so replace is already in it;
+     * the argument used to be ignored altogether (QA F5/F6).
+     */
+    openFind({ query = null, replace = false } = {}) {
+      openSearchPanel(view);
+      // After the panel exists, not before: `openSearchPanel` re-seeds the query from the
+      // selection when it finds a panel whose field is not focused.
+      if (typeof query === 'string' && query) {
+        view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query })) });
+      }
+      const panel = view.dom.querySelector('.cm-search');
+      if (!panel) return;
+      // The replace row is not built on a read-only page; the search field always is.
+      const field = (replace && panel.querySelector('input[name="replace"]'))
+        || panel.querySelector('input[name="search"]');
+      if (field instanceof HTMLInputElement) { field.focus(); field.select(); }
+    },
     closeFind: () => { closeSearchPanel(view); },
+    findOpen: () => searchPanelOpen(view.state),
     /** Caret onto file line `n` (1-based), column `col` (1-based), scrolled into view. */
     goToLine(n, col) {
       const line = Math.max(1, Math.min(Math.floor(Number(n) || 1), view.state.doc.lines));
@@ -303,7 +326,10 @@ export function registerCommands(a) {
     title: 'Toggle source mode',
     group: 'page',
     shortcut: 'Ctrl+E',
-    when: () => !!(api && api.hasPage() && api.canToggleSource && api.canToggleSource()),
+    // `hasPage` only: a file that is not markdown has one mode, and `toggleSource` says so in
+    // its own words. Guarding on `canToggleSource` here made that sentence unreachable — the
+    // chord fell through to the shell's generic "not available here" instead (QA F20).
+    when: () => !!(api && api.hasPage()),
     run: () => { if (api && api.toggleSource) void api.toggleSource(); },
   });
 }

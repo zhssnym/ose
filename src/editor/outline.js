@@ -53,7 +53,7 @@ export function pickHeading({ view, title, onTitle }) {
       if (h.isTitle) { if (onTitle) onTitle(); return; }
       caretAt(view, h.pos + 1, { block: 'start', always: true, focus: true });
     };
-    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick ed-outline', onClose: () => { if (!done) { done = true; resolve(null); } } });
+    const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick ed-outline', title: 'Go to heading', onClose: () => { if (!done) { done = true; resolve(null); } } });
     ov.box.innerHTML = `
       <div class="pal-head">
         <span class="pal-icon">${HEAD_ICON}</span>

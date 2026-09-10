@@ -29,7 +29,11 @@
   --fg-2: #5C5952;
   /* L28: the old #767264 read 4.26:1 on --bg-2 at 11px, under the 4.5 a small chrome face
      needs. Darkened by 11 on every channel, so the hue and the warmth are untouched, and now
-     5.37 on --bg, 5.01 on --bg-2, 4.53 on --bg-3 (a hint in a hovered row). */
+     5.37 on --bg, 5.01 on --bg-2, 4.53 on --bg-3 (a hint in a hovered row).
+     Not for use on --bg-4: it reads 4.05 there, and darkening it far enough to clear 4.5 (about
+     #63604F) would put it on top of --fg-2 and collapse the two dim tiers into one. The one
+     ground made of --bg-4 is a selected row and an active row, and the dim text on those steps
+     up to --fg-2 (5.00) instead — shell.css `.sb-row.selected`, base.css `.row.active` (F17). */
   --fg-3: #6B6759;
 
   /* accent */
@@ -166,7 +170,8 @@
   --fg-2: #A9A497;
   /* The dark half of L28: #8B8779 cleared --bg and --bg-2 (4.89 / 4.64) but only reached 4.05
      on --bg-3, so it is lightened the same way its light twin was darkened — 5.56 / 5.28 /
-     4.61. Small chrome text clears 4.5 on every surface it lands on, in both themes. */
+     4.61. Small chrome text clears 4.5 on every surface it lands on, in both themes — except
+     --bg-4 (4.00), which the light note above explains; --fg-2 is 5.07 there. */
   --fg-3: #959182;
 
   --accent: #D97757;

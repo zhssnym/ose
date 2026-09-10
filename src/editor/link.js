@@ -261,7 +261,7 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = dlg.openOverlay({
-      width: 560, top: '15vh', className: 'pal pick ed-link',
+      width: 560, top: '15vh', className: 'pal pick ed-link', title: 'Link a page',
       onClose: () => { if (!done) { done = true; resolve(null); } },
     });
     ov.box.innerHTML = `

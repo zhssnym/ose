@@ -23,11 +23,6 @@ import { icon } from '../shell/icons.js';
 
 const MAX_PREFILL = 64;
 
-// The bar of the page that is open. `page.replace` (commands.js) needs to reach it without
-// going through index.js, which owns the page object and not this component.
-let current = null;
-export const currentFind = () => current;
-
 /**
  * @param {HTMLElement} root       the page column (`.ed`); the bar is prepended to it
  * @param {() => any} getView      the live ProseMirror view, or null once the page is gone
@@ -211,6 +206,7 @@ export function createFind(root, getView) {
     input.addEventListener('input', () => search(input.value));
     for (const field of [input, replaceInput]) {
       field.addEventListener('keydown', (e) => {
+        if (e.isComposing || e.keyCode === 229) return;              // E44
         if (e.key === 'Enter') {
           e.preventDefault();
           if (field === replaceInput && !e.shiftKey) replaceOne();
@@ -219,6 +215,7 @@ export function createFind(root, getView) {
       });
     }
     el.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;                // E44
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     });
     root.prepend(el);
@@ -265,10 +262,10 @@ export function createFind(root, getView) {
     root.removeEventListener('os-find', onState);
     if (el) el.remove();
     el = input = count = replaceInput = replaceRow = null;
-    if (current === bar) current = null;
   }
 
-  const bar = { open, close, destroy, isOpen: () => !!el };
-  current = bar;
-  return bar;
+  // index.js keeps this on the page object (`p.find`) and hands it to `page.replace` through
+  // `editorApi.openFind`, so that a page in source mode reaches CodeMirror's panel instead
+  // (QA F5). There is no module-level "the current bar" any more.
+  return { open, close, destroy, isOpen: () => !!el };
 }

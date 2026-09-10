@@ -57,7 +57,9 @@ function shellChoose(m, { title = '', body = '', options = [], cancel = null } =
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = m.openOverlay({
-      width: 460, className: 'dlg-ov',
+      // The head below says the same thing on screen; `title` is what a screen reader is told
+      // the dialog is called (CONTRACT "Access and look", the class of bug QA F19 lists).
+      width: 460, className: 'dlg-ov', title,
       onClose: () => { if (!done) { done = true; resolve(cancel); } },
     });
     const box = ov.box;

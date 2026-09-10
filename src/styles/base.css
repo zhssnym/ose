@@ -16,7 +16,7 @@ body {
 }
 #app { height: 100%; }
 img { max-width: 100%; display: block; }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--accent-ink); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { background: none; border: 0; padding: 0; cursor: default; }
@@ -121,7 +121,10 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .row > .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .row:hover { background: var(--bg-3); }
 .row.current { background: var(--accent-soft); border-left-color: var(--accent); }
+/* --bg-4 is the one ground --fg-3 does not clear 4.5:1 on (tokens.css): a hint in an active
+   row steps up to --fg-2, which does (QA F17). */
 .row.active { background: var(--bg-4); }
+.row.active .hint { color: var(--fg-2); }
 .row svg { width: 1rem; height: 1rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--fg-3); }
 .row .hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
 

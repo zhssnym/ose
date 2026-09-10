@@ -63,7 +63,25 @@ fn open_path(ctx: &Ctx, rel: &str) -> Result<(), String> {
     if meta.file_type().is_symlink() {
         return Err(format!("refusing to open a symlink: {rel}"));
     }
+    // A link in a page must never run a program: an executable or script is revealed in the
+    // file manager instead of opened, so `[x](build.bat)` is a safe thing to click.
+    if is_executable(&full) {
+        return reveal_os(&full).map_err(|e| format!("failed to reveal {rel}: {e}"));
+    }
     opener::open(&full).map_err(|e| format!("failed to open {rel}: {e}"))
+}
+
+/// Extensions the platform shells would execute rather than display.
+const EXECUTABLE: &[&str] = &[
+    "exe", "bat", "cmd", "com", "msi", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr",
+    "pif", "reg", "lnk", "url", "sh", "command", "app", "jar", "py", "pyw", "rb", "pl",
+];
+
+pub(crate) fn is_executable(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| EXECUTABLE.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
 }
 
 // ---- openExternal ---------------------------------------------------------

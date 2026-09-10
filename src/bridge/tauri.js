@@ -102,7 +102,15 @@ export async function create() {
   // first await: Tauri reads the flag when the handler returns.
   let closing = false;
   w.onCloseRequested(async (e) => {
-    if (closing) return; // a second attempt while the first is still settling: let Tauri close it
+    // A second attempt while the first is still settling is vetoed too, and says so. Falling
+    // through used to let Tauri destroy the window with the first attempt's save still in
+    // flight — the exact failure S28 exists to remove, with an impatient second click as the
+    // trigger instead of a timer. The first attempt's `finally` does the destroy.
+    if (closing) {
+      e.preventDefault();
+      console.warn('[bridge] close is already in progress; the save decides when it is done');
+      return;
+    }
     closing = true;
     e.preventDefault();
     const pending = fanout({ event: 'window', data: { closing: true } })

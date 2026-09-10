@@ -110,6 +110,13 @@ export const BODY_KEYS = [
  * and copy a line, select the next occurrence, delete the line), and this listener runs in the
  * capture phase, so without an exemption it would take them before CodeMirror ever saw the key
  * (E18, P4's list). Everything else the shell binds still works inside a code block.
+ *
+ * Only two of the six can ever reach the check below, because `byCombo` is built from KEYMAP
+ * alone: `alt+arrowleft` and `alt+arrowright`. The other four are body chords, and
+ * `commands.js codeTarget()` has already stood the body keymap down inside a code block. The
+ * set stays whole all the same — it is the list of what CodeMirror owns, not a list of what
+ * this file happens to match today, and a chord that moves between the two tables must not
+ * quietly lose its exemption on the way.
  */
 export const CODE_KEYS = new Set([
   'alt+arrowleft', 'alt+arrowright', 'alt+arrowup', 'alt+arrowdown', 'mod+d', 'mod+shift+k',
@@ -146,8 +153,11 @@ function index() {
 export function shortcutFor(id) { index(); return byCmd.get(id) || null; }
 
 // While an overlay input has focus these still fire; everything else is left to the overlay.
+// `app.quit` is in the set for the same reason `app.settings` is: with the caret in a dialog
+// input, Ctrl+Q used to do nothing at all — not even a toast, because the handler returns
+// before `preventDefault` (QA severity 4).
 const OVERLAY_SAFE = new Set([
-  'app.palette', 'app.quickopen', 'app.settings', 'app.theme', 'app.search',
+  'app.palette', 'app.quickopen', 'app.settings', 'app.theme', 'app.search', 'app.quit',
   'app.zoom-in', 'app.zoom-out', 'app.zoom-reset',
 ]);
 

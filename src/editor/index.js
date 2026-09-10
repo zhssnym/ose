@@ -30,11 +30,11 @@ import { createSourceView, rememberSource, renameRemembered, wasInSource } from 
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
+// The shell side of a rename (C13). It used to be reached through `import.meta.glob` because
+// it might not have been in the tree; `editor/backlinks.js` and `shell/sidebar.js` both import
+// it statically now, so the glob bought nothing but a rolldown warning (QA F21).
+import { rewriteInbound } from '../lib/links.js';
 import './editor.css';
-
-// `lib/links.js` (C13, the shell side of a rename) may not be in the tree yet. A glob resolves
-// to nothing at build time when the file is missing, where a literal import() would not build.
-const LINKS_MODULE = import.meta.glob('../lib/links.js');
 
 const SAVE_DEBOUNCE = 600;
 /** A file still carrying the name `newPage` gave it: the first real title renames it (C12). */
@@ -77,7 +77,6 @@ export async function initEditor() {
   registerCommands();
   // link.js turns a picked page into an href relative to the page being edited.
   bindPagePath(() => (page ? page.path : null));
-  void loadShellKeymap();
 
   // The bridge facade already re-emits 'fs' onto the bus; listening to both would reload twice.
   bus.on('fs', onFsChange);
@@ -196,9 +195,12 @@ async function mountBody(p, text, token) {
       onChange: () => { p.touched = true; markDirty(p); },
       onEscape: () => { try { p.source.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
     });
+    // The same three methods `createFind` gives the block editor, over CodeMirror's own panel:
+    // the options go through, so a seeded query highlights and Ctrl+H reaches replace (QA F5).
     p.find = {
-      open: () => { if (p.source) p.source.openFind(); },
+      open: (opts) => { if (p.source) p.source.openFind(opts || {}); },
       close: () => { if (p.source) p.source.closeFind(); },
+      isOpen: () => !!(p.source && p.source.findOpen()),
       destroy: () => {},
     };
     p.ready = true;
@@ -325,6 +327,8 @@ export function scrollToLine(line, col) {
  */
 function openFindWith(p, query) {
   if (!query) return;
+  // Both kinds of bar take `{query}` now: the block editor's own, and the source-mode stub
+  // over CodeMirror's panel, which used to drop the term on the floor (QA F6).
   if (p && p.find && typeof p.find.open === 'function') { p.find.open({ query }); return; }
   console.warn('[editor] no find bar to seed with', query);
 }
@@ -684,9 +688,10 @@ function wireEditorEvents(p) {
   host.addEventListener('click', onLinkClick, true);
   p.cleanups.push(() => host.removeEventListener('pointerdown', onLinkPointerDown, true));
   p.cleanups.push(() => host.removeEventListener('click', onLinkClick, true));
-  // Some chords belong to the shell; CodeMirror inside a code block would otherwise eat them.
-  host.addEventListener('keydown', guardShellKeys, true);
-  p.cleanups.push(() => host.removeEventListener('keydown', guardShellKeys, true));
+  // Nothing here guards the shell's chords: shell/keys.js listens on `window` in the capture
+  // phase, strictly outside this host, and exempts the chords CodeMirror owns inside a code
+  // block itself. The editor's second copy of that table could never match and is gone (F7).
+
   // Notion behaviour: a click in the empty space below the last block puts the caret at the
   // end of the page instead of leaving the editor unfocused.
   const scroller = host.parentElement;
@@ -703,60 +708,6 @@ function wireEditorEvents(p) {
   host.addEventListener('mousedown', onBlankClick);
   scroller && scroller.addEventListener('mousedown', onBlankClick);
   p.cleanups.push(() => { host.removeEventListener('mousedown', onBlankClick); scroller && scroller.removeEventListener('mousedown', onBlankClick); });
-}
-
-/**
- * The shell owns these chords (CONTRACT.md). This copy is only a fallback: initEditor pulls
- * the real map out of shell/keys.js so the two can never drift.
- */
-let SHELL_KEYMAP = [
-  { combo: 'ctrl+k', cmd: 'app.palette' }, { combo: 'ctrl+p', cmd: 'app.quickopen' },
-  { combo: 'ctrl+n', cmd: 'page.new' }, { combo: 'ctrl+s', cmd: 'page.save' },
-  { combo: 'ctrl+\\', cmd: 'app.sidebar' },
-  { combo: 'ctrl+shift+f', cmd: 'app.search' }, { combo: 'ctrl+,', cmd: 'app.settings' },
-  { combo: 'ctrl+shift+l', cmd: 'app.theme' },
-  { combo: 'alt+arrowleft', cmd: 'app.back' }, { combo: 'alt+arrowright', cmd: 'app.forward' },
-];
-
-async function loadShellKeymap() {
-  try {
-    const m = await import('../shell/keys.js');
-    if (Array.isArray(m.KEYMAP) && m.KEYMAP.length) SHELL_KEYMAP = m.KEYMAP;
-  } catch { /* keep the fallback */ }
-}
-
-/** Same shape as the shell's comboOf: ctrl, then shift, then alt, then the lowercased key. */
-function chordOf(e) {
-  const mods = [];
-  if (e.ctrlKey || e.metaKey) mods.push('ctrl');
-  if (e.shiftKey) mods.push('shift');
-  if (e.altKey) mods.push('alt');
-  if (!mods.length) return null;
-  return [...mods, String(e.key).toLowerCase()].join('+');
-}
-
-/**
- * ProseMirror binds none of the shell's chords, but CodeMirror inside a code block binds
- * Alt+Left/Right (move by word) and, on some platforms, Ctrl+K and Ctrl+P. It handles them on
- * its own content element, below this listener and below the shell's window listener, so the
- * event has to be stopped here — and the shell's command run in its place.
- */
-const CODE_KEYS = new Set([
-  'alt+arrowleft', 'alt+arrowright', 'alt+arrowup', 'alt+arrowdown', 'ctrl+d', 'ctrl+shift+k',
-]);
-
-function guardShellKeys(e) {
-  if (!(e.target instanceof Element) || !e.target.closest('.cm-editor')) return;
-  const combo = chordOf(e);
-  if (!combo) return;
-  const entry = SHELL_KEYMAP.find((k) => k.combo === combo);
-  if (!entry) return;
-  // Six chords belong to CodeMirror inside a code block: move by syntax node, move and copy a
-  // line, select next occurrence, delete line (CONTRACT batch 12, "Code blocks", P4).
-  if (CODE_KEYS.has(combo)) return;
-  e.preventDefault();
-  e.stopPropagation();
-  commands.run(entry.cmd);
 }
 
 const anchorAt = (e) => (e.target instanceof Element ? e.target.closest('a[href], a.link-display') : null);
@@ -831,9 +782,13 @@ async function attachFile(p, file) {
     || (image ? (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg') : 'bin');
   const base = `${P.today()}-${P.slugify(P.stem(file.name || ''), image ? 'image' : 'file')}`;
   // Where attachments go is a setting (S35, P8); the default answers the page's own folder.
+  // The setting can answer `''` (the user named `/`, the vault root): `/name.png` would then
+  // be a leading slash the bridges strip on write but `relativeHref` does not, so the markdown
+  // src would point one level wrong (QA F23). The root is a path with no folder in front of it.
   const folder = attachmentFolder(p.path);
-  let target = `${folder}/${base}.${ext.toLowerCase()}`;
-  for (let n = 2; await bridge.exists(target); n++) target = `${folder}/${base}-${n}.${ext.toLowerCase()}`;
+  const named = (name) => (folder ? `${folder}/${name}` : name);
+  let target = named(`${base}.${ext.toLowerCase()}`);
+  for (let n = 2; await bridge.exists(target); n++) target = named(`${base}-${n}.${ext.toLowerCase()}`);
   await bridge.writeBinary(target, await readAsBase64(file));
   p.touched = true;
   return target;
@@ -1220,7 +1175,10 @@ function onFsChange(payload) {
  * the new path first — the text survives, the undo history does not.
  */
 async function followRename(p, to) {
-  if (!/\.md$/i.test(to)) { fileGone(p); return; }
+  // Every file the editor can open follows its own rename, not just markdown: batch 12 opens
+  // `TEXT_EXTS` in source mode, and treating `notes.txt -> notes2.txt` as a disappearance
+  // turned the page read-only with the buffer stranded (QA F4). Same predicate openPage uses.
+  if (!(P.isMarkdown(to) || P.isTextFile(to))) { fileGone(p); return; }
   const from = p.path;
   p.path = to;
   void renameRemembered(from, to);
@@ -1298,9 +1256,13 @@ const editorApi = {
   updateMeta: () => { if (page) updateMeta(page); },
   reopenInPlace: () => (page ? reopenInPlace(page) : Promise.resolve()),
   attachFile: (file) => (page ? attachFile(page, file) : Promise.reject(new Error('no page'))),
-  // Batch 12 (P5), source mode. A file that is not markdown has one mode and cannot toggle.
+  // The find bar of the open page, whichever kind it is: the block editor's own bar, or
+  // CodeMirror's panel in source mode. `page.replace` (commands.js) asks through this rather
+  // than through find.js's `currentFind`, which only ever knows about the block editor's bar.
+  openFind: (opts) => { if (page && page.find) page.find.open(opts || {}); },
+  // Batch 12 (P5), source mode. `toggleSource` answers for itself when the file is not
+  // markdown — one mode, and it says so — so there is no `canToggleSource` guard to ask (F20).
   isSource: () => !!(page && page.source),
-  canToggleSource: () => !!(page && !page.plain && (page.crepe || page.source)),
   toggleSource: () => toggleSource(),
 };
 
@@ -1347,9 +1309,11 @@ function registerCommands() {
     id: 'page.find', title: 'Find in page', group: 'page',
     when: hasPage, run: () => { if (page && page.find) page.find.open(); },
   });
+  // The heading picker reads the ProseMirror document, so it is the block editor's alone: in
+  // source mode it is not offered rather than offered and silent (QA F5).
   commands.register({
     id: 'page.outline', title: 'Go to heading', group: 'page',
-    when: hasPage, run: () => void outlinePage(),
+    when: () => !!(page && page.crepe), run: () => void outlinePage(),
   });
 }
 
@@ -1443,20 +1407,17 @@ async function moveOpenPage(p, to) {
 
 /**
  * Links in other pages that pointed at the old name follow it (C13). The rewrite is the
- * shell side's (`lib/links.js`, `rewriteInbound(from, to) -> {files, links}`); when the
- * module is not in the tree the rename is simply not followed, and nothing is said.
+ * shell side's (`lib/links.js`, `rewriteInbound(from, to) -> {files, links, failed}`). A page
+ * whose write failed is named, one toast each, exactly as the sidebar's rename does: a count
+ * that silently leaves a broken link out is worse than no count (QA F21).
  */
 async function rewriteLinks(from, to) {
-  const load = LINKS_MODULE['../lib/links.js'];
-  if (!load) return;
-  let mod;
-  try { mod = await load(); } catch { return; }
-  if (!mod || typeof mod.rewriteInbound !== 'function') return;
   try {
-    const r = await mod.rewriteInbound(from, to);
+    const r = await rewriteInbound(from, to);
     const links = Number(r && r.links) || 0;
     const files = Number(r && r.files) || 0;
     if (links > 0) toast(`renamed · ${links} link${links === 1 ? '' : 's'} in ${files} page${files === 1 ? '' : 's'} updated`);
+    for (const p of (r && r.failed) || []) toast('could not update links in ' + p, 'err');
   } catch (e) {
     toast('renamed, but the links to it could not be updated: ' + (e.message || e), 'warn');
   }
@@ -1512,7 +1473,9 @@ async function duplicatePage() {
 /** The file text as a save would write it, on the clipboard (C14). */
 async function copyMarkdown() {
   const p = page;
-  if (!p || !p.crepe) return;
+  // Source mode included: `compose` hands the CodeMirror text back as the file, so the only
+  // thing the old `!p.crepe` guard did was make the palette row do nothing there (QA F5).
+  if (!p) return;
   let text;
   try {
     text = compose(p);

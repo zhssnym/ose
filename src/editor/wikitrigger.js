@@ -177,6 +177,7 @@ class WikiView {
   }
 
   key(e) {
+    if (e.isComposing || e.keyCode === 229) return;                  // E44
     if (!this.shown || e.ctrlKey || e.metaKey || e.altKey) return;
     const view = this.view();
     if (!view || !view.hasFocus()) { this.hide(); return; }

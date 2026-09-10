@@ -253,9 +253,13 @@ export function bridgePlugin() {
   // `openPath` (N10, N24): a vault file in the platform's default application. The argument is
   // vault-relative and goes through `abs`, so it can never leave the root, and the file has to
   // exist — the host refuses the same way, and neither ever sees a scheme.
+  // Executables and scripts are revealed, never run: a link in a page must not start a program.
+  const EXECUTABLE = new Set(['exe', 'bat', 'cmd', 'com', 'msi', 'ps1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'scr',
+    'pif', 'reg', 'lnk', 'url', 'sh', 'command', 'app', 'jar', 'py', 'pyw', 'rb', 'pl']);
   const openPath = async (p) => {
     const full = abs(p);
     if (!fss.existsSync(full)) throw new Error('nothing to open: ' + p);
+    if (EXECUTABLE.has(path.extname(full).slice(1).toLowerCase())) return reveal(p);
     if (IS_WIN) {
       spawn('cmd.exe', ['/d', '/s', '/c', `start "" "${full}"`], { windowsHide: true, windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
     } else {

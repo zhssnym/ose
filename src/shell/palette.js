@@ -15,7 +15,9 @@ import { firstH1 } from '../editor/link.js';
 import './nav.css';
 
 // `tree` is the sidebar's row commands (D3): they act on the focused row, else the open page.
-const GROUP_ORDER = ['navigate', 'page', 'format', 'block', 'table', 'tree', 'view', 'app'];
+// `editor` (the code block's own two) and `image` sit with the other block-level groups; both
+// used to fall past the end of this list and sort under a heading nothing declared (QA F8).
+const GROUP_ORDER = ['navigate', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
@@ -40,8 +42,10 @@ function commandItems(q) {
       run: () => commands.run(c.id),
     });
   }
-  out.sort((a, b) => (b.score - a.score) || (GROUP_RANK.get(a.group) ?? 9) - (GROUP_RANK.get(b.group) ?? 9) || a.title.localeCompare(b.title));
-  if (!q) out.sort((a, b) => ((GROUP_RANK.get(a.group) ?? 9) - (GROUP_RANK.get(b.group) ?? 9)) || a.title.localeCompare(b.title));
+  // A group nobody declared sorts last, after `app`, rather than tying with it.
+  const rank = (g) => GROUP_RANK.get(g) ?? GROUP_ORDER.length;
+  out.sort((a, b) => (b.score - a.score) || rank(a.group) - rank(b.group) || a.title.localeCompare(b.title));
+  if (!q) out.sort((a, b) => (rank(a.group) - rank(b.group)) || a.title.localeCompare(b.title));
   return out;
 }
 
