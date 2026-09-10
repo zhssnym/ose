@@ -166,6 +166,9 @@ function search(query) {
 /** @type {null | {el: HTMLElement, close: (refocus?: boolean) => void, pos: number}} */
 let picker = null;
 
+/** The api index.js hands over at boot (registerCommands): `touch` is what marks the page dirty. */
+let api = null;
+
 function closePicker(refocus = true) {
   if (picker) picker.close(refocus);
 }
@@ -175,6 +178,11 @@ function setLanguage(pm, pos, language) {
   if (!node || node.type.name !== 'code_block') return;
   if ((node.attrs.language || '') === language) return;
   pm.dispatch(pm.state.tr.setNodeAttribute(pos, 'language', language));
+  // The picker is portalled to document.body, so not one of its keystrokes reaches the page's
+  // own listeners and `p.touched` stays false — which made the change dirty nothing, save
+  // nothing and vanish on the next open (QA defect 1). The language is a user edit like any
+  // other; say so through the editor's own API.
+  if (api && typeof api.touch === 'function') api.touch();
 }
 
 /**
@@ -455,7 +463,8 @@ function currentBlock(api) {
   return dom instanceof HTMLElement ? { pm, dom, pos } : null;
 }
 
-export function registerCommands(api) {
+export function registerCommands(a) {
+  api = a;
   const at = () => currentBlock(api);
   commands.register({
     id: 'code.language', title: 'Set code block language…', group: 'editor',

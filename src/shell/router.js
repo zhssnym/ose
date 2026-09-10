@@ -84,6 +84,19 @@ async function resolveHeading(route) {
   }
 }
 
+/**
+ * A line, a column or a heading says where *this* open lands; it is not a property of the
+ * page. Once the route has been shown its entry forgets them, so every later back and forward
+ * to that page restores the caret it was left with instead of pinning it to the heading a
+ * link once jumped to (N44, QA defect 3). The entry in the history stack is this same object.
+ */
+function spend(route) {
+  if (!route || route.type !== 'page') return;
+  delete route.line;
+  delete route.col;
+  delete route.heading;
+}
+
 export function recentFiles() {
   const r = stateCache().recent;
   return Array.isArray(r) ? r : [];
@@ -109,6 +122,10 @@ export function initRouter(el) {
     if (d && d.closing) return flushState();
     return undefined;
   });
+
+  // The editor names the open page (its H1, or the file's stem when it has none): the window
+  // title follows it, on the mount and on every edit of the title strip (S13, defect 8).
+  store.watch('pageTitle', () => { if (current && current.type === 'page') setWindowTitle(current); });
 
   const refresh = debounce(() => {
     if (mountedView && typeof mountedView.refresh === 'function') {
@@ -378,8 +395,15 @@ function setWindowTitle(route) {
   if (typeof bridge.setTitle !== 'function') return;
   const vault = (store.get('root') && store.get('root').name) || 'os';
   let text = vault;
-  if (route && route.type === 'page') text = `${titleOf(route.path)} · ${vault}`;
-  else if (route && route.type === 'view') {
+  if (route && route.type === 'page') {
+    // The note's own name, the way quick open, the sidebar and the palette all say it. The
+    // editor publishes it on `pageTitle` as soon as it has parsed the file and again on every
+    // keystroke in the title strip; until then — the mount is still running — the file's stem
+    // stands in, which is what the title bar used to show for ever (QA defect 8).
+    const known = store.get('pageTitle');
+    const h1 = known && known.path === route.path ? String(known.title || '').trim() : '';
+    text = `${h1 || titleOf(route.path)} · ${vault}`;
+  } else if (route && route.type === 'view') {
     const v = views.get(route.name);
     text = `${(v && v.title) || route.name} · ${vault}`;
   }
@@ -416,6 +440,7 @@ async function show(route, opts = {}) {
   if (route.type === 'page') {
     pushRecent(route.path);
     await renderPage(scroll, route);
+    spend(route);
   } else {
     renderView(scroll, route.name);
   }
@@ -444,9 +469,11 @@ export function navigate(route, opts = {}) {
       const line = r.line || (await resolveHeading(r));
       if (!line) {
         if (r.heading) toast(`no heading “${r.heading}” on this page`, 'info', 2600);
-        return;
+      } else if (!scrollToLine(line, r.col)) {
+        await show({ ...r, line }, opts);
       }
-      if (!scrollToLine(line, r.col)) await show({ ...r, line }, opts);
+      // Landed or not, the jump is spent: the entry is the page, nothing more (defect 3).
+      spend(r);
     })();
   }
   if (same && !opts.force) return Promise.resolve();

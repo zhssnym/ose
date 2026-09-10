@@ -1,12 +1,13 @@
 // Command palette (Ctrl+K) and quick open (Ctrl+P). Same surface, two data sources.
 // Matching is a subsequence score with a bonus for word starts, so "phab" finds "page.habits".
-import { bus, commands, esc } from '../registry.js';
+import { bus, commands, esc, store } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { openOverlay, toast } from './dialog.js';
 import { shortcutFor } from './keys.js';
 import { navigate, recentFiles } from './router.js';
-import { allPages, newPageIn } from './sidebar.js';
+import { allPages, newPageIn, scratchFolder } from './sidebar.js';
 import { defaultNewFolder } from './focus.js';
+import { dirName } from './paths.js';
 import { icon } from './icons.js';
 import { fuzzy, highlight, pageItems } from './fuzzy.js';
 // The editor's reader for "the first H1 of a markdown text": one definition, not two, and it
@@ -93,13 +94,17 @@ function fileItems(q) {
 
 /**
  * Shift+Enter in quick open (N41): a page with the typed name, where a new page goes — the
- * focused folder, else whatever the "new page in" setting says. `defaultNewFolder()` is the
- * one answer to that question in the app, so this asks it rather than inventing a second rule.
+ * focused folder, else whatever the "new page in" setting says, else beside the open page and
+ * finally the scratch folder. That last pair is `page.new`'s rule, and the two chords are the
+ * same sentence ("make me a page, now"): asking only `defaultNewFolder()` answered '' in the
+ * default setting and dropped the page at the vault root (QA defect 7).
  */
 async function createTyped(text) {
   const name = String(text || '').trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\.md$/i, '').trim();
   if (!name) return;
-  const path = await newPageIn(defaultNewFolder(), name);
+  const open = store.get('route');
+  const beside = open && open.type === 'page' && open.path ? dirName(open.path) : '';
+  const path = await newPageIn(defaultNewFolder() || beside || scratchFolder(), name);
   if (path) titles.set(path, name);
 }
 

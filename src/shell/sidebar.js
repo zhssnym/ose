@@ -1309,8 +1309,11 @@ const TREE_COMMANDS = [
     applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
+  // Every row, folders included (CONTRACT "Files"): a folder handed to the platform opens in
+  // the file manager, which is a real thing to want and what `openPath` already does with one
+  // (QA defect 9). `Reveal in Explorer` stays what it is — the row selected in its parent.
   { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
-    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => openWith(t.path) },
+    applies: (t) => !!t.path, run: (t) => openWith(t.path) },
   { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
     applies: () => true, run: (t) => void reveal(t.path) },
   // Search, already narrowed: the overlay opens with `path:<folder>/` typed for you (N38).

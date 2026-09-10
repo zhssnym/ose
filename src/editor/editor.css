@@ -65,14 +65,18 @@
   position: sticky; top: 0; z-index: 20;
   margin-bottom: var(--sp-4);
   background: var(--bg); border-bottom: 1px solid var(--border);
+  display: flex; align-items: start; gap: var(--sp-2);
 }
-.ed-find-row {
-  height: var(--panelhead-h);
-  display: flex; align-items: center; gap: var(--sp-2);
-}
-/* An author `display` beats the user agent's `[hidden]`, so the replace row says so itself. */
-.ed-find-row[hidden] { display: none; }
-.ed-find .input { flex: 1; min-width: 0; max-width: calc(var(--page-w) / 2); }
+/* Two columns: the fields, then what acts on them. Each column is a grid of rows one control
+   high, so the replacement field and its buttons line up as the second row of the bar while
+   the tab order stays field, field, buttons (defect 6). */
+.ed-find-fields, .ed-find-acts { display: grid; grid-auto-rows: var(--panelhead-h); align-items: center; }
+.ed-find-fields { flex: 1; min-width: 0; max-width: calc(var(--page-w) / 2); }
+.ed-find-acts { flex: none; }
+.ed-find-line { display: flex; align-items: center; gap: var(--sp-2); }
+/* An author `display` beats the user agent's `[hidden]`, so the hidden half says so itself. */
+.ed-find [hidden] { display: none; }
+.ed-find .input { min-width: 0; }
 .ed-find-count { flex: none; min-width: 7ch; text-align: right; color: var(--fg-3); }
 .ed-find-count.none { color: var(--warn); }
 .ed-find-btn, .ed-find-tog { flex: none; }

@@ -88,6 +88,21 @@ function setRange(view, range, extra) {
   return true;
 }
 
+/**
+ * Text that arrived while a block was selected: the selection is released and the text typed
+ * where `collapse` would have left the caret, instead of over the block (QA defect 10). No
+ * text position next to the block (a lone image) means the input is dropped rather than
+ * written somewhere it cannot go.
+ */
+function typeInstead(view, range, text) {
+  const at = range.head === 'start' ? range.from : range.to;
+  const sel = Selection.near(view.state.doc.resolve(at), range.head === 'start' ? 1 : -1);
+  const tr = view.state.tr.setMeta(BLOCK_KEY, null).setSelection(sel);
+  if (sel instanceof TextSelection) tr.insertText(text, sel.from, sel.from);
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+}
+
 /** Back to a text caret at the end the arrows were last moving. */
 function collapse(view) {
   const s = BLOCK_KEY.getState(view.state);
@@ -177,7 +192,10 @@ export function deleteRange(view) {
   } else {
     tr.delete(range.from, range.to);
   }
-  tr.setMeta(BLOCK_KEY, null);
+  // No `setMeta` here, on purpose: any metadata makes the transaction non-generic, and the
+  // preset's own plugin — the one that renumbers an ordered list — stands down on those, which
+  // left `1. 3.` behind after a delete (QA defect 2). The block selection ends anyway: the
+  // plugin's `apply` drops it on every transaction that changes the document.
   const at = Math.max(0, Math.min(range.from, tr.doc.content.size));
   const $at = tr.doc.resolve(at);
   const near = Selection.near($at, 1);
@@ -203,7 +221,7 @@ export function duplicateRange(view) {
   const at = range.to;
   const moved = { from: at, to: at + (range.to - range.from), head: range.head || 'end' };
   if (held) return setRange(view, moved, tr);
-  tr.setMeta(BLOCK_KEY, null);
+  // Nothing held: no meta, so the transaction stays generic and the list renumbers (defect 2).
   const caret = Math.max(0, Math.min(at + offset, tr.doc.content.size));
   tr.setSelection(Selection.near(tr.doc.resolve(caret), 1));
   tr.scrollIntoView();
@@ -228,7 +246,7 @@ export function moveRange(view, dir) {
   tr.insert(at, slice.content);
   const moved = { from: at, to: at + (range.to - range.from), head: range.head || 'end' };
   if (held) return setRange(view, moved, tr);
-  tr.setMeta(BLOCK_KEY, null);
+  // Nothing held: no meta, so the transaction stays generic and the list renumbers (defect 2).
   const caret = Math.max(0, Math.min(at + offset, tr.doc.content.size));
   tr.setSelection(Selection.near(tr.doc.resolve(caret), 1));
   tr.scrollIntoView();
@@ -278,7 +296,13 @@ function handleKeyDown(view, event) {
   }
   if (mod || event.altKey) return false;
 
-  if (key === 'Escape') return held ? collapse(view) : selectBlock(view);
+  // A block already selected — by Esc here, or by the table's own escalation (table.js hands
+  // the whole table over as a NodeSelection and stops answering) — goes back to a caret. The
+  // second reading is what makes Esc·Esc·Esc on a table end like Esc·Esc on a paragraph
+  // instead of leaving the user stuck in the selection (QA defect 5).
+  if (key === 'Escape') {
+    return held || view.state.selection instanceof NodeSelection ? collapse(view) : selectBlock(view);
+  }
 
   const onNode = held || view.state.selection instanceof NodeSelection;
   if (!onNode) return false;
@@ -317,7 +341,34 @@ export function blockKeysPlugin() {
     },
     props: {
       handleKeyDown,
+      // The keypress route into the same guard; `beforeinput` below is the one that fires in
+      // practice, because a whole block replaced in the DOM is a structural change and never
+      // reaches this hook (QA defect 10).
+      handleTextInput(view, from, to, text) {
+        const held = BLOCK_KEY.getState(view.state);
+        if (!held) return false;
+        typeInstead(view, held, text);
+        return true;
+      },
       handleDOMEvents: {
+        /**
+         * The same rule as the keydown guard, for text that arrives without a keystroke: an
+         * autocorrect replacement, a soft keyboard, the `insertText` an automation sends. The
+         * browser would delete the whole selected block and write the character in its place;
+         * this cancels that and types the character at the end of the block instead, which is
+         * where the keydown guard leaves the caret. A composing IME is left alone, as
+         * everything else here leaves it alone (E44), and its `beforeinput` is not cancelable.
+         */
+        beforeinput: (view, event) => {
+          if (!BLOCK_KEY.getState(view.state)) return false;
+          if (event.isComposing || !event.cancelable) return false;
+          if (event.inputType !== 'insertText' && event.inputType !== 'insertReplacementText') return false;
+          const text = typeof event.data === 'string' ? event.data : '';
+          if (!text) return false;
+          event.preventDefault();
+          typeInstead(view, BLOCK_KEY.getState(view.state), text);
+          return true;
+        },
         mousedown: (view) => {
           if (BLOCK_KEY.getState(view.state)) view.dispatch(view.state.tr.setMeta(BLOCK_KEY, null));
           return false;

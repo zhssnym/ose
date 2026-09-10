@@ -72,6 +72,7 @@ store.get(key) / store.set(key, value) / store.watch(key, fn) -> unsubscribe
     'claude.open'      boolean
     'claude.status'    'off'|'running'|'exited'   (batch 6; was off|idle|thinking|tool|error)
     'root'             {root, name} from bridge.rootInfo()
+    'pageTitle'        {path, title} | null   what the open page calls itself, set by the editor
 
 commands.register({ id, title, group, hint?, shortcut?, when?: () => boolean, run: () => void })
 commands.list() -> [...]     commands.run(id)
@@ -1027,7 +1028,18 @@ block on the next reload (E1, E2, L2).
 **Block selection (D2/L21).** While a block is selected, only Backspace, Delete, Enter, the
 arrows and the block chords act. Typing a printable character first collapses the selection to a
 caret at the end of the block and then inserts the character, so Esc followed by a letter can no
-longer eat a paragraph.
+longer eat a paragraph. Text that arrives without a keystroke — an autocorrect replacement, a
+soft keyboard, an `insertText` — is caught in `beforeinput` and lands the same way; a composing
+IME is left alone, as it is everywhere else (E44).
+
+`Esc` on a block that is already selected — including a whole table, which `table.js` hands over
+as a `NodeSelection` and then stops answering for — goes back to a caret, so the third press on a
+table ends the way the second press on a paragraph does.
+
+Delete, duplicate and move dispatch their transaction with no metadata on it, because the
+preset's own list plugin stands down on a transaction that carries any: with metadata, deleting
+`2.` of three items left the labels reading `1. 3.` until the page was reopened. The block
+selection ends anyway — any change to the document ends it.
 
 **IME.** Every keydown handler in the editor returns early while `event.isComposing` is true
 (E44).
@@ -1110,11 +1122,17 @@ whose dialog carries both Edit and Remove.
 **Find and replace (S22/L15).** `page.find` (Mod+F) opens the bar; `page.replace` (Mod+H) opens
 it with its second row: replace field, `Replace`, `Replace all`, and the two switches `Aa`
 (match case) and `ab|` (whole word). Previous, next and close are buttons on the first row.
+Mod+H puts the caret in the replacement field, as source mode's panel does. The bar is two
+columns — the fields, then what acts on them — so it reads as two rows and tabs as query,
+replacement, buttons; the replacement field is one Tab from the query, not six.
 Enter next, Shift+Enter previous, Enter in the replace field replaces, Esc closes. Whole word
 is a look-around on letters, digits and underscore with the `u` flag, not `\b`, so it means the
 same thing on a French word as on an English one. Every replacement is one ProseMirror
 transaction, so undo works and the page goes dirty through the normal path; `Replace all` is one
-transaction for the whole document and one undo takes all of it back. `find.js` also exports
+transaction for the whole document and one undo takes all of it back. A replacement says the
+edit was the user's (`createFind`'s third argument), because the bar's own keys and clicks are
+deliberately not "touching the page" and a replacement on a page nobody had typed in would
+otherwise never reach the disk. `find.js` also exports
 `currentFind()` — the bar of the open page — and `open({ query, replace })`, so the vault search
 can hand its own term over (N36) without going through `index.js`.
 
@@ -1278,7 +1296,10 @@ any other block is and Delete, Ctrl+Shift+Up/Down and the rest of `blocks.js` ap
 
 **Commands.** `code.language` ("Set code block language…") opens the picker on the block holding
 the caret; `code.copy` ("Copy code block") copies its text. Both are in the palette and both are
-guarded by `when`, so they only appear with a code block under the caret.
+guarded by `when`, so they only appear with a code block under the caret. Setting a language
+marks the page dirty and saves like any other edit: the picker is portalled to `document.body`,
+so none of its keys reach the page's own listeners, and it says so itself through
+`editorApi.touch()`.
 
 **What the shell must not take.** The shell binds its chords on `window` in the capture phase, so
 they fire before CodeMirror ever sees the key. Inside `.cm-editor` the shell keymap and
@@ -1400,9 +1421,12 @@ the undo history gone and a toast saying so.
 
 - **Title to body (L11).** Enter, Tab or ArrowDown in the title puts the caret at the **start
   of the first body block**, not wherever it last was.
-- **Body to title (L10).** Backspace or ArrowUp at offset 0 of the first body block puts the
-  caret at the end of the title. Backspace only when the selection is empty and the first block
-  is not a list item or a code block, so it never eats a block.
+- **Body to title (L10).** Backspace or ArrowUp at the first position the caret can hold puts
+  the caret at the end of the title. That position is `Selection.atStart(doc)`, so it is inside
+  the first list item, the first table cell or the first quoted paragraph when the page opens
+  with one of those, and the block itself (where a gap cursor sits) when the first block is an
+  atom — ArrowUp leaves from any of them. Backspace only when the selection is empty and the
+  first block is not a list item or a code block, so it never eats a block.
 - **Ctrl+A widens (L19).** P3's Ctrl+A goes block → body; a further press extends the selection
   to the title as well, so the next Ctrl+C copies the whole note (title line included).
 - **Word count (S32).** The meta line counts words from the ProseMirror document
@@ -1478,8 +1502,8 @@ the undo history gone and a toast saying so.
 ### Files
 
 - Tree menu: `Duplicate` (files only), `Move to…` on a lone folder as well, `Open with default
-  app` on every row (`bridge.openPath`), and `Search in folder` on a folder (opens the search
-  overlay prefilled with `path:<folder>/`).
+  app` on every row, folders included (`bridge.openPath`; a folder lands in the file manager),
+  and `Search in folder` on a folder (opens the search overlay prefilled with `path:<folder>/`).
 - Commands `tree.collapse-all` / `tree.expand-all`, `tree.duplicate`, `tree.open-external`,
   `tree.search-here`.
 - A non-markdown row carries its extension as a mono `--fg-3` badge. A breadcrumb folder click
@@ -1507,10 +1531,15 @@ the undo history gone and a toast saying so.
 ### Routes and navigation
 
 - `{type:'page', path, line?, col?, heading?}`. `col` is a 1-based column; the editor lands the
-  caret on the match and opens find with the query so the hit is highlighted.
+  caret on the match and opens find with the query so the hit is highlighted. A line, a column
+  and a heading say where *this* open lands and are spent once: the history entry forgets them
+  as soon as the route has been shown, so back and forward keep restoring the caret the page was
+  left with instead of pinning it for ever to a heading a link once jumped to.
 - Quick open (Ctrl+O) matches the H1 title and the path, split on spaces (every word must
   match one of the two); a row shows the title with the path under it in mono `--fg-3`.
-  `Shift+Enter` creates a page named after what was typed, in the focused folder.
+  `Shift+Enter` creates a page named after what was typed, where `page.new` (Ctrl+N) would put
+  it: the focused folder, else what the "new page in" setting says, else beside the open page,
+  and finally the scratch folder — never the vault root by accident.
 - `app.reopen-closed` "Reopen closed page" (Ctrl+Shift+T) reopens the last route `clearRoute`
   dropped; the router keeps a stack of the last 20.
 - Back and forward restore the caret: the router stores `{line, col}` with the scroll position
@@ -1518,12 +1547,17 @@ the undo history gone and a toast saying so.
 - The title bar carries back and forward arrows (icon buttons, disabled when the stack ends,
   `aria-label` and a `title` with the chord), and mouse buttons 4 and 5 navigate.
 - Every route change sets the window title through `bridge.setTitle`: `<Note> · <vault>`,
-  `<View> · <vault>`, or the vault name alone on the start surface.
+  `<View> · <vault>`, or the vault name alone on the start surface. `<Note>` is the page's own
+  H1, the name quick open, the sidebar and the palette all show — the editor publishes it on the
+  store key `pageTitle` (`{path, title}`) when it has parsed the file and again on every
+  keystroke in the title strip, and the router follows it. The file's stem stands in while the
+  page is still mounting and for a file with no H1.
 
 ### rpc additions
 
 ```
-bridge.openPath(relPath)   -> null    opens a vault file in the platform's default application
+bridge.openPath(relPath)   -> null    opens a vault file — or folder, which lands in the file
+                                      manager — in the platform's default application
                                       (host: `opener`, on the resolved path; dev bridge:
                                       start / open / xdg-open). Never a scheme, never outside
                                       the vault, and an error when the file is not there. An

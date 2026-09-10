@@ -134,6 +134,7 @@ export async function openPage(el, path, opts = {}) {
   p.doc = p.plain ? plainDoc(text) : parseDoc(text);
   p.title = p.doc.title;
   p.baseline = text;
+  publishTitle(p);
   p.mode = p.plain || (await wasInSource(path)) ? 'source' : 'block';
   if (token !== openToken) return;
 
@@ -222,7 +223,11 @@ async function mountBody(p, text, token) {
     });
     if (token !== undefined && token !== openToken) { await p.crepe.destroy().catch(() => {}); return false; }
     wireDrops(p);
-    p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null));
+    // The third argument is what a replacement calls: the find bar's own keys and clicks are
+    // not "touching the page" (see `touch` below), so a replace on a page the user had not
+    // typed in would otherwise never be saved.
+    p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null),
+      () => { p.touched = true; markDirty(p); });
     // Anything the editor does to the document while it is settling (the trailing plugin adds
     // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
     // normal path; the timer is the fallback, because a hidden window fires no frames at all.
@@ -276,6 +281,7 @@ async function toggleSource() {
   p.mode = p.mode === 'source' ? 'block' : 'source';
   p.doc = parseDoc(text);
   p.title = p.doc.title;
+  publishTitle(p);
   p.titleSelected = false;
   buildDom(p, host);
   if (!await mountBody(p, text)) return;
@@ -384,6 +390,7 @@ export async function closePage() {
   await unmountBody(p);
   if (p.el && p.el.parentNode) p.el.remove();
   p.el = p.host = p.titleEl = p.metaEl = p.bodyEl = null;
+  publishTitle(null);
   status.set('doc', null);
   status.set('save', null);
 }
@@ -455,6 +462,7 @@ function makeTitleEl(p, text) {
   h1.textContent = text;
   h1.addEventListener('input', () => {
     p.title = h1.textContent.replace(/\s+/g, ' ').trim();
+    publishTitle(p);
     p.touched = true;
     markDirty(p);
   });
@@ -843,6 +851,16 @@ function wireDrops(p) {
 // ---------------------------------------------------------------------------
 // saving
 
+/**
+ * The window title is the note's own name, not the file's stem (S13): the router listens on
+ * this store key and titles the window from it, so an H1 the user is typing right now reaches
+ * the title bar too (QA defect 8). `null` when no page is open.
+ */
+function publishTitle(p) {
+  if (!p || !p.path) { store.set('pageTitle', null); return; }
+  store.set('pageTitle', { path: p.path, title: String(p.title || '').trim() || P.stem(p.path) });
+}
+
 function markDirty(p) {
   if (p !== page) return;
   // Editor-internal normalisation (tables, trailing paragraph) is not a user edit: no dirty
@@ -976,6 +994,7 @@ async function writeOut(p, text, rev) {
   p.warnedDisk = null;
   p.doc = p.plain ? plainDoc(text) : parseDoc(text);
   p.title = p.doc.titleLine !== null ? p.doc.title : p.title;
+  publishTitle(p);
   // In source mode the title strip is a label over text the user just edited: it follows.
   if (p.source && p.titleEl && p.titleEl.textContent !== p.title) p.titleEl.textContent = p.title;
   p.savedAt = P.hhmm();

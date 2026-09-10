@@ -1,8 +1,11 @@
 // The find bar (C1) and, since batch 12, find and replace (S22/L15).
 //
-// One bar at the top of the page column. Row one: a mono field, an `n / m` count, previous,
-// next, the two switches (match case, whole word), and close. Row two, only when replace is
-// asked for (Ctrl+H): the replacement field, `Replace` and `Replace all`. Enter goes to the
+// One bar at the top of the page column, laid out as two columns: the fields on the left (the
+// mono query field, and under it the replacement field when replace is asked for), and on the
+// right what acts on them — an `n / m` count, the two switches (match case, whole word),
+// previous, next and close on the first line, `Replace` and `Replace all` on the second. It
+// reads as two rows and tabs as the user expects: query, replacement, then the buttons (QA
+// defect 6). Ctrl+H puts the caret in the replacement field. Enter goes to the
 // next hit, Shift+Enter to the previous, Escape closes the bar and leaves the caret on the
 // current hit. The matching and the highlights belong to the plugin (plugins.js, findPlugin);
 // this file is the DOM, the keys, and the replacement transactions.
@@ -15,7 +18,9 @@
 //
 // Every replacement goes through one ProseMirror transaction, so undo takes it back in one
 // press and the page goes dirty through the editor's normal change path — the bar never
-// writes and never touches the save path itself.
+// writes and never touches the save path itself. It does say that the change was the user's
+// (`onEdit`), because the bar's own keys and clicks are excluded from what counts as touching
+// the page, and a replacement on a page nobody had typed in was otherwise never saved.
 
 import { FIND_KEY, findState } from './plugins.js';
 import { caretAt } from './reveal.js';
@@ -26,9 +31,12 @@ const MAX_PREFILL = 64;
 /**
  * @param {HTMLElement} root       the page column (`.ed`); the bar is prepended to it
  * @param {() => any} getView      the live ProseMirror view, or null once the page is gone
+ * @param {() => void} [onEdit]    a replacement happened: the page has been edited by the user.
+ *   The bar's own keys and clicks are deliberately not "touching the page" (index.js), so
+ *   without this a replacement on a page nobody had typed in went dirty-less and unsaved.
  * Returns { open, close, isOpen, destroy }.
  */
-export function createFind(root, getView) {
+export function createFind(root, getView, onEdit) {
   let el = null;
   let input = null;
   let replaceInput = null;
@@ -97,6 +105,7 @@ export function createFind(root, getView) {
     // was so `Replace` twice walks forwards instead of sitting on the same word.
     tr.setMeta(FIND_KEY, { query: last, ...opts, at: hit.from + text.length });
     v.dispatch(tr.scrollIntoView());
+    if (typeof onEdit === 'function') onEdit();
     land(v);
     paint();
     v.focus();
@@ -120,6 +129,7 @@ export function createFind(root, getView) {
     const n = s.hits.length;
     tr.setMeta(FIND_KEY, { query: last, ...opts });
     v.dispatch(tr.scrollIntoView());
+    if (typeof onEdit === 'function') onEdit();
     paint();
     v.focus();
     import('./deps.js').then((d) => d.toast(`replaced ${n} ${n === 1 ? 'match' : 'matches'}`));
@@ -164,8 +174,15 @@ export function createFind(root, getView) {
     el.className = 'ed-find';
     el.setAttribute('role', 'search');
 
-    const row1 = document.createElement('div');
-    row1.className = 'ed-find-row';
+    // Two columns, not two rows: the fields go in one, the buttons that act on them in the
+    // other, so the tab order is find, replace, then the buttons. As two rows the replacement
+    // field sat six stops behind the query (QA defect 6). The grid puts each column's second
+    // item under its first, which is the same two-row bar as before on screen.
+    const fields = document.createElement('div');
+    fields.className = 'ed-find-fields';
+    const acts = document.createElement('div');
+    acts.className = 'ed-find-acts';
+
     input = document.createElement('input');
     input.className = 'input mono';
     input.type = 'text';
@@ -173,11 +190,24 @@ export function createFind(root, getView) {
     input.autocomplete = 'off';
     input.placeholder = 'Find in page';
     input.setAttribute('aria-label', 'Find in page');
+
+    replaceInput = document.createElement('input');
+    replaceInput.className = 'input mono';
+    replaceInput.type = 'text';
+    replaceInput.spellcheck = false;
+    replaceInput.autocomplete = 'off';
+    replaceInput.placeholder = 'Replace with';
+    replaceInput.setAttribute('aria-label', 'Replace with');
+    replaceInput.hidden = true;
+    fields.append(input, replaceInput);
+
     count = document.createElement('span');
     count.className = 'ed-find-count mono-sm';
     count.setAttribute('aria-live', 'polite');
-    row1.append(
-      input, count,
+    const findActs = document.createElement('div');
+    findActs.className = 'ed-find-line';
+    findActs.append(
+      count,
       toggle('Aa', 'Match case', 'caseSensitive'),
       toggle('ab|', 'Whole word', 'wholeWord'),
       button({ icon: 'chevron', className: 'flip' }, 'Previous match', () => step(-1), true),
@@ -186,22 +216,15 @@ export function createFind(root, getView) {
     );
 
     replaceRow = document.createElement('div');
-    replaceRow.className = 'ed-find-row';
+    replaceRow.className = 'ed-find-line';
     replaceRow.hidden = true;
-    replaceInput = document.createElement('input');
-    replaceInput.className = 'input mono';
-    replaceInput.type = 'text';
-    replaceInput.spellcheck = false;
-    replaceInput.autocomplete = 'off';
-    replaceInput.placeholder = 'Replace with';
-    replaceInput.setAttribute('aria-label', 'Replace with');
     replaceRow.append(
-      replaceInput,
       button('Replace', 'Replace this match', replaceOne, true),
       button('Replace all', 'Replace every match', replaceAll, true),
     );
+    acts.append(findActs, replaceRow);
 
-    el.append(row1, replaceRow);
+    el.append(fields, acts);
 
     input.addEventListener('input', () => search(input.value));
     for (const field of [input, replaceInput]) {
@@ -242,10 +265,14 @@ export function createFind(root, getView) {
       }
     }
     replaceRow.hidden = !replace;
+    replaceInput.hidden = !replace;
     if (replace) replaceInput.value = lastReplace;
     input.value = seed;
-    input.focus();
-    input.select();
+    // Ctrl+H asked for the replacement: the caret goes there, the way source mode's panel
+    // does it, and the query field keeps whatever seeded it (QA defect 6).
+    const focusOn = replace ? replaceInput : input;
+    focusOn.focus();
+    focusOn.select();
     search(seed);
   }
 

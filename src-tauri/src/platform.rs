@@ -51,11 +51,13 @@ fn cmd_open_path(ctx: &Ctx, args: &[Value]) -> Result<Value, String> {
 
 // ---- openPath -------------------------------------------------------------
 
-/// A vault file in the platform's default application (N10, N24). The argument is a
-/// vault-relative path and nothing else: it is resolved through `vault::resolve`, so it can
-/// never leave the root, and `opener::open` is handed the resolved *path*, never a string the
-/// UI composed — a `file:` or `vscode:` url in the argument is a path segment here, not a
-/// scheme, which is why `openExternal` can keep refusing every scheme it does not know.
+/// A vault file — or folder, which lands in the file manager — in the platform's default
+/// application (N10, N24). The argument is a vault-relative path and nothing else: it is
+/// resolved through `vault::resolve`, so it can never leave the root, and `opener::open` is
+/// handed the resolved *path*, never a string the UI composed — a `file:` or `vscode:` url in
+/// the argument is a path segment here, not a scheme, which is why `openExternal` can keep
+/// refusing every scheme it does not know. The executable check below is deliberately made on
+/// folders too: a macOS `.app` bundle is a directory, and opening one runs a program.
 fn open_path(ctx: &Ctx, rel: &str) -> Result<(), String> {
     let root = ctx.st.require_root()?;
     let full = crate::vault::resolve(&root, rel)?;

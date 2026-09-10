@@ -19,7 +19,7 @@ import { SearchQuery, closeSearchPanel, openSearchPanel, search, searchKeymap, s
 import { HighlightStyle, bracketMatching, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
 import { tags } from '@lezer/highlight';
-import { Plugin } from '@milkdown/kit/prose/state';
+import { Plugin, Selection } from '@milkdown/kit/prose/state';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { commands } from '../registry.js';
 import { patchState, readState } from './deps.js';
@@ -279,12 +279,17 @@ export function plugins(ctx, o) {
   const opts = o || {};
   if (typeof opts.onLeaveTop !== 'function' && typeof opts.onSelectAll !== 'function') return [];
 
-  /** The first position the caret can hold in the document. */
+  /**
+   * The first position the caret can hold in the document. `Selection.atStart` walks into the
+   * first block whatever it is — the first list item, the first cell, the first quoted
+   * paragraph — and stops on the block itself when it is an atom, which is where a gap cursor
+   * sits. Asking `firstChild.isTextblock` instead answered 1 for a paragraph and 0 for
+   * everything else, and no caret inside a list can be at 0, so the whole way back to the
+   * title was missing on any page that did not open with a paragraph (QA defect 4).
+   */
   const topOf = (state) => {
-    const first = state.doc.firstChild;
-    if (!first) return 1;
-    // A leaf (a code block's node view, an image) has no text position of its own inside it.
-    return first.isTextblock ? 1 : 0;
+    const at = Selection.atStart(state.doc);
+    return at ? at.from : 0;
   };
 
   const atTop = (state) => state.selection.empty && state.selection.from <= topOf(state);
