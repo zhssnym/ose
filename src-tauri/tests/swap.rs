@@ -15,15 +15,26 @@ use ose::update::{finish_previous, layout_for, swap_windows};
 /// do not change what the loader maps, and the new copy is never started here anyway.
 const MARK: &[u8] = b"\n--ose-swap-test-new-build--\n";
 
+/// The app is `ose.exe` from 0.4.0 on, but a copy already on disk keeps whatever name it has:
+/// a swap renames the file it found and never the app. Both names are proved, in the same way.
 #[test]
-fn swap_while_running() {
-    let src = PathBuf::from(env!("CARGO_BIN_EXE_os"));
-    let dir = std::env::temp_dir().join(format!("ose-swap-{}", std::process::id()));
+fn swap_while_running_as_ose_exe() {
+    swap_while_running("ose.exe");
+}
+
+#[test]
+fn swap_while_running_under_the_old_name() {
+    swap_while_running("os.exe");
+}
+
+fn swap_while_running(name: &str) {
+    let src = PathBuf::from(env!("CARGO_BIN_EXE_ose"));
+    let dir = std::env::temp_dir().join(format!("ose-swap-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    let exe = dir.join("os.exe");
-    let new = dir.join("os.exe.new");
-    let old = dir.join("os.exe.old");
+    let exe = dir.join(name);
+    let new = dir.join(format!("{name}.new"));
+    let old = dir.join(format!("{name}.old"));
 
     fs::copy(&src, &exe).unwrap();
     // A MinGW build loads WebView2Loader.dll from beside the exe at start; the MSVC build
@@ -44,27 +55,27 @@ fn swap_while_running() {
     std::thread::sleep(Duration::from_millis(600));
     assert!(
         child.try_wait().unwrap().is_none(),
-        "os.exe --hold exited at once: this test needs a debug build (the flag is debug-only)"
+        "{name} --hold exited at once: this test needs a debug build (the flag is debug-only)"
     );
 
     let lay = layout_for(&exe).unwrap();
     assert_eq!(lay.incoming, new);
     assert_eq!(lay.old, old);
 
-    // The swap, with the copy still running from `os.exe`.
+    // The swap, with the copy still running from the name it was given.
     let installed = swap_windows(&lay, &[], false).expect("swap");
     assert_eq!(installed, exe);
     assert!(old.is_file(), "the running build was not renamed to .old");
     assert!(!new.exists(), ".new is still there");
-    assert!(fs::read(&exe).unwrap().ends_with(MARK), "os.exe is not the new bytes");
-    assert!(!fs::read(&old).unwrap().ends_with(MARK), "os.exe.old is not the old bytes");
+    assert!(fs::read(&exe).unwrap().ends_with(MARK), "{name} is not the new bytes");
+    assert!(!fs::read(&old).unwrap().ends_with(MARK), "{name}.old is not the old bytes");
     assert!(child.try_wait().unwrap().is_none(), "the running copy died during the swap");
 
     // Still running from `.old`, so it cannot be removed yet; that is the case the retry in
     // finish_previous exists for, and here the process simply goes away first.
     child.kill().unwrap();
     child.wait().unwrap();
-    let removed = finish_previous(&dir, "os.exe");
+    let removed = finish_previous(&dir, name);
     assert!(removed.iter().any(|p| p == &old), "finish_previous did not remove .old: {removed:?}");
     assert!(!old.exists());
     assert!(exe.is_file());

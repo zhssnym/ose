@@ -1,4 +1,5 @@
-//! Command line: `os [--root <path>] [--log <file>] [--selftest] [--version] [--update] [--hold <secs>] [--after-pid <n>]`.
+//! Command line: `ose [--root <path>] [--log <file>] [--rice <dir>] [--no-rice] [--selftest]
+//! [--version] [--update] [--hold <secs>] [--after-pid <n>]`.
 //! Unknown arguments are ignored, exactly as the .NET host did.
 
 use std::path::PathBuf;
@@ -9,9 +10,16 @@ pub struct Args {
     pub root: Option<String>,
     /// Append-only log file for host and UI lines.
     pub log: Option<PathBuf>,
-    /// Load `selftest.html` instead of `index.html`.
+    /// Load `selftest.html` instead of the rice or the fallback page.
     pub selftest: bool,
-    /// Print `os <version> (<commit>, <date>)` and exit 0.
+    /// Serve this folder as the rice instead of `<vault>/.ose/app` (docs/RICE.md step 5).
+    /// Development: the repository's own `cockpit/`. It works with no vault at all.
+    pub rice: Option<PathBuf>,
+    /// Load the kernel's fallback page whatever the vault holds. Shift held at launch means
+    /// the same thing; a rice that will not start is how a person gets back to a working
+    /// window without editing anything.
+    pub no_rice: bool,
+    /// Print `ose <version> (<commit>, <date>)` and exit 0.
     pub version: bool,
     /// No window: check for a newer build, download and swap it in, relaunch, exit. The
     /// relaunched build runs the same argv, finds itself up to date and exits 0 — so a script
@@ -34,6 +42,8 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Args {
             "--root" => out.root = it.next(),
             "--log" => out.log = it.next().map(PathBuf::from),
             "--selftest" => out.selftest = true,
+            "--rice" => out.rice = it.next().map(PathBuf::from).filter(|p| !p.as_os_str().is_empty()),
+            "--no-rice" => out.no_rice = true,
             "--version" => out.version = true,
             "--update" => out.update = true,
             "--hold" => out.hold = it.next().and_then(|s| s.parse().ok()),
@@ -68,6 +78,16 @@ mod tests {
         assert_eq!(v(&["--hold", "soon"]).hold, None);
         assert!(v(&["--update"]).update);
         assert_eq!(v(&["--after-pid", "4242"]).after_pid, Some(4242));
+    }
+
+    #[test]
+    fn rice_flags() {
+        let a = v(&["--rice", "D:/ose/cockpit"]);
+        assert_eq!(a.rice, Some(PathBuf::from("D:/ose/cockpit")));
+        assert!(!a.no_rice);
+        assert!(v(&["--no-rice"]).no_rice);
+        // `--rice` with nothing after it is not a rice folder called "".
+        assert_eq!(v(&["--rice"]).rice, None);
     }
 
     #[test]

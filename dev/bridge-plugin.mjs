@@ -5,11 +5,14 @@ import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { vaultRoot, rootSource } from './root.mjs';
+import { repoRoot, vaultRoot, rootSource } from './root.mjs';
 
-const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space', 'os.exe', 'os.pdb',
-  // what an update leaves beside the executable for a moment, and the bundle itself on macOS (vault.rs)
-  'os.exe.new', 'os.exe.old', 'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
+const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space',
+  // The executable, and what an update leaves beside it for a moment, and the bundle itself on
+  // macOS (vault.rs). Both names: the app is `ose` from 0.4.0 on and a copy already on disk
+  // keeps the name it has.
+  'ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.old', 'Ose.app', 'Ose.app.old', 'ose-update.zip', 'ose-update-tmp',
+  'os.exe', 'os.pdb', 'os.exe.new', 'os.exe.old', 'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const IS_WIN = process.platform === 'win32';
 
@@ -357,6 +360,118 @@ export function bridgePlugin() {
     }
   };
 
+  // ---------------------------------------------------------------- run (round four, K1a)
+  // The same shapes as the host (src-tauri/src/run.rs): no shell, an allow rule that is the
+  // caller's list plus `settings.run.allow`, the UTF-8 floor, lines streamed as the `run`
+  // event, `{done:true, code, timedOut}` at the end, and every child killed when this server
+  // stops. A module tested in the browser must meet exactly the refusal it meets in the app.
+  const RUN_UTF8 = { PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
+  const RUN_DEFAULT_TIMEOUT = 60000;
+  const PROGRAM_EXTS = new Set(['exe', 'bat', 'cmd', 'com']);
+  const running = new Map(); // id -> { child, timedOut }
+
+  // `tools/python.exe` and `python` are the same name; `python3` is not.
+  const programKey = (name) => {
+    const base = String(name ?? '').split(/[\\/]/).pop();
+    const dot = base.lastIndexOf('.');
+    const stem = dot > 0 && PROGRAM_EXTS.has(base.slice(dot + 1).toLowerCase()) ? base.slice(0, dot) : base;
+    return IS_WIN ? stem.toLowerCase() : stem;
+  };
+
+  const settingsAllow = () => {
+    try {
+      const state = JSON.parse(fss.readFileSync(statePath(), 'utf8'));
+      const list = state?.settings?.run?.allow;
+      return Array.isArray(list) ? list.map(programKey) : [];
+    } catch { return []; }
+  };
+
+  const runKill = async (id) => {
+    const entry = running.get(id);
+    if (!entry) return false;
+    try { entry.child.kill(); } catch { }
+    return true;
+  };
+
+  const killAllRuns = () => { for (const id of [...running.keys()]) runKill(id); };
+
+  const run = async (id, program, args = [], opts = {}) => {
+    id = String(id ?? '');
+    if (!id.trim()) throw new Error('run needs an id');
+    if (running.has(id)) throw new Error('run id in use: ' + id);
+    if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new Error('run: args must be a list of strings');
+
+    const key = programKey(program);
+    const perCall = Array.isArray(opts.allow) ? opts.allow.map(programKey) : [];
+    if (!perCall.includes(key) && !settingsAllow().includes(key)) throw new Error('not allowed: ' + program);
+
+    // A program name goes to PATH; anything with a separator is a file inside the vault.
+    let exe = String(program ?? '').trim();
+    if (!exe) throw new Error('run needs a program');
+    if (/[\\/]/.test(exe)) {
+      exe = abs(exe);
+      if (!fss.existsSync(exe)) throw new Error('no such program in the vault: ' + program);
+    } else if (exe.includes(':')) {
+      throw new Error('not a program name: ' + program);
+    }
+
+    const cwd = opts.cwd ? abs(opts.cwd) : root;
+    if (!fss.existsSync(cwd)) throw new Error('no such folder: ' + opts.cwd);
+    const env = { ...process.env, ...RUN_UTF8 };
+    for (const [k, v] of Object.entries(opts.env || {})) {
+      if (v === null) delete env[k]; else env[k] = String(v);
+    }
+
+    const child = spawn(exe, args, { cwd, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const entry = { child, timedOut: false };
+    running.set(id, entry);
+
+    const timeoutMs = Number(opts.timeout) > 0 ? Number(opts.timeout) : RUN_DEFAULT_TIMEOUT;
+    const timer = setTimeout(() => { entry.timedOut = true; try { child.kill(); } catch { } }, timeoutMs);
+
+    // One event per line, no trailing newline, the last partial line included.
+    const lines = (stream, name) => {
+      let rest = '';
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk) => {
+        rest += chunk;
+        const parts = rest.split(/\r?\n/);
+        rest = parts.pop();
+        for (const line of parts) emit('run', { id, stream: name, line });
+      });
+      stream.on('end', () => { if (rest) emit('run', { id, stream: name, line: rest }); rest = ''; });
+    };
+    lines(child.stdout, 'stdout');
+    lines(child.stderr, 'stderr');
+
+    child.stdin.end(typeof opts.input === 'string' ? opts.input : '');
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      running.delete(id);
+      emit('run', { id, stream: 'stderr', line: String(e.message || e) });
+      emit('run', { id, done: true, code: null, timedOut: entry.timedOut });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      running.delete(id);
+      emit('run', { id, done: true, code: entry.timedOut ? null : code, timedOut: entry.timedOut });
+    });
+    return { id, pid: child.pid };
+  };
+
+  // ---------------------------------------------------------------- the rice (round four)
+  // In the browser the rice is whatever vite is serving as its root, so `reloadRice` is F5 and
+  // there is nothing for the host to do. `riceInfo` still answers the real shape so a module
+  // reading it behaves the same in both places. `OSE_RICE` names a folder, else `cockpit/` in
+  // the repo when it is there, else `<vault>/.ose/app`.
+  const riceDir = () => {
+    const asked = (process.env.OSE_RICE || '').trim();
+    if (asked && asked !== 'legacy') return { dir: path.resolve(asked), source: 'arg' };
+    const cockpit = path.join(repoRoot, 'cockpit');
+    if (fss.existsSync(path.join(cockpit, 'index.html'))) return { dir: cockpit, source: 'arg' };
+    return { dir: path.join(root, '.ose', 'app'), source: 'vault' };
+  };
+
   // ---------------------------------------------------------------- commands
   const statePath = () => path.join(root, '.ose', 'state.json'); // same file the Tauri host uses
   // The dev bridge always has a root (dev/root.mjs). `?novault=1` on the page makes rootInfo
@@ -383,6 +498,9 @@ export function bridgePlugin() {
     writeText: async (p, text) => { await atomicWrite(abs(p), text, 'utf8'); },
     appendText: async (p, text) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.appendFile(f, text, 'utf8'); },
     writeBinary: async (p, b64) => { await atomicWrite(abs(p), Buffer.from(b64, 'base64'), null); },
+    // `ose.files.readBinary`: the bytes as base64, the counterpart of writeBinary, the same
+    // path rules as readText (vault.rs `read_binary`).
+    readBinary: async (p) => (await fs.readFile(abs(p))).toString('base64'),
     mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
     // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
     // silently swallow it, and the UI relies on the refusal to report the collision (batch 9, B8).
@@ -447,6 +565,24 @@ export function bridgePlugin() {
       return kept;
     },
 
+    run: async (id, cmd, args, opts) => run(id, cmd, args, opts),
+    runKill: async (id) => runKill(id),
+    riceInfo: async () => {
+      const { dir, source } = riceDir();
+      const present = fss.existsSync(path.join(dir, 'index.html'));
+      let requires = null, why = null;
+      try {
+        const manifest = JSON.parse(fss.readFileSync(path.join(dir, 'cockpit.json'), 'utf8'));
+        requires = typeof manifest.requires === 'number' ? manifest.requires : null;
+        if (requires !== null && requires > 1) why = `cockpit.json requires ose.api ${requires}; this kernel is 1`;
+      } catch { /* no cockpit.json, or not JSON: the host reports the same */ }
+      return { dir, source, present: present && !why, disabled: false, requires, why, api: 1 };
+    },
+    // The browser reloads itself; the host navigates. Both answer null.
+    reloadRice: async () => null,
+    riceReady: async () => null,
+    riceFailed: async () => null,
+
     log: async (text) => { console.log('[selftest]', String(text)); },
     platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
 
@@ -470,7 +606,7 @@ export function bridgePlugin() {
     name: 'os-dev-bridge',
     configureServer(server) {
       startWatch();
-      const shutdown = () => { stopWatch(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
+      const shutdown = () => { stopWatch(); killAllRuns(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
       server.httpServer?.on('close', shutdown);
       process.once('exit', shutdown);
       process.once('SIGINT', () => { shutdown(); process.exit(0); });

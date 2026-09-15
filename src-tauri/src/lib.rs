@@ -16,6 +16,8 @@ use serde_json::Value;
 pub mod args;
 pub mod platform;
 pub mod protocol;
+pub mod rice;
+pub mod run;
 pub mod state;
 pub mod update;
 pub mod vault;
@@ -86,6 +88,10 @@ pub struct AppState {
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
     pub before_restart: Option<BeforeRestart>,
+    /// `--rice <dir>` and `--no-rice`, settled once at startup (rice.rs).
+    rice: rice::Slot,
+    /// Every program `run` started, so they can all be killed when the app goes (run.rs).
+    pub processes: run::Processes,
 }
 
 impl AppState {
@@ -96,7 +102,18 @@ impl AppState {
             watcher: Mutex::new(None),
             picker,
             before_restart: None,
+            rice: rice::slot(rice::Options::default()),
+            processes: run::Processes::default(),
         }
+    }
+
+    /// `--rice` and `--no-rice`, as the binary parsed them.
+    pub fn rice_options(&self) -> rice::Options {
+        self.rice.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    pub fn set_rice_options(&self, options: rice::Options) {
+        *self.rice.write().unwrap_or_else(|p| p.into_inner()) = options;
     }
 
     /// The open root's path, if any.
@@ -277,6 +294,12 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = rice::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = run::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = versions::handle(&ctx, &cmd, &args) {

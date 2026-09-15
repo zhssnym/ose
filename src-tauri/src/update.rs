@@ -66,13 +66,15 @@ pub fn build_json() -> Value {
     }
 }
 
-/// `os 0.1.0 (a45404e, 2026-09-09)` or `os 0.1.0 (dev build)`: the `--version` line.
+/// `ose 0.4.0 (a45404e, 2026-09-15)` or `ose 0.4.0 (dev build)`: the `--version` line. The
+/// name is the app's, not the file's: a copy on disk still called `os.exe` prints `ose` too,
+/// because that is what it is.
 pub fn version_line() -> String {
     let v = env!("CARGO_PKG_VERSION");
     match build_info() {
-        Some(b) if !b.date.is_empty() => format!("os {v} ({}, {})", b.short, b.date),
-        Some(b) => format!("os {v} ({})", b.short),
-        None => format!("os {v} (dev build)"),
+        Some(b) if !b.date.is_empty() => format!("ose {v} ({}, {})", b.short, b.date),
+        Some(b) => format!("ose {v} ({})", b.short),
+        None => format!("ose {v} (dev build)"),
     }
 }
 
@@ -82,17 +84,22 @@ fn is_sha(s: &str) -> bool {
 
 // ---- where things are ------------------------------------------------------
 
-/// The files the update touches, all beside the executable: on Windows beside `os.exe`, on
-/// macOS beside the `os.app` bundle (the folder that holds it, never inside it).
+/// The files the update touches, all beside the executable: on Windows beside `ose.exe`, on
+/// macOS beside the `Ose.app` bundle (the folder that holds it, never inside it).
+///
+/// Every name here is derived from the running executable's **own** file name, whatever it is.
+/// A copy still called `os.exe` (0.3.x, renamed in 0.4.0) swaps `os.exe` -> `os.exe.old` and
+/// `os.exe.new` -> `os.exe` and stays `os.exe`: a swap never renames the file it found, so a
+/// shortcut, a script or a scheduled task naming the old file keeps working.
 #[derive(Clone, Debug)]
 pub struct Layout {
     /// The folder everything lives in.
     pub dir: PathBuf,
-    /// `os.exe`, or the `os.app` bundle folder.
+    /// `ose.exe` (or `os.exe`), or the `Ose.app` (or `os.app`) bundle folder.
     pub target: PathBuf,
-    /// Where the download lands: `os.exe.new`, or `os-update.zip`.
+    /// Where the download lands: `<name>.new`, or `ose-update.zip`.
     pub incoming: PathBuf,
-    /// The previous build after a swap: `os.exe.old`, or `os.app.old`.
+    /// The previous build after a swap: `<name>.old`.
     pub old: PathBuf,
 }
 
@@ -114,7 +121,7 @@ pub fn layout_for(exe: &Path) -> Option<Layout> {
             let name = bundle.file_name()?.to_string_lossy().to_string();
             return Some(Layout {
                 target: bundle.to_path_buf(),
-                incoming: dir.join("os-update.zip"),
+                incoming: dir.join(ZIP),
                 old: dir.join(format!("{name}.old")),
                 dir,
             });
@@ -130,16 +137,24 @@ pub fn layout_for(exe: &Path) -> Option<Layout> {
     })
 }
 
-/// The asset name for this platform, `None` where no build is published.
-fn asset_name() -> Option<&'static str> {
+/// The asset names this platform accepts, best first. Two of each for the 0.3.x -> 0.4.0
+/// rename: CI publishes `ose.exe` and, for the transition, `os.exe` with the same bytes, so a
+/// 0.3.x build in the field still finds the name it knows and a 0.4.0 build prefers the new
+/// one. Empty where no build is published.
+pub fn asset_names() -> &'static [&'static str] {
     if cfg!(windows) {
-        Some("os.exe")
+        &["ose.exe", "os.exe"]
     } else if cfg!(target_os = "macos") {
-        Some("os-macos-arm64.zip")
+        &["ose-macos-arm64.zip", "os-macos-arm64.zip"]
     } else {
-        None
+        &[]
     }
 }
+
+/// The two temp names the update writes itself, as opposed to the ones it derives from the
+/// running file. The `os-update.*` pair a 0.3.x build wrote is still cleaned up.
+const ZIP: &str = "ose-update.zip";
+const TMP: &str = "ose-update-tmp";
 
 // ---- cleanup on start ------------------------------------------------------
 
@@ -156,6 +171,9 @@ pub fn finish_previous(dir: &Path, name: &str) -> Vec<PathBuf> {
     let candidates = [
         dir.join(format!("{name}.old")),
         dir.join(format!("{name}.new")),
+        dir.join(ZIP),
+        dir.join(TMP),
+        // What a 0.3.x build left behind before the rename.
         dir.join("os-update.zip"),
         dir.join("os-update-tmp"),
     ];
@@ -283,21 +301,21 @@ fn fetch_latest(agent: &ureq::Agent) -> Result<Option<Latest>, String> {
     if !is_sha(&sha) {
         return Err(format!("release lookup: target_commitish is not a commit ({sha:?})"));
     }
-    let wanted = asset_name();
-    let asset = v["assets"].as_array().and_then(|list| {
-        list.iter().find_map(|a| {
-            let name = a["name"].as_str()?;
-            if Some(name) != wanted {
-                return None;
-            }
-            Some(Asset {
-                name: name.to_string(),
-                size: a["size"].as_u64().unwrap_or(0),
-                url: a["browser_download_url"].as_str()?.to_string(),
-                digest: a["digest"].as_str().map(str::to_string).filter(|d| d.starts_with("sha256:")),
-            })
+    let empty = Vec::new();
+    let assets = v["assets"].as_array().unwrap_or(&empty);
+    let read = |a: &Value| -> Option<Asset> {
+        Some(Asset {
+            name: a["name"].as_str()?.to_string(),
+            size: a["size"].as_u64().unwrap_or(0),
+            url: a["browser_download_url"].as_str()?.to_string(),
+            digest: a["digest"].as_str().map(str::to_string).filter(|d| d.starts_with("sha256:")),
         })
-    });
+    };
+    // Best name first, so a release carrying both `ose.exe` and the transitional `os.exe`
+    // gives this build the new one.
+    let asset = asset_names()
+        .iter()
+        .find_map(|wanted| assets.iter().find(|a| a["name"].as_str() == Some(*wanted)).and_then(read));
     Ok(Some(Latest {
         sha,
         published_at: v["published_at"].as_str().unwrap_or("").to_string(),
@@ -366,7 +384,7 @@ fn check(app: &tauri::AppHandle) -> Value {
     }
 }
 
-/// `os --update`: the whole loop with no window — check, download when behind, swap, relaunch.
+/// `ose --update`: the whole loop with no window — check, download when behind, swap, relaunch.
 /// Exit 0 when already up to date; on a successful swap `apply` exits after spawning the new
 /// build, which runs this same argv, logs itself as up to date and exits 0. Exit 1 on any
 /// failure, with the reason in the log. This is what proves the assembled loop on a machine
@@ -447,11 +465,9 @@ fn download_inner(app: &tauri::AppHandle) -> Result<Value, String> {
     let lay = layout().ok_or("cannot locate the executable")?;
     let lookup = agent(Duration::from_secs(10));
     let latest = fetch_latest(&lookup)?.ok_or("no release right now")?;
-    let asset = latest.asset.ok_or_else(|| {
-        match asset_name() {
-            Some(n) => format!("the release has no {n}"),
-            None => "no build is published for this platform".to_string(),
-        }
+    let asset = latest.asset.ok_or_else(|| match asset_names() {
+        [] => "no build is published for this platform".to_string(),
+        names => format!("the release has no {}", names.join(" and no ")),
     })?;
     log_line(st, &format!("update: downloading {} ({} bytes) to {}", asset.name, asset.size, lay.incoming.display()));
 
@@ -580,11 +596,12 @@ fn apply(app: &tauri::AppHandle) -> Result<Value, String> {
     std::process::exit(0);
 }
 
-/// Windows: `os.exe` → `os.exe.old` (renaming a running executable is allowed; deleting or
-/// overwriting it is not), then `os.exe.new` → `os.exe`, then the new `os.exe` is started
-/// with `args`. Returns the path of the executable now in place. A failed second rename puts
-/// the old name back so the folder is never left without an `os.exe`. `relaunch: false`
-/// skips the spawn so a test can drive the swap on a copy.
+/// Windows: `<name>.exe` → `<name>.exe.old` (renaming a running executable is allowed;
+/// deleting or overwriting it is not), then `<name>.exe.new` → `<name>.exe`, then the new
+/// executable is started with `args`. `<name>` is whatever the running file is called, so a
+/// copy still named `os.exe` stays `os.exe`. Returns the path of the executable now in place.
+/// A failed second rename puts the old name back so the folder is never left without one.
+/// `relaunch: false` skips the spawn so a test can drive the swap on a copy.
 #[cfg(windows)]
 pub fn swap_windows(lay: &Layout, args: &[String], relaunch: bool) -> Result<PathBuf, String> {
     let (exe, new, old) = (&lay.target, &lay.incoming, &lay.old);
@@ -698,13 +715,15 @@ fn relaunch_windows(exe: &Path, args: &[String]) -> Result<(), String> {
 }
 
 /// macOS: the zip is unpacked beside the bundle with `ditto` (the tool that made it, so the
-/// bundle structure and resource forks survive), `os.app` → `os.app.old`, the unpacked
-/// `os.app` moved into place, the temp folder and the zip removed, then `open -n` on the new
-/// bundle. A failure after the first rename restores `.old`.
+/// bundle structure and resource forks survive), the running bundle is renamed to `.old`, the
+/// unpacked one moved into its place under the running bundle's own name, the temp folder and
+/// the zip removed, then `open -n` on the new bundle. So a copy still called `os.app` stays
+/// `os.app` even though the zip holds `Ose.app`. A failure after the first rename restores
+/// `.old`.
 #[cfg(target_os = "macos")]
 pub fn swap_macos(lay: &Layout, args: &[String], relaunch: bool) -> Result<PathBuf, String> {
     let (bundle, zip, old) = (&lay.target, &lay.incoming, &lay.old);
-    let tmp = lay.dir.join("os-update-tmp");
+    let tmp = lay.dir.join(TMP);
     if !zip.is_file() {
         return Err(format!("nothing to install at {}", zip.display()));
     }
@@ -722,7 +741,7 @@ pub fn swap_macos(lay: &Layout, args: &[String], relaunch: bool) -> Result<PathB
     }
     let unpacked = find_bundle(&tmp).ok_or_else(|| {
         let _ = fs::remove_dir_all(&tmp);
-        "the zip holds no os.app".to_string()
+        "the zip holds no .app bundle".to_string()
     })?;
     if old.exists() && !remove_with_retries(old) {
         let _ = fs::remove_dir_all(&tmp);
@@ -753,14 +772,17 @@ pub fn swap_macos(lay: &Layout, args: &[String], relaunch: bool) -> Result<PathB
     Ok(bundle.clone())
 }
 
-/// `os.app` at the top of the unpacked folder, or one level down (ditto `--keepParent` puts
-/// the bundle at the top; a zip made another way may wrap it in a folder).
+/// `Ose.app` (or the older `os.app`) at the top of the unpacked folder, or one level down
+/// (ditto `--keepParent` puts the bundle at the top; a zip made another way may wrap it in a
+/// folder). Any `.app` in there is accepted, so neither name is load-bearing.
 #[cfg(target_os = "macos")]
 fn find_bundle(tmp: &Path) -> Option<PathBuf> {
     let is_app = |p: &Path| p.is_dir() && p.extension().map(|e| e.eq_ignore_ascii_case("app")).unwrap_or(false);
-    let direct = tmp.join("os.app");
-    if is_app(&direct) {
-        return Some(direct);
+    for name in ["Ose.app", "os.app"] {
+        let direct = tmp.join(name);
+        if is_app(&direct) {
+            return Some(direct);
+        }
     }
     let mut found = None;
     for entry in fs::read_dir(tmp).ok()?.flatten() {
@@ -801,8 +823,31 @@ mod tests {
     #[test]
     fn version_line_shape() {
         let line = version_line();
-        assert!(line.starts_with("os 0."), "{line}");
+        assert!(line.starts_with("ose 0.4."), "{line}");
         assert!(line.ends_with(')'), "{line}");
+    }
+
+    /// The rename: the new asset name is preferred, the old one still accepted, and a build
+    /// running under the old file name keeps it through a swap.
+    #[test]
+    fn both_asset_names_are_accepted() {
+        let names = asset_names();
+        if cfg!(windows) {
+            assert_eq!(names, ["ose.exe", "os.exe"]);
+        } else if cfg!(target_os = "macos") {
+            assert_eq!(names, ["ose-macos-arm64.zip", "os-macos-arm64.zip"]);
+        } else {
+            assert!(names.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_swap_keeps_the_name_it_found() {
+        let old = if cfg!(windows) { Path::new("C:\\vault\\os.exe") } else { Path::new("/vault/os.exe") };
+        let lay = layout_for(old).unwrap();
+        assert_eq!(lay.target.file_name().unwrap(), "os.exe");
+        assert_eq!(lay.incoming.file_name().unwrap(), "os.exe.new");
+        assert_eq!(lay.old.file_name().unwrap(), "os.exe.old");
     }
 
     #[test]
@@ -819,21 +864,25 @@ mod tests {
 
     #[test]
     fn layout_beside_the_exe() {
-        let exe = if cfg!(windows) { Path::new("C:\\vault\\os.exe") } else { Path::new("/vault/os.exe") };
+        let exe = if cfg!(windows) { Path::new("C:\\vault\\ose.exe") } else { Path::new("/vault/ose.exe") };
         let lay = layout_for(exe).unwrap();
         assert_eq!(lay.dir, exe.parent().unwrap());
-        assert_eq!(lay.incoming.file_name().unwrap(), "os.exe.new");
-        assert_eq!(lay.old.file_name().unwrap(), "os.exe.old");
+        assert_eq!(lay.incoming.file_name().unwrap(), "ose.exe.new");
+        assert_eq!(lay.old.file_name().unwrap(), "ose.exe.old");
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn layout_beside_the_bundle() {
-        let lay = layout_for(Path::new("/Applications/os.app/Contents/MacOS/os")).unwrap();
+        let lay = layout_for(Path::new("/Applications/Ose.app/Contents/MacOS/ose")).unwrap();
         assert_eq!(lay.dir, Path::new("/Applications"));
-        assert_eq!(lay.target, Path::new("/Applications/os.app"));
-        assert_eq!(lay.incoming, Path::new("/Applications/os-update.zip"));
-        assert_eq!(lay.old, Path::new("/Applications/os.app.old"));
+        assert_eq!(lay.target, Path::new("/Applications/Ose.app"));
+        assert_eq!(lay.incoming, Path::new("/Applications/ose-update.zip"));
+        assert_eq!(lay.old, Path::new("/Applications/Ose.app.old"));
+        // A 0.3.x bundle keeps its own name through the swap.
+        let old = layout_for(Path::new("/Applications/os.app/Contents/MacOS/os")).unwrap();
+        assert_eq!(old.target, Path::new("/Applications/os.app"));
+        assert_eq!(old.old, Path::new("/Applications/os.app.old"));
     }
 
     #[test]
@@ -841,14 +890,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ose-finish-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("os.exe.old"), b"old").unwrap();
-        fs::write(dir.join("os.exe.new"), b"new").unwrap();
+        fs::write(dir.join("ose.exe.old"), b"old").unwrap();
+        fs::write(dir.join("ose.exe.new"), b"new").unwrap();
+        fs::create_dir_all(dir.join("ose-update-tmp")).unwrap();
+        // What a 0.3.x build left behind: cleaned up too.
         fs::create_dir_all(dir.join("os-update-tmp")).unwrap();
-        fs::write(dir.join("os.exe"), b"current").unwrap();
-        let removed = finish_previous(&dir, "os.exe");
-        assert_eq!(removed.len(), 3, "{removed:?}");
-        assert!(dir.join("os.exe").is_file());
-        assert!(!dir.join("os.exe.old").exists());
+        fs::write(dir.join("ose.exe"), b"current").unwrap();
+        let removed = finish_previous(&dir, "ose.exe");
+        assert_eq!(removed.len(), 4, "{removed:?}");
+        assert!(dir.join("ose.exe").is_file());
+        assert!(!dir.join("ose.exe.old").exists());
+        assert!(!dir.join("ose-update-tmp").exists());
         assert!(!dir.join("os-update-tmp").exists());
         fs::remove_dir_all(&dir).unwrap();
     }

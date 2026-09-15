@@ -28,11 +28,22 @@ const HIDDEN: &[&str] = &[
     ".tmp.driveupload",
     ".makemd",
     ".space",
+    ".ose",
+    // The executable normally lives at the root of its own vault, so it hides itself, and so
+    // do the files an update leaves beside it for a moment (update.rs) and the bundle itself
+    // when it sits at the root on macOS. Both names: the app is `ose` from 0.4.0 on, and a
+    // copy on disk that is still called `os.exe` keeps that name for ever (a swap never
+    // renames the file it found).
+    "ose.exe",
+    "ose.pdb",
+    "ose.exe.new",
+    "ose.exe.old",
+    "Ose.app",
+    "Ose.app.old",
+    "ose-update.zip",
+    "ose-update-tmp",
     "os.exe",
     "os.pdb",
-    ".ose",
-    // what an update leaves beside the executable for a moment (update.rs), and the bundle
-    // itself when os.app sits at the vault root on macOS
     "os.exe.new",
     "os.exe.old",
     "os.app",
@@ -63,7 +74,7 @@ pub fn looks_like_vault(dir: &Path) -> bool {
 
 /// Steps 1 to 3 of the resolution order (CONTRACT.md "Vault resolution"): `--root` when it is
 /// a folder, else the nearest ancestor of the executable that `looks_like_vault` (on macOS the
-/// walk climbs out of `os.app/Contents/MacOS`), else `OSE_ROOT`. Steps 4 and 5, the remembered
+/// walk climbs out of `Ose.app/Contents/MacOS`), else `OSE_ROOT`. Steps 4 and 5, the remembered
 /// root and the picker, need the app handle and happen in `setup`. `None` here no longer
 /// means exit: it means "ask".
 pub fn resolve_root(explicit: Option<&str>) -> Option<(PathBuf, Source)> {
@@ -592,6 +603,15 @@ pub fn write_binary(root: &Path, rel: &str, b64: &str) -> Result<(), String> {
     write_atomic(&full, &bytes).map_err(|e| format!("{rel}: {e}"))
 }
 
+/// The file's bytes as base64 (`ose.files.readBinary`). The counterpart of `write_binary`,
+/// and the only way a module reads something that is not text without going through the
+/// `vault` origin, which is for the DOM rather than for code.
+pub fn read_binary(root: &Path, rel: &str) -> Result<String, String> {
+    let full = resolve(root, rel)?;
+    let bytes = fs::read(&full).map_err(|e| format!("{rel}: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 pub fn mkdir(root: &Path, rel: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
     fs::create_dir_all(&full).map_err(|e| format!("{rel}: {e}"))
@@ -968,6 +988,7 @@ const COMMANDS: &[&str] = &[
     "writeText",
     "appendText",
     "writeBinary",
+    "readBinary",
     "mkdir",
     "rename",
     "trash",
@@ -1024,6 +1045,7 @@ pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, 
             write_binary(root, &arg_str(args, 0)?, &arg_str(args, 1)?)?;
             ok
         }
+        "readBinary" => Ok(Value::String(read_binary(root, &arg_str(args, 0)?)?)),
         "mkdir" => {
             mkdir(root, &arg_str(args, 0)?)?;
             ok
@@ -1093,6 +1115,24 @@ mod tests {
         assert!(!is_hidden("Personal"));
     }
 
+    /// The rename (round four): both the new names and the ones a copy already on disk keeps,
+    /// in any case. A visible `ose.exe` in the tree would be a bug people would see at once.
+    #[test]
+    fn both_executable_names_are_hidden() {
+        for name in [
+            "ose.exe", "ose.pdb", "ose.exe.new", "ose.exe.old", "Ose.app", "Ose.app.old",
+            "ose-update.zip", "ose-update-tmp",
+            "os.exe", "os.pdb", "os.exe.new", "os.exe.old", "os.app", "os.app.old",
+            "os-update.zip", "os-update-tmp",
+        ] {
+            assert!(is_hidden(name), "{name} should be hidden");
+            assert!(is_hidden(&name.to_uppercase()), "{name} should be hidden whatever its case");
+        }
+        // Nothing wider than that: a page called `ose.md` or a folder called `ose` is content.
+        assert!(!is_hidden("ose"));
+        assert!(!is_hidden("ose.md"));
+    }
+
     /// A fresh folder under the system temp dir, removed when dropped.
     struct Tmp(PathBuf);
     impl Tmp {
@@ -1131,15 +1171,15 @@ mod tests {
         let t = Tmp::new("walk");
         let vault = &t.0;
         fs::create_dir_all(vault.join(".ose")).unwrap();
-        let exe = vault.join("os.app").join("Contents").join("MacOS").join("os");
+        let exe = vault.join("Ose.app").join("Contents").join("MacOS").join("ose");
         assert_eq!(root_above(&exe), Some(normalize(vault)));
     }
 
     #[test]
     fn the_suggested_folder_leaves_a_mac_bundle() {
-        let exe = Path::new("/Applications/os.app/Contents/MacOS/os");
+        let exe = Path::new("/Applications/Ose.app/Contents/MacOS/ose");
         assert_eq!(suggested_dir(exe).unwrap(), normalize(Path::new("/Applications")));
-        let exe = Path::new(if cfg!(windows) { r"D:\os\os.exe" } else { "/home/h/os/os" });
+        let exe = Path::new(if cfg!(windows) { r"D:\os\ose.exe" } else { "/home/h/os/ose" });
         assert_eq!(suggested_dir(exe).unwrap(), normalize(exe.parent().unwrap()));
     }
 

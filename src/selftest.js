@@ -18,7 +18,7 @@ let pass = 0, fail = 0, skip = 0;
 
 const head = document.createElement('div');
 head.className = 'st-head';
-head.textContent = 'os selftest';
+head.textContent = 'ose selftest';
 const sub = document.createElement('span');
 sub.className = 'st-sub';
 head.appendChild(sub);
@@ -115,15 +115,72 @@ async function run() {
 
   // The CI stamp (CONTRACT.md "Self-update"): `build` is {sha, short, date} on a build from
   // build.yml and null on a local one; either is right here.
-  let stamped = null;
+  let stamped = null, origins = null;
   await test('platformInfo', async () => {
     const p = await bridge.platformInfo();
     assert(p && typeof p.os === 'string' && typeof p.version === 'string', 'bad shape: ' + trim(JSON.stringify(p), 160));
     assert(p.build === null || (p.build && /^[0-9a-f]{40}$/.test(p.build.sha) && p.build.short === p.build.sha.slice(0, 7)),
       'bad build stamp: ' + trim(JSON.stringify(p.build), 120));
     stamped = p.build;
-    return stamped ? `build ${stamped.short} · ${stamped.date}` : 'dev build';
+    // Round four: the three origins are the host's to spell, never the page's
+    // (docs/KERNEL.md "Origins"). The dev bridge has none and says so.
+    if (bridge.kind === 'tauri') {
+      origins = { kernel: p.kernelOrigin, app: p.appOrigin, vault: p.vaultOrigin };
+      for (const [name, o] of Object.entries(origins)) {
+        assert(typeof o === 'string' && o.length > 0, `no ${name} origin: ` + trim(JSON.stringify(p), 200));
+        assert(!o.endsWith('/'), `${name} origin has a trailing slash: ${o}`);
+      }
+      const shape = p.os === 'windows' ? /^http:\/\/[a-z]+\.localhost$/ : /^[a-z]+:\/\/localhost$/;
+      for (const [name, o] of Object.entries(origins)) assert(shape.test(o), `${name} origin is not this platform's shape: ${o}`);
+      assert(p.api === 1, 'ose.api is not 1: ' + p.api);
+    }
+    return (stamped ? `build ${stamped.short} · ${stamped.date}` : 'dev build') +
+      (origins ? `, kernel ${origins.kernel}` : '');
   });
+
+  // The rice (docs/RICE.md). Shape always; the decision checked against the folder on disk.
+  let rice = null;
+  await test('riceInfo', async () => {
+    rice = await bridge.riceInfo();
+    assert(rice && typeof rice === 'object', 'not an object: ' + trim(JSON.stringify(rice), 160));
+    assert(['vault', 'arg', 'none'].includes(rice.source), 'bad source: ' + rice.source);
+    assert(typeof rice.present === 'boolean', 'present is not a boolean');
+    assert(rice.requires === null || typeof rice.requires === 'number', 'bad requires: ' + rice.requires);
+    assert(rice.dir === null || typeof rice.dir === 'string', 'bad dir: ' + rice.dir);
+    return `dir=${rice.dir} source=${rice.source} present=${rice.present}${rice.disabled ? ' (disabled)' : ''}${rice.why ? ' why=' + rice.why : ''}`;
+  });
+
+  // The `app` origin: files only, no listing, and a path that tries to leave the rice folder
+  // is a 404 rather than a redirect or a file from somewhere else.
+  if (origins && rice && rice.present) {
+    await test('app protocol serves the rice and rewrites index.html', async () => {
+      const r = await fetch(`${origins.app}/index.html`);
+      assert(r.status === 200, 'index.html: http ' + r.status);
+      assert((r.headers.get('cache-control') || '').includes('no-store'), 'index.html is cacheable');
+      const html = await r.text();
+      assert(html.includes('"ose:kernel"') && html.includes(`${origins.kernel}/kernel.js`),
+        'the import map is missing or does not carry the kernel origin');
+      assert(html.includes(`${origins.kernel}/ui.css`), 'the ui stylesheet link was not rewritten');
+      const csp = r.headers.get('content-security-policy') || '';
+      assert(csp.includes("default-src 'none'"), 'no Content-Security-Policy on the rice page');
+      assert(csp.includes(origins.vault), 'the CSP does not allow the vault origin');
+      return `${html.length} bytes, csp ${csp.length} chars`;
+    });
+
+    await test('app protocol refuses to leave the rice folder', async () => {
+      const tried = [];
+      for (const bad of ['/../x', '/%2e%2e/x', '/../../CLAUDE.md', '/']) {
+        const r = await fetch(origins.app + bad);
+        // `/` is the rice's own index.html and must answer 200; the escapes must not.
+        const want = bad === '/' ? 200 : 404;
+        assert(r.status === want, `${bad}: http ${r.status}, expected ${want}`);
+        tried.push(`${bad}=${r.status}`);
+      }
+      return tried.join(' ');
+    });
+  } else {
+    skipped('app protocol', origins ? 'no rice in this vault' : 'not the Tauri host');
+  }
 
   // The check hits the real release API on a stamped build, so only the shape is asserted:
   // never `behind` (the runner may be building the very commit that would answer it), and an
@@ -267,6 +324,75 @@ async function run() {
     await bridge.setState(before); // leave the vault's state as it was
     return `round trip ok, ${Object.keys(before).length} pre-existing keys restored`;
   });
+
+  /* ----------------------------------------------------------------- run */
+
+  // `run` (docs/KERNEL.md). Two things are proved: a program in the caller's allow list runs
+  // and comes back byte for byte in UTF-8, and a program in neither allow list is refused.
+  // Nothing is allowed by default, so the refusal is the case that needs no fixture at all.
+  await test('run refuses a program nobody allowed', async () => {
+    const id = 'selftest-refused-' + Date.now();
+    try {
+      await bridge.run(id, 'definitely-not-allowed-' + Date.now(), [], {});
+    } catch (e) {
+      const m = String(e && e.message ? e.message : e);
+      assert(m.includes('not allowed:'), 'refused for the wrong reason: ' + trim(m, 160));
+      return trim(m, 120);
+    }
+    throw new Error('a program in neither allow list was started');
+  });
+
+  // python first (the UTF-8 environment is what `PYTHONUTF8=1` is for), node as the fallback,
+  // because one of the two exists on every machine this ever runs on.
+  const runOnce = async (program, args) => {
+    const id = `selftest-run-${program}-${Date.now()}`;
+    const out = [], err = [];
+    return await new Promise((resolve, reject) => {
+      const off = bridge.on('run', (d) => {
+        if (!d || d.id !== id) return;
+        if (d.done) { off(); resolve({ code: d.code, timedOut: d.timedOut, out: out.join('\n'), err: err.join('\n') }); return; }
+        (d.stream === 'stderr' ? err : out).push(d.line);
+      });
+      bridge.run(id, program, args, { allow: [program], timeout: 20000 }).catch((e) => { off(); reject(e); });
+    });
+  };
+
+  let ran = null;
+  for (const [program, args] of [
+    ['python', ['-c', "print('\u00e9')"]],
+    ['python3', ['-c', "print('\u00e9')"]],
+    ['node', ['-e', "process.stdout.write('\u00e9\\n')"]],
+  ]) {
+    try { ran = { program, r: await runOnce(program, args) }; break; } catch { /* not on this machine */ }
+  }
+  if (ran) {
+    await test(`run ${ran.program} (UTF-8 round trip)`, async () => {
+      const { code, timedOut, out, err } = ran.r;
+      assert(timedOut === false, 'it timed out');
+      assert(code === 0, `exit ${code}: ${trim(err, 160)}`);
+      assert(out === '\u00e9', `stdout was ${JSON.stringify(out)}, expected "\u00e9"`);
+      return `code=0, stdout=${JSON.stringify(out)}`;
+    });
+
+    await test('runKill', async () => {
+      const id = 'selftest-kill-' + Date.now();
+      const done = new Promise((resolve) => {
+        const off = bridge.on('run', (d) => { if (d && d.id === id && d.done) { off(); resolve(d); } });
+      });
+      const sleeper = ran.program.startsWith('python')
+        ? [ran.program, ['-c', 'import time; time.sleep(30)']]
+        : [ran.program, ['-e', 'setTimeout(()=>{},30000)']];
+      await bridge.run(id, sleeper[0], sleeper[1], { allow: [sleeper[0]], timeout: 30000 });
+      assert((await bridge.runKill(id)) === true, 'runKill did not find the process');
+      const d = await withTimeout(done, 10000, 'the killed process never reported done');
+      assert(d.done === true, 'no done event');
+      assert((await bridge.runKill(id)) === false, 'a finished id is still in the table');
+      return `killed, code=${d.code}`;
+    });
+  } else {
+    skipped('run', 'neither python nor node is on PATH');
+    skipped('runKill', 'neither python nor node is on PATH');
+  }
 
   /* ------------------------------------------------------------ mutations */
 

@@ -164,8 +164,12 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 // ---- platform -------------------------------------------------------------
 
 /// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
-/// executable's own, or the folder holding `os.app` on macOS. `build` is the CI stamp
+/// executable's own, or the folder holding `Ose.app` on macOS. `build` is the CI stamp
 /// `{sha, short, date}`, null for a local build (update.rs).
+///
+/// The three origins (round four, docs/KERNEL.md) are here rather than guessed in the page,
+/// because the spelling is the platform's: `http://ose.localhost` on Windows and
+/// `ose://localhost` on macOS and Linux. Nothing in a rice ever writes one down.
 fn platform_info(ctx: &Ctx) -> Value {
     json!({
         "os": os_name(),
@@ -174,6 +178,10 @@ fn platform_info(ctx: &Ctx) -> Value {
         "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
         "root": ctx.st.root().map(|p| p.display().to_string()),
+        "api": crate::rice::API,
+        "kernelOrigin": crate::rice::kernel_origin(),
+        "appOrigin": crate::rice::app_origin(),
+        "vaultOrigin": crate::rice::vault_origin(),
     })
 }
 

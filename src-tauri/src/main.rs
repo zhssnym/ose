@@ -11,7 +11,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, log_line, protocol, state, update, vault, vaults, AppState, Root, Source};
+use ose::{args, log_line, protocol, rice, run, state, update, vault, vaults, AppState, Root, Source};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
@@ -21,11 +21,16 @@ static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 /// shown and nothing but the update loop runs.
 static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-const NO_VAULT_SELFTEST: &str = "os --selftest needs a vault.\n\n\
+const NO_VAULT_SELFTEST: &str = "ose --selftest needs a vault.\n\n\
 Pass --root <folder>, set OSE_ROOT, or start it from inside a vault (a folder with .ose/ or CLAUDE.md).";
 
 fn main() {
     let opts = args::parse(std::env::args().skip(1));
+
+    // Shift held at launch means `--no-rice` (docs/RICE.md step 3). It is read here, first
+    // thing, because the key has to be down *now*: a second later the user has let go and the
+    // gesture is lost.
+    let shift = rice::shift_held();
 
     // Relaunched by an update swap: the build that spawned us is still exiting, and the
     // single-instance plugin below would hand this launch to it. Wait it out first.
@@ -67,18 +72,25 @@ fn main() {
         Some(pick_folder),
     );
     app_state.before_restart = Some(save_for_restart);
+    app_state.set_rice_options(rice::Options {
+        arg: opts.rice.clone(),
+        no_rice: opts.no_rice || shift,
+    });
+    if shift {
+        log_line(&app_state, "rice: Shift held at launch, loading the fallback page");
+    }
     match &root {
         Some(r) => log_line(
             &app_state,
-            &format!("os editor starting, vault root: {} (from {})", r.path.display(), r.source.as_str()),
+            &format!("ose starting, vault root: {} (from {})", r.path.display(), r.source.as_str()),
         ),
-        None => log_line(&app_state, "os editor starting, no vault yet"),
+        None => log_line(&app_state, "ose starting, no vault yet"),
     }
 
     let selftest = opts.selftest;
     if opts.update {
         HEADLESS.store(true, std::sync::atomic::Ordering::Relaxed);
-        log_line(&app_state, "os --update: headless");
+        log_line(&app_state, "ose --update: headless");
     }
     let headless = opts.update;
 
@@ -104,6 +116,18 @@ fn main() {
             let st = ctx.app_handle().state::<AppState>();
             protocol::serve_current(st.inner(), &request)
         })
+        // The kernel's own bundles, embedded from `dist-kernel/` (frontendDist). Read-only,
+        // CORS open, never cached: `http://ose.localhost/kernel.js` on Windows and
+        // `ose://localhost/kernel.js` on macOS (docs/KERNEL.md "Origins").
+        .register_uri_scheme_protocol("ose", |ctx, request| {
+            rice::serve_kernel(ctx.app_handle(), &request)
+        })
+        // The rice: `<vault>/.ose/app`, or `--rice <dir>`. Files only; `index.html` gets the
+        // import map and the two stylesheet links on the way out.
+        .register_uri_scheme_protocol("app", |ctx, request| {
+            let st = ctx.app_handle().state::<AppState>();
+            rice::serve_rice(st.inner(), &request)
+        })
         // The window starts invisible; the first finished page load is the earliest moment
         // showing it cannot flash an empty frame.
         .on_page_load(|webview, payload| {
@@ -126,7 +150,7 @@ fn main() {
         })
         .on_window_event(on_window_event)
         .build(tauri::generate_context!())
-        .expect("os failed to start");
+        .expect("ose failed to start");
 
     app.run(on_run_event);
 }
@@ -167,6 +191,7 @@ fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
         }
         tauri::RunEvent::Exit => {
             save_for_restart(app);
+            run::kill_all(app.state::<AppState>().inner());
         }
         _ => {}
     }
@@ -193,11 +218,11 @@ fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem as P, Submenu};
 
-    let quit = MenuItem::with_id(app, MENU_QUIT, "Quit os", true, Some("Cmd+Q"))?;
-    let about = P::about(app, Some("About os"), Some(AboutMetadata::default()))?;
+    let quit = MenuItem::with_id(app, MENU_QUIT, "Quit Ose", true, Some("Cmd+Q"))?;
+    let about = P::about(app, Some("About Ose"), Some(AboutMetadata::default()))?;
     let app_menu = Submenu::with_items(
         app,
-        "os",
+        "Ose",
         true,
         &[
             &about,
@@ -237,7 +262,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 /// The id of the one menu item with an action of our own.
 const MENU_QUIT: &str = "app.quit";
 
-/// A second `os` launched while one is running. The plugin has already handed us its argv and
+/// A second `ose` launched while one is running. The plugin has already handed us its argv and
 /// ended that process, so this decides what the launch meant: the same vault (or none named)
 /// brings the window forward, another folder is adopted and the window reloads into it — one
 /// window per vault, and never two watchers on one folder (S14).
@@ -264,9 +289,16 @@ fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
                 if let Err(e) = vaults::record(app, &dir) {
                     log_line(st.inner(), &format!("recent vaults: {e}"));
                 }
+                // Whatever the previous vault's modules were running belongs to a world that
+                // is gone.
+                run::kill_all(st.inner());
                 // The page reloads itself into the new root; the UI has no other way to swap
-                // every module's idea of where it is (shell/vault.js `reloadIntoVault`).
+                // every module's idea of where it is. The rice of the *new* vault is a
+                // different folder, so the host re-runs the load decision itself.
                 let _ = app.emit("vault", serde_json::json!({ "changed": true }));
+                if let Some(window) = app.get_webview_window("main") {
+                    rice::load_window(app, &window);
+                }
             }
             Err(e) => log_line(st.inner(), &format!("second instance: {e}")),
         }
@@ -390,25 +422,25 @@ fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box
         st.watch(&handle, root.clone());
     }
 
+    // What the window shows (docs/RICE.md "How it loads"). The self-test is its own page on
+    // the kernel origin; everything else is the rice-or-fallback decision, which `load_window`
+    // makes and logs. The window itself starts on the frontendDist index, which is the
+    // fallback page, so a failure to navigate still leaves something on screen.
     if selftest {
-        // The self-test page is a second Vite entry, so it sits next to index.html in both the
-        // dev server and the bundled frontend.
-        // window.url() is still about:blank this early, so build the origin ourselves: the dev
-        // server in dev builds, Tauri's app origin (platform-specific) in production builds.
-        let origin = if cfg!(dev) {
-            app.config().build.dev_url.as_ref().map(|u| u.to_string()).unwrap_or_default()
-        } else if cfg!(windows) {
-            "http://tauri.localhost/".to_string()
-        } else {
-            "tauri://localhost/".to_string()
-        };
-        match tauri::Url::parse(&format!("{}selftest.html", origin.trim_end_matches('/').to_string() + "/")) {
+        // The self-test has a page of its own, so `load_window` never runs; the decision it
+        // would have made is logged anyway, because that line is what CI reads to prove
+        // `--no-rice` and a broken cockpit.json take the fallback path.
+        log_line(st.inner(), &format!("rice: {} (the self-test has its own page)", rice::decision_line(st.inner())));
+        let url = rice::selftest_url();
+        match tauri::Url::parse(&url) {
             Ok(url) => {
                 log_line(st.inner(), &format!("selftest: navigating to {url}"));
                 let _ = window.navigate(url);
             }
             Err(e) => log_line(st.inner(), &format!("selftest: bad url: {e}")),
         }
+    } else {
+        rice::load_window(&handle, &window);
     }
 
     // A page that never loads must not leave an invisible process behind.
@@ -446,7 +478,9 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 
         WindowEvent::Destroyed => {
             *st.watcher.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            log_line(st.inner(), "os editor exited");
+            // Nothing a module started outlives the window that asked for it.
+            run::kill_all(st.inner());
+            log_line(st.inner(), "ose exited");
         }
 
         _ => {}
@@ -543,7 +577,7 @@ fn fatal(log: Option<&Path>, message: &str) -> ! {
             let _ = writeln!(file, "{message}");
         }
     }
-    message_box("os", message);
+    message_box("Ose", message);
     std::process::exit(2)
 }
 

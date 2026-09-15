@@ -1,7 +1,7 @@
 [package]
 name = "ose"
-version = "0.3.0"
-description = "os editor"
+version = "0.4.0"
+description = "Ose"
 authors = ["Hassan Shahir"]
 edition = "2021"
 rust-version = "1.85"
@@ -13,7 +13,7 @@ name = "ose"
 path = "src/lib.rs"
 
 [[bin]]
-name = "os"
+name = "ose"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -46,6 +46,17 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # sha256 of the downloaded asset against the digest the release API publishes; pure Rust, and
 # already in the tree as a transitive dependency of tauri (no new download).
 sha2 = "0.10"
+
+# Shift held at launch forces the kernel's fallback page (docs/RICE.md step 3). Reading the
+# key state is the one thing that needs a platform API: `GetAsyncKeyState` on Windows,
+# `NSEvent.modifierFlags` on macOS. Both crates are already in the tree as transitive
+# dependencies of tauri, so neither is a new download; both are named here because a direct
+# `use` needs a direct dependency.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSEvent"] }
 
 [profile.release]
 lto = true

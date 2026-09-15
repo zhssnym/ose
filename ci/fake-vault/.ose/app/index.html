@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ci fake rice</title>
+<!-- The two links the kernel rewrites. Their hrefs here are deliberately wrong: CI asserts
+     that what arrives at the page points at the kernel origin instead. -->
+<link rel="stylesheet" data-ose="ui" href="nowhere/ui.css">
+<link rel="stylesheet" data-ose="editor" href="nowhere/editor.css">
+</head>
+<body>
+<p id="says">loading</p>
+<!-- A file, not an inline script: the Content-Security-Policy the host puts on this page
+     allows the three origins and the one inline script the host itself injects (the import
+     map), and nothing else. A rice keeps its code in files. -->
+<script type="module" src="./boot.js"></script>
+</body>
+</html>

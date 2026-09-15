@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>os selftest</title>
+<title>Ose selftest</title>
 <script>
   // Same first-paint contract as index.html, minus the preference: the self-test is always dark.
   document.documentElement.dataset.theme = 'dark';
 </script>
-<link rel="stylesheet" href="/src/styles/tokens.css">
-<link rel="stylesheet" href="/src/styles/base.css">
+<!-- The kernel's own stylesheet, beside this page on the `ose` origin: every token, in both
+     themes. The build emits it as dist-kernel/ui.css (vite.kernel.config.js). -->
+<link rel="stylesheet" href="./ui.css">
 <style>
   /* base.css locks the body; this page is one long scrolling log. */
   body { overflow: auto; }

@@ -2476,11 +2476,12 @@ dependencies = [
 
 [[package]]
 name = "ose"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "embed-resource",
  "notify",
+ "objc2-app-kit",
  "opener",
  "percent-encoding",
  "serde",
@@ -2492,6 +2493,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "trash",
  "ureq",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
