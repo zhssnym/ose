@@ -1,0 +1,94 @@
+/* colour families, shared by the week grid, the day timeline and the now dot */
+.wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
+.wk-ev.t-maths, .wk-dot.t-maths, .dy-ev.t-maths { --c: var(--c-maths); }
+.wk-ev.t-nsi, .wk-dot.t-nsi, .dy-ev.t-nsi { --c: var(--c-nsi); }
+.wk-ev.t-hum, .wk-dot.t-hum, .dy-ev.t-hum { --c: var(--c-hum); }
+.wk-ev.t-bilan, .wk-dot.t-bilan, .dy-ev.t-bilan { --c: var(--c-bilan); }
+.wk-ev.t-lunch, .wk-dot.t-lunch, .dy-ev.t-lunch { --c: var(--c-lunch); }
+.wk-ev.t-work, .wk-dot.t-work, .dy-ev.t-work { --c: var(--c-work); }
+.wk-ev.t-rest, .wk-dot.t-rest, .dy-ev.t-rest { --c: var(--c-rest); }
+.wk-ev.t-sleep, .wk-dot.t-sleep, .dy-ev.t-sleep { --c: var(--c-sleep); }
+
+/* ================================================================== week === */
+
+.wk-now {
+  min-height: 60px; margin-bottom: var(--sp-3);
+  border: 1px solid var(--border); background: var(--bg-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+.wk-now-row { display: flex; align-items: center; gap: var(--sp-3); height: 22px; }
+/* `now` / `next` are labels used inline in a row: the label type, none of its section gap */
+.wk-k { width: 36px; flex: none; padding: 0; }
+.wk-v { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); }
+/* the dot sits 1px under the baseline so it reads as part of the word: an optical nudge */
+.wk-dot { display: inline-block; width: 8px; height: 8px; flex: none; margin-right: var(--sp-2); vertical-align: -1px; background: var(--c, var(--c-rest)); }
+
+.wk-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); background: var(--bg); }
+/* timetable geometry: the hour gutter, the day header, the foot, and a floor for the columns */
+.wk-grid {
+  display: grid;
+  grid-template-columns: 46px repeat(7, minmax(96px, 1fr));
+  grid-template-rows: 36px var(--wk-body, 792px) 26px;
+  min-width: 718px;
+}
+
+.wk-hd {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25;
+  border-bottom: 1px solid var(--border); border-left: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+}
+.wk-corner { border-left: 0; }
+.wk-hd-n { color: var(--fg-3); letter-spacing: 0; }
+.wk-hd.today { color: var(--accent); background: var(--accent-soft); }
+.wk-hd.today .wk-hd-n { color: var(--accent); }
+
+.wk-times { position: relative; border-right: 1px solid var(--border); }
+/* an hour label is a 12px line so it can sit centred on its rule (the view offsets it by half) */
+.wk-t { position: absolute; right: var(--sp-2); line-height: 12px; color: var(--fg-3); }
+
+.wk-col { position: relative; border-left: 1px solid var(--border); overflow: hidden; }
+.wk-col.today { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.wk-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
+
+/* One event block, drawn the same in the week grid and the day timeline: --sp-half inside its
+   column, the family colour at 15% with a 2px bar, name / times / room stacked one pixel apart
+   (an optical gap; the scale starts above it). Its text starts --sp-2 from the edge of the
+   block once the bar is counted. The day column is wide enough for one size up, and that is
+   the only thing it changes. */
+.wk-ev, .dy-ev {
+  --c: var(--c-rest);
+  position: absolute; left: var(--sp-half); right: var(--sp-half);
+  display: flex; flex-direction: column; gap: 1px;
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) calc(var(--sp-2) - 2px); overflow: hidden;
+  font-size: var(--fs-chrome-sm); line-height: 1.3;
+  background: color-mix(in srgb, var(--c) 15%, var(--bg));
+  border-left: 2px solid var(--c);
+  transition: opacity var(--t-fast);
+}
+.dy-ev { font-size: var(--fs-chrome); }
+.wk-ev-n, .dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev-t, .wk-ev-s, .dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-ev.past, .dy-ev.past { opacity: .45; }
+.wk-ev.live, .dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* the now line, and its 5px dot centred on the 1px line: (5 - 1) / 2 = 2 up, an optical nudge */
+.wk-nowline { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
+.wk-nowdot { position: absolute; left: 0; top: calc(-1 * var(--sp-half)); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+.wk-ft {
+  display: flex; align-items: center; justify-content: center;
+  border-top: 1px solid var(--border); border-left: 1px solid var(--border);
+  color: var(--fg-2);
+}
+.wk-ft-k {
+  border-left: 0; justify-content: flex-end; padding-right: var(--sp-2);
+  color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em;
+}
+.wk-ft.today { color: var(--accent); background: var(--accent-soft); }
+.wk-sum { margin-top: var(--sp-2); color: var(--fg-2); min-height: 16px; }
+
+/* An asynchronous region says "loading…" only when its reads outlast a blink (`loadingLine`
+   from `ose:ui`). While it holds that one line, a grid drops its columns so the line is not
+   squeezed into the first cell. */
+.wk-grid.is-loading { display: block; width: auto; min-width: 0; }

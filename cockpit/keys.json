@@ -1,0 +1,4 @@
+{
+  "mod+r": "app.reload",
+  "mod+shift+j": "journal.new"
+}

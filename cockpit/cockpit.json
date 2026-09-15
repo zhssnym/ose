@@ -1,0 +1,10 @@
+{
+  "name": "stock",
+  "requires": 1,
+  "modules": [
+    "day",
+    "week",
+    "month",
+    "journal"
+  ]
+}

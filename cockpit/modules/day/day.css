@@ -1,0 +1,132 @@
+/* colour families, shared by the week grid, the day timeline and the now dot */
+.wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
+.wk-ev.t-maths, .wk-dot.t-maths, .dy-ev.t-maths { --c: var(--c-maths); }
+.wk-ev.t-nsi, .wk-dot.t-nsi, .dy-ev.t-nsi { --c: var(--c-nsi); }
+.wk-ev.t-hum, .wk-dot.t-hum, .dy-ev.t-hum { --c: var(--c-hum); }
+.wk-ev.t-bilan, .wk-dot.t-bilan, .dy-ev.t-bilan { --c: var(--c-bilan); }
+.wk-ev.t-lunch, .wk-dot.t-lunch, .dy-ev.t-lunch { --c: var(--c-lunch); }
+.wk-ev.t-work, .wk-dot.t-work, .dy-ev.t-work { --c: var(--c-work); }
+.wk-ev.t-rest, .wk-dot.t-rest, .dy-ev.t-rest { --c: var(--c-rest); }
+.wk-ev.t-sleep, .wk-dot.t-sleep, .dy-ev.t-sleep { --c: var(--c-sleep); }
+
+/* =================================================================== day === */
+
+/* The two columns; each section in them opens with a .label whose own top padding is its
+   gap (E3), so nothing here spaces a label. Stacked on a narrow column, the gap between the
+   two is the label's too, plus one step. */
+.dy-split { display: grid; grid-template-columns: 312px minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
+.view-root.narrow .dy-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+
+/* timeline geometry: the hour gutter and the height of the day */
+.dy-tl {
+  position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr);
+  border: 1px solid var(--border); background: var(--bg);
+}
+.dy-times { position: relative; height: var(--dy-body, 792px); border-right: 1px solid var(--border); }
+.dy-t { position: absolute; right: var(--sp-2); top: 0; line-height: 12px; color: var(--fg-3); }
+.dy-track { position: relative; height: var(--dy-body, 792px); overflow: hidden; }
+.dy-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
+/* the shared .empty line under the two columns; this only makes it span both */
+.dy-tl-empty { grid-column: 1 / -1; }
+
+/* One event block, the same one the week grid draws: --sp-half inside its column, the family
+   colour at 15% with a 2px bar, name / times / room stacked one pixel apart (an optical gap;
+   the scale starts above it). Its text starts --sp-2 from the edge of the block once the bar
+   is counted. The day column is wide enough for one size up, and that is all it changes.
+   The week module carries the same rules for its own `.wk-ev`: a module ships its own look. */
+.dy-ev {
+  --c: var(--c-rest);
+  position: absolute; left: var(--sp-half); right: var(--sp-half);
+  display: flex; flex-direction: column; gap: 1px;
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) calc(var(--sp-2) - 2px); overflow: hidden;
+  font-size: var(--fs-chrome); line-height: 1.3;
+  background: color-mix(in srgb, var(--c) 15%, var(--bg));
+  border-left: 2px solid var(--c);
+  transition: opacity var(--t-fast);
+}
+.dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dy-ev.past { opacity: .45; }
+.dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+.dy-now { position: absolute; left: 0; right: 0; height: 1px; background: var(--accent); z-index: 3; }
+.dy-now-dot { position: absolute; left: 0; top: calc(-1 * var(--sp-half)); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+/* One box. Systems and every todo list are the same component: a bordered panel with a head
+   row and rows under it. Nothing in the day column is a bare rule any more. */
+.dy-box { border: 1px solid var(--border); background: var(--bg-2); min-height: 66px; }
+.dy-box + .dy-box { margin-top: var(--sp-2); }
+.dy-box-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  height: var(--panelhead-h); padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); color: var(--fg-2);
+}
+.dy-box-head .ok { color: var(--ok); }
+
+/* A system row and a task row are the same row (E2): --row-h tall for one line, grown by the
+   same padding when the text wraps, and their checkboxes in one column. Both carry the 2px
+   bar a current row would light and put the box --sp-3 in from it: here as --sp-3 of padding
+   past the bar, in .tk-row as --sp-1 of row padding plus the --sp-2 the check button keeps
+   as its hit area. Do not give this row its own checkbox size. */
+.dy-sys-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+  width: 100%; min-height: var(--row-h); padding: var(--sp-1) var(--sp-3); text-align: left;
+  border-left: 2px solid transparent;
+  transition: background var(--t-fast);
+}
+.dy-sys-row:hover { background: var(--bg-3); }
+.dy-sys-name { flex: 1; min-width: 0; font-size: var(--fs-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dy-sys-row.done .dy-sys-name { color: var(--fg-2); }
+
+.dy-tasks { min-height: 120px; }
+.dy-more { height: var(--row-h); padding: 0 var(--sp-3); color: var(--fg-3); transition: color var(--t-fast); }
+.dy-more:hover { color: var(--accent); }
+
+/* The head of a todo box is the file's first H1 and opens the file. A single-file todo
+   source has no heading, so its box is rows alone. */
+.dy-grp-head {
+  flex: 1; min-width: 0; text-align: left;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color var(--t-fast);
+}
+.dy-grp-head:hover { color: var(--accent); }
+/* --sp-1 of box inset (see .dy-sys-row for the sum), plus the nesting indent the .tk-row rule
+   below computes: this selector is more specific, so it has to carry the depth itself or
+   nested tasks render flat. */
+.dy-box .tk-row { padding-left: calc(var(--sp-1) + var(--tk-depth) * var(--sp-5)); padding-right: var(--sp-2); }
+.dy-box .tk-src { max-width: 64px; }
+
+/* task rows, shared with anything that lists tasks. A nested `- [ ]` line in the source keeps
+   its nesting here: one --sp-5 of indentation per two spaces of source indent. */
+.tk-row {
+  --tk-depth: 0;
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  min-height: var(--row-h);
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; border-left: 2px solid transparent;
+  padding-left: calc(var(--tk-depth) * var(--sp-5));
+  transition: background var(--t-fast);
+}
+.tk-row:hover { background: var(--bg-3); }
+.tk-row.sub .tk-text { color: var(--fg-2); }
+/* the 16px box is nudged --sp-half down to sit on the centre of the first line of text */
+.tk-check { flex: none; padding: var(--sp-half) 0 0 var(--sp-2); }
+.tk-check:hover .check { border-color: var(--accent); }
+.tk-body { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.tk-text { font-size: var(--fs-ui); line-height: 1.45; }
+.tk-row.done .tk-text { color: var(--fg-3); text-decoration: line-through; }
+.tk-src {
+  flex: none; max-width: 220px; padding-top: var(--sp-1); text-align: right;
+  color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t-fast);
+}
+.tk-src:hover { color: var(--accent); text-decoration: underline; }
+
+/* One tile: the card a module contributes to this view (`ose.tiles`), with the tile's title
+   as the .label above it. The two this module registers draw a .dy-box inside; another
+   module's draws whatever it likes, in the same width. */
+.dy-tile { min-width: 0; }
+.dy-tile + .label { padding-top: var(--sp-5); }
+
+/* Empty states, missing sources and the loading line are the same .empty everywhere; the day
+   boxes are too short for its --sp-7, so they get one override. */
+.dy-box .empty { padding: var(--sp-4); }
