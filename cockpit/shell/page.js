@@ -8,6 +8,7 @@
 import { ose } from 'ose:kernel';
 import { markdownPage, holdPageCommands } from 'ose:editor';
 import { allPages } from './sidebar.js';
+import { isMediaFile, mediaPage } from './media.js';
 
 let page = null;
 
@@ -17,8 +18,12 @@ export function initPageHost() {
   holdPageCommands();
 
   ose.setPageHost({
+    // The branch is the extension and nothing else (docs/RICE.md "The page seam"): a PDF and
+    // an image are drawn by `media.js`, everything else — markdown, and the source-mode text
+    // files the editor claims — by `markdownPage`. Both answer the same handle, so the three
+    // calls below do not know which they are holding.
     open(el, path, opts) {
-      page = markdownPage(el, path, opts);
+      page = isMediaFile(path) ? mediaPage(el, path) : markdownPage(el, path, opts);
       return page.ready;
     },
     close() {
@@ -39,5 +44,9 @@ export function initPageHost() {
   ose.setPageList(() => allPages());
 }
 
-/** The page on screen, for a rice file that needs to ask. Null on a view or the start surface. */
+/**
+ * The page on screen, for a rice file that needs to ask. Null on a view or the start surface.
+ * It is a `markdownPage` handle or a `mediaPage` one: ask `page.kind` before reaching for a
+ * method only one of them has.
+ */
 export const currentPage = () => page;

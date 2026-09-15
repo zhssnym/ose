@@ -13,7 +13,12 @@ const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node
   // keeps the name it has.
   'ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.old', 'Ose.app', 'Ose.app.old', 'ose-update.zip', 'ose-update-tmp',
   'os.exe', 'os.pdb', 'os.exe.new', 'os.exe.old', 'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
-const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+// The types `/vault/...` answers with. It follows the host's table (src-tauri/src/protocol.rs
+// `mime_of`) for everything the rice can put on a page, because a PDF page and an image page
+// are drawn by the web view itself from this type and nothing else (docs/RICE.md "The page
+// seam"): a `.bmp` served as octet-stream is a broken picture in the browser dev and a good
+// one in the host, which is the worst kind of difference between the two.
+const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const IS_WIN = process.platform === 'win32';
 
 // A path segment is hidden when it is in HIDE or is a dotfile. Used by the tree and the watcher.

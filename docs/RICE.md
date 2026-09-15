@@ -56,6 +56,34 @@ hoses exist and behave as documented.
 The stock shell keeps every behaviour of the batch-12 interface (docs/CONTRACT.md): the
 keymap, the tree, quick open, search, settings rows, zoom, the vault chooser, the update item.
 
+### The page seam: markdown, images, PDFs
+
+`shell/page.js` is the whole of the rice's answer to `ose.setPageHost`. It branches on the
+file's extension and nothing else:
+
+- `.pdf` → `shell/media.js` mounts an `<iframe>` whose `src` is `ose.files.assetUrl(path)`,
+  filling the page column under a one-line header. The web view's own PDF viewer draws it
+  (Chromium's in WebView2, WKWebView's on macOS): the vault origin answers
+  `application/pdf` (`src-tauri/src/protocol.rs`) and the CSP names the vault origin in
+  `frame-src`.
+- `.png .jpg .jpeg .gif .webp .svg .bmp .avif .ico` → the same `media.js`, an `<img>` centred
+  and capped to the column under the same header. Clicking the image, or `Enter` on it,
+  toggles fit and actual size.
+- everything else → `markdownPage` from `ose:editor`, exactly as before. A file the editor
+  shows as source (`txt`, `csv`, `py`, …) is still the editor's.
+
+A media page answers the page host's contract with the parts that mean something for a file
+nobody edits: `close()` tears the frame or the image down and clears the status fields,
+`scrollToLine()` answers `false`, `selection()` answers `null`. It never writes, so nothing
+is ever dirty and there is no autosave.
+
+The header is `open externally` (`ose.files.open`, the platform's default application) and,
+for an image, `fit` / `actual`. Both are buttons in the tab order; `Esc` does nothing special.
+The file name is the header's title; the path is the status bar's, as for any page.
+
+A rice that wants no PDF frame deletes the `.pdf` branch: the kernel neither knows nor cares
+which extensions the page host claims.
+
 ## Settings
 
 `ose.settings` is one shared object in `.ose/state.json` under `settings`. The stock keys

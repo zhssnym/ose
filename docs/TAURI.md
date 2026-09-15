@@ -330,12 +330,21 @@ so a page on another origin — the self-test is one — can read the policy the
      media-src <kernel> <app> <vault> blob:;
      connect-src <kernel> <app> <vault> <ipc> ipc:;
      worker-src <kernel> <app> blob:;
-     frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
+     frame-src <vault>; object-src 'none'; base-uri 'none'; form-action 'none'
    ```
 
    Three origins, inline styles, and nothing from the network at all. `<ipc>` and `ipc:` are
    Tauri's own invoke channel, which the injected bootstrap `fetch`es; they are the only
    non-origin entries.
+
+   `frame-src` is the vault origin and nothing else (round five, docs/RICE.md "The page seam"):
+   a `.pdf` in the tree is drawn by the web view's own PDF viewer — Chromium's in WebView2,
+   WKWebView's on macOS — in an `<iframe>` pointed at `ose.files.assetUrl(path)`, and that needs
+   the frame allowed and the `application/pdf` content type `protocol.rs` already sends.
+   `object-src` stays `'none'`, so `<embed>` and `<object>`, the other two ways to reach a plugin
+   document, are still refused, and a frame may still point nowhere but at a file of this vault.
+   The same `origin("vault")` spells both platform forms — `http://vault.localhost` on Windows,
+   `vault://localhost` on macOS and Linux — so one string covers both.
 
    **A rice's own code lives in files, never in an inline `<script>`.** `script-src` carries no
    `'unsafe-inline'`: the one inline script in the page is the import map the host itself

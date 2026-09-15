@@ -1,0 +1,109 @@
+/* The PDF and image page (shell/media.js).
+ *
+ * One box, one header line, one body that fills what is left. Tokens only, both themes — the
+ * only colours here are `--bg`, `--bg-2`, `--border` and the text greys, and the picture and
+ * the frame bring their own.
+ *
+ * Height: the page column (`.main-scroll`) is a flex item with a definite height, but the
+ * `.page-host` the router puts inside it is `min-height: 100%` — tall enough, and not
+ * *definite*, so a percentage height on a child of it resolves to auto and collapses. So the
+ * page marks its own host with `.media-host` while it is mounted (media.js adds the class and
+ * takes it away on close, which is the only thing this file asks of a shell it does not own)
+ * and that one declaration makes the chain definite. `min-height` below is the honest floor
+ * for the day even that stops being true: the page is still usable, just short.
+ */
+
+.media-host { height: 100%; }
+
+.media-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 24rem;
+  background: var(--bg);
+}
+.media-page:focus { outline: none; }
+
+/* Panel header, docs/DESIGN.md: 32px, mono 12px, bottom border, title left, actions right. */
+.media-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 2rem;
+  padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.media-head .media-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+}
+.media-head .btn { flex: none; gap: var(--sp-1); }
+.media-head .btn svg { width: 0.75rem; height: 0.75rem; }
+
+/* The body is the scroller for an image at actual size; a PDF frame fills it and scrolls
+   inside its own viewer, so nothing here ever gets two scrollbars. */
+.media-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  overflow: auto;
+  background: var(--bg-2);
+}
+
+.media-frame {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: var(--bg-2);
+}
+
+/* The picture sits in a button so a click and a keyboard Enter are the same gesture, and the
+   button is nothing but a box: no border, no surface, no height of its own. */
+.media-zoom {
+  margin: auto;
+  padding: var(--sp-5);
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: zoom-in;
+  display: block;
+  max-width: 100%;
+}
+.media-zoom:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+.media-img {
+  display: block;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Fit: capped to the column, never blown up past its own pixels. Actual: its own size, and
+   the body scrolls to it. */
+.media-page[data-fit="fit"] .media-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+.media-page[data-fit="actual"] .media-zoom { margin: 0 auto; max-width: none; cursor: zoom-out; }
+.media-page[data-fit="actual"] .media-img { max-width: none; max-height: none; }
+
+/* A file that would not draw. One sentence, the `.empty` voice, over the dead box. */
+.media-miss {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--sp-7);
+  padding: 0 var(--sp-4);
+  pointer-events: none;
+}
+.media-dead { display: none; }

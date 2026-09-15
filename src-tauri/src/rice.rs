@@ -253,6 +253,13 @@ pub fn serve_rice(st: &AppState, request: &Request<Vec<u8>>) -> Response<Vec<u8>
 /// Three origins, inline styles, the one inline script the host itself injects (by its hash,
 /// not by `'unsafe-inline'`), and nothing whatsoever from the network.
 ///
+/// `frame-src` is the vault origin and only the vault origin (round five, docs/RICE.md "The
+/// page seam"): a `.pdf` in the tree is drawn by the web view's own PDF viewer in an
+/// `<iframe>` over `vault.localhost`, which needs the frame allowed and the `application/pdf`
+/// content type `protocol.rs` already sends. `object-src` stays `'none'`, so `<embed>` and
+/// `<object>` — the other two ways to reach a plugin document — are still refused, and no
+/// frame may point anywhere but at a file of this vault.
+///
 /// A rice's own code therefore lives in files, never in an inline `<script>` — which is what
 /// docs/RICE.md asks for anyway, and what keeps a `<script>` smuggled into a markdown file
 /// from running even if it ever got past the renderer's sanitiser.
@@ -273,7 +280,7 @@ pub fn csp_header() -> String {
          media-src {k} {a} {v} blob:; \
          connect-src {k} {a} {v} {ipc} ipc:; \
          worker-src {k} {a} blob:; \
-         frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+         frame-src {v}; object-src 'none'; base-uri 'none'; form-action 'none'"
     )
 }
 
@@ -714,9 +721,14 @@ mod tests {
         }
         assert!(csp.starts_with("default-src 'none';"));
         assert!(csp.contains("style-src") && csp.contains("'unsafe-inline'"));
-        // Nothing from the network, and no way to widen it by loading a page in a frame.
+        // Nothing from the network, and no way to widen it by loading a page in a frame: the
+        // only framable thing is a file of this vault (the PDF viewer, round five).
         assert!(!csp.contains("https:") && !csp.contains('*'));
-        assert!(csp.contains("frame-src 'none'") && csp.contains("object-src 'none'"));
+        assert!(
+            csp.contains(&format!("frame-src {};", vault_origin())),
+            "frame-src must be the vault origin and nothing else: {csp}"
+        );
+        assert!(csp.contains("object-src 'none'"));
         // Inline scripts are refused; the one the host injects is named by its hash, and the
         // hash is of exactly the bytes that end up in the page.
         assert!(!csp.contains("script-src") || !csp.contains("script-src 'unsafe-inline'"));
