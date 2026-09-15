@@ -1,4 +1,6 @@
-// Settings (Ctrl+,). Small, flat, one dialog. Everything persists under state.settings.
+// The settings dialog (Ctrl+,). Small, flat, one dialog. The values themselves are the
+// kernel's (src/kernel/settings-core.js, docs/KERNEL.md `ose.settings`); this file draws them
+// and is rice, not kernel: K2 moves it into `cockpit/shell/`.
 import { bus, commands, store, esc } from '../registry.js';
 import { bridge } from '../bridge/index.js';
 import { openOverlay, pickFile, pickFolder, toast } from './dialog.js';
@@ -7,115 +9,14 @@ import { reloadIntoVault, chooseVault } from './vault.js';
 import { themePref, setTheme } from './theme.js';
 import { buildLine, checkedLine, reschedule } from './update.js';
 import { SOURCE_KEYS, SOURCE_INFO, getSource, setSource, isDefaultSource } from '../lib/sources.js';
+import {
+  DEFAULTS, FONT_SIZES, LINE_HEIGHTS, ZOOM_STEPS, settings, save, zoom, setZoom, stepZoom,
+  newPageMode, trashMode, applySettings, onRepaint, sections,
+} from '../kernel/settings-core.js';
 
-const FONT_SIZES = [14, 15, 16, 17];
-const LINE_HEIGHTS = [1.5, 1.65, 1.8];
-/** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
-export const ZOOM_STEPS = [90, 100, 110, 125, 150];
-
-// The dialog shows the theme, reading comfort, where new files go, the sources, updates and
-// the read-only block. `updates` is the switch on the app's one network call (update.js).
-const DEFAULTS = {
-  fontSize: 16,
-  lineHeight: 1.65,
-  readableWidth: true,
-  zoom: 100,
-  newPages: 'focus',
-  attachments: 'beside',
-  trash: 'system',
-  spellcheck: true,
-  updates: true,
-};
+export * from '../kernel/settings-core.js';
 
 let openOv = null;
-
-export function settings() { return { ...DEFAULTS, ...(stateCache().settings || {}) }; }
-
-function save(partial) {
-  const next = { ...settings(), ...partial };
-  patchState({ settings: next });
-  applySettings();
-  // Modules that read a setting instead of asking for it every keystroke (the editor's
-  // spellcheck attribute) re-read here; the payload is the whole settings object.
-  bus.emit('settings', next);
-  return next;
-}
-
-/* ------------------------------------------------------------------ what other modules ask */
-
-/** The zoom in per cent, always one of ZOOM_STEPS. */
-export function zoom() {
-  const z = +settings().zoom;
-  return ZOOM_STEPS.includes(z) ? z : 100;
-}
-
-/** `110%` while zoomed, null at 100: what the status bar draws (S4). */
-export function zoomLabel() {
-  const z = zoom();
-  return z === 100 ? null : `${z}%`;
-}
-
-export function setZoom(pct) {
-  const z = ZOOM_STEPS.includes(+pct) ? +pct : 100;
-  save({ zoom: z });
-  if (openOv) paintZoom(openOv.box);
-  return z;
-}
-
-/** One step in or out, clamped at the ends rather than wrapping. */
-function stepZoom(dir) {
-  const at = ZOOM_STEPS.indexOf(zoom());
-  const next = Math.max(0, Math.min(ZOOM_STEPS.length - 1, (at < 0 ? 1 : at) + dir));
-  setZoom(ZOOM_STEPS[next]);
-}
-
-/** Read by the editor: `spellcheck` on the body, on by default (S36). */
-export function spellcheckOn() { return settings().spellcheck !== false; }
-
-/** `system` (the recycle bin) or `vault` (`.trash` inside the vault). Passed to `bridge.trash`. */
-export function trashMode() { return settings().trash === 'vault' ? 'vault' : 'system'; }
-
-/** One line for the trash confirmation, so it says where the file is going (S37). */
-export function trashDestination() {
-  return trashMode() === 'vault' ? '.trash in the vault' : 'the system recycle bin';
-}
-
-/** Where new pages are created: `focus` (today's behaviour), `scratch`, `page` (S34). */
-export function newPageMode() {
-  const m = settings().newPages;
-  return m === 'scratch' || m === 'page' ? m : 'focus';
-}
-
-/**
- * The folder an attachment dropped on `pagePath` belongs in (S35). Default: `attachments/`
- * beside the page, which is what the editor did before this was a setting. Otherwise the one
- * vault folder the user named, wherever the page lives. Always a vault-relative folder path,
- * never a leading slash.
- */
-export function attachmentFolder(pagePath) {
-  const s = settings().attachments;
-  if (typeof s === 'string' && s !== 'beside') return s.replace(/^\/+|\/+$/g, '');
-  const dir = String(pagePath || '').replace(/[^/]*$/, '').replace(/\/+$/, '');
-  return dir ? `${dir}/attachments` : 'attachments';
-}
-
-/* ------------------------------------------------------------------ applying */
-
-export function applySettings() {
-  const s = settings();
-  const root = document.documentElement;
-
-  const size = FONT_SIZES.includes(+s.fontSize) ? +s.fontSize : DEFAULTS.fontSize;
-  // rem, not px: the zoom factor lives in the root font size (tokens.css), and a body size in
-  // px would be the one text in the app that refused to zoom.
-  root.style.setProperty('--fs-body', `${size / 16}rem`);
-
-  const lh = LINE_HEIGHTS.includes(+s.lineHeight) ? +s.lineHeight : DEFAULTS.lineHeight;
-  root.style.setProperty('--lh-body', String(lh));
-
-  root.style.setProperty('--zoom', String(zoom() / 100));
-  root.classList.toggle('full-width', s.readableWidth === false);
-}
 
 function seg(name, options, value) {
   return `<div class="seg" data-seg="${name}">` + options.map((o) =>
@@ -237,11 +138,21 @@ export async function openSettings() {
   // inside 1280x800 without clipping anything.
   let unwatchUpdate = null;
   let unwatchTheme = null;
+  // The zoom chords change the value from outside the dialog; the kernel's settings core
+  // announces a write and the segmented control follows it (it used to reach in the other way,
+  // from the core into this file's DOM, which the kernel is not allowed to know about).
+  let offRepaint = null;
   const ov = openOverlay({
     width: 620, top: '10vh', className: 'set', title: 'Settings',
-    onClose: () => { openOv = null; unwatchUpdate && unwatchUpdate(); unwatchTheme && unwatchTheme(); },
+    onClose: () => {
+      openOv = null;
+      offRepaint && offRepaint();
+      unwatchUpdate && unwatchUpdate();
+      unwatchTheme && unwatchTheme();
+    },
   });
   openOv = ov;
+  offRepaint = onRepaint(() => { if (openOv) paintZoom(openOv.box); });
   const root = store.get('root') || {};
 
   ov.box.innerHTML = `

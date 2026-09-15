@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ose</title>
+<script>
+  // Before first paint, so there is no flash and no reflow when the mac font stack lands.
+  try {
+    var ua = navigator.userAgent;
+    document.documentElement.dataset.os = /Mac|iPhone|iPad/.test(ua) ? 'mac'
+      : /Windows/.test(ua) ? 'win' : 'other';
+    var t = localStorage.getItem('os.theme');
+    if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    else if (t !== 'light' && t !== 'dark') t = 'dark';
+    document.documentElement.dataset.theme = t;
+  } catch (e) {}
+</script>
+<!-- The kernel's own stylesheet, beside this page on the `ose` origin. No rewrite needed here:
+     the fallback page is the one page that already knows where it is. -->
+<link rel="stylesheet" href="./ui.css">
+<style>
+  /* The only page in the kernel with a layout of its own (docs/KERNEL.md: "the kernel never
+     draws; its two pages are the only HTML it ships"). Boxes, whitespace, tokens. */
+  body { display: grid; place-items: center; min-height: 100vh; background: var(--bg-1); color: var(--fg-1); }
+  .fb { width: min(34rem, 100% - 2rem); display: flex; flex-direction: column; gap: var(--sp-4); padding-block: var(--sp-6); }
+  .fb-vault { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em; }
+  .fb-name { font-size: var(--fs-h1); line-height: 1.2; }
+  .fb-say { color: var(--fg-2); line-height: var(--lh-body); }
+  .fb-say code { font-family: var(--font-mono); font-size: .92em; background: var(--bg-3); padding: 0 .25em; border-radius: 2px; }
+  .fb-acts { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .fb-err { color: var(--err); font-family: var(--font-mono); font-size: var(--fs-chrome-sm); min-height: 1.2em; }
+</style>
+</head>
+<body>
+<main class="fb">
+  <div class="fb-vault">vault</div>
+  <h1 class="fb-name" id="name">-</h1>
+  <p class="fb-say">
+    No cockpit here: create <code>.ose/app/index.html</code>, or copy <code>cockpit/</code>
+    from the Ose repository into <code>.ose/app</code>.
+  </p>
+  <!-- No `autofocus`: the script focuses the first button once the page has settled. See the
+       note on spurious activations below; a folder picker that opens by itself can change the
+       user's vault without them touching anything. -->
+  <div class="fb-acts">
+    <button class="btn primary" id="open">Open folder</button>
+    <button class="btn" id="change">Change vault</button>
+  </div>
+  <div class="fb-err" id="err"></div>
+</main>
+<script type="module">
+  // Deliberately tiny and deliberately not the kernel bundle: this page has to work when the
+  // rice is broken, so it talks to the host directly and imports nothing. Both hosts answer
+  // the same `rpc` command (docs/TAURI.md); in a plain browser there is none and the buttons
+  // say so instead of throwing.
+  const $ = (id) => document.getElementById(id);
+
+  async function rpc(cmd, args = []) {
+    const core = window.__TAURI_INTERNALS__;
+    if (!core || typeof core.invoke !== 'function') throw new Error('no host');
+    return core.invoke('rpc', { cmd, args });
+  }
+
+  const fail = (e) => { $('err').textContent = String((e && e.message) || e || ''); };
+
+  (async () => {
+    try {
+      const info = await rpc('rootInfo');
+      $('name').textContent = (info && info.name) || 'no vault open';
+    } catch (e) {
+      $('name').textContent = 'no vault open';
+      fail(e);
+    }
+    // The host arms a five second timer when it navigates the window; the fallback page
+    // cancels it too, or it would bounce to itself for ever.
+    try { await rpc('riceReady'); } catch { /* an older host */ }
+  })();
+
+  // Nothing on this page may open a native folder picker unless a person asked for it. The
+  // webview delivers a click to the focused button moments after the window is handed this
+  // page (K1a saw a picker open 0.38 s after load, with nothing pressed, and killing the
+  // process made the dialog answer with whatever folder it was showing — which the host then
+  // adopted). So: only trusted events, and for the first 600 ms no keyboard-style activation
+  // either (`detail === 0` is what a synthetic or Enter-driven click reports). The button is
+  // focused after that window, so a real Enter can only ever land on the safe side of it.
+  const SETTLE = 600;
+  const loaded = Date.now();
+  const spurious = (e) => !e.isTrusted || (e.detail === 0 && Date.now() - loaded < SETTLE);
+
+  const chooseVault = async (e) => {
+    if (spurious(e)) return;
+    try { const v = await rpc('pickVault'); if (v) location.reload(); } catch (err) { fail(err); }
+  };
+  $('open').addEventListener('click', chooseVault);
+  $('change').addEventListener('click', chooseVault);
+  setTimeout(() => { try { $('open').focus(); } catch (e) { /* no focus, no harm */ } }, SETTLE);
+</script>
+</body>
+</html>

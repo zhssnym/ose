@@ -1,0 +1,336 @@
+/* os editor: reset, scrollbars, and the canonical components from DESIGN.md.
+   Modules use these classes; they do not redefine them. Every padding, margin and gap is a
+   step of the spacing scale in tokens.css (DESIGN.md "Space"); the geometry that is not
+   spacing (a 16px icon, a 12px scrollbar, a 2px bar) is written as the number it is. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--fs-ui) / 1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+#app { height: 100%; }
+img { max-width: 100%; display: block; }
+a { color: var(--accent-ink); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: default; }
+:focus { outline: none; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--sel); }
+[hidden] { display: none !important; }
+.text-select, .text-select * { user-select: text; cursor: auto; }
+
+/* Scrollbars: 12px, square thumb, no buttons. `scrollbar-width` is deliberately absent —
+   Chromium drops the ::-webkit- rules entirely as soon as the standard property is set.
+   The track is transparent on the page and --bg-2 inside the panels. */
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 0; }
+*::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+*::-webkit-scrollbar-corner { background: transparent; }
+.sidebar::-webkit-scrollbar-track, .sidebar *::-webkit-scrollbar-track,
+.main-scroll::-webkit-scrollbar-track, .main-scroll *::-webkit-scrollbar-track { background: var(--bg-2); }
+
+/* type helpers */
+.mono { font-family: var(--font-mono); font-size: var(--fs-chrome); }
+.mono-sm { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
+.muted { color: var(--fg-2); }
+.faint { color: var(--fg-3); }
+.title-font { font-family: var(--font-title); }
+
+/* One section label (E3). `.section-label` is the component, with the horizontal inset a
+   panel needs; `.label` is the same thing flush with the text around it, for a page column
+   or a dialog body that already has an inset of its own. The top padding is the gap above a
+   section everywhere, so no view carries a margin of its own to space one. */
+.section-label, .label {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+  padding: var(--sp-4) var(--sp-3) var(--sp-1);
+}
+.label { padding-left: 0; padding-right: 0; }
+
+/* button */
+.btn {
+  height: var(--ctl-h); padding: 0 var(--sp-3);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: var(--fs-chrome);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-3); }
+.btn:active { background: var(--bg-4); }
+.btn:disabled { opacity: .5; pointer-events: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.danger { background: var(--err); border-color: var(--err); color: var(--accent-fg); }
+.btn.danger:hover { background: var(--err); border-color: var(--err); filter: brightness(1.08); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { background: var(--bg-3); }
+.btn.icon { width: var(--ctl-h); padding: 0; justify-content: center; }
+.btn.sm { height: 1.375rem; padding: 0 var(--sp-2); font-size: var(--fs-chrome-sm); }
+.btn svg { width: 1rem; height: 1rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* input */
+.input {
+  height: var(--ctl-h); padding: 0 var(--sp-2); width: 100%;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--font-ui); font-size: var(--fs-ui);
+  user-select: text; cursor: text;
+  transition: border-color var(--t-fast);
+}
+.input::placeholder { color: var(--fg-3); }
+.input:focus { border-color: var(--accent); outline: none; }
+textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-height: 1.5; }
+.input.mono { font-family: var(--font-mono); font-size: var(--fs-chrome); }
+
+/* chip */
+.chip {
+  height: 1.25rem; padding: 0 var(--sp-2);
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  white-space: nowrap;
+}
+.chip.accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+.chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok-ink); }
+.chip.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn-ink); }
+.chip.err { background: var(--err-soft); border-color: transparent; color: var(--err-ink); }
+.chip.info { background: var(--info-soft); border-color: transparent; color: var(--info); }
+
+/* list row. The 2px left border is the current-row bar; the left padding is what puts the
+   text at --sp-3 from the edge of the row once that bar is counted. The sidebar and the
+   start surface both lean on that number (shell.css .sb-row, .start-row). */
+.row {
+  height: var(--row-h); padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
+  display: flex; align-items: center; gap: var(--sp-2);
+  color: var(--fg); font-size: var(--fs-ui);
+  border-left: 2px solid transparent;
+  white-space: nowrap; overflow: hidden;
+  transition: background var(--t-fast);
+}
+.row > .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.row:hover { background: var(--bg-3); }
+.row.current { background: var(--accent-soft); border-left-color: var(--accent); }
+/* --bg-4 is the one ground --fg-3 does not clear 4.5:1 on (tokens.css): a hint in an active
+   row steps up to --fg-2, which does (QA F17). */
+.row.active { background: var(--bg-4); }
+.row.active .hint { color: var(--fg-2); }
+.row svg { width: 1rem; height: 1rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--fg-3); }
+.row .hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+
+/* panel header: one bar height for every bar with a label in it (E2) */
+.panel-head {
+  height: var(--panelhead-h); padding: 0 var(--sp-2) 0 var(--sp-3);
+  display: flex; align-items: center; gap: var(--sp-2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-chrome);
+  flex: none;
+}
+.panel-head .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* divider */
+.divider { height: 1px; background: var(--border); flex: none; }
+
+/* checkbox */
+.check {
+  width: 1rem; height: 1rem; flex: none;
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--bg); display: inline-grid; place-items: center;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.check.on { background: var(--accent); border-color: var(--accent); }
+.check.on::after {
+  content: ""; width: 0.5625rem; height: 0.3125rem;
+  border-left: 2px solid var(--accent-fg); border-bottom: 2px solid var(--accent-fg);
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+/* kbd */
+.kbd {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  padding: 0 var(--sp-1); height: 1.125rem; display: inline-flex; align-items: center;
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: var(--radius);
+  color: var(--fg-2); background: var(--bg);
+}
+
+/* floating menu / palette surface */
+.surface {
+  background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+/* tooltip (data-tip attribute) */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; top: calc(100% + var(--sp-2)); transform: translateX(-50%);
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); white-space: nowrap;
+  padding: var(--sp-half) var(--sp-2); border-radius: var(--radius);
+  opacity: 0; pointer-events: none; transition: opacity var(--t-fast) 300ms; z-index: 50;
+}
+[data-tip]:hover::after { opacity: 1; }
+
+/* empty state */
+.empty {
+  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
+  text-align: center; padding: var(--sp-7) var(--sp-4);
+}
+
+/* page column shared by editor and views. The bottom air is twice the top air: room to
+   scroll the last line up into the middle of the window. */
+.page-col {
+  max-width: calc(var(--page-w) + var(--page-pad-x) * 2);
+  margin: 0 auto; padding: var(--page-pad-top) var(--page-pad-x) calc(2 * var(--page-pad-top));
+}
+/* Settings' `Readable width`, off: the column stops being a column and fills the window, the
+   side air alone keeping the text off the edges (S3). One class on <html>, so the editor and
+   every view follow it without knowing it exists. */
+:root.full-width .page-col { max-width: none; }
+.page-title {
+  font-family: var(--font-title); font-size: var(--fs-title); font-weight: 400;
+  line-height: 1.2; margin: 0 0 var(--sp-5); color: var(--fg); letter-spacing: -.01em;
+}
+.page-meta {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  margin: calc(-1 * var(--sp-4)) 0 var(--sp-5); display: flex; gap: var(--sp-3); flex-wrap: wrap;
+}
+
+/* generic data table */
+.table { border-collapse: collapse; width: 100%; font-size: var(--fs-ui); }
+.table th, .table td { border: 1px solid var(--border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
+.table th { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); background: var(--bg-2); font-weight: 400; }
+
+/* `choose` (ose:ui): one question, a short list of answers. Rows, like every other picker in
+   the app, so Up and Down walk them and Enter takes the focused one. The dialog frame itself
+   (.dlg-head, .dlg-body, .dlg-foot) is drawn by the rice's stylesheet. */
+.dlg-choices { display: flex; flex-direction: column; gap: var(--sp-1); }
+.choice { width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.choice:focus-visible { outline: none; background: var(--bg-4); }
+.choice.danger > .grow { color: var(--err); }
+
+/* =================================================================== `ose:ui`
+   Everything `ose:ui` draws: the overlay stack, the palette and the pickers built on it, the
+   dialogs, the context menu and the toasts. These were in the shell's own stylesheet until
+   round four, which meant a rice that linked `ui.css` and called `toast()` got an unstyled
+   toast. They belong here, with the components they dress, so `ui.css` is the whole visual
+   system and a rice adds only what is its own. */
+
+/* ------------------------------------------------------------------ overlays */
+
+.ov {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.ov.ov-dim { background: var(--scrim); }
+.ov.ov-at { align-items: flex-start; justify-content: flex-start; }
+.ov-box { max-height: 76vh; display: flex; flex-direction: column; overflow: hidden; }
+.ov-at .ov-box { position: fixed; }
+
+/* palette. The input row is the one taller bar (--barhead-h); the foot is a labelled bar
+   like any other (--panelhead-h) (E2). */
+.pal-head {
+  height: var(--barhead-h); flex: none;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.pal-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
+.pal-icon svg {
+  width: 1rem; height: 1rem;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.pal-input {
+  flex: 1; min-width: 0; height: 100%;
+  border: 0; background: transparent;
+  font-family: var(--font-ui); font-size: var(--fs-content);
+  user-select: text; cursor: text;
+}
+.pal-input::placeholder { color: var(--fg-3); }
+.pal-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--sp-2); }
+.pal-list .empty { padding: var(--sp-6) var(--sp-4); }
+.pal-row { cursor: default; padding-right: var(--sp-3); }
+.pal-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.pal-row .grow { overflow: hidden; text-overflow: ellipsis; }
+/* the matched characters: --accent-ink, not --accent, so 13px text clears 4.5:1 in the light
+   theme too (5.66 on --bg, 5.27 on --bg-2; dark aliases the ink back to --accent) (QA F16) */
+.pal-row b { color: var(--accent-ink); font-weight: 600; }
+.pal-row.active b { color: var(--accent-ink); }
+.pal-hint {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pal-foot {
+  height: var(--panelhead-h); flex: none;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 0 var(--sp-3);
+  border-top: 1px solid var(--border);
+  color: var(--fg-3);
+}
+.pal-foot .grow { flex: 1; }
+.pal-foot .kbd { height: 16px; padding: 0 var(--sp-1); border-bottom-width: 1px; }
+.pal-mode { color: var(--fg-2); }
+
+/* folder picker (move to…) */
+.pal.pick .pal-row .grow { font-family: var(--font-mono); font-size: var(--fs-chrome); }
+
+/* dialogs. One horizontal inset, --sp-3, for head, body and foot (E10); the head keeps the one
+   rule a dialog has, the foot is set off by air alone (E4). The head carries the chrome voice
+   itself rather than the section label class, which would bring the section gap with it (E3). */
+.dlg-head {
+  height: var(--panelhead-h); flex: none;
+  display: flex; align-items: center;
+  padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+}
+.dlg-body { padding: var(--sp-4) var(--sp-3); overflow-y: auto; }
+.dlg-text { margin: 0 0 var(--sp-3); font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
+.dlg-foot {
+  height: var(--barhead-h); flex: none;
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+}
+.dlg-foot .grow { flex: 1; text-align: left; }
+
+/* context menu */
+.menu { min-width: 13.125rem; padding: var(--sp-1) 0; }
+.menu-row { width: 100%; text-align: left; cursor: default; }
+.menu-row.danger { color: var(--err); }
+.menu-row.danger svg { color: var(--err); }
+.menu .divider { margin: var(--sp-1) 0; }
+/* The row is the tab stop; its focus ring sits inside it, because the menu clips anything
+   drawn outside and that is where the base 2px offset would put it. */
+.menu-row:focus-visible { outline-offset: -1px; }
+.pal-row:focus-visible, .choice:focus-visible { outline-offset: -1px; }
+
+/* toasts */
+.toasts {
+  position: fixed; right: var(--sp-3); bottom: calc(var(--statusbar-h) + var(--sp-3)); z-index: 200;
+  display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2);
+  pointer-events: none;
+}
+.toast {
+  max-width: 27.5rem; padding: var(--sp-2) var(--sp-3); pointer-events: auto;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.5;
+  color: var(--fg-2); background: var(--bg);
+}
+.toast.err { color: var(--err); border-color: var(--err); }
+.toast.warn { color: var(--warn); border-color: var(--warn); }
+
+/* A short window gives the overlay a little more of it; the page column gives up some of
+   its top air in the rice's own stylesheet. */
+@media (max-height: 720px) {
+  .ov-box { max-height: 82vh; }
+}

@@ -161,7 +161,7 @@ html.mac .tb-win { display: none; }
 .sb-view.current svg { color: var(--accent); }
 /* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
    anything drawn outside it, which is where the base 2px offset would put it. */
-.sb-row:focus-visible, .sb-missing:focus-visible, .menu-row:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
+.sb-row:focus-visible, .sb-missing:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
 /* Empty lines start where the name of a depth-0 row does (E9). One size for both, from `.empty`. */
 .sb-empty { padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--tree-inset); text-align: left; }
 /* The scratch source points at nothing: one line, and clicking it opens settings. */
@@ -346,61 +346,6 @@ body.resizing * { cursor: col-resize !important; }
 .edge-bottomright { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
 html.maximized .edge { display: none; }
 
-/* ------------------------------------------------------------------ overlays */
-
-.ov {
-  position: fixed; inset: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: center;
-}
-.ov.ov-dim { background: var(--scrim); }
-.ov.ov-at { align-items: flex-start; justify-content: flex-start; }
-.ov-box { max-height: 76vh; display: flex; flex-direction: column; overflow: hidden; }
-.ov-at .ov-box { position: fixed; }
-
-/* palette. The input row is the one taller bar (--barhead-h); the foot is a labelled bar
-   like any other (--panelhead-h) (E2). */
-.pal-head {
-  height: var(--barhead-h); flex: none;
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: 0 var(--sp-3);
-  border-bottom: 1px solid var(--border);
-}
-.pal-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
-.pal-icon svg {
-  width: 1rem; height: 1rem;
-  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
-}
-.pal-input {
-  flex: 1; min-width: 0; height: 100%;
-  border: 0; background: transparent;
-  font-family: var(--font-ui); font-size: var(--fs-content);
-  user-select: text; cursor: text;
-}
-.pal-input::placeholder { color: var(--fg-3); }
-.pal-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--sp-2); }
-.pal-list .empty { padding: var(--sp-6) var(--sp-4); }
-.pal-row { cursor: default; padding-right: var(--sp-3); }
-.pal-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
-.pal-row .grow { overflow: hidden; text-overflow: ellipsis; }
-/* the matched characters: --accent-ink, not --accent, so 13px text clears 4.5:1 in the light
-   theme too (5.66 on --bg, 5.27 on --bg-2; dark aliases the ink back to --accent) (QA F16) */
-.pal-row b { color: var(--accent-ink); font-weight: 600; }
-.pal-row.active b { color: var(--accent-ink); }
-.pal-hint {
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.pal-foot {
-  height: var(--panelhead-h); flex: none;
-  display: flex; align-items: center; gap: var(--sp-3);
-  padding: 0 var(--sp-3);
-  border-top: 1px solid var(--border);
-  color: var(--fg-3);
-}
-.pal-foot .grow { flex: 1; }
-.pal-foot .kbd { height: 16px; padding: 0 var(--sp-1); border-bottom-width: 1px; }
-.pal-mode { color: var(--fg-2); }
-
 /* search overlay (Ctrl+F). Hits group under their file the way palette rows group under a
    section label: the name in mono with the label's own air above it, no rule (E5, E3). */
 .sr-file {
@@ -420,29 +365,6 @@ html.maximized .edge { display: none; }
 .sr-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
 .sr-row.active .grow { color: var(--fg); }
 
-/* folder picker (move to…) */
-.pal.pick .pal-row .grow { font-family: var(--font-mono); font-size: var(--fs-chrome); }
-
-/* dialogs. One horizontal inset, --sp-3, for head, body and foot (E10); the head keeps the one
-   rule a dialog has, the foot is set off by air alone (E4). The head carries the chrome voice
-   itself rather than the section label class, which would bring the section gap with it (E3). */
-.dlg-head {
-  height: var(--panelhead-h); flex: none;
-  display: flex; align-items: center;
-  padding: 0 var(--sp-3);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
-}
-.dlg-body { padding: var(--sp-4) var(--sp-3); overflow-y: auto; }
-.dlg-text { margin: 0 0 var(--sp-3); font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
-.dlg-foot {
-  height: var(--barhead-h); flex: none;
-  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
-  padding: 0 var(--sp-3);
-}
-.dlg-foot .grow { flex: 1; text-align: left; }
-
 /* the update dialog: one line saying which build to which, then the commit subjects, each
    with its short sha in the chrome voice; the list scrolls before the dialog outgrows a short
    window. Text is content, so the UI face and size (DESIGN.md, two typefaces). */
@@ -450,13 +372,6 @@ html.maximized .edge { display: none; }
 .upd-row { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; font-size: var(--fs-ui); line-height: 1.5; }
 .upd-sha { flex: none; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
 .upd-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* context menu */
-.menu { min-width: 13.125rem; padding: var(--sp-1) 0; }
-.menu-row { width: 100%; text-align: left; cursor: default; }
-.menu-row.danger { color: var(--err); }
-.menu-row.danger svg { color: var(--err); }
-.menu .divider { margin: var(--sp-1) 0; }
 
 /* settings. Rows are grouped by whitespace, not by hairlines (E4): the rules in one dialog
    read as a form; twelve pixels of air between rows read as a list. A row is the same grid as
@@ -540,24 +455,9 @@ html.maximized .edge { display: none; }
 /* the vault line carries `Change vault…`: the one control in the read-only block, kept small */
 .set-info .btn { margin-left: auto; flex: none; align-self: center; }
 
-/* toasts */
-.toasts {
-  position: fixed; right: var(--sp-3); bottom: calc(var(--statusbar-h) + var(--sp-3)); z-index: 200;
-  display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2);
-  pointer-events: none;
-}
-.toast {
-  max-width: 27.5rem; padding: var(--sp-2) var(--sp-3); pointer-events: auto;
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.5;
-  color: var(--fg-2); background: var(--bg);
-}
-.toast.err { color: var(--err); border-color: var(--err); }
-.toast.warn { color: var(--warn); border-color: var(--warn); }
-
 /* ------------------------------------------------------------------ tight windows */
 
 /* a short window gives up one --sp-5 of the page's top air */
 @media (max-height: 720px) {
-  .ov-box { max-height: 82vh; }
   .page-col { padding-top: calc(var(--page-pad-top) - var(--sp-5)); }
 }
