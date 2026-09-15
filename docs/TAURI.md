@@ -499,3 +499,14 @@ CI runs three windows on each runner:
 
 Plus `ose --version`, asserted to match `^ose 0\.\d+\.\d+ \(`, from the binary CI is about to
 publish.
+
+### Two log lines worth knowing
+
+- `run <id>: done in <ms> ms, code <n|null>, timedOut <bool>` closes every `run`; a process
+  the host killed (a timeout, `runKill`, the app exiting) reports `code null` on Windows as on
+  Unix, where `TerminateProcess` alone would have said 1.
+- `another Ose is already running; handed this launch over to it and exiting…` is the one line
+  a second launch writes to its own log before the single-instance plugin ends it, so "the app
+  does not start and the log says nothing" cannot happen. `--selftest` and `--update` never
+  join the group and never write it.
+
