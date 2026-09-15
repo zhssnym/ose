@@ -268,9 +268,45 @@ markdownPage(el, path, opts)  -> { close(), save(), path, dirty, focus(), find(q
     versions, source mode (Ctrl+E), find and replace, drop, links, backlinks, every command.
     opts: { line, col, heading, selection, readOnly }
     Registers its commands on mount and removes them on close; the rice's page route mounts it.
-codeEditor(el, { path | text, language, readOnly, onChange, onSave })  -> { getText(), setText(), save(), focus(), close() }
+codeEditor(el, { path | text, language, readOnly, grow, gutter, indent, placeholder,
+                 onChange, onSave })
+    -> { path, dirty, readOnly, ready, getText(), setText(), setReadOnly(), save(), focus(),
+         close(), on(event, fn) }
     CodeMirror with highlighting from the language pack, the same atomic save and conflict
-    handling when `path` is given; plain in-memory when `text` is given.
+    handling when `path` is given; plain in-memory when `text` is given. `on` takes `dirty`,
+    `saved`, `conflict` and `closed`; `ready` resolves when the file and its language are in.
+    `language` is a name or an alias from the pack, and without one the file name decides.
+    `save()` resolves **true when there is nothing left unwritten**, and false whenever text
+    the user typed is still only in the editor: a conflict they cancelled, a file no longer
+    on disk, a keystroke that landed while the write was in flight. A caller may move on
+    exactly when it answered true. `close()` saves once, asks before losing anything it could
+    not write, and resolves **false when the user chose to keep editing** — the editor is
+    then still mounted and still theirs; `close({ force: true })` closes regardless.
+    `setText()` is an edit: it marks the editor dirty, so the save after it writes.
+    A path editor is read-only until its file arrives, and the file never replaces text that
+    was already put into the buffer. The file's line endings are its own: a CRLF file is
+    written back CRLF and one keystroke in it does not reformat the rest (a file that mixes
+    both settles on its majority the first time it is written). Undo does not walk back past
+    the file into the empty buffer the editor mounted with.
+    `grow: true` gives the editor the height of its text and no scroller of its own, so the
+    column around it scrolls — the bargain source mode makes with the page column. An empty
+    file still stands five lines tall. The default fills the element it is given and scrolls
+    inside it, which is right when the caller owns the height and wrong when it does not.
+    `gutter: false` takes the line numbers away. `indent` is what Tab inserts: four spaces
+    for Python, two for everything else, unless it is given.
+    It behaves like an editor for programs and not like a note: brackets close as they are
+    typed and Backspace between an empty pair takes both, the line re-indents when the
+    language says the word that ends a block has been typed, the line under the caret carries
+    a faint stripe while the editor holds the caret, the bracket under the caret is marked,
+    and Tab and Shift+Tab indent and dedent — Tab with nothing selected inserts one indent at
+    the caret, Tab over a selection indents the block. Source mode inside a page gains the
+    Tab behaviour, which is a fix and not a comfort, and none of the rest; a page is prose.
+    Ctrl+S saves from anywhere inside the editor, its own Find panel included.
+    Colours are the `--code-*` tokens, the same palette a fenced code block in a page is
+    drawn with, in both themes.
+    Ctrl+S inside it saves that file and Ctrl+F opens its own search: the key engine stands
+    down for `mod+s` and `mod+f` inside `.ed-code` (a page's fenced block is not `.ed-code`,
+    so there Ctrl+S still saves the page).
 render(markdown, { basePath })  -> HTMLElement   read-only, links resolved, images through vault.localhost
 ```
 

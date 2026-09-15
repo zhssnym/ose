@@ -122,6 +122,14 @@ export const CODE_KEYS = new Set([
   'alt+arrowleft', 'alt+arrowright', 'alt+arrowup', 'alt+arrowdown', 'mod+d', 'mod+shift+k',
 ]);
 
+/**
+ * A standalone `codeEditor` (`.ed-code`) is a document of its own: it binds Ctrl+S to its own
+ * save (`src/editor/code-editor.js`) and carries CodeMirror's own search panel on Ctrl+F. A
+ * code block inside a page is not one of these — there Ctrl+S saves the page and Ctrl+F opens
+ * the page's find bar — which is why this is `.ed-code` and not `.cm-editor`.
+ */
+export const OWN_EDITOR_KEYS = new Set(['mod+s', 'mod+f']);
+
 const PART_LABEL = {
   mod: () => (isMac() ? 'Cmd' : 'Ctrl'), ctrl: () => 'Ctrl', alt: () => (isMac() ? 'Option' : 'Alt'),
   shift: () => 'Shift', meta: () => (isMac() ? 'Cmd' : 'Win'), enter: () => 'Enter', escape: () => 'Esc',
@@ -326,6 +334,7 @@ export function initKeys() {
     // A chord CodeMirror owns keeps working inside a code block (Alt+Arrows move by syntax
     // node there); everywhere else in the app it is the shell's.
     if (CODE_KEYS.has(combo) && inside(e, '.cm-editor')) return;
+    if (OWN_EDITOR_KEYS.has(combo) && inside(e, '.ed-code')) return;
     // A chord the body keymap owns (Ctrl+0 = paragraph) falls through inside the body.
     if (entry.inBody && inside(e, '.ProseMirror')) return;
 

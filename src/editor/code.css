@@ -52,27 +52,60 @@
   background: var(--bg); border-color: var(--border); color: var(--fg-2);
 }
 
-/* ------------------------------------------------------------------ tokens */
+/* ------------------------------------------------------------------ tokens
 
-.ed .milkdown .milkdown-code-block .os-t-key { color: var(--code-key); }
-.ed .milkdown .milkdown-code-block .os-t-str { color: var(--code-str); }
-.ed .milkdown .milkdown-code-block .os-t-num { color: var(--code-num); }
-.ed .milkdown .milkdown-code-block .os-t-com { color: var(--code-com); }
-.ed .milkdown .milkdown-code-block .os-t-fn { color: var(--code-fn); }
-.ed .milkdown .milkdown-code-block .os-t-type { color: var(--code-type); }
-.ed .milkdown .milkdown-code-block .os-t-punc { color: var(--code-punc); }
-.ed .milkdown .milkdown-code-block .os-t-var { color: var(--code-var); }
-.ed .milkdown .milkdown-code-block .os-t-ins { color: var(--code-str); }
-.ed .milkdown .milkdown-code-block .os-t-del { color: var(--err); }
-.ed .milkdown .milkdown-code-block .os-t-invalid { color: var(--err); text-decoration: underline wavy; }
+   Two grounds, one palette. `code.js`'s HIGHLIGHT names the classes, and it is installed in
+   two places: Crepe's code block inside a page (`.ed .milkdown .milkdown-code-block`) and the
+   standalone `codeEditor` (`.ed-code`, source.css). Until round five only the first was
+   written down here, so a `codeEditor` outside a page drew every token in `--fg` — the classes
+   were on the spans and nothing coloured them (round five, defect E1). The selectors are
+   grouped rather than copied so the two can never drift apart, and the page's own side of each
+   pair is untouched.
+
+   `.ed-code .os-t-*` is 0-2-0, which is what it has to be: `syntaxHighlighting` is a
+   StyleModule and its generated `.ͼ…` classes are 0-1-0 in a stylesheet whose place in the
+   head is CodeMirror's business, not ours. Source mode's own markdown HighlightStyle is
+   registered `{ fallback: true }` and therefore stands down entirely while HIGHLIGHT is
+   present, so nothing is fighting for the colour of a token — only for the colour of the
+   ground, and `source.js`'s theme paints `.cm-content` by inheritance, which a class on the
+   span outranks whatever its specificity. */
+
+.ed .milkdown .milkdown-code-block .os-t-key,
+.ed-code .os-t-key { color: var(--code-key); }
+.ed .milkdown .milkdown-code-block .os-t-str,
+.ed-code .os-t-str { color: var(--code-str); }
+.ed .milkdown .milkdown-code-block .os-t-num,
+.ed-code .os-t-num { color: var(--code-num); }
+.ed .milkdown .milkdown-code-block .os-t-com,
+.ed-code .os-t-com { color: var(--code-com); }
+.ed .milkdown .milkdown-code-block .os-t-fn,
+.ed-code .os-t-fn { color: var(--code-fn); }
+.ed .milkdown .milkdown-code-block .os-t-type,
+.ed-code .os-t-type { color: var(--code-type); }
+.ed .milkdown .milkdown-code-block .os-t-punc,
+.ed-code .os-t-punc { color: var(--code-punc); }
+.ed .milkdown .milkdown-code-block .os-t-var,
+.ed-code .os-t-var { color: var(--code-var); }
+.ed .milkdown .milkdown-code-block .os-t-ins,
+.ed-code .os-t-ins { color: var(--code-str); }
+.ed .milkdown .milkdown-code-block .os-t-del,
+.ed-code .os-t-del { color: var(--err); }
+.ed .milkdown .milkdown-code-block .os-t-invalid,
+.ed-code .os-t-invalid { color: var(--err); text-decoration: underline wavy; }
 
 /* Markdown, YAML and the other prose-ish grammars, drawn the way the page itself is. */
-.ed .milkdown .milkdown-code-block .os-t-link { color: var(--accent); }
-.ed .milkdown .milkdown-code-block .os-t-strong { font-weight: 600; }
-.ed .milkdown .milkdown-code-block .os-t-em { font-style: italic; }
-.ed .milkdown .milkdown-code-block .os-t-strike { text-decoration: line-through; }
-.ed .milkdown .milkdown-code-block .os-t-head { color: var(--code-fn); font-weight: 600; }
-.ed .milkdown .milkdown-code-block .os-t-quote { color: var(--code-com); }
+.ed .milkdown .milkdown-code-block .os-t-link,
+.ed-code .os-t-link { color: var(--accent); }
+.ed .milkdown .milkdown-code-block .os-t-strong,
+.ed-code .os-t-strong { font-weight: 600; }
+.ed .milkdown .milkdown-code-block .os-t-em,
+.ed-code .os-t-em { font-style: italic; }
+.ed .milkdown .milkdown-code-block .os-t-strike,
+.ed-code .os-t-strike { text-decoration: line-through; }
+.ed .milkdown .milkdown-code-block .os-t-head,
+.ed-code .os-t-head { color: var(--code-fn); font-weight: 600; }
+.ed .milkdown .milkdown-code-block .os-t-quote,
+.ed-code .os-t-quote { color: var(--code-com); }
 
 /* ------------------------------------------------------------------ the language picker */
 

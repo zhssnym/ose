@@ -12,9 +12,9 @@
 // CodeMirror is already in the bundle: @milkdown/kit's code-mirror feature depends on every
 // package imported below. No dependency was added.
 
-import { Compartment, EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, drawSelection, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentLess, indentMore, isolateHistory } from '@codemirror/commands';
 import { SearchQuery, closeSearchPanel, openSearchPanel, search, searchKeymap, searchPanelOpen, setSearchQuery } from '@codemirror/search';
 import { HighlightStyle, bracketMatching, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
@@ -157,6 +157,32 @@ const highlight = HighlightStyle.define([
 ]);
 
 /**
+ * Tab.
+ *
+ * `indentWithTab`, which this used to bind, runs `indentMore`, and `indentMore` re-indents
+ * whole lines whatever the selection is: with the caret in the middle of `    x = 1` it moved
+ * the line's own indentation and carried the caret along with it, which is not what Tab means
+ * in any editor a person arrives from (A, finding 11). With a range selected that *is* what
+ * Tab means, so the range case is still `indentMore`, and Shift+Tab is still `indentLess` in
+ * both cases.
+ *
+ * CodeMirror's own `insertTab` would be the obvious binding and cannot be used: it inserts a
+ * literal tab character, and this app indents with spaces (`indentUnit`, four for Python and
+ * two for everything else). So the empty-selection case inserts the indent unit itself.
+ */
+const indentAtCaret = ({ state, dispatch }) => {
+  // `indentMore` and `indentLess` open with this line and it is not decoration: a command that
+  // dispatches a change into a read-only state writes into it, and Tab in a read-only editor
+  // indented the first line (A's bench, section K, caught on the re-run).
+  if (state.readOnly) return false;
+  if (state.selection.ranges.some((r) => !r.empty)) return indentMore({ state, dispatch });
+  dispatch(state.update(state.replaceSelection(state.facet(indentUnit)), {
+    scrollIntoView: true, userEvent: 'input',
+  }));
+  return true;
+};
+
+/**
  * Mount CodeMirror into `host`.
  *
  * @param {object} o
@@ -172,6 +198,11 @@ const highlight = HighlightStyle.define([
  */
 export function createSourceView(o) {
   const editable = new Compartment();
+  // The history lives in a compartment so `setText` can empty it. Reconfiguring an extension
+  // rebuilds the state fields it provides from their `init`, and that is the only way to throw
+  // CodeMirror's undo stack away — which loading a file into a view that mounted empty has to
+  // do, or Ctrl+Z walks back into the empty buffer and the next save writes it (A, finding 1).
+  const historian = new Compartment();
   let quiet = false;                                   // true while setText replaces the doc
 
   const view = new EditorView({
@@ -179,7 +210,7 @@ export function createSourceView(o) {
     state: EditorState.create({
       doc: String(o.text ?? ''),
       extensions: [
-        history(),
+        historian.of(history()),
         drawSelection(),
         highlightSpecialChars(),
         bracketMatching(),
@@ -203,7 +234,7 @@ export function createSourceView(o) {
           ...searchKeymap,
           ...historyKeymap,
           ...defaultKeymap,
-          indentWithTab,
+          { key: 'Tab', run: indentAtCaret, shift: indentLess },
         ]),
         editable.of([EditorState.readOnly.of(!!o.readOnly), EditorView.editable.of(!o.readOnly)]),
         EditorView.updateListener.of((u) => {
@@ -214,17 +245,54 @@ export function createSourceView(o) {
     }),
   });
 
+  const clearHistory = () => {
+    view.dispatch({ effects: historian.reconfigure([]) });
+    view.dispatch({ effects: historian.reconfigure(history()) });
+  };
+
   return {
     view,
     getText: () => view.state.doc.toString(),
-    setText(text) {
+    /**
+     * Replace the whole document. Answers **true when the document actually changed**, so a
+     * caller can tell a real replacement from a no-op and mark itself dirty accordingly
+     * (A, finding 4).
+     *
+     * `history` says what the replacement is:
+     *   `'isolate'` (the default) — an edit like any other, but a step of its own in the undo
+     *     stack, so one Ctrl+Z takes it back and lands on what the user had. That is what
+     *     "Reload from disk" needs: the edits the user just agreed to lose are one undo away,
+     *     instead of being swallowed into the same history event as the typing that preceded
+     *     them (A, finding 12).
+     *   `'drop'` — not an edit at all. The transaction is kept out of the history and the
+     *     history is emptied behind it. Loading a file into a view that mounted empty is this:
+     *     without it, the load was undo step one of every path-backed editor and Ctrl+Z twice
+     *     left an empty buffer the next save wrote to disk (A, finding 1).
+     */
+    setText(text, opts = {}) {
       const next = String(text ?? '');
-      if (next === view.state.doc.toString()) return;
+      if (next === view.state.doc.toString()) return false;
+      const mode = opts.history || 'isolate';
       quiet = true;
       try {
-        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: next },
+          annotations: mode === 'drop'
+            ? Transaction.addToHistory.of(false)
+            : isolateHistory.of('full'),
+        });
+        if (mode === 'drop') clearHistory();
       } finally { quiet = false; }
+      return true;
     },
+    /**
+     * Throw the undo stack away. Reconfiguring an extension rebuilds the state fields it
+     * provides from their `init`, which is the only way CodeMirror offers to empty a history.
+     * `setText(…, { history: 'drop' })` calls it; the code editor calls it on its own after a
+     * load that did *not* replace the buffer, because nothing before that moment was an edit
+     * the user would want back (A, finding 1).
+     */
+    clearHistory,
     setReadOnly(on) {
       view.dispatch({
         effects: editable.reconfigure([EditorState.readOnly.of(!!on), EditorView.editable.of(!on)]),

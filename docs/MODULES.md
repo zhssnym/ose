@@ -14,13 +14,13 @@ points here.
 ```json
 {
   "id": "nsi",
-  "name": "NSI trainer",
+  "name": "Informatique",
   "requires": 1,
   "entry": "index.js",
   "data": ["2-learning/1-school/2-nsi"],
   "run": ["python"],
   "routes": ["nsi/*"],
-  "view": { "name": "nsi", "title": "NSI", "order": 40 },
+  "view": { "name": "nsi", "title": "Informatique", "order": 40 },
   "description": "Problems as folders, a judge, spaced review."
 }
 ```
@@ -43,11 +43,11 @@ import { toast } from 'ose:ui'
 
 export async function activate(ose) {
   // ose is the facade scoped by module.json. Register, subscribe, return.
-  ose.commands.register({ id: 'nsi.next', title: 'NSI: next problem', group: 'nsi',
-    shortcut: 'Mod+Shift+J', run: () => ose.route.navigate({ type: 'own', path: 'nsi/' + pickNext() }) })
-  ose.views.register('nsi', { title: 'NSI', mount: mountIndex })
+  ose.commands.register({ id: 'nsi.next', title: 'Informatique: next problem', group: 'Informatique',
+    shortcut: 'Mod+Shift+N', run: () => ose.route.navigate({ type: 'own', path: 'nsi/' + pickNext() }) })
+  ose.views.register('nsi', { title: 'Informatique', mount: mountIndex })
   ose.route.own('nsi/*', mountProblem)
-  ose.tiles.register({ id: 'nsi.due', title: 'NSI', render: renderTile })
+  ose.tiles.register({ id: 'nsi.due', title: 'Informatique', render: renderTile })
   ose.watch(['2-learning/1-school/2-nsi'], () => ose.tiles.refresh('nsi.due'))
 }
 

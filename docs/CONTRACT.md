@@ -1917,3 +1917,60 @@ Ctrl+W is `tab.close` rather than `page.close`; the editor's `page.close` is sti
 and still lands on the empty surface if it is run from the palette, and the strip follows it
 the same way. Ctrl+Shift+T is `tab.reopen`, which prefers the strip's own closed list and falls
 back to the kernel's. `app.start` is gone; `app.home` replaces it.
+
+### The code editor (E)
+
+`codeEditor` was round four's, and round five found it in three states no one had looked at
+outside a page.
+
+**Colour.** `code.js` names a token class on every span (`os-t-key`, `os-t-str`, …) and
+`code.css` painted them — under `.ed .milkdown .milkdown-code-block`, and nowhere else. Inside
+a page a fence was in the full palette; a `codeEditor` in a module's panel was one colour of
+grey, classes and all. The seventeen rules now carry both grounds, grouped selector by
+selector rather than copied, so the two can never drift: `.ed-code` gets exactly what the
+page's code block gets, both themes, every class, measured. Source mode's own markdown
+highlighter is registered as a fallback and stands down while `HIGHLIGHT` is present, so there
+was never a fight over the colour of a token — only the absence of one.
+
+**Shape.** A `codeEditor` filled its box and scrolled inside it. That is right for a pane
+whose height the caller owns, and wrong for a script sitting in a column of other things,
+where it means a scrollbar inside a scrollbar and a guess at how tall the file is. `grow: true`
+is the other shape: the editor is as tall as its text, the column scrolls, and there is a
+floor of five lines so an empty file is still something to aim at. `fill` stays the default,
+so nothing that already called this changes meaning by standing still.
+
+**Comforts.** Writing a program is not writing a page, and the standalone editor had exactly
+the extensions source mode has, which is the set that suits prose. It gains `closeBrackets`,
+`indentOnInput` and `highlightActiveLine`, and `closeBracketsKeymap` is raised with
+`Prec.high` so Backspace between an empty pair deletes both halves — `appendConfig` puts an
+extension *after* the configuration it is added to, and at equal precedence the default
+keymap's Backspace would have won and left the closing bracket behind. The stripe under the
+caret is `--bg-3`, not CodeMirror's own `#cceeff44` and `#99eeff33`: no hex reaches the screen,
+and `--bg-3` rather than `--bg-2` because in dark `--bg-2` is a point of luminance away from
+`--bg` and a module's panel may be `--bg-2` already. None of this is added to source mode
+inside a page.
+
+**Enter and Tab in a dialog.** Asked and answered: a `codeEditor` inside an overlay keeps
+both. `keys.js` matches no bare Enter, and every Enter handler in `dialog.js` is bound on the
+element that owns it — an input, an OK button — never on the box. `openOverlay`'s focus trap
+only acts when focus is on the first or last tabbable thing in the box, and CodeMirror's
+`.cm-content` carries no `tabindex`, so it is never either. Ctrl+S and Ctrl+F were a different
+story: the shell's capture listener took them before any editor saw them, which is what
+`OWN_EDITOR_KEYS` in `keys.js` now stands down for, over `.ed-code` and not `.cm-editor` so a
+fence inside a page still saves the page. The editor catches the last case itself — CodeMirror
+binds its keymap on `.cm-content` and the Find panel is a sibling of it, so a Ctrl+S typed in
+the search field reached nothing at all.
+
+**What `save()` and `close()` promise.** The adversarial pass found five ways for this editor
+to lose text, and four of them were one sentence: `save()` used to resolve true meaning "the
+caller may move on", and answered true from a conflict the user had cancelled, from a
+read-only editor holding changes, from an editor whose file never loaded, and from a write
+that finished after the user had typed again. It now resolves true to one question only —
+**is there anything left unwritten** — and `close()` is built on that answer: it saves once,
+and when it could not, it asks its own question ("Not saved", Cancel or lose them) rather than
+putting the changed-on-disk question back up, and resolves false when the user kept editing.
+The rest were the same bug wearing different clothes: the file load was undo step one, so two
+Ctrl+Z emptied the buffer and the next save wrote nothing to disk; `setText()` marked nothing
+dirty, so the save after it wrote nothing; a file deleted underneath froze the editor
+read-only with the only copy of the text inside it; and a CRLF file was rewritten to LF whole
+on the first keystroke. All five are regression-tested in `work/e/regress.js`.

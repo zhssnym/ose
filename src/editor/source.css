@@ -4,8 +4,14 @@
 
 /* ------------------------------------------------- the standalone code editor
    `codeEditor(el, …)` (round four): the same CodeMirror, mounted anywhere rather than inside
-   a page column. It fills whatever box it is given and scrolls inside it, which is the one
-   way it differs from source mode. */
+   a page column. It has two shapes, and `grow` in the opts picks between them:
+
+   - `fill` (the default, round four's only shape): it fills whatever box it is given and
+     scrolls inside it. Right for a pane whose height the caller owns.
+   - `grow` (round five): it takes the height of its content and never scrolls, so the column
+     it sits in does the scrolling — the same bargain source mode makes with the page column.
+     Right for a script beside its data, where a box with its own scrollbar inside a scrolling
+     page is two scrollbars and a guess at how tall the script is. */
 
 .ed-code {
   display: flex;
@@ -22,6 +28,67 @@
 .ed-code .cm-scroller { overflow: auto; }
 .ed-code .cm-placeholder { color: var(--fg-3); }
 .ed-code .cm-gutters { padding-right: var(--sp-3); }
+
+/* `grow`: no inner scroller, height from the content, a few lines of floor so an empty file
+   is still a box you can aim at. The floor is stated on `.cm-content` rather than on the
+   editor, so the gutter grows with it and the placeholder sits on the first line. */
+.ed-code-grow {
+  display: block;
+  height: auto;
+  min-height: 0;
+}
+
+.ed-code-grow .cm-editor {
+  height: auto;
+  min-height: 0;
+}
+
+.ed-code-grow .cm-editor .cm-scroller { overflow: visible; }
+
+.ed-code-grow .cm-editor .cm-content {
+  min-height: calc(var(--fs-ui) * 1.7 * 5);   /* five lines at source mode's line height */
+}
+
+/* The gutter keeps up with that floor. CodeMirror writes `min-height` **inline** on
+   `.cm-gutters` from its own measured content height, so a CSS `min-height` here loses to it,
+   and one strong enough to win (`!important`) would also *cap* the gutter of a four-hundred
+   line file at five lines — the numbers would stop part of the way down. A zero-width flex
+   item inside the gutters row raises the row's height without touching what CodeMirror wrote,
+   because a min-height is a floor and not a ceiling: five lines when the file is one line,
+   and out of the way the moment the file is taller (A, finding 11 group, #L1g). */
+.ed-code-grow .cm-editor .cm-gutters::after {
+  content: '';
+  width: 0;
+  min-height: calc(var(--fs-ui) * 1.7 * 5);
+}
+
+/* The comforts `codeEditor` adds over source mode (round five, defect E3). CodeMirror's own
+   base theme paints the active line `#cceeff44` in light and `#99eeff33` in dark — two hex
+   values from outside the palette — under `.<baseLightID> .cm-activeLine`, which is 0-2-0, so
+   ours says `.cm-editor` in the middle to win at 0-3-0 rather than trust the order the
+   StyleModule was mounted in. `--bg-3` and not `--bg-2`: the step has to read as a stripe on
+   a `--bg` ground *and* on the `--bg-2` of a module's panel, and in dark `--bg-2` is one point
+   of luminance away from `--bg`. The same goes for the bracket under the caret, which
+   `bracketMatching` would otherwise paint `#328c8252`.
+
+   The stripe is the caret's, so it is drawn only while this editor holds the caret. An editor
+   nothing has ever focused claimed line 1, and a read-only one marked a caret the user cannot
+   move (A, finding 13); CodeMirror paints the line unconditionally, so the unfocused case has
+   to be stated rather than merely left alone. */
+.ed-code .cm-editor .cm-activeLine { background-color: transparent; }
+.ed-code .cm-editor.cm-focused .cm-activeLine { background-color: var(--bg-3); }
+
+.ed-code .cm-editor .cm-matchingBracket,
+.ed-code .cm-editor.cm-focused .cm-matchingBracket {
+  background-color: var(--bg-4);
+  color: inherit;
+}
+
+.ed-code .cm-editor .cm-nonmatchingBracket,
+.ed-code .cm-editor.cm-focused .cm-nonmatchingBracket {
+  background-color: var(--err-soft);
+  color: inherit;
+}
 
 /* ---------------------------------------------------------------- source mode */
 
