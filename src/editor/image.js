@@ -13,9 +13,7 @@
 import { CrepeFeature } from '@milkdown/crepe';
 import { IMAGE_DATA_TYPE, imageBlockSchema } from '@milkdown/kit/component/image-block';
 import { NodeSelection, Plugin } from '@milkdown/kit/prose/state';
-import { bridge } from '../bridge/index.js';
-import { commands } from '../registry.js';
-import { copyText } from '../shell/index.js';
+import { bridge, commands, copyText } from './host.js';
 import { prompt, toast } from './deps.js';
 import * as P from './paths.js';
 

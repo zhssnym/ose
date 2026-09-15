@@ -14,7 +14,7 @@
 //   Date          inserts YYYY-MM-DD at the caret
 //   page / os     run the registry command of the same name
 
-import { commands } from '../registry.js';
+import { commands, icon } from './host.js';
 import { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
 import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
@@ -27,7 +27,6 @@ import {
 } from '@milkdown/kit/preset/commonmark';
 import { createTable } from '@milkdown/kit/preset/gfm';
 import { imageBlockSchema } from '@milkdown/kit/component/image-block';
-import { icon } from '../shell/icons.js';
 import { today } from './paths.js';
 import { insertPageLink } from './link.js';
 

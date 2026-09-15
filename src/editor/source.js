@@ -21,7 +21,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { tags } from '@lezer/highlight';
 import { Plugin, Selection } from '@milkdown/kit/prose/state';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
-import { commands } from '../registry.js';
+import { commands } from './host.js';
 import { patchState, readState } from './deps.js';
 import './source.css';
 
@@ -165,6 +165,7 @@ const highlight = HighlightStyle.define([
  * @param {boolean} [o.markdown]     highlight as markdown (a `.md` page); plain text otherwise
  * @param {boolean} [o.gutter]       line numbers (on for non-markdown files)
  * @param {boolean} [o.readOnly]
+ * @param {string} [o.placeholder]   the line shown while the buffer is empty
  * @param {() => void} [o.onChange]  a user edit (never our own setText)
  * @param {() => void} [o.onEscape]  Escape with no search panel open
  */
@@ -187,7 +188,7 @@ export function createSourceView(o) {
         o.gutter ? lineNumbers() : [],
         o.markdown === false ? [] : markdown(),
         syntaxHighlighting(highlight, { fallback: true }),
-        placeholder('Empty file'),
+        placeholder(o.placeholder || 'Empty file'),
         theme,
         keymap.of([
           {

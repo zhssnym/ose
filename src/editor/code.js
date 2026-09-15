@@ -27,8 +27,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { autocompletion } from '@codemirror/autocomplete';
 import { tags as t } from '@lezer/highlight';
 import { NodeSelection, Plugin, TextSelection } from '@milkdown/kit/prose/state';
-import { commands } from '../registry.js';
-import { toast } from '../shell/dialog.js';
+import { commands, toast } from './host.js';
 import './code.css';
 
 // ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ import './code.css';
  * Every token becomes a class; code.css gives the class a token colour. Tags not listed here
  * (a plain identifier) keep the body colour, which is what a calm code block looks like.
  */
-const HIGHLIGHT = HighlightStyle.define([
+export const HIGHLIGHT = HighlightStyle.define([
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword,
     t.modifier, t.self, t.bool, t.null, t.atom], class: 'os-t-key' },
   { tag: [t.string, t.special(t.string), t.regexp, t.character, t.docString], class: 'os-t-str' },

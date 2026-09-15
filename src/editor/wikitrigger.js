@@ -14,11 +14,7 @@ import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { editorViewCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import { findParent } from '@milkdown/kit/prose';
-import { esc } from '../registry.js';
-import { bridge } from '../bridge/index.js';
-import { allPages } from '../shell/sidebar.js';
-import { recentFiles } from '../shell/router.js';
-import { pageItems, highlight } from '../shell/fuzzy.js';
+import { esc, bridge, allPages, recentFiles, pageItems, highlight } from './host.js';
 import { toast } from './deps.js';
 import { insertLink, pageTitle, hrefFor } from './link.js';
 import { missingLinkPlugin, registerLinkCommands } from './linkstate.js';
@@ -77,6 +73,9 @@ class WikiView {
     this.shown = false;
     this.dismissed = null;
     this.busy = false;
+    // The page list, asked for once per `[[` (see `pages()`).
+    this.list = [];
+    this.asked = false;
 
     const el = document.createElement('div');
     el.className = 'os-slash os-wiki surface';
@@ -110,7 +109,8 @@ class WikiView {
       shouldShow: (view) => this.shouldShow(view),
     });
     this.provider.onShow = () => { this.shown = true; };
-    this.provider.onHide = () => { this.shown = false; this.query = null; };
+    // A new `[[` asks for the page list again, so a page created since is in it.
+    this.provider.onHide = () => { this.shown = false; this.query = null; this.asked = false; };
   }
 
   update(view, prevState) { this.provider.update(view, prevState); }
@@ -129,15 +129,32 @@ class WikiView {
     // Esc dismisses this `[[`; typing on does not bring it back, a new `[[` does.
     if (!m) { this.dismissed = null; return false; }
     if (this.dismissed === m.from) return false;
+    this.pages();
     this.render(m.query);
     return true;
+  }
+
+  /**
+   * The vault's pages, from `ose.pages()` — the rows quick open and the page picker offer,
+   * narrowed by the focused folder. The hose is async (a rice that registers no page list
+   * makes the kernel walk the tree), and this menu draws on a keystroke, so the list is asked
+   * for once per `[[` and kept: the rows appear on the frame after it resolves.
+   */
+  pages() {
+    if (this.asked) return this.list;
+    this.asked = true;
+    Promise.resolve(allPages()).then((paths) => {
+      this.list = Array.isArray(paths) ? paths : [];
+      if (this.shown && this.query !== null) this.render(this.query);
+    }).catch(() => { this.list = []; });
+    return this.list;
   }
 
   render(query) {
     const fresh = query !== this.query;
     this.query = query;
     const here = this.pagePath();
-    const pages = pageItems(allPages(), query, { recent: recentFiles(), limit: MAX_ROWS })
+    const pages = pageItems(this.list, query, { recent: recentFiles(), limit: MAX_ROWS })
       .filter((it) => it.path !== here);
     const name = cleanName(query);
     // The create row is offered whenever a name has been typed and nothing carries it

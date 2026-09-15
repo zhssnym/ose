@@ -9,7 +9,8 @@
 // therefore never mean two different things, and `shortcutFor` prints the same label in the
 // palette, the slash menu and the context menu.
 
-import { commands } from '../registry.js';
+import { commands, clearRoute, copyText } from './host.js';
+import { BODY_KEYS, comboFor, combosOf } from './keymap.js';
 import { commandsCtx, editorViewCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Fragment, Slice } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
@@ -23,7 +24,6 @@ import {
 import { createTable, goToNextTableCellCommand, goToPrevTableCellCommand, toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
 import { canJoin } from '@milkdown/kit/prose/transform';
 import { lift } from '@milkdown/kit/prose/commands';
-import { BODY_KEYS, comboFor, combosOf } from '../shell/keys.js';
 import { postProcess } from './stringify.js';
 import { deleteRange, duplicateRange, moveRange, selectBlock } from './blocks.js';
 import { linkAt, linkCommand, removeLink } from './link.js';
@@ -255,7 +255,7 @@ function copySelectionMarkdown() {
   if (!v || v.state.selection.empty) return;
   const md = withCtx((ctx) => sliceMarkdown(ctx, v.state.selection.content()));
   if (!md) return;
-  import('../shell/dialog.js').then((d) => d.copyText(md).then((ok) => d.toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err')));
+  void copyText(md).then((ok) => toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err'));
 }
 
 /**
@@ -355,7 +355,6 @@ export function registerCommands(editorApi) {
 /** Ctrl+W: the page is saved through the normal path, then the start surface takes over. */
 async function closePage() {
   try { await api.saveNow({ explicit: true }); } catch (e) { console.error('[editor] close', e); }
-  const { clearRoute } = await import('../shell/index.js');
   clearRoute();
 }
 

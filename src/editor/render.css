@@ -1,0 +1,128 @@
+/* `render(markdown)` — read-only prose (round four, K1c). The page editor's column has its own
+   typography in editor.css; this is the same note shown anywhere else: a tile, a module panel,
+   a preview. Every value is a token, and the box takes the size it is given. */
+
+.md-render {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.md-render > :first-child { margin-top: 0; }
+.md-render > :last-child { margin-bottom: 0; }
+
+.md-render h1,
+.md-render h2,
+.md-render h3,
+.md-render h4,
+.md-render h5,
+.md-render h6 {
+  font-family: var(--font-title);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: var(--sp-5) 0 var(--sp-2);
+}
+
+.md-render h1 { font-size: var(--fs-title); }
+.md-render h2 { font-size: 1.5rem; }
+.md-render h3 { font-size: 1.25rem; }
+.md-render h4,
+.md-render h5,
+.md-render h6 { font-size: var(--fs-body); }
+
+.md-render p,
+.md-render ul,
+.md-render ol,
+.md-render blockquote,
+.md-render pre,
+.md-render table { margin: 0 0 var(--sp-4); }
+
+.md-render ul,
+.md-render ol { padding-left: var(--sp-5); }
+.md-render li { margin: var(--sp-1) 0; }
+.md-render li > ul,
+.md-render li > ol { margin: var(--sp-1) 0; }
+
+.md-render blockquote {
+  padding-left: var(--sp-4);
+  border-left: 2px solid var(--border-strong);
+  color: var(--fg-2);
+}
+
+.md-render code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 var(--sp-1);
+}
+
+.md-render pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  overflow-x: auto;
+}
+
+.md-render pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.md-render hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--sp-5) 0;
+}
+
+.md-render table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-ui);
+}
+
+.md-render th,
+.md-render td {
+  border: 1px solid var(--border);
+  padding: var(--sp-1) var(--sp-2);
+  text-align: left;
+}
+
+.md-render th { background: var(--bg-2); font-weight: 600; }
+
+.md-render img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/* A link into the vault carries `data-path` and is followed by whoever mounted the box; an
+   external one keeps its href. They look the same, because to the reader they are the same. */
+.md-render a,
+.md-render .md-link,
+.md-render .md-anchor {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.md-render .md-link:focus-visible,
+.md-render .md-anchor:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.md-render input[type="checkbox"] {
+  margin-right: var(--sp-2);
+  accent-color: var(--accent);
+}
+
+.md-render li:has(> input[type="checkbox"]) { list-style: none; }

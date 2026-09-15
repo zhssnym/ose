@@ -13,11 +13,8 @@
 // says where its DOM went without this module having to know anything about index.js.
 
 import { Plugin } from '@milkdown/kit/prose/state';
-import { bus, commands, debounce, esc } from '../registry.js';
-import { findInbound } from '../lib/links.js';
+import { bus, commands, debounce, esc, findInbound, navigate, titleOf } from './host.js';
 import { toast } from './deps.js';
-import { navigate } from '../shell/index.js';
-import { titleOf } from '../shell/paths.js';
 import './backlinks.css';
 
 /** path -> how many pages link to it, as last computed. Read by the editor's meta line. */

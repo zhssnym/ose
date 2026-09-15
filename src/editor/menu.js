@@ -10,10 +10,9 @@
 //
 // Exports read by extensions.js: plugins(ctx, o).
 
-import { commands } from '../registry.js';
+import { commands, contextMenu, shortcutFor, toast } from './host.js';
+import { isMac } from './keymap.js';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
-import { contextMenu } from '../shell/dialog.js';
-import { isMac, shortcutFor } from '../shell/keys.js';
 
 const KEY = new PluginKey('os-editor-menu');
 
@@ -111,7 +110,6 @@ async function paste(view, mod) {
     const text = await navigator.clipboard.readText();
     if (text) { view.pasteText(text); return; }
   } catch { /* fall through to the hint */ }
-  const { toast } = await import('../shell/dialog.js');
   toast(`press ${mod}+V to paste`, 'info');
 }
 

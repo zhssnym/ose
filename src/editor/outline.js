@@ -7,9 +7,7 @@
 // as pickPage in shell/dialog.js is, so Esc, click-outside and focus return are the same
 // everywhere a list is chosen from.
 
-import { esc } from '../registry.js';
-import { openOverlay } from '../shell/dialog.js';
-import { fuzzy, highlight } from '../shell/fuzzy.js';
+import { esc, openOverlay, fuzzy, highlight } from './host.js';
 import { caretAt } from './reveal.js';
 
 /** A heading glyph on the shell's 16-unit icon grid, for the picker's head. */

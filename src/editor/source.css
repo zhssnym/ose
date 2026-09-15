@@ -2,6 +2,27 @@
    the source-mode body (.ed-source), the Versions… dialog (.ed-versions) and the box a
    missing image draws in its place (.ed-image-missing). Every value is a token. */
 
+/* ------------------------------------------------- the standalone code editor
+   `codeEditor(el, …)` (round four): the same CodeMirror, mounted anywhere rather than inside
+   a page column. It fills whatever box it is given and scrolls inside it, which is the one
+   way it differs from source mode. */
+
+.ed-code {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+}
+
+.ed-code .cm-editor {
+  background: transparent;
+  width: 100%;
+  min-height: 0;
+}
+
+.ed-code .cm-scroller { overflow: auto; }
+.ed-code .cm-placeholder { color: var(--fg-3); }
+.ed-code .cm-gutters { padding-right: var(--sp-3); }
+
 /* ---------------------------------------------------------------- source mode */
 
 .ed-source {

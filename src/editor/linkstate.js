@@ -19,10 +19,8 @@
 
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
-import { bus, commands } from '../registry.js';
-import { bridge } from '../bridge/index.js';
+import { bus, commands, bridge, navigate } from './host.js';
 import { toast } from './deps.js';
-import { navigate } from '../shell/index.js';
 import * as P from './paths.js';
 
 /* ------------------------------------------------------------------ following */

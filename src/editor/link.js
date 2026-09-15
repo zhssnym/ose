@@ -9,7 +9,7 @@
 // file never imports the editor back (slash.js -> link.js -> index.js would be a cycle, and the
 // round-trip harness would pull the whole shell in with it).
 
-import { bridge } from '../bridge/index.js';
+import { allPages, bridge, esc, highlight, icon, openOverlay, pageItems } from './host.js';
 import { pickPage } from './deps.js';
 import * as P from './paths.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
@@ -249,18 +249,15 @@ export async function linkCommand(view) {
  * answers the first. Same surface, same matcher and the same keys as quick open.
  */
 async function linkDialog({ value = '', canRemove = false } = {}) {
-  const [dlg, fuzzy, sidebar] = await Promise.all([
-    import('../shell/dialog.js'), import('../shell/fuzzy.js'), import('../shell/sidebar.js'),
-  ]);
-  const { esc } = await import('../registry.js');
-  const { icon } = await import('../shell/icons.js');
+  // The page list is the kernel's (`ose.pages()`): the same rows quick open and the page
+  // picker offer, narrowed by the focused folder when there is one.
   let paths = [];
-  try { paths = sidebar.allPages(); } catch { paths = []; }
+  try { paths = await allPages(); } catch { paths = []; }
 
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
-    const ov = dlg.openOverlay({
+    const ov = openOverlay({
       width: 560, top: '15vh', className: 'pal pick ed-link', title: 'Link a page',
       onClose: () => { if (!done) { done = true; resolve(null); } },
     });
@@ -291,7 +288,7 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
       const rows = [];
       const url = q && looksLikeUrl(q);
       if (url && SCHEME.test(q)) rows.push({ kind: 'url', url: q, title: q, hint: 'link' });
-      for (const it of fuzzy.pageItems(paths, q, { limit: 50 })) {
+      for (const it of pageItems(paths, q, { limit: 50 })) {
         rows.push({ kind: 'page', path: it.path, title: it.title, hint: it.hint, hits: it.hits });
       }
       if (url && !SCHEME.test(q)) rows.push({ kind: 'url', url: q, title: normaliseUrl(q), hint: 'link' });
@@ -312,7 +309,7 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
         row.className = 'row pal-row' + (i === sel ? ' active' : '');
         row.dataset.i = String(i);
         row.setAttribute('role', 'option');
-        const label = it.kind === 'page' && it.hits ? fuzzy.highlight(it.title, it.hits) : esc(it.title);
+        const label = it.kind === 'page' && it.hits ? highlight(it.title, it.hits) : esc(it.title);
         row.innerHTML = `<span class="grow">${label}</span>`
           + (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '');
         frag.appendChild(row);

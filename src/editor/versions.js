@@ -7,8 +7,7 @@
 // the save noticing: a version is insurance, never a precondition. Every call is swallowed and
 // logged.
 
-import { bridge } from '../bridge/index.js';
-import { commands } from '../registry.js';
+import { bridge, commands } from './host.js';
 import { choose, openOverlay, toast } from './deps.js';
 
 /** The api handed over by index.js at boot (registerExtensionCommands). */

@@ -1,8 +1,7 @@
 // Page harness: the editor mounted the way the shell will mount it (a scrolling main region),
 // with a file list, a status bar fed from the registry, and a memory/leak check.
 
-import { bridge } from '../bridge/index.js';
-import { commands, status, store, bus } from '../registry.js';
+import { bridge, commands, ready, status, store, bus, vault } from './host.js';
 import { initEditor, openPage, closePage, saveNow, getOpenPath } from './index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,8 +20,8 @@ status.watch((all) => {
 let files = [];
 
 async function boot() {
-  await bridge.ready;
-  store.set('root', await bridge.rootInfo());
+  await ready;
+  store.set('root', vault());
   await initEditor();
 
   // stand-ins for the view commands so the slash menu's "os" group has content

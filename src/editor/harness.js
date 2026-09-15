@@ -19,7 +19,7 @@
 
 import { parserCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Fragment, Slice } from '@milkdown/kit/prose/model';
-import { bridge } from '../bridge/index.js';
+import { bridge } from './host.js';
 import { makeCrepe, roundTrip } from './crepe.js';
 import { parseDoc, composeDoc, setFrontmatterValue } from './doc.js';
 import { postProcess } from './stringify.js';

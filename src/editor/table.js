@@ -13,7 +13,7 @@
 // Everything here answers only when the selection is inside a table, so no key changes meaning
 // anywhere else in the document.
 
-import { commands } from '../registry.js';
+import { commands } from './host.js';
 import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { Slice } from '@milkdown/kit/prose/model';
 import {

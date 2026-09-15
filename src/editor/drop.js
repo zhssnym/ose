@@ -18,7 +18,7 @@
 // so it must be asked second.
 
 import { Plugin, PluginKey, Selection } from '@milkdown/kit/prose/state';
-import { bridge } from '../bridge/index.js';
+import { bridge } from './host.js';
 import { toast } from './deps.js';
 import { pageTitle } from './link.js';
 import * as P from './paths.js';

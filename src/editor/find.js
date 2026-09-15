@@ -24,7 +24,8 @@
 
 import { FIND_KEY, findState } from './plugins.js';
 import { caretAt } from './reveal.js';
-import { icon } from '../shell/icons.js';
+import { icon } from './host.js';
+import { toast } from './deps.js';
 
 const MAX_PREFILL = 64;
 
@@ -132,7 +133,7 @@ export function createFind(root, getView, onEdit) {
     if (typeof onEdit === 'function') onEdit();
     paint();
     v.focus();
-    import('./deps.js').then((d) => d.toast(`replaced ${n} ${n === 1 ? 'match' : 'matches'}`));
+    toast(`replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
   }
 
   // -------------------------------------------------------------------- dom
