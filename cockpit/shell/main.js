@@ -2,9 +2,10 @@
 //
 //   ose.ready  ->  the shell  ->  ose.init  ->  the rice's own surfaces  ->  the modules
 //
-// Nothing is navigated to: the app opens on the sidebar and an empty page column and the user
-// picks (docs/CONTRACT.md batch 2). With no vault open the shell is not built at all — one
-// surface asks for a folder and the rice starts again on the answer.
+// The app opens on the dashboard (shell/dashboard.js): the home tab, one card per module, and
+// no page — there is still no startup *route* (docs/CONTRACT.md batch 2), only a home the user
+// leaves by picking something. With no vault open the shell is not built at all — one surface
+// asks for a folder and the rice starts again on the answer.
 
 import { ose } from 'ose:kernel';
 import { toast } from 'ose:ui';
@@ -15,7 +16,9 @@ import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
 import { initUpdate } from './update.js';
-import { initStart, startSurface } from './start.js';
+import { startSurface } from './start.js';
+import { initDashboard } from './dashboard.js';
+import { initTabs } from './tabs.js';
 
 /**
  * The two stylesheets the kernel rewrites into `index.html` (docs/KERNEL.md "Origins"). A host
@@ -91,19 +94,29 @@ async function boot() {
   // Who draws a page, and what the page list is. Before `ose.init`, because the router mounts
   // with the shell and the first thing it may be asked for is a page.
   initPageHost();
+  // The home this rice opens on, and the strip that holds it. Both before `ose.init`: the
+  // dashboard has to be a registered view before anything navigates to it, and the strip has
+  // to be listening before the first route event.
+  initDashboard();
+  initTabs(els.tabs, els.main);
   // The one call that starts the kernel in the rice: the theme, the key engine, and the
-  // router mounted into the rice's own page column.
-  ose.init({ page: els.main });
+  // router mounted into the rice's own page column. `start: false` because this rice has a
+  // home of its own; without it the kernel's empty surface would flash away under the
+  // dashboard on every boot.
+  ose.init({ page: els.main, start: false });
 
   initPalette();
   initSearch();
   initSettings();
   initUpdate();
-  initStart();
   await loadKeys();
 
-  await loadModules();
+  // The home tab, before the modules load: the dashboard is on screen while they activate and
+  // fills in when `booted` says they have. A module that navigates somewhere else on activate
+  // opens a second tab, which is what a second tab is for.
   startSurface();
+
+  await loadModules();
 
   ose.status.set('mode', 'READY');
   ose.bus.emit('booted');

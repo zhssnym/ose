@@ -117,8 +117,10 @@ ose.route.own(pattern, mount) -> unsubscribe
 ose.route.index(pattern, fn) register what quick open lists for an owned pattern
 ose.route.on(fn)             -> unsubscribe            fn(route) after every change
 ose.route.indexed()          -> [{ path, title }]      everything the owners registered through index()
-ose.route.title(text)        the owned page's own title; the window title becomes `<text> · <vault>`
-ose.route.init(el)           the rice mounts the router into its page column, once
+ose.route.title(text)        the owned page's own title; the window title becomes `<text> · <vault>`,
+                             and the bus carries `route:title` { route, title } for a rice that draws it elsewhere
+ose.route.init(el, opts?)    the rice mounts the router into its page column, once
+                             (`{ start: false }`: no empty surface on the mount)
 
 ose.commands.register({ id, title, group, shortcut?, when?, run })  -> unsubscribe
     `shortcut` is a binding, not a printed hint: registering the command arms the chord with
@@ -200,8 +202,14 @@ ose.focus.get() / set(path) / exit() / name() / isUnder(path) / defaultNewFolder
     because `ose.pages()` and `page.new` both need it.
 ose.assets.url(name)         -> the absolute URL of a kernel asset
 ose.assets.origins()         -> { kernel, app, vault }      the three, as the host named them
-ose.modules.load(ids?)       -> Promise<[{ id, name, state, error? }]>   the loader, below
+ose.modules.load(ids?)       -> Promise<[{ id, name, state, view, description, error? }]>   the loader, below
 ose.modules.list() / unload(id) / base() / setBase(url)
+    A row is the module as `module.json` declares it: `id`, `name`, `state`
+    ('active' | 'disabled'), `error` when it is disabled, plus `view`
+    ({ name, title, order } or null) and `description` (a string, '' when the manifest has
+    none). The last two come straight from the manifest, not from `ose.views`, so a rice can
+    draw what is installed before a module has activated and can still say what a disabled
+    one was for.
 ose.log(text)                                                 into the host log
 ose.reload()                                                  reload the rice (Ctrl+R)
 ose.uid() / debounce(fn, ms) / esc(text) / toast(text, kind?, ms?)   small shared helpers
@@ -211,9 +219,14 @@ Two of the hoses are the other way round: things the **rice hands the kernel**, 
 the kernel can stay ignorant of both the editor and the sidebar. Neither is for a module.
 
 ```
-ose.init({ page, keys, theme })   -> the one call the rice makes once its shell exists:
+ose.init({ page, keys, theme, start })   -> the one call the rice makes once its shell exists:
                                      mounts the router into `page`, starts the key engine and
-                                     the theme. Each part can be switched off.
+                                     the theme. Each part can be switched off. `start: false`
+                                     mounts the router without drawing the empty surface, for
+                                     a rice that opens on a home of its own: the column stays
+                                     blank until that rice navigates, instead of flashing the
+                                     kernel's surface away under it on every boot.
+                                     `ose.route.init(el, { start })` is the same option.
 ose.setPageHost(host)             -> unregister    whoever draws a markdown page:
     { open(el, path, opts), close(), scrollToLine(line, col), selection(), headingLine(text, h) }
     The router never imports `ose:editor`; the rice joins them here. With no page host the

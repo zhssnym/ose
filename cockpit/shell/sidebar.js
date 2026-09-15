@@ -1,20 +1,24 @@
-// Sidebar: pinned, views, pages, scratch. One scrolling column, no search box (search
+// Sidebar: pinned, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
+// There is no views section: a view is a module's surface and the dashboard is where the
+// modules are (shell/dashboard.js), so the sidebar is the vault and nothing else.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
 // Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
 // every move, however it was made, rewrites the links that pointed at what moved (C13).
 import { ose } from 'ose:kernel';
 import {
-  esc, icon, hasIcon, prompt, confirm, contextMenu, pickFolder, toast, copyText,
+  esc, icon, prompt, confirm, contextMenu, pickFolder, toast, copyText,
   focusOrigin, retargetFocusOrigin, overlayCount,
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHiddenName, segments } from './paths.js';
 import { openSearch } from './search.js';
-import { focusPage } from './layout.js';
+import { moveTabs, closeTabsUnder } from './tabs.js';
+import { isMediaFile } from './media.js';
+import { focusPage, sidebarVisible } from './layout.js';
 
-const { bus, store, commands, views, debounce, files, links, route } = ose;
+const { bus, store, commands, debounce, files, links, route } = ose;
 
 // The kernel's hoses this file leans on, named the way the batch-12 shell named them, so the
 // code below reads as it always did. Everything here is `ose` and nothing else.
@@ -46,7 +50,7 @@ let pins = [];
 let roving = null;
 // Set by a rename or move so the next render puts focus on the row's new name (B4).
 let focusAfterRender = null;
-// The multi-selection (C17): tree paths, never pins or views. Empty means the focused row is
+// The multi-selection (C17): tree paths, never pins. Empty means the focused row is
 // the only target, as before; two or more and the tree commands act on all of them. `anchor`
 // is the row a Shift-range grows from, set by every plain click or arrow.
 let selected = new Set();
@@ -226,14 +230,6 @@ function label(text, dropPath) {
   return d;
 }
 
-// Views may hand us a raw <svg> string, a name from our icon set, or nothing.
-function viewIcon(v) {
-  const i = v.icon;
-  if (typeof i === 'string' && i.trim().startsWith('<')) return i;
-  if (typeof i === 'string' && hasIcon(i)) return icon(i);
-  return icon(hasIcon(v.name) ? v.name : 'view');
-}
-
 /**
  * A `role="tree"` box for one section, so every `treeitem` has a tree to belong to (S39).
  * One tree per section rather than one for the whole sidebar: the sections are separate lists
@@ -271,29 +267,6 @@ function renderPinned(frag) {
       text: name,
       tail: ambiguous ? (parent ? baseName(parent) : '/') : '',
       data: { path: p, kind: dir ? 'dir' : 'file', md: isMd(p) ? '1' : '0', pin: '1' },
-    }));
-  }
-}
-
-/** The agent row is its own section above the views, and is never listed among them. */
-function renderViews(frag) {
-  // `ose.views.list()` answers in registration order, and modules activate concurrently: the
-  // order a person sees is the rice's to decide, out of the `order` each view declares (and
-  // its manifest repeats, docs/MODULES.md). Ties fall back to the title, so two modules that
-  // both say 100 are still in a stable order.
-  const list = [...views.list()].sort((a, b) =>
-    ((a.order ?? 100) - (b.order ?? 100)) || String(a.title || a.name).localeCompare(String(b.title || b.name)));
-  if (!list.length) return;
-  frag.appendChild(label('views'));
-  const box = treeBox(frag, 'Views');
-  const r = currentRoute();
-  for (const v of list) {
-    box.appendChild(rowEl({
-      cls: 'sb-view' + (r && r.type === 'view' && r.name === v.name ? ' current' : ''),
-      depth: 0,
-      glyphHtml: viewIcon(v),
-      text: v.title || v.name,
-      data: { view: v.name },
     }));
   }
 }
@@ -395,7 +368,6 @@ function renderTree() {
 
   // Focused, the sidebar is one folder and the app's own rows: pins and scratch are noise.
   if (!focus) renderPinned(frag);
-  renderViews(frag);
 
   frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));
   if (!tree) {
@@ -468,17 +440,16 @@ function rowFor(path) {
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: pins, views, pages, scratch, the missing-scratch
+// Everything a key can land on, top to bottom: pins, pages, scratch, the missing-scratch
 // line. Collapsed folders render no children, so this list is exactly the visible rows.
 function treeRows() {
   return scrollEl ? [...scrollEl.querySelectorAll('.sb-row, .sb-missing')] : [];
 }
 
-/** A stable identity for a row across renders: the path (pins apart from tree rows), the view, or the one missing line. */
+/** A stable identity for a row across renders: the path (pins apart from tree rows), or the one missing line. */
 function rowKey(row) {
   if (!row || !row.dataset) return null;
   if (row.classList.contains('sb-missing')) return 'miss';
-  if (row.dataset.view) return 'view:' + row.dataset.view;
   if (row.dataset.path !== undefined) return (row.dataset.pin === '1' ? 'pin:' : 'path:') + row.dataset.path;
   return null;
 }
@@ -495,7 +466,6 @@ function rovingRow() {
   const r = currentRoute();
   return rowByKey(roving)
     || (r && r.type === 'page' && rowFor(r.path))
-    || (r && r.type === 'view' && rowByKey('view:' + r.name))
     || list[0];
 }
 
@@ -515,13 +485,13 @@ function focusRow(row) {
 
 /** Ctrl+Shift+E and `app.focus-sidebar`: the sidebar, open, with its one tab stop focused. */
 export function focusTree() {
-  if (!store.get('sidebar.open')) store.set('sidebar.open', true);
+  if (!sidebarVisible()) store.set('sidebar.open', true);
   focusRow(rovingRow());
 }
 
 /* -------------------------------------------------------------- selection (C17) */
 
-/** The rows that can be part of a selection: tree rows with a path, so no pins and no views. */
+/** The rows that can be part of a selection: tree rows with a path, so no pins. */
 function selectableRows() {
   return treeRows().filter((r) => r.dataset.path !== undefined && r.dataset.pin !== '1');
 }
@@ -586,17 +556,17 @@ function toggleDir(row) {
   render();
 }
 
-/** Enter: what a click does. Pages open (and take focus, B3), folders toggle, views open, the missing line opens settings. */
+/** Enter: what a click does. Pages open (and take focus, B3), folders toggle, the missing line opens settings. */
 function activateRow(row) {
   if (row.classList.contains('sb-missing')) { commands.run('app.settings'); return; }
-  if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
   const path = row.dataset.path;
   if (row.dataset.kind === 'dir') { toggleDir(row); return; }
   if (row.dataset.md === '1') { navigate({ type: 'page', path }); return; }
-  // A text file the editor can show opens in it (source mode, P5's); everything else — a PDF,
-  // an image, a spreadsheet — goes to the application the platform uses for it (N24, N25).
+  // A text file the editor can show opens in it (source mode); a PDF or an image opens in the
+  // page column as a media page (round five, shell/media.js, P's); everything else — a
+  // spreadsheet, an archive — goes to the application the platform uses for it (N24, N25).
   // Revealing it in Explorer, which is what this used to do, is a folder away from useful.
-  if (isTextFile(path)) { navigate({ type: 'page', path }); return; }
+  if (isTextFile(path) || isMediaFile(path)) { navigate({ type: 'page', path }); return; }
   openWith(path);
 }
 
@@ -694,7 +664,7 @@ function onTreeKey(e) {
   if (!next) return;
   // Shift + a vertical move extends the range from the anchor to where focus lands; a move
   // without it is a single row again. Only tree rows can be selected, so a range that runs
-  // into the views or the pins simply skips them.
+  // into the pins simply skips them.
   if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (inTree || isSelectable(next))) {
     if (!anchor || !rowByKey(anchor)) anchor = rowKey(row);
     if (isSelectable(next)) selectRange(next);
@@ -823,6 +793,9 @@ async function afterMoves(moves, verb) {
     // The row the user was on has a new name; the next render focuses it there (B4, D1).
     if (roving === 'path:' + m.from) focusAfterRender = 'path:' + m.to;
     else if (roving === 'pin:' + m.from) focusAfterRender = 'pin:' + m.to;
+    // The tab follows the page, before the navigate below: otherwise the renamed page opens a
+    // second tab and the first one points at a path that no longer exists (shell/tabs.js).
+    moveTabs(m.from, m.to);
   }
   persistExpanded();
   if (selected.size) {
@@ -1021,10 +994,11 @@ async function trashAt(items) {
   });
   if (!ok) return;
   // Trashed from the tree (Delete, or the menu on a row): focus stays in the tree, on the row
-  // that takes the gap (B4 does that in render). Trashed from the page: the empty surface
-  // takes it, the way any other open does.
+  // that takes the gap (B4 does that in render). Trashed from the page: whatever takes the
+  // tab's place takes the focus, the way any other open does.
   const fromTree = !!(scrollEl && scrollEl.contains(focusOrigin()));
   let hit = false;
+  let handled = false;
   const r = currentRoute();
   for (const it of list) {
     const path = clean(it.path);
@@ -1034,10 +1008,16 @@ async function trashAt(items) {
       dropPinsUnder(path);
       selected.delete(path);
       if (r && r.type === 'page' && followMove(r.path, path, path)) hit = true;
+      // A trashed page takes its tab with it (shell/tabs.js): the strip must never hold a row
+      // pointing at a file that is gone, and the one in front lands on its neighbour rather
+      // than on the empty surface.
+      if (closeTabsUnder(path, { focus: !fromTree })) handled = true;
     } catch (e) { toast('trash failed: ' + (e.message || e), 'err'); }
   }
   await refreshTree();
-  if (hit) await clearRoute({ focus: !fromTree });
+  // Only when no tab held it: the open page was something else's, so the empty surface is
+  // still the honest place for it to land.
+  if (hit && !handled) await clearRoute({ focus: !fromTree });
 }
 
 /** Expand the tree down to a folder and bring it into view. No navigation. */
@@ -1455,8 +1435,22 @@ function emptyMenu() {
 export function initSidebar(node) {
   el = node;
   el.className = 'sidebar';
-  el.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
+  // The fold control, at the top edge of the sidebar and on the same line as the tab strip
+  // beside it. One truth: it runs `app.sidebar`, the same command Ctrl+\ runs, so the state
+  // it writes is `sidebar.open` and nothing else.
+  el.innerHTML = `
+    <div class="sb-head">
+      <button type="button" class="sb-fold">${icon('chevron')}</button>
+    </div>
+    <div class="sb-scroll" tabindex="-1"></div>`;
   scrollEl = el.querySelector('.sb-scroll');
+
+  const fold = el.querySelector('.sb-fold');
+  const foldChord = shortcutFor('app.sidebar');
+  fold.title = foldChord ? `Hide sidebar (${foldChord})` : 'Hide sidebar';
+  fold.setAttribute('aria-label', 'Hide sidebar');
+  fold.setAttribute('aria-expanded', 'true');
+  fold.addEventListener('click', () => commands.run('app.sidebar'));
 
   const saved = sidebarState.get() || {};
   if (Array.isArray(saved.expanded)) expanded = new Set(saved.expanded.filter(Boolean));
@@ -1497,7 +1491,7 @@ export function initSidebar(node) {
   // the selection is dropped first, so the menu is never about rows other than the one
   // under the pointer.
   scrollEl.addEventListener('contextmenu', (e) => {
-    const row = e.target.closest('.sb-row:not(.sb-view)');
+    const row = e.target.closest('.sb-row');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
     contextMenu(e.clientX, e.clientY, menuItemsForRow(row));
@@ -1516,7 +1510,11 @@ export function initSidebar(node) {
 
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
-    run: () => store.set('sidebar.open', !store.get('sidebar.open')),
+    hint: 'the chevron at its top edge does the same',
+    // What is on screen, not what the preference says: on a narrow window the sidebar is
+    // hidden with the preference still open (layout.js `fit`), and a blind flip would have to
+    // be pressed twice to bring it back.
+    run: () => store.set('sidebar.open', !sidebarVisible()),
   });
   commands.register({
     id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app', hint: 'Esc returns to the page',

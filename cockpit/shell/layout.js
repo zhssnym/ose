@@ -52,6 +52,10 @@ function fit() {
 
   const sOpen = wanted && !autoHidden;
   shell.classList.toggle('no-sidebar', !sOpen);
+  // Who hid it. The title bar's unfold chevron stands down while the window is the one that
+  // did (shell.css): under NARROW the sidebar comes back when the window does and not before,
+  // so a control offering to open it there would be a control that does nothing.
+  shell.classList.toggle('auto-hidden', autoHidden);
 
   let s = sOpen ? Math.min(wantS, Math.max(S_MIN, Math.round(avail * S_SHARE))) : 0;
   const over = s + MIN_MAIN - avail;
@@ -109,6 +113,14 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
   });
   handle.addEventListener('dblclick', () => { apply(handle.dataset.reset ? +handle.dataset.reset : get()); done && done(get()); });
 }
+
+/**
+ * Whether the sidebar is actually on screen: the user's preference *and* the window being wide
+ * enough (L25). The toggle command asks here rather than flipping the preference blind, so the
+ * chevron in the title bar opens a sidebar the narrow window had hidden with one press instead
+ * of two — the preference itself is still only ever written by the toggle.
+ */
+export const sidebarVisible = () => !!store.get('sidebar.open') && !autoHidden;
 
 /* -------------------------------------------------------------- page column */
 
@@ -310,14 +322,20 @@ export function mountShell(rootEl) {
     <div class="body">
       <aside class="sidebar"></aside>
       <div class="rs rs-sidebar" data-reset="260" title="Drag to resize" aria-label="Sidebar width"></div>
-      <main class="main"></main>
+      <div class="maincol">
+        <div class="tabs"></div>
+        <main class="main"></main>
+      </div>
     </div>
     <footer class="statusbar"></footer>`;
   rootEl.appendChild(shell);
 
+  // The tab strip sits above the page column and outside it: the router clears `.main` on
+  // every navigation, so anything that has to survive one lives in the column around it.
   const els = {
     titlebar: shell.querySelector('.titlebar'),
     sidebar: shell.querySelector('.sidebar'),
+    tabs: shell.querySelector('.tabs'),
     main: shell.querySelector('.main'),
     statusbar: shell.querySelector('.statusbar'),
   };

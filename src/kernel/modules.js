@@ -321,9 +321,38 @@ export async function load(ose, ids = null) {
   return list();
 }
 
+/**
+ * The manifest's `view` as a row carries it: `{ name, title, order }`, or null when the module
+ * registers no view. Read off the manifest rather than off `ose.views` on purpose — a rice
+ * that lists what is installed must be able to say so before the module has activated, and a
+ * disabled module still has a manifest.
+ */
+function viewOf(manifest) {
+  const v = manifest && manifest.view;
+  if (!v || typeof v !== 'object' || !v.name) return null;
+  return {
+    name: String(v.name),
+    title: String(v.title || v.name),
+    order: Number.isFinite(v.order) ? v.order : 100,
+  };
+}
+
+/**
+ * `ose.modules.list()`: one row per module the loader has seen.
+ * `{ id, name, state, view, description, error? }` — `view` and `description` come straight
+ * from `module.json` (docs/MODULES.md), so a rice can draw what is installed without opening
+ * a manifest itself. A module that has not been loaded at all is not a row.
+ */
 export function list() {
   return [...loaded.values()].map((m) => {
-    const row = { id: m.id, name: m.name, state: m.state };
+    const man = m.manifest || {};
+    const row = {
+      id: m.id,
+      name: m.name,
+      state: m.state,
+      view: viewOf(man),
+      description: typeof man.description === 'string' ? man.description : '',
+    };
     if (m.error) row.error = m.error;
     return row;
   });

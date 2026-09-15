@@ -15,8 +15,8 @@ Edit a file, press Ctrl+R (`app.reload`), see the change. The stock rice lives i
                     shell/shell.css and theme.css), and two module scripts: shell/first-paint.js
                     (theme and platform onto <html> before the first paint, from localStorage
                     and the user agent; the CSP allows no inline script) then shell/main.js
-  shell/            titlebar, sidebar, palette, statusbar, settings dialog, search, start
-                    surface, vault chooser, update item, host helpers, shell.css
+  shell/            titlebar, tab strip, sidebar, palette, statusbar, settings dialog, search,
+                    dashboard, vault chooser, update item, host helpers, shell.css
   theme.css         token overrides (optional; the stock one is empty)
   keys.json         an override layer, not the keymap: the window map is the kernel's
                     (`ose.keys.defaults()`, with its macOS alternates and in-body rules that JSON
@@ -39,8 +39,9 @@ Edit a file, press Ctrl+R (`app.reload`), see the change. The stock rice lives i
    `Change vault`. Shift held at launch, or `ose --no-rice`, forces this page.
 4. `shell/main.js` awaits `ose.ready`, mounts the shell, calls `ose.modules.load()` (the
    module loader lives in the kernel; the rice decides when to call it, after the shell
-   exists). The router draws the empty start surface when it is mounted; `shell/start.js`
-   owns the decision that there is no startup route and the command that returns to it.
+   exists). The router is mounted with `start: false`, so nothing is drawn until
+   `shell/start.js` navigates to the dashboard, the home tab ("Tabs, the home, and the
+   sidebar" below).
    The vault chooser (`shell/vault.js`) is the rice's and is reached in a browser or a web
    view only; in the host a missing vault is the kernel's native picker and fallback page.
    The change-vault and vault-is-gone dialogs live in the same file.
@@ -55,6 +56,49 @@ hoses exist and behave as documented.
 
 The stock shell keeps every behaviour of the batch-12 interface (docs/CONTRACT.md): the
 keymap, the tree, quick open, search, settings rows, zoom, the vault chooser, the update item.
+
+## Tabs, the home, and the sidebar
+
+The kernel keeps one current route and a history stack, and it does not know the word "tab".
+The strip above the page column (`shell/tabs.js`) is a rice-side list of routes that follows
+`ose.route.on`: a route that is not in the list joins it, a route that is becomes the active
+one. A tab's identity is the kernel's own route key — `page:<path>`, `own:<path>`,
+`view:<name>` — so one page reached from the tree, from quick open and from a link is one tab.
+
+- Clicking a tab is `ose.route.navigate`. Closing one is `tab.close` (Ctrl+W), the middle
+  button, the × on the tab, or Delete on a focused tab; the active tab closes through the
+  kernel (`page.close` when it is a page, so the buffer is saved, `ose.route.close()`
+  otherwise), which is what feeds the kernel's own closed stack.
+- A close goes to the tab that was in front before it, else its neighbour, else home.
+- `tab.reopen` (Ctrl+Shift+T) pops the strip's own closed list first — it also holds the tabs
+  closed while another was in front, which the kernel never saw — and falls through to the
+  kernel's `app.reopen-closed`.
+- `tab.next` / `tab.prev` are Ctrl+Tab and Ctrl+Shift+Tab. Ctrl+1…9 are deliberately unbound:
+  Ctrl+1…6 are the editor's heading chords in the page body.
+- A tab's label is what the window title says for that route: a page's H1 (through `pageTitle`
+  in `ose.store`, so a renamed H1 renames the tab), a view's title, an owned route's title as
+  its module registered it with `ose.route.index`. A page with unsaved changes shows a dot,
+  from the same `doc:dirty` / `doc:saved` events the title bar reads.
+- Renaming, moving or trashing a page from the tree carries or closes its tab.
+- The strip is a `tablist`: arrows walk it, Enter opens, Delete closes. It scrolls sideways
+  and never wraps. Tabs are not restored across restarts.
+
+The first tab is the home, and it has no ×: the **dashboard** (`shell/dashboard.js`), a view
+named `dashboard` titled "Home", one card per module out of `ose.modules.list()` — the name,
+the manifest's one-line description, and the chord of the `view.<name>` command when one is
+bound. A module with no view of its own is a line under the grid; a disabled one is a line
+that says why. `shell/start.js` navigates there at the end of the boot, and the router is
+mounted with `ose.init({ page, start: false })` so the kernel's empty surface never flashes
+under it. Closing the last real tab lands there. There is no `app.start` command any more;
+`app.home` is where nothing-in-particular goes.
+
+The sidebar is the vault and nothing else: pinned, pages, scratch. It has no views section —
+a view is a module's surface, and the dashboard is where the modules are. Its top edge carries
+a chevron that folds it; folded, a chevron at the far left of the title bar unfolds it. Both
+run `app.sidebar` (Ctrl+\), so `sidebar.open` in state is the one truth. Under 640px of window
+the sidebar hides itself and comes back when the window is wide again (the L25 rule, unchanged);
+while that is what hid it, the title bar's chevron stands down, because nothing it could do
+would bring the sidebar back before the window does.
 
 ### The page seam: markdown, images, PDFs
 

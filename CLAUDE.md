@@ -102,8 +102,10 @@ A new vault starts by copying `cockpit/` to `<vault>/.ose/app`.
 - No sync, no accounts. One network call: the update check against the repo's own `latest`
   release, ten seconds after boot and every six hours, off by a switch in settings. `ose.run`
   starts programs, never the network.
-- No tabs. One page at a time, with back and forward.
-- No startup route. The app opens on the sidebar and an empty surface; the user picks.
+- One page at a time in the column, with back and forward; the tab strip is the rice's list of
+  open routes over that one route, not editors kept alive, and it is not restored on restart.
+- No startup route. The app opens on the dashboard (one card per module) and the sidebar; the
+  user picks. Nothing the user last looked at is restored.
 - Every path the stock views read is a source in settings, each with a sentence saying what it
   must contain and a red `missing` when it does not exist.
 - No drag-to-reorder in the tree: order comes from names. No math: a bare `$` stays a `$`.

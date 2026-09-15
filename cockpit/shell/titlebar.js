@@ -82,6 +82,7 @@ export function initTitlebar(node) {
   el = node;
   el.className = 'titlebar';
   el.innerHTML = `
+    <button class="tb-unfold" type="button">${icon('chevron')}</button>
     <div class="tb-mark" title="Ose"><span>ose</span></div>
     <div class="tb-nav">
       <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
@@ -95,6 +96,16 @@ export function initTitlebar(node) {
       <button class="tb-btn" data-w="max" title="Maximize" aria-label="Maximize">${glyph('max')}</button>
       <button class="tb-btn close" data-w="close" title="Close" aria-label="Close">${glyph('close')}</button>
     </div>`;
+
+  // The other half of the sidebar's fold chevron: a thin strip at the far left of the title
+  // bar, drawn only while the sidebar is not on screen (shell.css keys it off `.no-sidebar`,
+  // so the narrow-window auto-hide shows it too). Same command as the chevron and as Ctrl+\.
+  const unfold = el.querySelector('.tb-unfold');
+  const unfoldChord = shortcutFor('app.sidebar');
+  unfold.title = unfoldChord ? `Show sidebar (${unfoldChord})` : 'Show sidebar';
+  unfold.setAttribute('aria-label', 'Show sidebar');
+  unfold.addEventListener('mousedown', (e) => e.stopPropagation());
+  unfold.addEventListener('click', () => commands.run('app.sidebar'));
 
   crumbsEl = el.querySelector('.tb-crumbs');
   dirtyEl = el.querySelector('.tb-dirty');
@@ -129,13 +140,13 @@ export function initTitlebar(node) {
 
   el.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest('.tb-btn, .tb-crumb')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-unfold')) return;
     if (!HOST()) return;
     dragWindow();
   });
 
   el.addEventListener('dblclick', (e) => {
-    if (e.target.closest('.tb-btn, .tb-crumb')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-unfold')) return;
     if (!HOST()) return;
     ose.window.maximize();
   });

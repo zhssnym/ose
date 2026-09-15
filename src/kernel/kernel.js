@@ -195,8 +195,9 @@ export const ose = {
     // The window title of the owned route on screen, once the module knows it.
     title: (text) => router.setOwnTitle(text),
     on: (fn) => router.onRoute(fn),
-    // The rice mounts the router into its page column; nothing else may.
-    init: (el) => router.initRouter(el),
+    // The rice mounts the router into its page column; nothing else may. `{ start: false }`
+    // skips the empty surface the mount draws, for a rice that opens on a home of its own.
+    init: (el, opts) => router.initRouter(el, opts),
   },
 
   commands,
@@ -388,11 +389,15 @@ export const ose = {
   setPageHost,
   setPageList,
 
-  /** What the rice calls once, after its shell exists: the key engine and the theme. */
-  init({ page, keys = true, theme = true } = {}) {
+  /**
+   * What the rice calls once, after its shell exists: the key engine and the theme.
+   * `start: false` mounts the router without drawing the empty surface, for a rice that opens
+   * on a surface of its own and would otherwise flash the kernel's on every boot.
+   */
+  init({ page, keys = true, theme = true, start = true } = {}) {
     if (theme) initTheme();
     if (keys) initKeys();
-    if (page) router.initRouter(page);
+    if (page) router.initRouter(page, { start });
   },
 
   // Small shared helpers the rice would otherwise write again.

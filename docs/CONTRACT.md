@@ -1867,3 +1867,53 @@ the previous engine, which is how the two columns above were measured by one ins
 Fixtures cover each numbered finding of the batch-12 markdown research by name; a fixture for a
 finding that is not fixed yet is marked `todo` and counted apart, and none carries the flag
 today — a fixture that passes belongs in the column that fails.
+
+## Round five (2026-09-16): tabs, dashboard, Informatique
+
+Kernel 0.4.0 → 0.5.0. The plan is the artifact "Tabs, dashboard, Informatique". Packages R1 (rice), E (editor), MJ (judge), MU (module interface), P (media pages), A (adversarial), QA-5.
+
+### The NSI judge, round five: one kind
+
+The judge had three kinds of problem — `code`, `written`, `qcm` — and a checker registry to
+dispatch on them. There is one kind now. Every problem is a folder with a statement, a Python
+answer, a correction and, when there is something to run, `tests.py`; `has_tests` is the only
+fork left. With a non-empty `TESTS` the judge runs the cases and the verdict is its own. With
+an empty or missing one, `submit` hands back the correction and the user grades themselves,
+which is what `written` used to mean; `selfgrade` is now valid for every problem, because a
+suite that passes is not the same thing as an answer you are happy with. `qcm` is gone with no
+replacement: a folder whose `meta.kind` is `qcm` is skipped at load with one line on stderr.
+
+The loader reads a meta whose `kind` is missing, `code`, or still `written` as the same thing.
+`convert` is the one-off that ends the ambiguity: `reponse.md` becomes a comment block in
+`solution.py`, `meta.kind` becomes `code`, `correction.md` stays, state and log are untouched.
+It is idempotent, `--dry` says what it would do, and it refuses a `qcm` with a reason.
+
+Output, for a module written against it: a `list` row drops `kind`, `difficulty` and
+`concepts` and gains `has_tests`. `detail` drops `kind` and `difficulty` and gains
+`has_tests`, `folder`, `enonce_path`, `tests_path`, `correction_path` and `correction_format`
+next to `answer_path`, all relative to the data root and all given whether or not the file
+exists yet. `meta` is still handed over whole: `difficulty` and `concepts` in an old meta are
+read and ignored, never rejected, and `create` never writes `difficulty` again. The `create`
+spec is `{ title, chapter, source, function, params }` with `function` and `params` optional —
+a problem is often written down before anyone knows what the function will be called — and it
+always writes the five files, `tests.py` among them with an empty `TESTS`.
+
+`submit --selections` is gone with the QCM. `--data-dir`, `migrate`, the scheduler and the
+ASCII-safe one-object-on-stdout protocol are unchanged.
+
+### The rice: tabs, a home, a sidebar that folds (R1)
+
+The stock rice grew a tab strip, a dashboard and a fold control, and lost its views section and
+its empty-surface command. None of it is in the kernel: the kernel gained exactly two additive
+fields and one additive option, both above, and still knows no view, no module and no file name
+of the rice.
+
+The app no longer opens on the kernel's empty surface. It opens on the dashboard — the home
+tab, one card per module — which is a view of the rice like any other. This is not a startup
+*route* returning (batch 2): nothing the user was last looking at is restored, tabs included.
+It is a home with nothing in it but what is installed, and the user still picks.
+
+Ctrl+W is `tab.close` rather than `page.close`; the editor's `page.close` is still registered
+and still lands on the empty surface if it is run from the palette, and the strip follows it
+the same way. Ctrl+Shift+T is `tab.reopen`, which prefers the strip's own closed list and falls
+back to the kernel's. `app.start` is gone; `app.home` replaces it.

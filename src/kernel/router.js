@@ -193,7 +193,16 @@ function pushRecent(path) {
   patchState({ recent: list.slice(0, MAX_RECENT) });
 }
 
-export function initRouter(el) {
+/**
+ * `ose.route.init(el, { start })` — the rice mounts the router into its page column, once.
+ *
+ * `start: false` skips the empty surface the mount otherwise draws. A rice that opens on a
+ * surface of its own (the stock cockpit's dashboard) would otherwise show the kernel's empty
+ * surface for as long as its own boot takes, and the user would watch it flash away. The
+ * column is simply left blank until the rice navigates. Nothing else changes: `route.close()`
+ * still draws the empty surface, which stays what it always was.
+ */
+export function initRouter(el, { start = true } = {}) {
   mainEl = el;
 
   // The app no longer opens at a route (CONTRACT.md batch 2): drop any route left in
@@ -241,7 +250,8 @@ export function initRouter(el) {
 
   // No startup route (CONTRACT.md batch 2), but not a bare rectangle either: the empty
   // surface is drawn now, without taking focus from the sidebar the user is about to use.
-  void show(null, { focus: false });
+  // A rice with a home of its own asks for `start: false` and draws that instead.
+  if (start) void show(null, { focus: false });
 }
 
 /* ----------------------------------------------------------- focus and scroll */
@@ -425,7 +435,7 @@ function renderOwned(scroll, route) {
     // on the way out exactly like a view's. A module that returns nothing is fine.
     const handle = o.mount(el, route) || {};
     mountedView = handle;
-    if (handle.title) { ownTitles.set(routeKey(route), String(handle.title)); setWindowTitle(route); }
+    if (handle.title) { ownTitles.set(routeKey(route), String(handle.title)); setWindowTitle(route); bus.emit('route:title', { route, title: String(handle.title) }); }
   } catch (e) {
     console.error('[router] own mount', route.path, e);
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">that page failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
@@ -516,6 +526,8 @@ export function setOwnTitle(text) {
   if (!current || current.type !== 'own') return;
   ownTitles.set(routeKey(current), String(text ?? ''));
   setWindowTitle(current);
+  // The rice may draw the title elsewhere (a tab strip): one event, no new hose.
+  bus.emit('route:title', { route: current, title: String(text ?? '') });
 }
 
 function setWindowTitle(route) {

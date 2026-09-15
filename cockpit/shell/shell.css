@@ -9,6 +9,12 @@
   height: 100%;
   display: grid;
   grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  /* The one column, and it may be narrower than what is in it. An implicit `auto` column is
+     never smaller than its widest row's min-content, so a long path in the status bar made the
+     bar — and with it the title bar and the body — wider than the window, and the page column
+     ran off the right edge (P's inbox 002). The rows clip their own overflow already; this is
+     what lets them. */
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
 }
 
@@ -63,6 +69,22 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
 .tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
 .tb-crumb.focus { color: var(--accent); }
 
+/* The unfold half of the sidebar's fold chevron: a thin strip at the far left of the title
+   bar, drawn only while the sidebar is not on screen — which covers the narrow window's own
+   auto-hide as well, because that sets the same class. */
+.tb-unfold { display: none; }
+.shell.no-sidebar .tb-unfold {
+  width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.shell.no-sidebar .tb-unfold:hover { background: var(--bg-3); color: var(--fg); }
+/* Hidden by the window rather than by the user (layout.js `fit`, L25): the sidebar comes back
+   when the window is wide again, and nothing here could bring it back sooner. */
+.shell.no-sidebar.auto-hidden .tb-unfold { display: none; }
+.tb-unfold svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
 .tb-dirty {
   width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
   border-radius: 50%; background: var(--accent);
@@ -105,6 +127,24 @@ html.mac .tb-win { display: none; }
 
 .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
+
+/* The sidebar's own top edge: the fold chevron, on the same line as the tab strip beside it,
+   so the two make one band under the title bar. No label and no bottom border — the sidebar
+   already has an edge, and a second rule here would be a ladder (DESIGN.md "Boxes, not rules"). */
+.sb-head {
+  height: var(--barhead-h); flex: none;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 var(--sp-2);
+}
+.sb-fold {
+  width: 1.5rem; height: 1.5rem; flex: none;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sb-fold:hover { background: var(--bg-3); color: var(--fg); }
+/* The chevron points right; folding runs to the left. */
+.sb-fold svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transform: rotate(180deg); }
 
 /* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
    optional mono tail. A folder and a page at the same depth put their text at the same x
@@ -157,8 +197,6 @@ html.mac .tb-win { display: none; }
 .sb-row.selected.archive,
 .sb-row.selected.link .gl,
 .sb-row.selected.link .grow { color: var(--fg-2); }
-.sb-view svg { color: var(--fg-3); }
-.sb-view.current svg { color: var(--accent); }
 /* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
    anything drawn outside it, which is where the base 2px offset would put it. */
 .sb-row:focus-visible, .sb-missing:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
@@ -198,7 +236,10 @@ html.mac .tb-win { display: none; }
 
 /* ------------------------------------------------------------------ main */
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+/* The main column is the tab strip and the page column under it. The router clears `.main`
+   on every navigation, so the strip lives outside it. */
+.maincol { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 /* `position: relative` is for the loading line below; nothing else in the column is absolute. */
 .main-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .page-host { min-height: 100%; }
@@ -206,6 +247,77 @@ html.mac .tb-win { display: none; }
    to mount (D9). It is the shared .empty, laid over the column where the title will be
    rather than in the flow, so the page does not jump down and back when the editor lands. */
 .main-loading { position: absolute; left: 0; right: 0; top: var(--page-pad-top); padding: 0; pointer-events: none; }
+
+/* ------------------------------------------------------------------ tabs */
+
+/* One tab per open route (shell/tabs.js). Text only: no borders between tabs, no surface on
+   the active one, a 2px accent line under it and nothing else. The strip is the one taller
+   bar, the line the sidebar's fold chevron sits on, and it scrolls sideways rather than
+   wrapping — a second row of tabs is a second thing to read before you have read the first. */
+.tabs {
+  height: var(--barhead-h); flex: none;
+  display: flex; align-items: stretch;
+  padding: 0 var(--sp-2);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
+  color: var(--fg-3);
+}
+/* The one scrollbar in the app that is not 12px: a 44px bar with a 12px scrollbar across it
+   has 32px left for the names. The wheel scrolls the strip and a tab scrolls itself into view
+   when it is opened, so nothing here needs to be dragged. */
+.tabs::-webkit-scrollbar { height: 0; }
+
+.tab {
+  flex: none; max-width: 14rem; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  color: var(--fg-3); white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tab:hover { background: var(--bg-3); color: var(--fg-2); }
+/* The 2px bar is drawn inside the tab so it sits over the strip's own hairline instead of
+   pushing the row up by a pixel; the sidebar's drop target is drawn the same way. */
+.tab.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+.tab:focus-visible { outline-offset: -2px; }
+.tab-name { overflow: hidden; text-overflow: ellipsis; }
+/* The same dot the title bar draws for an unsaved page, in the same place in the reading order. */
+.tab-dot { width: 0.375rem; height: 0.375rem; flex: none; border-radius: 50%; background: var(--accent); }
+.tab-x {
+  width: 1rem; height: 1rem; flex: none;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius); opacity: 0;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.tab-x svg { width: 0.5rem; height: 0.5rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
+/* Kept out of the way until the tab is wanted; it holds its box either way, so no label moves
+   when it appears. Delete on a focused tab closes without it.  */
+.tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
+.tab-x:hover { background: var(--bg-4); color: var(--fg); }
+
+/* ------------------------------------------------------------------ dashboard */
+
+/* The home tab (shell/dashboard.js): one card per module, in the page column, under the same
+   title as any other view. The same box every time — border, --bg-2, the hairline radius — no
+   icons, no counts, no colour. Two across the column, one under 40rem of it. */
+.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.dash.narrow .dash-grid { grid-template-columns: minmax(0, 1fr); }
+.dash-card {
+  display: grid; gap: var(--sp-2); align-content: start;
+  padding: var(--sp-4); text-align: left;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.dash-card:hover { background: var(--bg-3); border-color: var(--border-strong); }
+.dash-name { font-family: var(--font-title); font-size: var(--fs-body); color: var(--fg); line-height: 1.2; }
+.dash-desc { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); }
+.dash-key { justify-self: start; }
+/* A module with no view of its own, and a module that is disabled: a line under the grid, in
+   the chrome voice, not a card that opens nothing. */
+.dash-rest { display: flex; flex-direction: column; gap: var(--sp-1); }
+.dash-rest:not(:empty) { margin-top: var(--sp-5); }
+.dash-line { color: var(--fg-3); }
+.dash-line.err { color: var(--err); }
 
 /* The empty surface (D7): a `recent` label, its rows, and one line of chords. The label sits
    at the top of the column, where the page air is its gap; the rows are pulled left by their
