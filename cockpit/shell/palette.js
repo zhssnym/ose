@@ -36,7 +36,10 @@ function commandItems(q) {
     out.push({
       kind: 'cmd', id: c.id, group: c.group || 'app',
       title: c.title, hint: c.hint || '',
-      shortcut: shortcutFor(c.id) || c.shortcut || '',
+      // `shortcutFor` is the whole truth: a command registered with a `shortcut` that the
+      // rice's keys.json has since taken answers null here, and the row prints nothing rather
+      // than a chord that runs the other command (QA-K defect 4).
+      shortcut: shortcutFor(c.id) || '',
       score: m.score + (titleMatch ? titleMatch.score * 1.5 : 0),
       hits: titleMatch ? titleMatch.hits : null,
       run: () => commands.run(c.id),
@@ -82,12 +85,33 @@ function titleMap() {
   return m;
 }
 
+/**
+ * The rows a module registers through `ose.route.index(pattern, fn)` (docs/KERNEL.md): an NSI
+ * problem is a page in every way a person cares about — it has a title, it is navigated to, it
+ * gets history and a window title — and it is not a file, so `allPages()` has never seen one.
+ * Quick open is rice, so this is where the two lists meet (QA-K defect 2). Never throws: a
+ * module whose index function is broken costs its own rows and nothing else.
+ */
+function ownedRows() {
+  try { return route.indexed() || []; } catch (e) { console.error('[shell] route.indexed', e); return []; }
+}
+
 function fileItems(q) {
-  return pageItems(allPages(), q, { recent: recentFiles(), titles: titleMap() }).map((it) => ({
-    kind: 'file', id: it.path, group: 'pages',
+  const paths = allPages();
+  const seen = new Set(paths);
+  const owned = new Map();                 // path -> the module's title for it
+  for (const row of ownedRows()) {
+    if (!row || !row.path || seen.has(row.path)) continue;   // a real file of that name wins
+    seen.add(row.path);
+    owned.set(row.path, row.title || '');
+  }
+  const names = titleMap();
+  for (const [path, title] of owned) if (title) names.set(path, title);
+  return pageItems([...paths, ...owned.keys()], q, { recent: recentFiles(), titles: names }).map((it) => ({
+    kind: owned.has(it.path) ? 'own' : 'file', id: it.path, group: 'pages',
     title: it.title, hint: it.hint, sub: it.path, shortcut: '',
     score: it.score, hits: it.hits, recent: it.recent,
-    run: () => navigate({ type: 'page', path: it.path }),
+    run: () => navigate({ type: owned.has(it.path) ? 'own' : 'page', path: it.path }),
   }));
 }
 

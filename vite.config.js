@@ -48,6 +48,51 @@ function kernelStylesheets() {
   };
 }
 
+/**
+ * The two pages of the repo that are not the rice: the round-trip harness
+ * (`src/editor/harness.html`, every vault file through the serialiser) and the kernel's
+ * self-test (`selftest.html`, the page the host opens for `ose --selftest`).
+ *
+ * The dev root is the rice, so nothing under `src/` is reachable by its own path any more and
+ * the SPA fallback answered the *rice's* index.html with a 200 — the harness loaded, looked
+ * right and did nothing, because its module script was never served (QA-K defect 6). The
+ * self-test page was in the same hole.
+ *
+ * So both are served here, from their source files, with their absolute `/src/...` URLs
+ * rewritten to the `/@fs/` paths Vite serves anything outside the root under. A `.css` asked
+ * for by its own path is a JS module to Vite (that is how CSS hot reload works); `?direct` is
+ * the query that asks for the stylesheet itself, with its `@import`s inlined and `text/css` on
+ * it, which is what a `<link>` needs. The self-test's own `./ui.css` is the kernel stylesheet
+ * the middleware above already serves at `/ui.css`.
+ */
+function repoPages() {
+  const root = here('.').split('\\').join('/').replace(/\/+$/, '');
+  const PAGES = new Map([
+    ['/harness', 'src/editor/harness.html'],
+    ['/harness.html', 'src/editor/harness.html'],
+    ['/src/editor/harness.html', 'src/editor/harness.html'],
+    ['/selftest', 'selftest.html'],
+    ['/selftest.html', 'selftest.html'],
+  ]);
+  return {
+    name: 'ose-repo-pages',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0];
+        const name = PAGES.get(url);
+        if (!name || !existsSync(here(name))) return next();
+        const html = readFileSync(here(name), 'utf8')
+          .replace(/(href|src)="\/src\/([^"]+)"/g, (_, attr, rest) =>
+            `${attr}="/@fs/${root}/src/${rest}${rest.endsWith('.css') ? '?direct' : ''}"`)
+          .replace(/(href|src)="\.\/(ui|editor)\.css"/g, '$1="/$2.css"');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(html);
+      });
+    },
+  };
+}
+
 const riceRoot = process.env.OSE_RICE || here('cockpit');
 
 const alias = {
@@ -62,7 +107,7 @@ export default defineConfig({
   root: riceRoot,
   resolve: { alias },
   define: { __VUE_OPTIONS_API__: 'false', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
-  plugins: [kernelStylesheets(), bridgePlugin()],
+  plugins: [kernelStylesheets(), repoPages(), bridgePlugin()],
   server: {
     port: 5173, strictPort: true, host: '127.0.0.1',
     // The rice may be a folder beside the repo; the kernel sources it imports are inside it.

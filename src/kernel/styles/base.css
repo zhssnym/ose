@@ -105,7 +105,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok-ink); }
 .chip.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn-ink); }
 .chip.err { background: var(--err-soft); border-color: transparent; color: var(--err-ink); }
-.chip.info { background: var(--info-soft); border-color: transparent; color: var(--info); }
+.chip.info { background: var(--info-soft); border-color: transparent; color: var(--info-ink); }
 
 /* list row. The 2px left border is the current-row bar; the left padding is what puts the
    text at --sp-3 from the edge of the row once that bar is counted. The sidebar and the

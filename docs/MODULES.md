@@ -104,7 +104,9 @@ unaffected. Everything registered through the facade is removed automatically on
    `app.localhost`. Prefix every selector with one class of your own; the stylesheet is global
    while it is in the document.
 4. Every action is a command with a title in plain words; chords through `shortcut`, which
-   binds the chord (scope 'window') as well as printing it — the palette lists them, the menu
+   binds the chord (scope 'window') as well as printing it — a chord the rice's keys.json
+   overrides is neither bound nor printed for the module (`shortcutFor` answers null) — the
+   palette lists them, the menu
    draws them, and the chord goes away with the command. Nothing needs the mouse.
 5. Both themes. Keyboard reachable. English UI; file content in whatever language it is.
 6. No dependency at runtime: a module ships its own code. Scripts the kernel runs (Python,

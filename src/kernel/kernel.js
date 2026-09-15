@@ -188,6 +188,12 @@ export const ose = {
     recent: () => router.recentFiles(),
     own: (pattern, mount) => router.own(pattern, mount),
     index: (pattern, fn) => router.registerIndex(pattern, fn),
+    // What every `route.index` registration answers right now: [{ path, title, pattern }].
+    // Quick open is rice, so the rice reads this and offers the rows beside its own pages
+    // (docs/KERNEL.md `route.index`; QA-K defect 2 was that nothing ever read them).
+    indexed: () => router.ownedIndex(),
+    // The window title of the owned route on screen, once the module knows it.
+    title: (text) => router.setOwnTitle(text),
     on: (fn) => router.onRoute(fn),
     // The rice mounts the router into its page column; nothing else may.
     init: (el) => router.initRouter(el),
@@ -273,18 +279,29 @@ export const ose = {
    * `setPageList` (the stock sidebar narrows it to the focused folder); with nothing
    * registered the vault is walked instead.
    */
-  async pages() {
+  async pages({ owned = false } = {}) {
     const provider = pageList();
-    if (provider) return provider();
     const out = [];
-    const walk = (n) => {
-      if (!n || !n.children) return;
-      for (const c of n.children) {
-        if (c.kind === 'dir') walk(c);
-        else if (/\.md$/i.test(c.name)) out.push(c.path);
-      }
-    };
-    walk(await bridge.tree());
+    if (provider) {
+      out.push(...(await provider()));
+    } else {
+      const walk = (n) => {
+        if (!n || !n.children) return;
+        for (const c of n.children) {
+          if (c.kind === 'dir') walk(c);
+          else if (/\.md$/i.test(c.name)) out.push(c.path);
+        }
+      };
+      walk(await bridge.tree());
+    }
+    // A module's own pages are not files and are opened as `{ type:'own' }`, so they are off
+    // by default: the editor's `[[` menu and the link picker write a wikilink out of whatever
+    // this answers, and a wikilink to a route is a broken link. A caller that draws rows
+    // rather than links — quick open — asks for them (QA-K defect 2).
+    if (owned) {
+      const seen = new Set(out);
+      for (const row of router.ownedIndex()) if (!seen.has(row.path)) { seen.add(row.path); out.push(row.path); }
+    }
     return out;
   },
 
@@ -345,7 +362,26 @@ export const ose = {
   },
 
   log: (text) => bridge.log(text),
-  reload: () => (typeof bridge.reloadRice === 'function' ? bridge.reloadRice() : Promise.resolve(location.reload())),
+  /**
+   * `ose.reload()` (Ctrl+R, `app.reload`): the rice again, from disk. docs/RICE.md's whole
+   * loop — edit a file, press Ctrl+R, see the change — is this call.
+   *
+   * In the host the window is navigated back to the rice's index.html, which is the host's job
+   * because only it knows where the rice is. In a browser there is no host to do it and
+   * `reloadRice` answers null; F5 is not an escape either, because the key engine binds
+   * `mod+r` and swallows it. So a null answer, or no host at all, means the page reloads
+   * itself (QA-K defect 5).
+   */
+  async reload() {
+    if (ose.host !== 'browser' && typeof bridge.reloadRice === 'function') {
+      try {
+        const answer = await bridge.reloadRice();
+        if (answer !== null && answer !== undefined) return answer;
+      } catch (e) { console.warn('[kernel] reloadRice', e); }
+    }
+    location.reload();
+    return null;
+  },
 
   /* The seams the rice fills: whoever draws a markdown page, and whoever knows the page list.
      Both are documented in ./pagehost.js; neither is something a module may call. */

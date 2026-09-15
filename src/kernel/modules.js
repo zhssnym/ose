@@ -22,7 +22,7 @@
 // promises, and nothing is written.
 
 import { bridge } from './bridge/index.js';
-import { clean } from './paths.js';
+import { clean, resolve } from './paths.js';
 import { toast } from './dialog.js';
 import { run as kernelRun } from './run.js';
 import { uid } from './registry.js';
@@ -32,9 +32,11 @@ const API = 1;
 // id -> { id, name, manifest, base, state: 'active'|'disabled', error, offs: [], procs: Set }
 const loaded = new Map();
 
+// Both sides are normalised first (`.` and `..` collapsed), so a path that *spells* its way
+// out of the folder — `data/x/../../CLAUDE.md` — is compared as what it actually names.
 const isUnder = (path, folder) => {
-  const p = clean(path);
-  const f = clean(folder);
+  const p = resolve(path);
+  const f = resolve(folder);
   return !f || p === f || p.startsWith(f + '/');
 };
 
@@ -139,8 +141,10 @@ export function makeFacade(ose, entry) {
 
   const canRead = (path) => readAll || data.some((d) => isUnder(path, d));
   const canWrite = (path) => !readAll && data.some((d) => isUnder(path, d));
-  const guardRead = (path) => { if (!canRead(path)) throw notAllowed(`read ${clean(path)}`); return clean(path); };
-  const guardWrite = (path) => { if (!canWrite(path)) throw notAllowed(`write ${clean(path)}`); return clean(path); };
+  // The guards answer the **resolved** path and that is what goes to the host, so the two
+  // sides can never disagree about which file was meant (QA-K defect 1).
+  const guardRead = (path) => { const p = resolve(path); if (!canRead(p)) throw notAllowed(`read ${p}`); return p; };
+  const guardWrite = (path) => { const p = resolve(path); if (!canWrite(p)) throw notAllowed(`write ${p}`); return p; };
   // Where a process may start: the module's data, or the module's own folder — the one
   // MODULES.md rule 6 tells it to ship its scripts in, so `ose.run('python', ['-m', …],
   // { cwd: ose.module.folder })` is the documented invocation and not a violation.
@@ -169,20 +173,26 @@ export function makeFacade(ose, entry) {
     };
   }
   files.rename = (from, to) => {
-    try { guardWrite(from); guardWrite(to); } catch (e) { return Promise.reject(e); }
-    return ose.files.rename(clean(from), clean(to));
+    let a, b;
+    try { a = guardWrite(from); b = guardWrite(to); } catch (e) { return Promise.reject(e); }
+    return ose.files.rename(a, b);
   };
   files.tree = () => ose.files.tree();
+  const guarded = (guard, fn) => (path, ...rest) => {
+    let p;
+    try { p = guard(path); } catch (e) { return Promise.reject(e); }
+    return fn(p, ...rest);
+  };
   files.versions = {
-    keep: (path, text, force) => { try { guardWrite(path); } catch (e) { return Promise.reject(e); } return ose.files.versions.keep(clean(path), text, force); },
-    list: (path) => { try { guardRead(path); } catch (e) { return Promise.reject(e); } return ose.files.versions.list(clean(path)); },
-    read: (path, vid) => { try { guardRead(path); } catch (e) { return Promise.reject(e); } return ose.files.versions.read(clean(path), vid); },
-    restore: (path, vid) => { try { guardWrite(path); } catch (e) { return Promise.reject(e); } return ose.files.versions.restore(clean(path), vid); },
+    keep: guarded(guardWrite, (p, text, force) => ose.files.versions.keep(p, text, force)),
+    list: guarded(guardRead, (p) => ose.files.versions.list(p)),
+    read: guarded(guardRead, (p, vid) => ose.files.versions.read(p, vid)),
+    restore: guarded(guardWrite, (p, vid) => ose.files.versions.restore(p, vid)),
   };
 
   // `watch(fn)` for a module means "my own data", never the whole vault.
   const watch = (a, b) => {
-    const asked = typeof a === 'function' ? null : (Array.isArray(a) ? a : [a]).map(clean).filter(Boolean);
+    const asked = typeof a === 'function' ? null : (Array.isArray(a) ? a : [a]).map(resolve).filter(Boolean);
     const fn = typeof a === 'function' ? a : b;
     const folders = asked === null ? data : asked.filter((f) => canRead(f));
     return keep(folders.length ? ose.watch(folders, fn) : ose.watch(() => {}));
@@ -198,7 +208,7 @@ export function makeFacade(ose, entry) {
     const windows = ose.platform !== 'macos' && ose.platform !== 'linux';
     const key = programKey(cmd, windows);
     if (!allow.some((a) => programKey(a, windows) === key)) return Promise.reject(notAllowed(`run ${cmd}`));
-    if (opts.cwd !== undefined && !canRunIn(opts.cwd)) return Promise.reject(notAllowed(`run in ${clean(opts.cwd)}`));
+    if (opts.cwd !== undefined && !canRunIn(opts.cwd)) return Promise.reject(notAllowed(`run in ${resolve(opts.cwd)}`));
     const pid = opts.id || `${entry.id}.${uid()}`;
     entry.procs.add(pid);
     return kernelRun(cmd, args, { ...opts, id: pid, allow })

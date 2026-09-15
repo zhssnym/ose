@@ -211,8 +211,27 @@ function index() {
   // a module's shortcut, and both win over a default rather than fighting it.
   for (const k of shortcuts) byCombo.set(k.combo, k);
   for (const [combo, entry] of bindings) byCombo.set(combo, entry);
-  for (const k of [...bindings.values(), ...shortcuts, ...KEYMAP, ...BODY_KEYS]) {
-    if (!byCmd.has(k.cmd)) byCmd.set(k.cmd, labelOf(k));
+  // What a command prints is what its chord **does**. `byCombo` is the arbiter — a rice's
+  // keys.json over a module's `shortcut` over a shell default — so the printed hints are read
+  // back out of it rather than out of the three tables that fed it. A command whose chord was
+  // taken by another command answers null and the palette prints nothing for it, instead of
+  // printing a chord that runs something else (QA-K defect 4).
+  //
+  // Insertion order is KEYMAP, then the shortcuts, then the bindings, and a `set` on a combo
+  // that is already there keeps its place. So the first chord a command was given still wins
+  // its label, which is what keeps `app.zoom-in` printing Ctrl+= and not Ctrl+Shift+=.
+  for (const entry of byCombo.values()) {
+    if (!byCmd.has(entry.cmd)) byCmd.set(entry.cmd, labelOf(entry));
+  }
+  // Body chords are bound by `editor/commands.js` inside a ProseMirror keymap and are not in
+  // `byCombo` at all. One still loses its chord if a **window** binding took the combo: the
+  // window listener runs in the capture phase and only stands down for an entry of its own
+  // that is marked `inBody`.
+  for (const k of BODY_KEYS) {
+    if (byCmd.has(k.cmd)) continue;
+    const owner = byCombo.get(normalizeCombo(comboFor(k)));
+    if (owner && owner.cmd !== k.cmd && !owner.inBody) continue;
+    byCmd.set(k.cmd, labelOf(k));
   }
 }
 

@@ -116,6 +116,8 @@ ose.route.own(pattern, mount) -> unsubscribe
     and the first registration wins a collision.
 ose.route.index(pattern, fn) register what quick open lists for an owned pattern
 ose.route.on(fn)             -> unsubscribe            fn(route) after every change
+ose.route.indexed()          -> [{ path, title }]      everything the owners registered through index()
+ose.route.title(text)        the owned page's own title; the window title becomes `<text> · <vault>`
 ose.route.init(el)           the rice mounts the router into its page column, once
 
 ose.commands.register({ id, title, group, shortcut?, when?, run })  -> unsubscribe
@@ -186,7 +188,9 @@ ose.window.onClose(fn)       -> unsubscribe
 ose.update.check() / download() / apply() / on(fn)           the self-update (docs/TAURI.md)
 ose.openExternal(url)        an http, https or mailto link in a note. Every other scheme is
                              refused by the host; a vault file is `ose.files.open(path)`.
-ose.pages()                  -> Promise<[paths]>            every markdown page the rice offers
+ose.pages({ owned? })        -> Promise<[paths]>            every markdown page the rice offers; with
+                                                         owned: true the owned routes join (quick open
+                                                         wants them, a link picker does not)
     Quick open, the page picker and the editor's `[[` menu all ask here, so all three offer
     the same rows. The rice registers the list through `ose.setPageList`; with none registered
     the vault is walked instead.

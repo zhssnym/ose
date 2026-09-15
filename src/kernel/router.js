@@ -506,6 +506,18 @@ async function renderStart(scroll, my, opts) {
  * the start surface. `bridge.setTitle` is P8's; until it lands this is a no-op and the title
  * bar the app draws itself is unchanged either way.
  */
+/**
+ * `ose.route.title(text)`: the window title of the **owned** route on screen, set after the
+ * mount (a module that fetches its detail knows the real title a beat later). The router adds
+ * ` · <vault>` the way it does for a page, which is what a module calling `ose.window.title`
+ * itself could not do (QA-K defect 8).
+ */
+export function setOwnTitle(text) {
+  if (!current || current.type !== 'own') return;
+  ownTitles.set(routeKey(current), String(text ?? ''));
+  setWindowTitle(current);
+}
+
 function setWindowTitle(route) {
   if (typeof bridge.setTitle !== 'function') return;
   const vault = (store.get('root') && store.get('root').name) || 'os';

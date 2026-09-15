@@ -7,6 +7,8 @@
 // marker, so pointing this at a real vault can never write to it.
 // selftest.html links tokens.css and base.css, so the page wears the app's own colours.
 import { bridge } from './bridge/index.js';
+import { makeFacade } from './kernel/modules.js';
+import { resolve } from './kernel/paths.js';
 
 const out = document.getElementById('selftest');
 const CALL_TIMEOUT_MS = 60000;
@@ -181,6 +183,48 @@ async function run() {
   } else {
     skipped('app protocol', origins ? 'no rice in this vault' : 'not the Tauri host');
   }
+
+  // The other half of the same promise, and the one that was false (QA-K defect 1): the `app`
+  // protocol normalises `..` before it serves a file, and the **module facade** has to
+  // normalise it before it compares a path with the module's `data`. This one needs no host at
+  // all — it is the guard itself, run against a manifest made up here — so it runs everywhere
+  // the self-test does, including the dev bridge in a browser.
+  await test('the module facade refuses a `..` escape from its data folder', async () => {
+    const stub = {
+      platform: bridge.platform,
+      // Nothing here reaches a file: the guard is what is under test, and a path it lets
+      // through lands on these stubs instead of the vault.
+      files: { assetUrl: () => '', versions: {}, read: async () => '', write: async () => null },
+      watch: () => () => { },
+      state: () => ({}),
+      commands: {}, views: {}, tiles: {}, keys: {}, bus: {}, status: {}, settings: {}, route: {},
+    };
+    const entry = {
+      id: 'selftest-scope',
+      manifest: { id: 'selftest-scope', data: ['Scratchpad/selftest-scope'], run: [], routes: [] },
+      offs: [], procs: new Set(),
+    };
+    const facade = makeFacade(stub, entry);
+    const refused = [];
+    // The first is QA-K's own repro; the others are the same trick spelled differently.
+    for (const bad of ['Scratchpad/selftest-scope/../../CLAUDE.md',
+                       'Scratchpad/selftest-scope/./../selftest-escaped.md',
+                       'Scratchpad/selftest-scope/sub/../../../.ose/app/index.html']) {
+      for (const verb of ['write', 'read']) {
+        let msg = null;
+        try { await facade.files[verb](bad, 'x'); } catch (e) { msg = String(e && e.message ? e.message : e); }
+        assert(msg, `${verb} ${bad} was allowed`);
+        assert(msg === `not allowed by module.json: ${verb} ${resolve(bad)}`, `${verb} ${bad}: ${msg}`);
+      }
+      refused.push(resolve(bad));
+    }
+    // And the guard still lets the module have its own folder, `.` and `..` inside it included.
+    assert(resolve('Scratchpad/selftest-scope/a/../b.md') === 'Scratchpad/selftest-scope/b.md', 'resolve() is wrong');
+    let ok = null;
+    try { await facade.files.read('Scratchpad/selftest-scope/a/../b.md'); } catch (e) { ok = String(e && e.message ? e.message : e); }
+    assert(ok === null || !/not allowed/.test(ok), 'its own folder was refused: ' + ok);
+    return refused.join(' ');
+  });
 
   // The check hits the real release API on a stamped build, so only the shape is asserted:
   // never `behind` (the runner may be building the very commit that would answer it), and an

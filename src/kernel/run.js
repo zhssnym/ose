@@ -41,7 +41,13 @@ function subscribe() {
     if (d.done) {
       live.delete(d.id);
       proc.finish({
-        code: Number.isInteger(d.code) ? d.code : null,
+        // KERNEL.md: `code` is null when the process was killed, and the timeout is a kill.
+        // The dev bridge already answers null; the Tauri host answers the exit code the OS
+        // gave the killed process (1 on Windows), so a module branching on `code === null`
+        // behaved differently in dev and in the window (QA-K defect 7). The kernel is what
+        // turns the host's stream into this one promise, so it is where the two are made to
+        // agree — and the host should stop reporting a code for a kill as well.
+        code: d.timedOut || !Number.isInteger(d.code) ? null : d.code,
         stdout: proc.stdout.join('\n'),
         stderr: proc.stderr.join('\n'),
         timedOut: !!d.timedOut,

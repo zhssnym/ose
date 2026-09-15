@@ -59,8 +59,18 @@
      colours above. Only the chips use these. */
   --accent-ink: #A2492B;
   --ok-ink: #4C6639;
-  --warn-ink: #7E610F;
+  /* L28's rule, applied to the one chip that sat under the others: #7E610F read 4.83:1 on
+     --warn-soft — over 4.5, but the outlier of the family (ok 5.26, err 6.11, plain 5.59) at
+     11px (QA-K defect 10). Darkened nine steps, same hue and saturation: 5.46 on --warn-soft,
+     6.25 on --bg, 5.82 on --bg-2, 5.27 on --bg-3, which puts the warn chip where the ok chip
+     already is. */
+  --warn-ink: #75590D;
   --err-ink: #8E2E1E;
+  /* `.chip.info` had no ink of its own and wore `--info`, a 3:1 line colour: 3.52:1 on
+     --info-soft, the only chip under the line (found measuring the warn one). Darkened to the
+     same band as the rest — 5.08 on --info-soft, 6.08 on --bg, 5.67 on --bg-2, 5.13 on --bg-3.
+     `--info` itself is untouched: every border, icon and message still uses it. */
+  --info-ink: #46617F;
 
   /* week grid families (low opacity fills, full colour bars) */
   --c-class: #5B7A9E;
@@ -203,6 +213,7 @@
   --ok-ink: var(--ok);
   --warn-ink: var(--warn);
   --err-ink: #DE7F6E;
+  --info-ink: var(--info);   /* 4.82:1 on --info-soft over --bg */
 
   --c-class: #7E9CC0;
   --c-maths: #D97757;
