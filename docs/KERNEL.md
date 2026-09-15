@@ -50,7 +50,9 @@ ose.platform                 'windows' | 'macos' | 'linux'
 ose.ready                    Promise<void>
 
 ose.vault.root / .name       the open vault, filled by `ose.ready`; null while none is open
-ose.vault.info()             -> { root, name, remembered, source }
+ose.vault.info()             -> { root, name, remembered, source, exeDir }   exeDir: the chooser's suggestion
+ose.vault.onChange(fn)       -> unsubscribe  a second launch named another folder and the host adopted it
+ose.host                     'tauri' | 'webview' | 'browser'   whether window buttons, quit and drag are live
 ose.vault.pick()             -> { root, name } | null  native picker; reloads the rice
 ose.vault.recent()           -> [{ path, name, exists, current }]
 ose.vault.open(path)         -> { root, name }         adopt; reloads the rice
@@ -173,6 +175,9 @@ ose.sources.get(key) / set(key, path) / info(key) / keys() / all()
     timetable, plans, systems, todo, journal, scratch (docs/CONTRACT.md)
 ose.theme.get() / set('light' | 'dark' | 'system') / on(fn) / resolved()
 ose.window.title(text) / minimize() / maximize() / close() / quit() / isMaximized()
+ose.window.drag() / resize(edge) / onMaximize(fn)   the frameless title bar's move, the eight resize
+                             edges (top right bottom left topleft topright bottomleft bottomright),
+                             and the maximised state as it changes; onClose(fn) is the closing half
 ose.window.onClose(fn)       -> unsubscribe
     The window is closing. `fn()` may return a promise and the host **awaits it** before the
     window is destroyed, so the open page's last save finishes; resolving `false` keeps the

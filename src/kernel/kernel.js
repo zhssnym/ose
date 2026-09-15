@@ -102,6 +102,10 @@ const ready = (async () => {
     }
   } catch (e) { console.warn('[kernel] platform', e); }
   try { await loadState(); } catch (e) { console.warn('[kernel] state', e); }
+  // Sources (which files the views read) and focus mode are kernel state, not rice state: a
+  // module asking `ose.sources.get('todo')` must get the user's answer whichever rice runs.
+  try { sourcesLib.loadSources(stateCache()); } catch (e) { console.warn('[kernel] sources', e); }
+  try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[kernel] focus', e); }
   try {
     const info = await bridge.rootInfo();
     vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
@@ -121,10 +125,19 @@ export const ose = {
   platform: 'windows',
   ready,
 
+  /** 'tauri' | 'webview' | 'browser': whether the window buttons, quit and drag are live. */
+  host: bridge.kind === 'http' ? 'browser' : bridge.kind,
+
   vault: {
     get root() { return vaultInfo.root; },
     get name() { return vaultInfo.name; },
-    info: () => bridge.vaultInfo(),
+    /** `{root, name, remembered, source, exeDir}`; exeDir is the chooser's suggestion. */
+    info: async () => {
+      const [v, p] = await Promise.all([bridge.vaultInfo(), bridge.platformInfo().catch(() => null)]);
+      return { ...(v || {}), exeDir: (p && p.exeDir) || null };
+    },
+    /** A second launch named another folder and the host adopted it: the rice reloads. */
+    onChange: (fn) => bridge.on('vault', (d) => (d && d.changed ? fn(d) : undefined)),
     pick: () => bridge.pickVault(),
     recent: () => bridge.recentVaults(),
     open: (path) => bridge.openVault(path),
@@ -300,6 +313,12 @@ export const ose = {
     close: () => bridge.win.close(),
     quit: () => bridge.quit(),
     isMaximized: () => bridge.win.isMaximized(),
+    /** The frameless window's own title bar: start a native move. */
+    drag: () => bridge.win.startDrag(),
+    /** One of top right bottom left topleft topright bottomleft bottomright. */
+    resize: (edge) => bridge.win.startResize(edge),
+    /** The maximised half of the window event, for the button's glyph. */
+    onMaximize: (fn) => bridge.on('window', (d) => (d && typeof d.maximized === 'boolean' ? fn(d.maximized) : undefined)),
     /**
      * The window is closing (docs/CONTRACT.md batch 9, S16/B2). `fn()` may return a promise
      * and the host **awaits it** before the window is destroyed, so the open page's last save
