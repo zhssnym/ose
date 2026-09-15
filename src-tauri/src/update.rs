@@ -823,7 +823,7 @@ mod tests {
     #[test]
     fn version_line_shape() {
         let line = version_line();
-        assert!(line.starts_with("ose 0.4."), "{line}");
+        assert!(line.starts_with(concat!("ose ", env!("CARGO_PKG_VERSION"), " (")), "{line}");
         assert!(line.ends_with(')'), "{line}");
     }
 

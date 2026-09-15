@@ -1,6 +1,6 @@
 [package]
 name = "ose"
-version = "0.4.0"
+version = "0.5.0"
 description = "Ose"
 authors = ["Hassan Shahir"]
 edition = "2021"
