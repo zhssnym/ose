@@ -33,3 +33,10 @@ graphify-out/
 
 # The vault state folder an exe writes when the repo itself is opened as a vault.
 .ose/
+
+# The CI fixture's rice is committed: the self-test asserts the `app` origin against it and a
+# second job loads it in a real window. The state and versions a self-test run writes there
+# are still ignored (three lines: git will not re-include a path whose parent is excluded).
+!ci/fake-vault/.ose/
+ci/fake-vault/.ose/*
+!ci/fake-vault/.ose/app/
