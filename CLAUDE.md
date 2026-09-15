@@ -1,4 +1,4 @@
-# App: the os editor
+# App: Ose
 
 ## What this is
 
@@ -7,7 +7,7 @@ parses certain files and builds graphical views from them while leaving every fi
 prose — so an agent (Claude Code, run on the vault from outside) can read and edit the same
 files with no adapter. That is the whole application. One window: a sidebar with the vault,
 and a page column that is either a markdown file in a block editor or one of the views. It
-ships as a single portable file, `os.exe` (or `os.app`), that normally lives at the root of
+ships as a single portable file, `ose.exe` (or `Ose.app`), that normally lives at the root of
 its vault — move the folder, the editor moves with it — and asks for a folder when it doesn't.
 It updates itself in place from the repo's `latest` release; there is no installer.
 
@@ -66,14 +66,14 @@ Ship (build the UI, embed it, publish the exe, copy to the root):
 npm run ship
 ```
 
-Headless: `os --version` prints the stamp, `os --update` checks, downloads, swaps and relaunches
-with no window, `os --selftest --root <vault> --log <file>` runs the host self-test. Both run
+Headless: `ose --version` prints the stamp, `ose --update` checks, downloads, swaps and relaunches
+with no window, `ose --selftest --root <vault> --log <file>` runs the host self-test. Both run
 outside the single-instance group, so they work beside an open window.
 
 The host is Tauri 2 (Rust). On this machine Rust is installed per user (rustup, gnu host) with
 MinGW from winget for the linker tools; no admin rights are needed. Shipped binaries come from
-CI (`.github/workflows/build.yml`): every push to `main` publishes `os.exe` and
-`os-macos-arm64.zip` to the rolling `latest` release. See docs/TAURI.md for the host design.
+CI (`.github/workflows/build.yml`): every push to `main` publishes `ose.exe` and
+`ose-macos-arm64.zip` to the rolling `latest` release (and, for one transition, the old names). See docs/TAURI.md for the host design.
 
 ## Rules for working in this folder
 

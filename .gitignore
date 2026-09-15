@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-kernel/
 state.json
 
 # Tauri build output and any machine-specific cargo config written by the toolchain.
@@ -18,6 +19,8 @@ selftest.log
 # CI stages the built binary at the repo root before uploading it.
 /os.exe
 /os-macos-arm64.zip
+/ose.exe
+/ose-macos-arm64.zip
 
 # state written by self-test runs against the fake vault
 ci/fake-vault/.ose/
