@@ -16,7 +16,7 @@ import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHid
 import { openSearch } from './search.js';
 import { moveTabs, closeTabsUnder } from './tabs.js';
 import { isMediaFile } from './media.js';
-import { focusPage, sidebarVisible } from './layout.js';
+import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
 const { bus, store, commands, debounce, files, links, route } = ose;
 
@@ -485,7 +485,7 @@ function focusRow(row) {
 
 /** Ctrl+Shift+E and `app.focus-sidebar`: the sidebar, open, with its one tab stop focused. */
 export function focusTree() {
-  if (!sidebarVisible()) store.set('sidebar.open', true);
+  if (!sidebarVisible()) setSidebarOpen(true);
   focusRow(rovingRow());
 }
 
@@ -1024,7 +1024,7 @@ async function trashAt(items) {
 export function revealFolder(path) {
   const dir = clean(path);
   if (!dir) return;
-  store.set('sidebar.open', true);
+  setSidebarOpen(true);
   expandAncestors(dir + '/x');
   expanded.add(dir);
   persistExpanded();
@@ -1511,10 +1511,9 @@ export function initSidebar(node) {
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
     hint: 'the chevron at its top edge does the same',
-    // What is on screen, not what the preference says: on a narrow window the sidebar is
-    // hidden with the preference still open (layout.js `fit`), and a blind flip would have to
-    // be pressed twice to bring it back.
-    run: () => store.set('sidebar.open', !sidebarVisible()),
+    // What is on screen, flipped — layout.js owns the window's own auto-hide and is the only
+    // place that can clear it (QA-5 finding 3).
+    run: () => toggleSidebar(),
   });
   commands.register({
     id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app', hint: 'Esc returns to the page',

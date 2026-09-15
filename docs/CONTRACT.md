@@ -1914,8 +1914,8 @@ tab, one card per module — which is a view of the rice like any other. This is
 It is a home with nothing in it but what is installed, and the user still picks.
 
 Ctrl+W is `tab.close` rather than `page.close`; the editor's `page.close` is still registered
-and still lands on the empty surface if it is run from the palette, and the strip follows it
-the same way. Ctrl+Shift+T is `tab.reopen`, which prefers the strip's own closed list and falls
+and ends at `route.close()`, which is the event the strip acts on, so from the palette it too
+lands on the next tab, never on the empty surface (QA-5 measured it). Ctrl+Shift+T is `tab.reopen`, which prefers the strip's own closed list and falls
 back to the kernel's. `app.start` is gone; `app.home` replaces it.
 
 ### The code editor (E)

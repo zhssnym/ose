@@ -70,8 +70,8 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
 .tb-crumb.focus { color: var(--accent); }
 
 /* The unfold half of the sidebar's fold chevron: a thin strip at the far left of the title
-   bar, drawn only while the sidebar is not on screen — which covers the narrow window's own
-   auto-hide as well, because that sets the same class. */
+   bar, drawn whenever the sidebar is not on screen — the user's fold and the narrow window's
+   own auto-hide alike, because since QA-5 finding 3 the control opens it in both cases. */
 .tb-unfold { display: none; }
 .shell.no-sidebar .tb-unfold {
   width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
@@ -80,9 +80,6 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
   transition: background var(--t-fast), color var(--t-fast);
 }
 .shell.no-sidebar .tb-unfold:hover { background: var(--bg-3); color: var(--fg); }
-/* Hidden by the window rather than by the user (layout.js `fit`, L25): the sidebar comes back
-   when the window is wide again, and nothing here could bring it back sooner. */
-.shell.no-sidebar.auto-hidden .tb-unfold { display: none; }
 .tb-unfold svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 .tb-dirty {

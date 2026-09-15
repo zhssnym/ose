@@ -74,9 +74,7 @@ function labelOf(r) {
     return (v && v.title) || r.name;
   }
   if (r.type === 'page') {
-    const known = store.get('pageTitle');
-    const h1 = known && known.path === r.path ? String(known.title || '').trim() : '';
-    return h1 || titleOf(r.path);
+    return pageTitles.get('page:' + clean(r.path)) || titleOf(r.path);
   }
   const own = ownTitles.get('own:' + clean(r.path));
   if (own) return own;
@@ -87,6 +85,25 @@ function labelOf(r) {
 // What `ose.route.title(text)` (or a mount's `title`) said for an owned route, by route key,
 // off the kernel's `route:title` event; the index is the fallback for a route never mounted.
 const ownTitles = new Map();
+
+// The same thing for a page: its H1, by route key, kept as `pageTitle` announces it.
+// `ose.store`'s `pageTitle` holds one page — the open one — so reading it live named the
+// active tab and left every other one wearing its file stem, flipping back and forth as the
+// user cycled (QA-5 finding 1). A page cannot have a tab without having been opened, so this
+// map has an entry for every page tab by the time it is drawn. Capped, and oldest out first,
+// so a long session does not accumulate the titles of pages nothing points at any more.
+const MAX_TITLES = 200;
+const pageTitles = new Map();
+
+function rememberTitle(key, title) {
+  const text = String(title || '').trim();
+  if (!text) return false;
+  if (pageTitles.get(key) === text) return false;
+  pageTitles.delete(key);
+  pageTitles.set(key, text);
+  while (pageTitles.size > MAX_TITLES) pageTitles.delete(pageTitles.keys().next().value);
+  return true;
+}
 
 const isHome = (key) => key === keyOf(HOME);
 const indexOf = (key) => tabs.findIndex((t) => t.key === key);
@@ -141,6 +158,11 @@ function onRoute(r) {
 function onEmptySurface() {
   if (!armed || !activeKey) return;
   const key = activeKey;
+  // The home tab has no × and `tab.close` guards it; `route.close()` is the other way in, and
+  // it must be guarded here too or the strip ends up empty with nothing to land on and no way
+  // back but the palette (QA-5 finding 2). A caller that asks for the empty surface with the
+  // home in front gets the home back: the strip is what says the column is never blank.
+  if (isHome(key)) { void ose.route.navigate(tabs[indexOf(key)].route, { force: true }); return; }
   const next = neighbourOf(key);
   remember(key);
   drop(key);
@@ -204,6 +226,9 @@ export function moveTabs(from, to) {
     const path = b + t.route.path.slice(a.length);
     const key = 'page:' + path;
     if (dirty.delete(t.key)) dirty.add(key);
+    // The H1 did not change because the file name did: the tab keeps the label it had.
+    const title = pageTitles.get(t.key);
+    if (title) { pageTitles.delete(t.key); pageTitles.set(key, title); }
     if (activeKey === t.key) activeKey = key;
     if (prevKey === t.key) prevKey = key;
     t.key = key;
@@ -307,8 +332,13 @@ export function initTabs(node, panel) {
 
   bus.on('route', onRoute);
   // A renamed H1 renames the tab, the same way it renames the window title (the editor
-  // publishes `pageTitle` on the mount and on every keystroke in the title strip).
-  store.watch('pageTitle', () => render());
+  // publishes `pageTitle` on the mount and on every keystroke in the title strip). What it
+  // says is kept per page, not read live, so every tab keeps its H1 and not only the one in
+  // front (QA-5 finding 1).
+  store.watch('pageTitle', (v) => {
+    if (!v || !v.path) return;
+    if (rememberTitle('page:' + clean(v.path), v.title)) render();
+  });
   bus.on('route:title', (d) => {
     if (!d || !d.route || d.route.type !== 'own') return;
     ownTitles.set('own:' + clean(d.route.path), String(d.title || ''));

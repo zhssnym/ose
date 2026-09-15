@@ -96,9 +96,10 @@ The sidebar is the vault and nothing else: pinned, pages, scratch. It has no vie
 a view is a module's surface, and the dashboard is where the modules are. Its top edge carries
 a chevron that folds it; folded, a chevron at the far left of the title bar unfolds it. Both
 run `app.sidebar` (Ctrl+\), so `sidebar.open` in state is the one truth. Under 640px of window
-the sidebar hides itself and comes back when the window is wide again (the L25 rule, unchanged);
-while that is what hid it, the title bar's chevron stands down, because nothing it could do
-would bring the sidebar back before the window does.
+the sidebar hides itself out of the way and comes back when the window is wide again (the L25
+rule); an explicit toggle there — the chord, either chevron, or `app.focus-sidebar` — overrules
+that and opens it anyway, and the overrule lasts until the window is wide again, so narrowing
+the window a second time hides it a second time.
 
 ### The page seam: markdown, images, PDFs
 

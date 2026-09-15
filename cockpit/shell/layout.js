@@ -29,6 +29,12 @@ let shell = null;
 let mainEl = null;
 let wantS = 260;
 let autoHidden = false;
+// The user overruled the auto-hide at this width (QA-5 finding 3). Without it `fit` re-armed
+// `autoHidden` on the very call the toggle made to clear it, so under NARROW the sidebar could
+// not be opened at all: Ctrl+\ did nothing, said nothing, and neither chevron was on screen —
+// the tree was unreachable. The latch is spent the moment the window is wide again, so the
+// auto-hide still happens the next time the window is narrowed.
+let overruled = false;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const patchSidebar = (patch) => sidebarState.set({ ...(sidebarState.get() || {}), ...patch });
@@ -40,22 +46,22 @@ const patchSidebar = (patch) => sidebarState.set({ ...(sidebarState.get() || {})
  * window, the sidebar never exceeds S_SHARE of it, and under NARROW it hides itself and comes
  * back when the window is wide again (L25). `sidebar.open` — the user's preference — is never
  * written by any of this; `autoHidden` is what the window did, and toggling the sidebar by
- * hand clears it, so an explicit Ctrl+\ still opens it on a small window.
+ * hand clears it, so an explicit Ctrl+\ still opens it on a small window — which is what
+ * `overruled` is for: the toggle clears `autoHidden`, and without the latch this function put
+ * it straight back on the same call.
  */
 function fit() {
   if (!shell) return;
   const avail = window.innerWidth;
   const narrow = avail < NARROW;
   const wanted = !!store.get('sidebar.open');
-  if (narrow && wanted && !autoHidden) autoHidden = true;
-  else if (!narrow && autoHidden) autoHidden = false;
+  // Wide again: the window's own decision and the user's overrule of it are both spent, so
+  // narrowing the window a second time hides the sidebar a second time.
+  if (!narrow) { autoHidden = false; overruled = false; }
+  else if (wanted && !autoHidden && !overruled) autoHidden = true;
 
   const sOpen = wanted && !autoHidden;
   shell.classList.toggle('no-sidebar', !sOpen);
-  // Who hid it. The title bar's unfold chevron stands down while the window is the one that
-  // did (shell.css): under NARROW the sidebar comes back when the window does and not before,
-  // so a control offering to open it there would be a control that does nothing.
-  shell.classList.toggle('auto-hidden', autoHidden);
 
   let s = sOpen ? Math.min(wantS, Math.max(S_MIN, Math.round(avail * S_SHARE))) : 0;
   const over = s + MIN_MAIN - avail;
@@ -121,6 +127,26 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
  * of two — the preference itself is still only ever written by the toggle.
  */
 export const sidebarVisible = () => !!store.get('sidebar.open') && !autoHidden;
+
+/**
+ * The one way the sidebar is opened or closed on purpose: `app.sidebar`, either chevron,
+ * `app.focus-sidebar`, a folder revealed in the tree. It clears the window's own auto-hide
+ * before it writes, and it does the work itself rather than leaning on the `sidebar.open`
+ * watcher — `store.set` returns early when the value has not changed (src/kernel/registry.js),
+ * and the whole broken state of QA-5 finding 3 was exactly that: preference open, window
+ * hiding it, a toggle writing `true` over `true`, no watcher, nothing on screen, nothing said.
+ * `fit` and `patchSidebar` are idempotent, so the watcher running as well costs nothing.
+ */
+export function setSidebarOpen(open) {
+  autoHidden = false;
+  overruled = true;
+  store.set('sidebar.open', !!open);
+  fit();
+  patchSidebar({ open: !!open });
+}
+
+/** `app.sidebar` (Ctrl+\): what is on screen, flipped — not the preference, flipped. */
+export function toggleSidebar() { setSidebarOpen(!sidebarVisible()); }
 
 /* -------------------------------------------------------------- page column */
 
@@ -344,8 +370,10 @@ export function mountShell(rootEl) {
   // The sidebar tracks the store; its width is a CSS variable so nothing re-lays-out in JS.
   store.set('sidebar.open', saved.open !== false);
   store.watch('sidebar.open', (v) => {
-    // An explicit toggle is the user overruling the window's own decision (L25).
+    // An explicit toggle is the user overruling the window's own decision (L25), and it holds
+    // until the window is wide again — otherwise `fit` below re-hides it on this very call.
     autoHidden = false;
+    overruled = true;
     fit();
     patchSidebar({ open: !!v });
   });
