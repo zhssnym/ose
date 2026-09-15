@@ -94,6 +94,19 @@ fn main() {
     }
     let headless = opts.update;
 
+    // One window per vault (S14): when another instance already holds the lock, the plugin
+    // below hands it this process's argv and ends the process *inside* `builder.build()`,
+    // before a line of ours could run. That is invisible on purpose while a window comes
+    // forward — and a trap when it does not, because the copy holding the lock can be a ghost:
+    // a force-killed app whose process is still there, or an update leftover with no window of
+    // its own. "The app does not start and the log says nothing" cost QA-K forty minutes. So
+    // the lock is probed first and the handover is said out loud, in this process's own log
+    // and on its stderr. If the other copy happens to exit between the probe and the plugin's
+    // own check, this launch simply carries on and the log carries on under the line.
+    if !selftest && !headless && another_instance_holds_the_lock(&app_identifier()) {
+        log_line(&app_state, HANDOVER);
+    }
+
     let mut builder = tauri::Builder::default().manage(app_state);
     // First plugin, as the plugin's own documentation requires: a second launch hands its
     // argv over and exits before anything else in this process runs (S14). Not for the
@@ -262,11 +275,81 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 /// The id of the one menu item with an action of our own.
 const MENU_QUIT: &str = "app.quit";
 
+/// The one line a handed-over launch leaves behind. It says what happened and what to do when
+/// no window comes forward, because that is the case a person cannot otherwise diagnose.
+const HANDOVER: &str = concat!(
+    "another Ose is already running; handed this launch over to it and exiting. ",
+    "If no window came forward, that copy has none: end the ose process and start again."
+);
+
+/// The app identifier, read from the very `tauri.conf.json` the build reads. The
+/// single-instance plugin spells its lock out of this string, and the probe below has to spell
+/// the same one; embedding the file is how the two cannot drift apart.
+fn app_identifier() -> String {
+    const CONF: &str = include_str!("../tauri.conf.json");
+    serde_json::from_str::<serde_json::Value>(CONF)
+        .ok()
+        .and_then(|v| v.get("identifier")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Is another instance already holding the single-instance lock?
+///
+/// The plugin exposes nothing to ask, so this reads its own mechanism, without taking it.
+/// **Windows**: the named mutex `<identifier>-sim` exists exactly while another instance holds
+/// it, and `OpenMutexW` only looks. **macOS**: the plugin's rendezvous is a unix socket, and
+/// connecting is the only way to tell a live singleton from the socket file a crash left
+/// behind — the running app sees a connection that says nothing, which `on_second_instance`
+/// ignores. **Linux** is dbus, is not probed, and is not a platform Ose ships to.
+#[cfg(windows)]
+fn another_instance_holds_the_lock(identifier: &str) -> bool {
+    use std::ffi::{c_void, OsStr};
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenMutexW(access: u32, inherit: i32, name: *const u16) -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+
+    let name: Vec<u16> = OsStr::new(&format!("{identifier}-sim"))
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // Safe: the name is NUL-terminated and outlives the call, and the handle is closed at
+    // once. Opening a named mutex neither acquires it nor changes it.
+    unsafe {
+        let handle = OpenMutexW(SYNCHRONIZE, 0, name.as_ptr());
+        if handle.is_null() {
+            return false;
+        }
+        CloseHandle(handle);
+        true
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn another_instance_holds_the_lock(identifier: &str) -> bool {
+    let socket = format!("/tmp/{}_si.sock", identifier.replace(['.', '-'], "_"));
+    std::os::unix::net::UnixStream::connect(socket).is_ok()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn another_instance_holds_the_lock(_identifier: &str) -> bool {
+    false
+}
+
 /// A second `ose` launched while one is running. The plugin has already handed us its argv and
 /// ended that process, so this decides what the launch meant: the same vault (or none named)
 /// brings the window forward, another folder is adopted and the window reloads into it — one
 /// window per vault, and never two watchers on one folder (S14).
 fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
+    // A notification with no argv at all is not a launch: on macOS it is the knock from
+    // `another_instance_holds_the_lock`, which connects and says nothing. Ignore it whole.
+    if argv.iter().all(|a| a.trim().is_empty()) {
+        return;
+    }
     let st = app.state::<AppState>();
     log_line(st.inner(), &format!("second instance: {}", argv.join(" ")));
 
@@ -629,3 +712,26 @@ fn attach_parent_console() {
 
 #[cfg(not(windows))]
 fn attach_parent_console() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The single-instance lock is named after the identifier. An empty one would make the
+    /// probe answer "nobody is holding it" for ever, and silently — which is the bug it exists
+    /// to close.
+    #[test]
+    fn the_identifier_comes_out_of_the_config() {
+        let id = app_identifier();
+        assert!(id.contains('.'), "not an app identifier: {id:?}");
+        assert!(!id.contains(char::is_whitespace), "not an app identifier: {id:?}");
+    }
+
+    /// Nobody holds a lock named after a string no app uses — and asking must not make one.
+    #[test]
+    fn a_lock_nobody_holds_reads_as_free() {
+        let name = "com.example.ose-no-such-app-4242";
+        assert!(!another_instance_holds_the_lock(name));
+        assert!(!another_instance_holds_the_lock(name), "the probe created the lock it asked about");
+    }
+}

@@ -47,7 +47,14 @@ const PROGRAM_EXTS: &[&str] = &["exe", "bat", "cmd", "com"];
 
 struct Entry {
     child: Arc<Mutex<Child>>,
-    /// Set by `runKill` or by the timeout, so the `done` event can say which it was.
+    /// Set the moment this host kills the child — `runKill`, the timeout, or the app going
+    /// away. A killed process has no exit code of its own, so `done` answers `code: null`
+    /// whatever the process table says (docs/KERNEL.md `ose.run`). It matters because the
+    /// platforms disagree: a signal on Unix leaves no code at all, while Windows'
+    /// `TerminateProcess` writes 1 into the table and a caller branching on `code === null`
+    /// would otherwise see a different world in the window than in `npm run dev`.
+    killed: Arc<AtomicBool>,
+    /// Set by the timeout alone, so the `done` event can say which kind of kill it was.
     timed_out: Arc<AtomicBool>,
 }
 
@@ -68,11 +75,13 @@ impl Processes {
         self.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key(id)
     }
 
-    /// Kills one. `timed_out` marks it as the timeout rather than a `runKill`.
+    /// Kills one. `timed_out` marks it as the timeout rather than a `runKill`; either way the
+    /// process was killed, so `killed` goes up first and `done` reports no code.
     fn kill(&self, id: &str, timed_out: bool) -> bool {
         let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
         let Some(entry) = map.get(id) else { return false };
         entry.timed_out.store(timed_out, Ordering::Release);
+        entry.killed.store(true, Ordering::Release);
         let _ = entry.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
         true
     }
@@ -81,6 +90,7 @@ impl Processes {
     pub fn kill_all(&self) -> usize {
         let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
         for entry in map.values() {
+            entry.killed.store(true, Ordering::Release);
             let _ = entry.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
         }
         map.len()
@@ -94,6 +104,18 @@ pub fn kill_all(st: &AppState) {
     if n > 0 {
         log_line(st, &format!("run: killed {n} running process(es)"));
     }
+}
+
+/// What the `done` event reports as `code`. docs/KERNEL.md: "`code` is null when the process
+/// was killed, and `timedOut` is true only for the timeout, never for a `kill`." A process this
+/// host killed therefore has no code, whatever the platform left in the table: Unix reports a
+/// signal and no code, Windows' `TerminateProcess` reports 1, and 1 is a number a module would
+/// read as "the program said no" rather than "the program never finished".
+fn done_code(status: Option<std::process::ExitStatus>, killed: bool) -> Option<i32> {
+    if killed {
+        return None;
+    }
+    status.and_then(|s| s.code())
 }
 
 // ---- the allow rule --------------------------------------------------------
@@ -219,9 +241,10 @@ fn start(ctx: &Ctx, rpc_args: &[Value]) -> Result<Value, String> {
 
     let shared = Arc::new(Mutex::new(child));
     let timed_out = Arc::new(AtomicBool::new(false));
+    let killed = Arc::new(AtomicBool::new(false));
     ctx.st.processes.insert(
         id.clone(),
-        Entry { child: shared.clone(), timed_out: timed_out.clone() },
+        Entry { child: shared.clone(), killed: killed.clone(), timed_out: timed_out.clone() },
     );
     log_line(
         ctx.st,
@@ -257,6 +280,7 @@ fn start(ctx: &Ctx, rpc_args: &[Value]) -> Result<Value, String> {
             }
             if started.elapsed() >= timeout && !timed_out.load(Ordering::Acquire) {
                 timed_out.store(true, Ordering::Release);
+                killed.store(true, Ordering::Release);
                 let _ = shared.lock().unwrap_or_else(|p| p.into_inner()).kill();
             }
             std::thread::sleep(POLL);
@@ -268,14 +292,26 @@ fn start(ctx: &Ctx, rpc_args: &[Value]) -> Result<Value, String> {
         if let Some(h) = err_reader {
             let _ = h.join();
         }
-        let code = status.and_then(|s| s.code());
+        let ms = started.elapsed().as_millis();
+        let code = done_code(status, killed.load(Ordering::Acquire));
+        let timed_out = timed_out.load(Ordering::Acquire);
         let payload = json!({
             "id": waiter_id,
             "done": true,
             "code": code,
-            "timedOut": timed_out.load(Ordering::Acquire),
+            "timedOut": timed_out,
         });
         let st = tauri::Manager::state::<AppState>(&app);
+        // The start of every run is in the log; so is the end. Without this line the only way
+        // to find out what a module's judge answered — or whether the timeout fired at all —
+        // is to instrument the page.
+        log_line(
+            &st,
+            &format!(
+                "run {waiter_id}: done in {ms} ms, code {}, timedOut {timed_out}",
+                code.map_or_else(|| "null".to_string(), |c| c.to_string())
+            ),
+        );
         st.processes.remove(&waiter_id);
         let _ = app.emit("run", payload);
     });
@@ -369,6 +405,54 @@ mod tests {
         // A bare name is never resolved against the disk; PATH answers it at spawn time.
         assert_eq!(resolve_program(Some(&root), "python").unwrap(), PathBuf::from("python"));
         assert!(resolve_program(Some(&root), "C:/Windows/System32/cmd.exe").is_err());
+    }
+
+    /// A child that runs until it is killed, and one that exits with a code of its own.
+    /// Nothing here is a host: both are the platform's own shell, and both are reaped below.
+    fn sleeper() -> Child {
+        let mut c = if cfg!(windows) {
+            let mut c = quiet_command("cmd");
+            c.args(["/C", "ping -n 60 127.0.0.1 >nul"]);
+            c
+        } else {
+            let mut c = quiet_command("sh");
+            c.args(["-c", "sleep 60"]);
+            c
+        };
+        c.stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("start the sleeper")
+    }
+
+    #[test]
+    fn a_killed_process_reports_no_code_and_a_finished_one_reports_its_own() {
+        // The timeout path: the waiter marks the process killed and kills it. On Windows the
+        // process table then says 1, which is exactly the disagreement with the dev bridge
+        // that this function exists to remove.
+        let mut child = sleeper();
+        child.kill().expect("kill the sleeper");
+        let status = child.wait().expect("reap the sleeper");
+        assert_eq!(done_code(Some(status), true), None, "a killed process must report no code");
+
+        // The ordinary path is untouched: a program that finished still reports what it said.
+        let mut c = if cfg!(windows) {
+            let mut c = quiet_command("cmd");
+            c.args(["/C", "exit 3"]);
+            c
+        } else {
+            let mut c = quiet_command("sh");
+            c.args(["-c", "exit 3"]);
+            c
+        };
+        let done = c
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start the exiter")
+            .wait()
+            .expect("reap the exiter");
+        assert_eq!(done_code(Some(done), false), Some(3));
+
+        // A child the host never saw finish and never killed: no code, and no pretending.
+        assert_eq!(done_code(None, false), None);
     }
 
     #[test]
