@@ -35,8 +35,16 @@ function describe(language, path) {
 }
 
 /**
+ * What Tab inserts. Two spaces is the app's own and is right for markdown and for most of the
+ * pack; Python is four, because that is Python's convention, it is what a seeded stub is
+ * written with, and a file that mixes the two is a `TabError` waiting to happen (K3).
+ */
+const INDENT = { python: '    ' };
+
+/**
  * @param {HTMLElement} el
- * @param {object} opts  { path | text, language, readOnly, onChange, onSave, gutter, placeholder }
+ * @param {object} opts  { path | text, language, readOnly, onChange, onSave, gutter,
+ *                         placeholder, indent }
  */
 export function codeEditor(el, opts = {}) {
   const path = opts.path ? String(opts.path) : null;
@@ -77,12 +85,15 @@ export function codeEditor(el, opts = {}) {
   // `.md` is the one language the pack does not have to load: source mode's own markdown mode
   // is already in the bundle, and `createSourceView` installs it.
   const isMarkdown = !!path && P.extname(path) === 'md' && !opts.language;
+  const named = describe(opts.language, path);
+  const indent = opts.indent || INDENT[String(named && named.name || '').toLowerCase()] || '  ';
   const view = createSourceView({
     host,
     text: baseline ?? '',
     markdown: isMarkdown,
     gutter: opts.gutter !== false,
     placeholder: opts.placeholder,
+    indent,
     readOnly,
     onChange: () => {
       markDirty();
@@ -105,7 +116,7 @@ export function codeEditor(el, opts = {}) {
 
   /** The language pack entry, loaded once, after the editor is already on screen. */
   const loaded = (async () => {
-    const desc = describe(opts.language, path);
+    const desc = named;
     if (!desc) return;
     try {
       const support = await desc.load();

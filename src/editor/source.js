@@ -166,6 +166,7 @@ const highlight = HighlightStyle.define([
  * @param {boolean} [o.gutter]       line numbers (on for non-markdown files)
  * @param {boolean} [o.readOnly]
  * @param {string} [o.placeholder]   the line shown while the buffer is empty
+ * @param {string} [o.indent]        what Tab inserts; two spaces, the app's own, by default
  * @param {() => void} [o.onChange]  a user edit (never our own setText)
  * @param {() => void} [o.onEscape]  Escape with no search panel open
  */
@@ -182,7 +183,7 @@ export function createSourceView(o) {
         drawSelection(),
         highlightSpecialChars(),
         bracketMatching(),
-        indentUnit.of('  '),
+        indentUnit.of(o.indent || '  '),
         EditorView.lineWrapping,
         search({ top: false }),
         o.gutter ? lineNumbers() : [],

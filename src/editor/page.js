@@ -1443,11 +1443,22 @@ export function markdownPage(el, path, opts = {}) {
   // -------------------------------------------------------------------------
   // the instance itself
 
+  /** Say everything the status bar and the window title want, as the active page. */
+  function repaint() {
+    if (!page) return;
+    publishTitle(page);
+    status.set('path', page.path);
+    status.set('save', page.dirty ? (page.hold ? 'unsaved · changed on disk' : 'unsaved')
+      : (page.savedAt ? 'saved ' + page.savedAt : null));
+    updateMeta(page);
+  }
+  inst.repaint = repaint;
+
   /** Become the page the commands and the status bar belong to. */
   function take() {
     if (active === inst) return;
     active = inst;
-    if (page) { publishTitle(page); status.set('path', page.path); }
+    repaint();
   }
 
   /** Hand the bar and the commands to whatever else is mounted, if anything is. */
@@ -1455,6 +1466,7 @@ export function markdownPage(el, path, opts = {}) {
     if (active !== inst) return;
     active = null;
     for (const other of instances) { if (other !== inst) { active = other; break; } }
+    if (active) active.repaint();
   }
 
   /**
