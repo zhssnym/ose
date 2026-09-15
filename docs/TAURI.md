@@ -242,3 +242,260 @@ resolved for itself). Read by `recentVaults`, which adds `exists` and `current` 
 Compared case-insensitively on Windows and byte for byte elsewhere. `vaults.rs` handles
 `recentVaults`, `openVault` and `forgetVault(path)` and is dispatched before `vault.rs`, which
 still owns `forgetVault()` with no argument.
+
+## Round four (2026-09-15): the kernel
+
+### The rename
+
+The executable is `ose.exe` on Windows and `Ose.app` on macOS. Version 0.4.0.
+
+```
+Cargo.toml          package `ose`, [[bin]] name = "ose", version 0.4.0
+tauri.conf.json     productName "Ose", mainBinaryName "ose", window title "Ose"
+release assets      ose.exe, ose-macos-arm64.zip
+                    plus os.exe and os-macos-arm64.zip, byte for byte the same, so a 0.3.x
+                    build in the field can still find the asset it looks for. Drop the two
+                    duplicates once no 0.3.x remains (a comment in build.yml says so).
+ose --version       ose 0.4.0 (a7d42de, 2026-09-15)   |   ose 0.4.0 (dev build)
+```
+
+The old name keeps working in three places, because a portable app that renames itself would
+otherwise orphan every copy already on disk:
+
+- **On disk.** The layout the update uses is built from the running executable's *own* file
+  name, whatever it is. A copy still called `os.exe` swaps `os.exe` → `os.exe.old`,
+  `os.exe.new` → `os.exe` and stays `os.exe`; a copy called `ose.exe` does the same with its
+  own name. A swap never renames the file it found.
+- **In the release.** `update.rs` `check()` and `download()` accept an asset named `ose.exe`
+  **or** `os.exe` on Windows, `ose-macos-arm64.zip` or `os-macos-arm64.zip` on macOS, and
+  prefer the new name when both are published. The macOS swap accepts a bundle called
+  `Ose.app` or `os.app` inside the zip and renames it to whatever the running bundle is
+  called.
+- **In the vault.** `vault.rs` hides both sets of names, so neither binary nor its update
+  leftovers appear in the tree: `ose.exe ose.pdb ose.exe.new ose.exe.old Ose.app Ose.app.old
+  ose-update.zip ose-update-tmp` and the same six with `os`. Matching is case-insensitive, so
+  `OSE.EXE` and `os.app` are covered.
+
+### Kernel origins and the rice loader
+
+### Three origins
+
+```
+ose.localhost     the kernel's embedded assets (dist-kernel/, compiled into the executable)
+app.localhost     <vault>/.ose/app, or the folder given by --rice <dir>
+vault.localhost   the vault's own files, as before
+```
+
+On Windows a custom scheme is served at `http://<scheme>.localhost/...`; on macOS and Linux at
+`<scheme>://localhost/...`. That is Tauri's rule, not ours, and it is why nothing in a rice
+file ever spells an origin: `platformInfo` reports all three
+(`kernelOrigin`, `appOrigin`, `vaultOrigin`, no trailing slash) and the host rewrites the
+rice's `index.html` on the way out.
+
+**`ose` (the kernel).** `dist-kernel/` is `frontendDist` in `tauri.conf.json`, so `tauri build`
+embeds it and the protocol handler serves it through the app's asset resolver. GET only. Mime
+type from the extension (the table in `protocol.rs`). `Access-Control-Allow-Origin: *`,
+`Cache-Control: no-store`. A missing name is 404. `/` and `/index.html` both give the fallback
+page.
+
+**`app` (the rice).** Files under the rice folder, read at request time. GET only. Path
+percent-decoded, then resolved with the same containment check the vault uses: a request whose
+path escapes the folder is **404**, never a redirect and never a listing. A directory is 404
+(no directory listing, no implicit `index.html` inside a subfolder); the bare `/` is the rice's
+`index.html`. `Cache-Control: no-store` on everything, so Ctrl+R shows the file you just saved.
+`Access-Control-Allow-Origin: *` and `Access-Control-Expose-Headers: Content-Security-Policy`,
+so a page on another origin — the self-test is one — can read the policy the host applied.
+
+`index.html` is the one file that is rewritten in flight:
+
+1. the import map is inserted immediately after `<head>` (or at the very top of the document
+   when there is no `<head>`):
+
+   ```html
+   <script type="importmap">{"imports":{
+     "ose:kernel":"<kernel origin>/kernel.js","ose:editor":"<kernel origin>/editor.js",
+     "ose:ui":"<kernel origin>/ui.js","ose:md":"<kernel origin>/md.js"}}</script>
+   ```
+
+2. `<link data-ose="ui">` gets `href="<kernel origin>/ui.css"` and `<link data-ose="editor">`
+   gets `href="<kernel origin>/editor.css"`, whatever href they carried (or none).
+3. the response carries
+
+   ```
+   Content-Security-Policy: default-src 'none';
+     script-src <kernel> <app> 'sha256-…';
+     style-src <kernel> <app> 'unsafe-inline';
+     img-src <kernel> <app> <vault> data: blob:;
+     font-src <kernel> <app> data:;
+     media-src <kernel> <app> <vault> blob:;
+     connect-src <kernel> <app> <vault> <ipc> ipc:;
+     worker-src <kernel> <app> blob:;
+     frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
+   ```
+
+   Three origins, inline styles, and nothing from the network at all. `<ipc>` and `ipc:` are
+   Tauri's own invoke channel, which the injected bootstrap `fetch`es; they are the only
+   non-origin entries.
+
+   **A rice's own code lives in files, never in an inline `<script>`.** `script-src` carries no
+   `'unsafe-inline'`: the one inline script in the page is the import map the host itself
+   injected, and it is allowed by the sha256 of exactly its own text. This is deliberate. It is
+   what docs/RICE.md asks for anyway ("a rice file imports `ose:*` and its own files"), and it
+   means a `<script>` smuggled into a markdown file cannot run even if it ever gets past the
+   renderer's sanitiser. An inline `<style>`, and `style="…"` on an element, are fine.
+
+### What the window loads
+
+At `setup`, in order:
+
+1. no vault → the kernel's fallback page (it is what draws `Open folder`);
+2. `--no-rice`, or Shift held at launch → the fallback page. Windows reads
+   `GetAsyncKeyState(VK_SHIFT)` through `windows-sys`; macOS reads
+   `NSEvent::modifierFlags` through `objc2-app-kit`; on Linux nothing is read and the flag is
+   the only way.
+3. a rice is present → `app.localhost/index.html`. "Present" is
+   `<rice>/index.html` is a file **and** `<rice>/cockpit.json` either does not exist or parses
+   and has `requires <= ose.api` (1). A `cockpit.json` that is not valid JSON, or that requires
+   a later api, is a refusal with the reason in the log and on the fallback page.
+4. otherwise the fallback page.
+
+The rice folder is `<vault>/.ose/app`, or `--rice <dir>` (absolute, or relative to the current
+directory), which also works with no vault at all.
+
+**The five-second timer.** When the window is sent to the rice the host arms a 5 s timer. The
+kernel calls `riceReady` the moment `ose.ready` resolves, which cancels it; `riceFailed(reason)`
+falls back at once. If neither arrives the host logs
+`rice: no riceReady within 5s, falling back` and navigates the window to the kernel's
+`index.html`. The fallback page calls `riceReady` too, so it never bounces to itself.
+
+### New rpc
+
+```
+riceInfo()   -> { dir, source, present, disabled, requires, why, api }
+    dir       absolute, or null with no vault and no --rice
+    source    'vault' | 'arg' | 'none'
+    present   a rice is there and this kernel can load it (step 3's first test)
+    disabled  --no-rice, or Shift held at launch
+    requires  the number in cockpit.json, or null when there is no cockpit.json
+    why       why a rice that is there was refused, or null. The two reasons are
+              "cockpit.json is not valid JSON: …" and
+              "cockpit.json requires ose.api <n>; this kernel is 1"
+    api       the kernel's own ose.api, 1
+  The window went to the rice exactly when `present && !disabled`.
+
+reloadRice() -> null    reloads the window's current page (Ctrl+R). It reloads whatever is
+                        loaded, except that a reload asked for from the fallback page re-runs
+                        the decision: creating `.ose/app/index.html` and pressing Ctrl+R is how
+                        a person gets from the fallback into their new rice.
+riceReady()  -> null    cancels the fallback timer
+riceFailed(reason) -> null   navigate to the fallback page now, with the reason logged
+platformInfo() gains kernelOrigin, appOrigin, vaultOrigin and api
+readBinary(path) -> base64   (docs/KERNEL.md `ose.files.readBinary`; the counterpart of
+                        writeBinary, added here because vault.rs is this package's file)
+```
+
+The log says what was decided, in one line, on every launch — including `--selftest`, which has
+a page of its own and never calls the loader:
+
+```
+rice: loading D:\vault\.ose\app (from vault)
+rice: the fallback page (--no-rice or Shift at launch)
+rice: the fallback page (no index.html in the rice folder)
+rice: the fallback page (cockpit.json requires ose.api 2; this kernel is 1)
+rice: no riceReady within 5s, falling back
+```
+
+### Command line
+
+```
+--rice <dir>    serve this folder as the rice instead of <vault>/.ose/app
+--no-rice       load the kernel's fallback page whatever the vault holds
+```
+
+`--root`, `--log`, `--selftest`, `--version`, `--update`, `--after-pid` are unchanged.
+Shift held at launch is `--no-rice`.
+
+### `run`
+
+One rpc pair, and the bridge event `run`.
+
+```
+run(id, cmd, args, opts)  -> { id, pid }      resolves when the process has started
+    opts: { cwd, timeout, env, input, allow }
+    cwd      vault-relative, contained in the vault; default the vault root. With no vault
+             open the process's own current directory.
+    timeout  ms, default 60000, 0 or negative means the default. At the timeout the process
+             tree is killed and `done` carries `timedOut: true`.
+    env      merged over the process environment and over the UTF-8 floor
+             PYTHONUTF8=1, PYTHONIOENCODING=utf-8, LANG=C.UTF-8, LC_ALL=C.UTF-8.
+             A value of null removes a variable.
+    input    written to stdin, which is then closed. Absent means stdin is closed at once.
+    allow    the program names this caller may run (a module's module.json `run`).
+runKill(id)               -> boolean          true when a process with that id was running
+```
+
+`cmd` is **a program name resolved on PATH, or a vault-relative path to a file inside the
+vault**, and never a shell: no `cmd.exe /c`, no `sh -c`, no argument string that a shell would
+split. `args` is a list of strings passed through untouched. On Windows the child gets
+`CREATE_NO_WINDOW`, so nothing flashes.
+
+**The allow rule.** A program may run when its name is in the per-call `allow` **or** in
+`settings.run.allow` in `.ose/state.json` (a list of program names, default empty — the rice
+itself may run nothing until the user allows it). Neither is `Err("not allowed: <cmd>")`. The
+name compared is the file name without a directory and without `.exe`/`.bat`/`.cmd`, lowercased
+on Windows, so `allow: ["python"]` covers `python`, `python.exe` and `tools/python.exe` and
+does not cover `python3` — name a program exactly as you mean to run it.
+
+**Streaming.** stdout and stderr are read on their own threads and emitted line by line:
+
+```
+event "run"  { id, stream: "stdout" | "stderr", line }        no trailing newline, CR stripped
+event "run"  { id, done: true, code, timedOut }               code is null when killed
+```
+
+Lines are decoded as UTF-8 lossily, so a program that writes Latin-1 gives replacement
+characters rather than an error. A final partial line with no newline is emitted before `done`.
+
+Every process the host started is killed when the app exits, when the vault changes, and on
+`runKill`. Ids are the caller's; a second `run` with a live id is `Err("run id in use: <id>")`.
+
+### The dev host
+
+`dev/bridge-plugin.mjs` implements `run`, `runKill`, `riceInfo` and `reloadRice` with the same
+shapes: Node's `spawn`, the same UTF-8 floor, the same allow rule read from the same
+`settings.run.allow` in the same `state.json`, the same `run` events over the existing SSE
+channel. `reloadRice` is a no-op in the browser (F5 is the reload) and answers `null`.
+`riceInfo` reports the dev rice folder: `OSE_RICE` if set, else `<repo>/cockpit` if it exists,
+else `<vault>/.ose/app`, with `source` `'arg'`, `'arg'` and `'vault'` respectively.
+
+### The self-test
+
+`ose --selftest --root <vault> --log <file>` navigates to `<kernel origin>/selftest.html`.
+Four checks join the existing ones:
+
+- `platformInfo` — the three origins are there, carry no trailing slash, and have this
+  platform's shape (`http://x.localhost` on Windows, `x://localhost` elsewhere).
+- `riceInfo` — the shape, and the decision.
+- the `app` protocol serves the rice's `index.html` with the import map carrying the kernel
+  origin, the `data-ose="ui"` link rewritten, and a `Content-Security-Policy`; and it refuses
+  to escape — `/../x`, `/%2e%2e/x` and `/../../CLAUDE.md` all answer 404 while `/` answers 200.
+  Skipped when no rice is present.
+- `run` — a program in neither allow list is refused with `not allowed: <cmd>`; then
+  `python -c "print('é')"` (or `python3`, or `node -e`, or SKIP when none is on PATH) comes
+  back as exactly `é` with `code` 0 and `timedOut` false; then `runKill` kills a sleeping
+  child, the `done` event arrives, and a second `runKill` on the same id answers false.
+
+CI runs three windows on each runner:
+
+1. `ose --selftest --root ci/fake-vault --log …` with `ci/fake-vault/.ose/app` in place — the
+   whole page above, and the job fails if the app-protocol checks did not run (which is how a
+   missing fake rice is caught rather than silently skipped).
+2. `ose --root ci/fake-vault --log …` with **no** `--selftest`: the window really goes to the
+   rice. The fake rice imports `ose:kernel` through the injected import map, checks that its
+   `<link data-ose="ui">` now points at the kernel origin, logs `rice ok (api 1, …)` and quits
+   itself. The job fails on a missing `rice ok` or on any `falling back`.
+3. `ose --selftest --no-rice --root ci/fake-vault --log …`: the same page again, plus the log
+   line `rice: the fallback page (--no-rice or Shift at launch)`.
+
+Plus `ose --version`, asserted to match `^ose 0\.\d+\.\d+ \(`, from the binary CI is about to
+publish.
