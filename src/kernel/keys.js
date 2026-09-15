@@ -10,7 +10,7 @@
 // stays the one source of every hint the palette and the menus draw; `editor/commands.js`
 // reads the list and binds it inside a ProseMirror keymap, where a chord can stand down for a
 // code block or a table.
-import { commands } from './registry.js';
+import { commands, allCommands, commandsRevision } from './registry.js';
 import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.js';
 
 /** Cmd on macOS, Ctrl elsewhere. Read live: the shell sets `data-os` after the bridge answers. */
@@ -150,6 +150,7 @@ export function comboFor(k) { return (isMac() && k.mac) || k.combo; }
 let byCmd = null;
 let byCombo = null;
 let builtMac = null;
+let builtRev = -1;
 
 /**
  * `ose.keys.bind(combo, commandId, { scope })` (docs/KERNEL.md): the rice's `keys.json` and a
@@ -178,16 +179,39 @@ export function bindingFor(combo) {
   return byCombo.get(normalizeCombo(combo)) || null;
 }
 
+/**
+ * `commands.register({ shortcut })` is a binding, not a printed hint (docs/MODULES.md rule 4):
+ * the chord fires the command and `shortcutFor` answers it. It is read off the registry here
+ * rather than bound inside `commands.register`, so `registry.js` keeps importing nothing and
+ * the chord goes with the command — the unsubscribe removes the command, the next index leaves
+ * the chord out. Scope is always 'window'; a chord that should stand down inside the editor
+ * body is `keys.bind(combo, id, { scope: 'body' })`.
+ */
+function commandShortcuts() {
+  const out = [];
+  for (const c of allCommands()) {
+    if (!c.shortcut) continue;
+    const combo = normalizeCombo(c.shortcut);
+    if (combo) out.push({ combo, cmd: c.id, inBody: false });
+  }
+  return out;
+}
+
 function index() {
   const mac = isMac();
-  if (byCmd && builtMac === mac) return;
+  const rev = commandsRevision();
+  if (byCmd && builtMac === mac && builtRev === rev) return;
   builtMac = mac;
+  builtRev = rev;
   byCmd = new Map();
   byCombo = new Map();
+  const shortcuts = commandShortcuts();
   for (const k of KEYMAP) byCombo.set(normalizeCombo(comboFor(k)), k);
-  // Bindings last: a rice or a module overrides a default rather than fighting it.
+  // Then a command's own `shortcut`, then the explicit bindings: a rice's keys.json wins over
+  // a module's shortcut, and both win over a default rather than fighting it.
+  for (const k of shortcuts) byCombo.set(k.combo, k);
   for (const [combo, entry] of bindings) byCombo.set(combo, entry);
-  for (const k of [...bindings.values(), ...KEYMAP, ...BODY_KEYS]) {
+  for (const k of [...bindings.values(), ...shortcuts, ...KEYMAP, ...BODY_KEYS]) {
     if (!byCmd.has(k.cmd)) byCmd.set(k.cmd, labelOf(k));
   }
 }

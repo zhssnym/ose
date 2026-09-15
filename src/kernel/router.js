@@ -81,17 +81,33 @@ function normalize(route) {
 
 /* ------------------------------------------------------- routes a module owns (ose.route.own) */
 
-// pattern -> { match(path), mount, owner }. A pattern is a plain glob over vault-ish paths:
-// `nsi/*` matches everything under `nsi/`, `nsi/*/notes` matches one segment in the middle.
+// pattern -> { match(path), mount, owner }. A pattern is a plain glob over vault-ish paths.
 // First registration wins a collision, so a module cannot silently steal another's pages.
 const owners = [];
 const indexers = [];
 
 const RE_SPECIAL = /[.*+?^${}()|[\]\\]/g;
+const quoteGlob = (s) => s.replace(RE_SPECIAL, '\\$&');
+
+// The two rules, as docs/KERNEL.md states them next to `ose.route.own`:
+//
+// - a trailing `/*` is greedy: `nsi/*` owns everything under `nsi/`, at any depth, so
+//   `nsi/chapitre-1/03-arbres` is its page. This is the normal case, not an edge: an id with a
+//   slash in it (`chapitre-N/NN-slug`) is a format a module picks, and a manifest that says
+//   `routes: ["nsi/*"]` means the section, not one level of it.
+// - a `*` anywhere else is one segment: `nsi/*/notes` matches `nsi/chapitre-1/notes` and not
+//   `nsi/chapitre-1/03-x/notes`.
+//
+// `**` is greedy wherever it stands, for the rare pattern that needs depth in the middle
+// (`nsi/**/notes`). Everything else in a pattern is literal.
 function toMatcher(pattern) {
-  const source = String(pattern).split('*')
-    .map((part) => part.replace(RE_SPECIAL, '\\$&'))
-    .join('[^/]*');
+  let p = String(pattern);
+  let tail = '';
+  // 'nsi/*' -> '^nsi/.*$'. 'nsi/**' does not end in '/*' and falls to the `**` split below.
+  if (p.endsWith('/*')) { p = p.slice(0, -1); tail = '.*'; }
+  const source = p.split('**')
+    .map((chunk) => chunk.split('*').map(quoteGlob).join('[^/]*'))
+    .join('.*') + tail;
   const re = new RegExp('^' + source + '$');
   return (path) => re.test(clean(path));
 }

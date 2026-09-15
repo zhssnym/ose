@@ -34,11 +34,24 @@ export const store = {
 };
 
 const cmdMap = new Map();
+// Bumped on every register and unregister. `keys.js` reads it to know when to rebuild its
+// index, because a command's `shortcut` is a real binding (docs/KERNEL.md
+// `ose.commands.register`, docs/MODULES.md rule 4): registering the command arms the chord and
+// the unsubscribe takes it back. The counter is how that happens without the registry — the
+// one module in the kernel that imports nothing — importing the key engine.
+let cmdRev = 0;
+export const commandsRevision = () => cmdRev;
+/** Every registered command, `when` guards ignored. `keys.js` only. */
+export const allCommands = () => [...cmdMap.values()];
 export const commands = {
   register(cmd) {
     if (!cmd || !cmd.id || typeof cmd.run !== 'function') throw new Error('commands.register: id and run required');
-    cmdMap.set(cmd.id, { group: 'app', ...cmd });
-    return () => cmdMap.delete(cmd.id);
+    const entry = { group: 'app', ...cmd };
+    cmdMap.set(cmd.id, entry);
+    cmdRev += 1;
+    // The unsubscribe drops this registration and not whatever replaced it, so re-registering
+    // an id and then releasing the old handle does not leave the palette short a command.
+    return () => { if (cmdMap.get(cmd.id) === entry) { cmdMap.delete(cmd.id); cmdRev += 1; } };
   },
   list: () => [...cmdMap.values()].filter(c => !c.when || c.when()),
   get: (id) => cmdMap.get(id),
@@ -109,7 +122,15 @@ export const status = {
     statusWatchers.emit('change', status.all());
   },
   clear(key) { status.set(key, null); },
-  all: () => STATUS_ORDER.filter(k => statusData.has(k)).map(k => ({ key: k, ...statusData.get(k) })),
+  /**
+   * The bar's own order first, then every other field in the order it was first set. A module
+   * that calls `ose.status.set('nsi', …)` gets a field in the bar (docs/KERNEL.md), instead of
+   * one that is stored and never listed; the shell's five keep their fixed places on the left.
+   */
+  all: () => [
+    ...STATUS_ORDER.filter(k => statusData.has(k)),
+    ...[...statusData.keys()].filter(k => !STATUS_ORDER.includes(k)),
+  ].map(k => ({ key: k, ...statusData.get(k) })),
   watch: (fn) => statusWatchers.on('change', fn),
 };
 

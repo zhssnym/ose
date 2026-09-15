@@ -10,8 +10,10 @@
 //   files   read and write only under `data`; empty `data` means read the whole vault and
 //           write nothing
 //   watch   folders intersected with `data`
-//   run     only the programs `run` names, and the list is passed to the host as well so the
-//           refusal happens on both sides
+//   run     only the programs `run` names — compared the way the host compares them, by
+//           program stem and case-insensitively on Windows — and the list is passed to the
+//           host as well so the refusal happens on both sides. `cwd` may be one of the data
+//           folders or the module's own folder.
 //   state   one key, `modules.<id>`, whatever the module asks for
 //
 // and with every registration tagged by module id, so `unload(id)` takes back the commands,
@@ -37,6 +39,33 @@ const isUnder = (path, folder) => {
 };
 
 const notAllowed = (what) => Object.assign(new Error(`not allowed by module.json: ${what}`), { code: 'ENOTALLOWED' });
+
+/** Extensions that are part of a program's name on Windows and not part of what `run` allows. */
+const PROGRAM_EXTS = new Set(['exe', 'bat', 'cmd', 'com']);
+
+/**
+ * The name a caller means when it allows a program: the file name, without a directory and
+ * without a Windows program extension, lowercased on Windows. This is the host's own
+ * normalisation — `program_key` in src-tauri/src/run.rs and `programKey` in
+ * dev/bridge-plugin.mjs — spelled here so the facade refuses exactly what the host refuses and
+ * nothing more. `tools/python.exe`, `C:\Python313\python.exe` and `python` are one key;
+ * `python3` is not.
+ */
+export function programKey(name, windows = true) {
+  const base = String(name ?? '').split(/[\\/]/).pop();
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 && PROGRAM_EXTS.has(base.slice(dot + 1).toLowerCase()) ? base.slice(0, dot) : base;
+  return windows ? stem.toLowerCase() : stem;
+}
+
+/**
+ * A module's own folder as a vault path (docs/MODULES.md: a module is a folder under
+ * `.ose/app/modules/<id>/`). Read-only to the module, and where MODULES.md rule 6 has it ship
+ * the scripts `run` starts, so it is a legal `cwd` as well as the module's `data`. A host
+ * started with `--rice <dir>` serves the rice from outside the vault; there this path is not
+ * where the module lives, and a `cwd` has to be one of its `data` folders instead.
+ */
+export const moduleHome = (id) => `.ose/app/modules/${id}`;
 
 /* --------------------------------------------------------------------------- where the rice is */
 
@@ -64,6 +93,10 @@ async function resolveBase() {
 const json = async (url) => {
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  // The dev server answers a missing file with the rice's index.html and a 200 (the SPA
+  // fallback); say what is missing instead of failing on a '<'.
+  const type = res.headers.get('content-type') || '';
+  if (!/json/.test(type)) throw new Error(`no module.json at ${new URL(res.url).pathname}`);
   return res.json();
 };
 
@@ -108,6 +141,11 @@ export function makeFacade(ose, entry) {
   const canWrite = (path) => !readAll && data.some((d) => isUnder(path, d));
   const guardRead = (path) => { if (!canRead(path)) throw notAllowed(`read ${clean(path)}`); return clean(path); };
   const guardWrite = (path) => { if (!canWrite(path)) throw notAllowed(`write ${clean(path)}`); return clean(path); };
+  // Where a process may start: the module's data, or the module's own folder — the one
+  // MODULES.md rule 6 tells it to ship its scripts in, so `ose.run('python', ['-m', …],
+  // { cwd: ose.module.folder })` is the documented invocation and not a violation.
+  const home = moduleHome(id);
+  const canRunIn = (path) => canRead(path) || isUnder(path, home);
 
   // Every registration is remembered so `unload` can take it all back.
   const keep = (off) => { if (typeof off === 'function') entry.offs.push(off); return off; };
@@ -154,8 +192,13 @@ export function makeFacade(ose, entry) {
   // right from before the call leaves: `run.kill` can only ever reach a process this module
   // started, and `unload` kills exactly those.
   const run = (cmd, args, opts = {}) => {
-    if (!allow.includes(String(cmd))) return Promise.reject(notAllowed(`run ${cmd}`));
-    if (opts.cwd !== undefined && !canRead(opts.cwd)) return Promise.reject(notAllowed(`run in ${clean(opts.cwd)}`));
+    // The host's normalisation, not an exact string match: a settings field that says "a full
+    // path works" has to work on this side too, and a facade stricter than the host refuses
+    // calls the host would have run.
+    const windows = ose.platform !== 'macos' && ose.platform !== 'linux';
+    const key = programKey(cmd, windows);
+    if (!allow.some((a) => programKey(a, windows) === key)) return Promise.reject(notAllowed(`run ${cmd}`));
+    if (opts.cwd !== undefined && !canRunIn(opts.cwd)) return Promise.reject(notAllowed(`run in ${clean(opts.cwd)}`));
     const pid = opts.id || `${entry.id}.${uid()}`;
     entry.procs.add(pid);
     return kernelRun(cmd, args, { ...opts, id: pid, allow })
@@ -168,7 +211,9 @@ export function makeFacade(ose, entry) {
 
   return {
     ...ose,
-    module: { id, name: manifest.name || id, manifest },
+    // `folder` is the module's own folder as a vault path, so a `run` call can name it without
+    // spelling `.ose/app/modules/<id>` itself.
+    module: { id, name: manifest.name || id, manifest, folder: home },
     files,
     watch,
     run,

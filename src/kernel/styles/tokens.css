@@ -191,11 +191,18 @@
   --info: #7E9CC0;
   --info-soft: rgba(126, 156, 192, .16);
 
-  /* Dark already clears 6:1 on the 16% grounds, so the inks are the line colours. */
-  --accent-ink: var(--accent);
+  /* Dark already clears 6:1 on the 16% grounds, so the inks are the line colours — with one
+     exception. `--err` is the darkest of the four, and `.chip.err` measured 3.92:1 on
+     `--err-soft` over `--bg`, under the 4.5 an 11px mono face needs (K3). #DE7F6E is the same
+     hue and saturation four steps lighter: 5.09 on `--err-soft` over `--bg` and 6.16 on `--bg`
+     itself, which puts the error chip where the light one already sits (5.26 / 6.11 for the ok
+     chip). Over `--bg-2` it is 4.81; over `--bg-3` it reads 4.22, the same caveat `--fg-2`
+     carries above, and a chip on a selected row is not a thing the app draws. `--err` itself is
+     unchanged: it is a 3:1 line colour and every border, icon and message still uses it. */
+  --accent-ink: #E38A6C;   /* 5.41:1 on --accent-soft over --bg, 6.8:1 on --bg; --accent itself is 4.49 */
   --ok-ink: var(--ok);
   --warn-ink: var(--warn);
-  --err-ink: var(--err);
+  --err-ink: #DE7F6E;
 
   --c-class: #7E9CC0;
   --c-maths: #D97757;

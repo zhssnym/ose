@@ -85,6 +85,9 @@ ose.run(cmd, args, opts)     -> Promise<{ code, stdout, stderr, timedOut }>
     (PYTHONUTF8=1, PYTHONIOENCODING=utf-8, LANG=C.UTF-8, LC_ALL=C.UTF-8); the process is killed
     at the timeout and when the app exits. A module may only run the programs its manifest
     names; the rice may run anything the settings allow (settings.run, default: nothing).
+    A program is matched by its **stem**, case-insensitively on Windows, on both sides: `python`
+    allows `python`, `tools/python.exe` and `C:\Python313\python.exe`, and does not allow
+    `python3`.
     Underneath, the host answers `{ id, pid }` the moment the process starts and streams
     everything else as `run` events, ending with `{ id, done, code, timedOut }`; it buffers
     nothing. The kernel is what turns that into the one promise above, joining the lines it
@@ -102,15 +105,29 @@ ose.route.own(pattern, mount) -> unsubscribe
     mount(el, route) -> { title?, unmount? }. History, the window title, quick open rows
     (through ose.route.index(pattern, () => [{ path, title }])) and back/forward work as for
     a page.
+    A pattern is a plain glob with two rules. A **trailing `/*` is greedy**: `nsi/*` owns
+    everything under `nsi/`, at any depth, so the route above is its page — an id with a slash
+    in it is a format a module picks, and `routes: ["nsi/*"]` means the section, not one level
+    of it. A `*` **anywhere else is one segment**: `nsi/*` + `/notes` matches
+    `nsi/chapitre-1/notes` and not `nsi/chapitre-1/03-x/notes`. `**` is greedy wherever it
+    stands, for the rare pattern that needs depth in the middle. Everything else is literal,
+    and the first registration wins a collision.
 ose.route.index(pattern, fn) register what quick open lists for an owned pattern
 ose.route.on(fn)             -> unsubscribe            fn(route) after every change
 ose.route.init(el)           the rice mounts the router into its page column, once
 
 ose.commands.register({ id, title, group, shortcut?, when?, run })  -> unsubscribe
+    `shortcut` is a binding, not a printed hint: registering the command arms the chord with
+    scope 'window', `ose.keys.shortcutFor(id)` answers it, and the unsubscribe takes it back
+    with the command. It is written like a `keys.bind` combo ('Mod+Shift+J', 'mod+shift+j' and
+    'MOD+SHIFT+J' are one chord). An explicit `ose.keys.bind` wins over a `shortcut`, and both
+    win over a shell default.
 ose.commands.run(id, ...args) / get(id) / list()
 ose.keys.bind(combo, commandId, { scope: 'window' | 'body' })  -> unsubscribe
-    'mod+shift+j'; mod is Ctrl or Cmd. Shell chords win; a scope 'body' chord fires only with
-    the caret in a page editor. The rice's keys.json is loaded through the same call.
+    'mod+shift+j'; mod is Ctrl or Cmd. Shell chords are bound on the window in the capture
+    phase, so nothing on the page can shadow one; a binding here replaces the default on that
+    chord, and dropping the binding gives the default back. A scope 'body' chord fires only
+    with the caret in a page editor. The rice's keys.json is loaded through the same call.
 ose.keys.shortcutFor(commandId) -> 'Ctrl+K' | null
 ose.keys.defaults()          -> the shell keymap, for a rice that wants to show it
 ose.keys.label(combo)        -> 'mod+shift+j' as 'Ctrl+Shift+J' ('Cmd+Shift+J' on a Mac)
@@ -124,7 +141,9 @@ ose.tiles.list() / get(id) / refresh(id?) / mounted(id, handle) / forget(id)
     `mounted` is how the view that draws a tile hands the handle back, so a later `refresh`
     reaches it; `refresh()` with no id refreshes every tile currently on screen.
 ose.status.set(field, text | { text, kind, onClick }) / clear(field)
-ose.status.all()             -> [{ key, text, kind, onClick }] in the bar's own order
+ose.status.all()             -> [{ key, text, kind, onClick }]
+    The bar's own five first (mode, path, doc, save, watch), then every other field in the
+    order it was first set, so a module's `set('nsi', …)` is a field the bar draws.
 ose.settings.get() / set(partial) / on(fn)     the shared settings object (docs/RICE.md)
 ose.settings.section({ id, title, render(el) })  -> unsubscribe   a section in the settings dialog
 ose.settings.sections()      -> the registered sections, in order, for the dialog to draw
@@ -201,7 +220,10 @@ unscoped object.
 Reading is allowed under any folder the manifest's `data` names, writing under the same ones,
 and an empty `data` means read the whole vault and write nothing at all. `watch(fn)` with no
 folders means the module's own data, never the vault. `run` refuses a program the manifest
-does not name, before the call leaves the page and again in the host. `route.own` and
+does not name, before the call leaves the page and again in the host, matching the stem the
+same way the host does; `cwd` may be one of the `data` folders or the module's own folder,
+which the facade also hands it as `ose.module.folder` (`.ose/app/modules/<id>`, where
+docs/MODULES.md rule 6 has the module ship the scripts it runs). `route.own` and
 `route.index` refuse a pattern that is not in `routes`. `state(key)` is `modules.<id>`.
 `schedule(id, …)` becomes `<module>.<id>`. And every registration a module makes is tagged
 with its id, so `ose.modules.unload(id)` takes back its commands, views, tiles, routes,

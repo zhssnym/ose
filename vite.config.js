@@ -41,9 +41,16 @@ if (existsSync(here('src/editor/lib.js'))) alias['ose:editor'] = here('src/edito
 // entry of vite.kernel.config.js instead.
 const entry = (name) => here(name);
 
-export default defineConfig({
+// `root` is the rice for the dev server and the repo root for `vite build`. They are the same
+// folder until the cockpit exists, and different the moment K2 creates it: the dev server has
+// to serve the new rice, while the only thing this config still *builds* is the old
+// `index.html`, whose `/src/main.js` resolves against the repo root and nowhere else. Without
+// the split, `npm run build` fails on "Failed to resolve /src/main.js" the day the cockpit
+// lands. The whole legacy half goes when K2's step 4 deletes `index.html` and `npm run build`
+// becomes `build:kernel`.
+export default defineConfig(({ command }) => ({
   base: './',
-  root: riceRoot,
+  root: command === 'build' ? here('.') : riceRoot,
   resolve: { alias },
   define: { __VUE_OPTIONS_API__: 'false', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
   plugins: [bridgePlugin()],
@@ -57,4 +64,4 @@ export default defineConfig({
     outDir: here('dist'), emptyOutDir: true, target: 'es2022', sourcemap: false,
     rollupOptions: { input: { main: entry('index.html') } },
   },
-});
+}));
