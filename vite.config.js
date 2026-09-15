@@ -12,11 +12,41 @@
 // vite.kernel.config.js's job (`npm run build`): the kernel bundles, the fallback page and the
 // self-test page into dist-kernel/, which the host embeds.
 
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { bridgePlugin } from './dev/bridge-plugin.mjs';
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
+
+// The two kernel stylesheets at the names the kernel origin serves them under. In the host
+// the `<link data-ose>` hrefs are rewritten to `<kernel origin>/ui.css`; here the origin is
+// the dev server itself, and Vite's SPA fallback would answer the page for any unknown path,
+// so the two names are served as text/css: ui.css from its sources (the `@import`s inlined),
+// editor.css from the last kernel build when there is one (the editor's own JS injects its
+// styles in dev anyway, so a missing build only costs the link).
+function kernelStylesheets() {
+  const inlineImports = (css, dir) => css.replace(/@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/g, (_, rel) => {
+    const file = here(dir + rel);
+    return existsSync(file) ? inlineImports(readFileSync(file, 'utf8'), dir + rel.replace(/[^/]*$/, '')) : '';
+  });
+  return {
+    name: 'ose-kernel-stylesheets',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0];
+        let body = null;
+        if (url === '/ui.css') body = inlineImports(readFileSync(here('src/kernel/ui.css'), 'utf8'), 'src/kernel/');
+        else if (url === '/editor.css' && existsSync(here('dist-kernel/editor.css'))) body = readFileSync(here('dist-kernel/editor.css'), 'utf8');
+        else if (url === '/editor.css') body = '/* editor.css comes from `npm run build`; in dev the editor injects its own styles */';
+        if (body === null) return next();
+        res.setHeader('Content-Type', 'text/css; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(body);
+      });
+    },
+  };
+}
 
 const riceRoot = process.env.OSE_RICE || here('cockpit');
 
@@ -32,7 +62,7 @@ export default defineConfig({
   root: riceRoot,
   resolve: { alias },
   define: { __VUE_OPTIONS_API__: 'false', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
-  plugins: [bridgePlugin()],
+  plugins: [kernelStylesheets(), bridgePlugin()],
   server: {
     port: 5173, strictPort: true, host: '127.0.0.1',
     // The rice may be a folder beside the repo; the kernel sources it imports are inside it.
