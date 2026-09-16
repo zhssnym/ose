@@ -15,7 +15,7 @@ import {
 import { vaultLost } from './vault.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHiddenName, segments } from './paths.js';
 import { openSearch } from './search.js';
-import { moveTabs, closeTabsUnder } from './tabs.js';
+import { moveTabs, closeTabsUnder, openInNewTab } from './tabs.js';
 import { isMediaFile } from './media.js';
 import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
@@ -583,6 +583,29 @@ function activateRow(row) {
   openWith(path);
 }
 
+/**
+ * The route a row opens, or null when it opens nothing a tab could hold — a folder, a pin that
+ * is a folder, a spreadsheet the platform owns. This is what the deliberate gestures need:
+ * middle click, Ctrl+Enter, Ctrl+click on a pin. A plain click still goes through
+ * `activateRow`, which does the focusing and the toggling those gestures have no business in.
+ */
+function routeForRow(row) {
+  if (!row || row.classList.contains('sb-missing')) return null;
+  const path = row.dataset.path;
+  if (!path || row.dataset.kind === 'dir') return null;
+  if (row.dataset.md === '1' || isTextFile(path) || isMediaFile(path)) return { type: 'page', path };
+  return null;
+}
+
+/** A row opened on purpose, in a tab of its own. Answers whether there was anything to open. */
+function openRowAside(row) {
+  const r = routeForRow(row);
+  if (!r) return false;
+  setRoving(row);
+  void openInNewTab(r);
+  return true;
+}
+
 /** `ose.files.open`, with the refusal said out loud rather than left in a console (N10). */
 function openWith(path) {
   files.open(path).catch((err) => toast(err.message || err, 'err'));
@@ -616,6 +639,14 @@ function typeAhead(list, at, ch) {
  * move drops it and moves the anchor, so the selection never trails a user who has moved on.
  */
 function onTreeKey(e) {
+  // Ctrl+Enter opens the focused row in a tab of its own. It is free here: `block.toggle-task`
+  // owns the chord only with the caret inside the editor body (src/kernel/keys.js BODY_KEYS),
+  // and the guard below would otherwise drop every modifier on the floor.
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    const from = (e.target && e.target.closest && e.target.closest('.sb-row'))
+      || (document.activeElement && document.activeElement.closest && document.activeElement.closest('.sb-row'));
+    if (from && openRowAside(from)) { e.preventDefault(); return; }
+  }
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const list = treeRows();
   if (!list.length) return;
@@ -1469,6 +1500,9 @@ export function initSidebar(node) {
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
     if (e.detail === 0) return;
+    // A pinned row is not selectable, so Ctrl+click is free on it and means what it means
+    // everywhere else: open this in a tab of its own.
+    if (row.dataset.pin === '1' && (e.ctrlKey || e.metaKey) && openRowAside(row)) return;
     if (isSelectable(row) && (e.ctrlKey || e.metaKey)) {
       toggleSelected(row);
       anchor = rowKey(row);
@@ -1486,6 +1520,21 @@ export function initSidebar(node) {
     setRoving(row);
     activateRow(row);
   });
+
+  // The middle button opens a row in a tab of its own, in the tree and in the pins alike —
+  // the gesture every browser and every editor has. Ctrl+click is not it here: in the tree
+  // that chord toggles the multi-selection (C17) and taking it away would cost the one way to
+  // move or trash several files at once. On a pinned row nothing selects, so Ctrl+click is
+  // free and does open a tab (the click handler below).
+  scrollEl.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) return;
+    const row = e.target.closest('.sb-row');
+    if (!row) return;
+    e.preventDefault();
+    openRowAside(row);
+  });
+  // Firefox and Chromium both start an autoscroll on a middle press unless it is refused.
+  scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.sb-row')) e.preventDefault(); });
 
   scrollEl.addEventListener('keydown', onTreeKey);
 

@@ -85,7 +85,7 @@ export function initTitlebar(node) {
   el.className = 'titlebar';
   el.innerHTML = `
     <button class="tb-fold" type="button">${icon('chevron')}</button>
-    <div class="tb-mark" title="Ose"><span>ose</span></div>
+    <div class="tb-mark" title="Ose"><img src="logo.png" alt="" width="18" height="18"></div>
     <div class="tb-nav">
       <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
       <button class="tb-nav-btn" data-nav="forward" type="button">${icon('forward')}</button>

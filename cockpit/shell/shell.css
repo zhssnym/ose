@@ -38,17 +38,13 @@
   overflow: hidden;
 }
 
+/* The logo (cockpit/logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
 .tb-mark {
-  width: 1rem; height: 1rem; flex: none;
+  width: 1.125rem; height: 1.125rem; flex: none;
   display: grid; place-items: center;
-  background: var(--accent); color: var(--accent-fg);
-  border-radius: var(--radius);
+  border-radius: var(--radius); overflow: hidden;
 }
-/* two letters inside a 1rem square: the one size in the app smaller than --fs-chrome-sm */
-.tb-mark span {
-  font-family: var(--font-mono); font-size: 0.5625rem; font-weight: 700;
-  letter-spacing: -.02em; line-height: 1;
-}
+.tb-mark img { width: 100%; height: 100%; display: block; }
 
 .tb-crumbs {
   display: flex; align-items: center; gap: var(--sp-1);
@@ -239,6 +235,9 @@ html.mac .tb-win { display: none; }
    the active one, a 2px accent line under it and nothing else. The strip is the one taller
    bar, the line the sidebar's fold chevron sits on, and it scrolls sideways rather than
    wrapping — a second row of tabs is a second thing to read before you have read the first. */
+/* One tab is no strip: `[hidden]` has to beat the `display: flex` below, and the page column
+   takes the 44px back (shell/tabs.js). */
+.tabs[hidden] { display: none; }
 .tabs {
   height: var(--barhead-h); flex: none;
   display: flex; align-items: stretch;

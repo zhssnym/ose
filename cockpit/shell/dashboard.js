@@ -13,6 +13,7 @@
 
 import { ose } from 'ose:kernel';
 import { esc } from 'ose:ui';
+import { openInNewTab } from './tabs.js';
 
 const { bus, commands, route, keys, modules } = ose;
 
@@ -102,10 +103,22 @@ const view = {
 </div>`;
     root = el.querySelector('.view-root');
 
+    // A plain click replaces what is in front; Ctrl (or Cmd) click and the middle button make
+    // a tab of it, which is the same gesture every row in the app answers to (shell/tabs.js).
+    const open = (card, aside) => {
+      const r = { type: 'view', name: card.dataset.view };
+      if (aside) void openInNewTab(r); else void route.navigate(r);
+    };
     root.addEventListener('click', (e) => {
       const card = e.target.closest('.dash-card');
       if (!card) return;
-      route.navigate({ type: 'view', name: card.dataset.view });
+      open(card, e.ctrlKey || e.metaKey);
+    });
+    root.addEventListener('auxclick', (e) => {
+      const card = e.target.closest('.dash-card');
+      if (!card || e.button !== 1) return;
+      e.preventDefault();
+      open(card, true);
     });
 
     const fit = (w) => { if (root) root.classList.toggle('narrow', w < NARROW); };

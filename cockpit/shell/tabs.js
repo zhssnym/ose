@@ -7,8 +7,16 @@
 // (`page:<path>`, `own:<path>`, `view:<name>`), so a page reached from the tree, from quick
 // open and from a link is one tab, not three.
 //
-// The home tab (the dashboard) is always first and has no close button: closing the last real
-// tab lands there, which is why there is always somewhere to land.
+// The model is the editor's, not the browser's. An **ordinary** open — a click or Enter in the
+// tree, quick open, a link, back, forward, a module's own `route.navigate` — replaces what is
+// in the tab you are looking at. The strip never grows on its own, because a strip that does
+// is a strip nobody closes. A tab is made **on purpose**: middle click, Ctrl+Enter on a tree
+// row, Ctrl+click on a pinned row or a dashboard card, `tab.new` (Ctrl+T), Ctrl+Shift+T. One
+// tab is no strip at all — it appears at two and the page column takes the room back.
+//
+// There is no home tab. The dashboard is a route like any other: the one the app boots into,
+// the one `app.home` opens, and the one the last tab goes to rather than disappearing, so the
+// page column is never blank and the strip never empty.
 //
 // Tabs are not restored across restarts. A window that opens on yesterday's twelve tabs is a
 // window that owes you twelve decisions before you have made one.
@@ -38,6 +46,9 @@ let closed = [];
 const dirty = new Set();
 // Until the rice has navigated once, a null route is the boot, not a close.
 let armed = false;
+// Set by `openInNewTab` for the length of one navigation: the next route makes a tab of its
+// own instead of replacing what is in front. Nothing else in the file writes it.
+let pendingNew = false;
 
 /* ------------------------------------------------------------------ routes */
 
@@ -108,30 +119,47 @@ function rememberTitle(key, title) {
 const isHome = (key) => key === keyOf(HOME);
 const indexOf = (key) => tabs.findIndex((t) => t.key === key);
 
+/**
+ * Open a route in a tab of its own: the only way a tab is ever made. A route that already has
+ * a tab is brought to the front instead of duplicated — two rows for one page is the thing a
+ * key-per-tab strip exists to prevent.
+ */
+export function openInNewTab(route) {
+  if (!route) return Promise.resolve();
+  pendingNew = true;
+  return Promise.resolve(ose.route.navigate(route)).finally(() => { pendingNew = false; });
+}
+
 /* ------------------------------------------------------------------- draw */
 
 function render() {
   if (!strip) return;
+  // One tab is not a strip: it says nothing the title bar does not, and it costs the page
+  // column 44px for the privilege. It comes back the moment there are two.
+  strip.hidden = tabs.length < 2;
   let activeId = '';
   strip.innerHTML = tabs.map((t, i) => {
     const on = t.key === activeKey;
     const id = 'tab-' + i;
     if (on) activeId = id;
     const label = labelOf(t.route);
-    const home = isHome(t.key);
     return `
       <div class="tab${on ? ' on' : ''}" id="${id}" role="tab" aria-selected="${on ? 'true' : 'false'}"
            tabindex="${on ? '0' : '-1'}" data-key="${esc(t.key)}" title="${esc(label)}">
         ${dirty.has(t.key) ? '<span class="tab-dot" aria-label="unsaved changes"></span>' : ''}
         <span class="tab-name">${esc(label)}</span>
-        ${home ? '' : `<button type="button" class="tab-x" tabindex="-1" aria-label="Close ${esc(label)}" title="Close">${icon('close')}</button>`}
+        <button type="button" class="tab-x" tabindex="-1" aria-label="Close ${esc(label)}" title="Close">${icon('close')}</button>
       </div>`;
   }).join('');
   // Nothing is selected while a close is in flight: the strip keeps one tab stop all the same,
   // so Tab never falls through a bar that is still on screen.
   if (!activeId && strip.firstElementChild) strip.firstElementChild.tabIndex = 0;
-  // The page column is this strip's panel; say so, and say which tab names it.
-  if (panelEl && activeId) panelEl.setAttribute('aria-labelledby', activeId);
+  // The page column is this strip's panel; say so, and say which tab names it. With the strip
+  // off screen there is no tab to name it, and a dangling `aria-labelledby` would point at one.
+  if (panelEl) {
+    if (activeId && !strip.hidden) panelEl.setAttribute('aria-labelledby', activeId);
+    else panelEl.removeAttribute('aria-labelledby');
+  }
   const on = strip.querySelector('.tab.on');
   if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
@@ -141,10 +169,28 @@ function render() {
 function onRoute(r) {
   if (!r) { onEmptySurface(); return; }
   armed = true;
+  const wanted = pendingNew;
+  pendingNew = false;
   const key = keyOf(r);
   const at = indexOf(key);
-  if (at < 0) tabs.push({ key, route: keepRoute(r) });
-  else tabs[at].route = keepRoute(r);
+  if (at >= 0) {
+    // Already open somewhere: that tab comes to the front, however the route was asked for.
+    tabs[at].route = keepRoute(r);
+  } else if (wanted || !tabs.length || indexOf(activeKey) < 0) {
+    // On purpose, or the first route of the session, or nothing in front to replace (a close
+    // has just dropped the tab that was): a tab of its own.
+    tabs.push({ key, route: keepRoute(r) });
+  } else {
+    // The ordinary case: this is what the tab in front now holds. The page it held is gone,
+    // so its dot goes with it; its remembered title does not, because the page may come back.
+    const me = indexOf(activeKey);
+    dirty.delete(tabs[me].key);
+    tabs[me] = { key, route: keepRoute(r) };
+    if (prevKey === activeKey) prevKey = null;
+    activeKey = key;
+    render();
+    return;
+  }
   if (key !== activeKey) { prevKey = activeKey; activeKey = key; }
   render();
 }
@@ -158,13 +204,16 @@ function onRoute(r) {
 function onEmptySurface() {
   if (!armed || !activeKey) return;
   const key = activeKey;
-  // The home tab has no × and `tab.close` guards it; `route.close()` is the other way in, and
-  // it must be guarded here too or the strip ends up empty with nothing to land on and no way
-  // back but the palette (QA-5 finding 2). A caller that asks for the empty surface with the
-  // home in front gets the home back: the strip is what says the column is never blank.
-  if (isHome(key)) { void ose.route.navigate(tabs[indexOf(key)].route, { force: true }); return; }
-  const next = neighbourOf(key);
   remember(key);
+  // The last tab does not disappear: it goes home. Nothing in this rice lands on the kernel's
+  // empty surface (QA-5 finding 2), and with no home tab to fall back to this is what says so
+  // — the ordinary replace in `onRoute` puts the dashboard where the closed page was.
+  if (tabs.length <= 1) {
+    if (isHome(key)) return;
+    void ose.route.navigate(HOME);
+    return;
+  }
+  const next = neighbourOf(key);
   drop(key);
   activeKey = null;
   render();
@@ -182,6 +231,8 @@ function neighbourOf(key) {
 
 function remember(key) {
   const t = tabs[indexOf(key)];
+  // The dashboard is one command away and is where a close lands anyway: it is not something
+  // Ctrl+Shift+T should spend a slot on.
   if (!t || isHome(key)) return;
   closed = [t.route, ...closed.filter((r) => keyOf(r) !== key)].slice(0, MAX_CLOSED);
 }
@@ -201,7 +252,7 @@ function drop(key) {
  * list and is dropped here.
  */
 function closeTab(key) {
-  if (indexOf(key) < 0 || isHome(key)) return;
+  if (indexOf(key) < 0) return;
   if (key !== activeKey) { remember(key); drop(key); render(); return; }
   const t = tabs[indexOf(key)];
   const save = commands.get('page.close');
@@ -253,8 +304,11 @@ export function closeTabsUnder(path, { focus = true } = {}) {
   if (!hits.length) return false;
   const wasActive = hits.some((t) => t.key === activeKey);
   let next = wasActive ? neighbourOf(activeKey) : null;
-  for (const t of hits) drop(t.key);
+  // The last tab is not removed: the ordinary replace puts the dashboard in it below.
+  const last = wasActive && tabs.length === hits.length;
+  for (const t of hits) if (!last || t.key !== activeKey) drop(t.key);
   if (!wasActive) { render(); return true; }
+  if (last) { void ose.route.navigate(HOME, { focus }); return true; }
   if (!next || indexOf(next.key) < 0) next = tabs[0] || null;
   activeKey = null;
   render();
@@ -358,16 +412,24 @@ export function initTabs(node, panel) {
     render();
   });
 
-  // The home tab exists before anything is opened, so the strip is never an empty bar and
-  // there is always a tab for a close to fall back to.
-  tabs = [{ key: keyOf(HOME), route: { ...HOME } }];
+  // Nothing is open yet and the strip stays off screen: the first navigation — the boot's own
+  // to the dashboard — makes the one tab it holds.
   render();
 
   commands.register({
     id: 'tab.close', title: 'Close tab', group: 'navigate',
     hint: 'the page or view in front', shortcut: 'Mod+W',
-    when: () => !!activeKey && !isHome(activeKey),
+    // With one tab left on the dashboard there is nothing to close and the chord says so,
+    // rather than closing a tab into the state it is already in.
+    when: () => !!activeKey && (tabs.length > 1 || !isHome(activeKey)),
     run: () => closeTab(activeKey),
+  });
+  // The one command that makes an empty tab. It opens the dashboard, because a tab has to
+  // hold a route and the dashboard is the route that means "I have not picked yet".
+  commands.register({
+    id: 'tab.new', title: 'New tab', group: 'navigate',
+    hint: 'a second tab, on the dashboard', shortcut: 'Mod+T',
+    run: () => void openInNewTab(HOME),
   });
   commands.register({
     id: 'tab.next', title: 'Next tab', group: 'navigate',
@@ -386,8 +448,10 @@ export function initTabs(node, panel) {
     id: 'tab.reopen', title: 'Reopen closed tab', group: 'navigate',
     hint: 'the last tab closed', shortcut: 'Mod+Shift+T',
     run: () => {
+      // Into a tab of its own: reopening is a deliberate act, and dropping the page back over
+      // whatever is in front would be a second close nobody asked for.
       const r = closed.shift();
-      if (r) { void ose.route.navigate(r, { force: true }); return; }
+      if (r) { void openInNewTab(r); return; }
       commands.run('app.reopen-closed');
     },
   });

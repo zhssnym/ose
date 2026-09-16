@@ -61,41 +61,55 @@ keymap, the tree, quick open, search, settings rows, zoom, the vault chooser, th
 
 The kernel keeps one current route and a history stack, and it does not know the word "tab".
 The strip above the page column (`shell/tabs.js`) is a rice-side list of routes that follows
-`ose.route.on`: a route that is not in the list joins it, a route that is becomes the active
-one. A tab's identity is the kernel's own route key — `page:<path>`, `own:<path>`,
-`view:<name>` — so one page reached from the tree, from quick open and from a link is one tab.
+`ose.route.on`. The model is the editor's, not the browser's:
 
-- Clicking a tab is `ose.route.navigate`. Closing one is `tab.close` (Ctrl+W), the middle
-  button, the × on the tab, or Delete on a focused tab; the active tab closes through the
-  kernel (`page.close` when it is a page, so the buffer is saved, `ose.route.close()`
-  otherwise), which is what feeds the kernel's own closed stack.
-- A close goes to the tab that was in front before it, else its neighbour, else home.
-- `tab.reopen` (Ctrl+Shift+T) pops the strip's own closed list first — it also holds the tabs
-  closed while another was in front, which the kernel never saw — and falls through to the
-  kernel's `app.reopen-closed`.
+- An **ordinary** open replaces what is in the tab you are looking at — a click or Enter in the
+  tree, quick open, a followed link, back, forward, a module's own `ose.route.navigate`. The
+  strip never grows on its own, because a strip that does is a strip nobody closes.
+- A tab is made **on purpose**: the middle button or Ctrl+Enter on a tree row, Ctrl+click or the
+  middle button on a pinned row or a dashboard card, `tab.new` (Ctrl+T), and `tab.reopen`
+  (Ctrl+Shift+T). Ctrl+click in the *tree* is not one of them: there it toggles the
+  multi-selection (docs/CONTRACT.md batch 12, C17), which is the only way to move or trash
+  several files at once.
+- A route that already has a tab is brought to the front rather than duplicated. A tab's
+  identity is the kernel's own route key — `page:<path>`, `own:<path>`, `view:<name>` — so one
+  page reached from the tree, from quick open and from a link is one tab.
+- **One tab is no strip.** It appears at two and the page column takes the 44px back.
+- There is **no home tab**. The dashboard is a route like any other: the one the app boots
+  into, the one `app.home` opens, and the one the last tab goes to rather than disappearing —
+  closing the only tab navigates it home instead of removing it, so the column is never blank
+  and the strip never empty.
+- Closing one is `tab.close` (Ctrl+W), the middle button, the × on the tab, or Delete on a
+  focused tab; the active tab closes through the kernel (`page.close` when it is a page, so the
+  buffer is saved, `ose.route.close()` otherwise), which is what feeds the kernel's own closed
+  stack. A close goes to the tab that was in front before it, else its neighbour, else home.
+- `tab.reopen` pops the strip's own closed list first — it also holds the tabs closed while
+  another was in front, which the kernel never saw — and falls through to the kernel's
+  `app.reopen-closed`; either way the page comes back in a tab of its own.
 - `tab.next` / `tab.prev` are Ctrl+Tab and Ctrl+Shift+Tab. Ctrl+1…9 are deliberately unbound:
   Ctrl+1…6 are the editor's heading chords in the page body.
-- A tab's label is what the window title says for that route: a page's H1 (through `pageTitle`
-  in `ose.store`, so a renamed H1 renames the tab), a view's title, an owned route's title as
-  its module registered it with `ose.route.index`. A page with unsaved changes shows a dot,
-  from the same `doc:dirty` / `doc:saved` events the title bar reads.
+- A tab's label is what the window title says for that route: a page's H1 (kept per page off
+  `pageTitle` in `ose.store`, so a renamed H1 renames the tab), a view's title, an owned
+  route's title from `ose.route.title`. A page with unsaved changes shows a dot, from the same
+  `doc:dirty` / `doc:saved` events the title bar reads.
 - Renaming, moving or trashing a page from the tree carries or closes its tab.
 - The strip is a `tablist`: arrows walk it, Enter opens, Delete closes. It scrolls sideways
   and never wraps. Tabs are not restored across restarts.
 
-The first tab is the home, and it has no ×: the **dashboard** (`shell/dashboard.js`), a view
-named `dashboard` titled "Home", one card per module out of `ose.modules.list()` — the name,
-the manifest's one-line description, and the chord of the `view.<name>` command when one is
-bound. A module with no view of its own is a line under the grid; a disabled one is a line
-that says why. `shell/start.js` navigates there at the end of the boot, and the router is
-mounted with `ose.init({ page, start: false })` so the kernel's empty surface never flashes
-under it. Closing the last real tab lands there. There is no `app.start` command any more;
-`app.home` is where nothing-in-particular goes.
+The home is the **dashboard** (`shell/dashboard.js`), a view named `dashboard` titled "Home",
+one card per module out of `ose.modules.list()` — the name, the manifest's one-line
+description, and the chord of the `view.<name>` command when one is bound. A module with no
+view of its own is a line under the grid; a disabled one is a line that says why.
+`shell/start.js` navigates there at the end of the boot, and the router is mounted with
+`ose.init({ page, start: false })` so the kernel's empty surface never flashes under it. There
+is no `app.start` command any more; `app.home` is where nothing-in-particular goes.
 
 The sidebar is the vault and nothing else: pinned, pages, scratch. It has no views section —
-a view is a module's surface, and the dashboard is where the modules are. Its top edge carries
-a chevron that folds it; folded, a chevron at the far left of the title bar unfolds it. Both
-run `app.sidebar` (Ctrl+\), so `sidebar.open` in state is the one truth. Under 640px of window
+a view is a module's surface, and the dashboard is where the modules are. It carries no chrome
+of its own either: the one control that folds it is a chevron in the title bar's left corner,
+at the sidebar's own x, drawn in the same place whether the sidebar is open or folded, with
+only its glyph turning — pointing left at an open sidebar and right at a folded one. It runs
+`app.sidebar` (Ctrl+\), so `sidebar.open` in state is the one truth. Under 640px of window
 the sidebar hides itself out of the way and comes back when the window is wide again (the L25
 rule); an explicit toggle there — the chord, either chevron, or `app.focus-sidebar` — overrules
 that and opens it anyway, and the overrule lasts until the window is wide again, so narrowing
