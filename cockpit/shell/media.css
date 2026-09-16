@@ -97,13 +97,31 @@
 .media-page[data-fit="actual"] .media-zoom { margin: 0 auto; max-width: none; cursor: zoom-out; }
 .media-page[data-fit="actual"] .media-img { max-width: none; max-height: none; }
 
-/* A file that would not draw. One sentence, the `.empty` voice, over the dead box. */
+/* A file that would not draw. One sentence, the `.empty` voice, over the dead box. It is not
+   `pointer-events: none` any more: the sentence is the only thing in the body then, and a
+   click on it should be able to select it like any other text. */
 .media-miss {
   position: absolute;
   left: 0;
   right: 0;
   top: var(--sp-7);
   padding: 0 var(--sp-4);
-  pointer-events: none;
 }
 .media-dead { display: none; }
+
+/* The third line of the "not in the vault" box (media.js `mediaMiss`), in the `.empty` voice:
+   a missing attachment is a fact, not a fault, so it is not the kernel's red `.miss-why`. */
+.media-gone {
+  margin-top: var(--sp-3);
+  color: var(--fg-3);
+  max-width: 44rem;
+}
+
+/* The way out of the PDF viewer. It is in the header only while the frame holds the keyboard,
+   so it is the one control here that comes and goes; `--accent-soft` is what the rest of the
+   app uses for "this is the thing to press", without the weight of a primary button. */
+.media-leave {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.media-leave:hover { background: var(--accent-soft); filter: brightness(1.06); }

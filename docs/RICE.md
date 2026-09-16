@@ -123,8 +123,33 @@ nobody edits: `close()` tears the frame or the image down and clears the status 
 is ever dirty and there is no autosave.
 
 The header is `open externally` (`ose.files.open`, the platform's default application) and,
-for an image, `fit` / `actual`. Both are buttons in the tab order; `Esc` does nothing special.
-The file name is the header's title; the path is the status bar's, as for any page.
+for an image, `fit` / `actual`. The file name is the header's title; the path is the status
+bar's, as for any page, with one line beside it saying what the file is — `pdf · 46 KB`, or
+an image's `1500 × 1134 · 458 KB`.
+
+**The frame and the keyboard.** The PDF frame is another document on another origin: the app
+cannot see into it and none of its chords reach inside. So the frame carries `tabindex="-1"`
+and nothing ever focuses it — a keyboard-only user never lands in a place where the keyboard
+stops working, and `Tab` steps from the header straight past it. A mouse user may still click
+into the viewer on purpose; while it holds the keyboard the header shows one more button,
+`leave the viewer`, and a click anywhere on the header does the same. `Esc` inside the page
+puts focus back on the page column, the one step out it means everywhere else; it cannot reach
+the frame, and nothing can.
+
+**A file that will not draw.** A `.pdf` whose bytes are not a PDF would otherwise get the web
+view's own modal, in the web view's language and colours, over our page. So the first kilobyte
+is read over the vault origin before the frame is pointed at anything — `%PDF-` must be in it,
+and the content type must be `application/pdf` — and when it is not, the frame is never given
+a `src`: the page says `<name> could not be drawn here · try open externally` in its own voice
+and the status line ends `· could not be drawn`. An image says the same on its `error` event.
+
+**A media file that is not there.** The kernel stats a page route before it asks anyone to
+draw it, and offers `Create it` when the file is missing — right for markdown, wrong for a
+`.pdf`, where the stub it writes is a markdown file wearing a media extension. The kernel must
+not learn extensions, so `page.js` takes that one box back: a media route whose file does not
+exist gets `that file is not in the vault`, the path, and one line saying nothing here can
+create it. The button is gone, and a press on it is refused in the capture phase in any case,
+so nothing is ever written over a media path.
 
 A rice that wants no PDF frame deletes the `.pdf` branch: the kernel neither knows nor cares
 which extensions the page host claims.
