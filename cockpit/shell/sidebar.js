@@ -1,25 +1,26 @@
-// Sidebar: pinned, pages, scratch. One scrolling column, no search box (search
+// Sidebar: pinned, views, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
-// There is no views section: a view is a module's surface and the dashboard is where the
-// modules are (shell/dashboard.js), so the sidebar is the vault and nothing else. It carries
-// no chrome of its own either: the one control that folds it lives in the title bar.
+// The views section lists what the modules registered; the dashboard (shell/dashboard.js) is
+// the home page and says the same things in cards, and both are ways in. The sidebar carries
+// no chrome of its own: the one control that folds it lives in the title bar.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
 // Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
 // every move, however it was made, rewrites the links that pointed at what moved (C13).
 import { ose } from 'ose:kernel';
 import {
-  esc, icon, prompt, confirm, contextMenu, pickFolder, toast, copyText,
+  esc, icon, hasIcon, prompt, confirm, contextMenu, pickFolder, toast, copyText,
   focusOrigin, retargetFocusOrigin, overlayCount,
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHiddenName, segments } from './paths.js';
 import { openSearch } from './search.js';
 import { moveTabs, closeTabsUnder, openInNewTab } from './tabs.js';
+import { HOME } from './dashboard.js';
 import { isMediaFile } from './media.js';
 import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
-const { bus, store, commands, debounce, files, links, route } = ose;
+const { bus, store, commands, views, debounce, files, links, route } = ose;
 
 // The kernel's hoses this file leans on, named the way the batch-12 shell named them, so the
 // code below reads as it always did. Everything here is `ose` and nothing else.
@@ -231,6 +232,14 @@ function label(text, dropPath) {
   return d;
 }
 
+// Views may hand us a raw <svg> string, a name from our icon set, or nothing.
+function viewIcon(v) {
+  const i = v.icon;
+  if (typeof i === 'string' && i.trim().startsWith('<')) return i;
+  if (typeof i === 'string' && hasIcon(i)) return icon(i);
+  return icon(hasIcon(v.name) ? v.name : 'view');
+}
+
 /**
  * A `role="tree"` box for one section, so every `treeitem` has a tree to belong to (S39).
  * One tree per section rather than one for the whole sidebar: the sections are separate lists
@@ -268,6 +277,34 @@ function renderPinned(frag) {
       text: name,
       tail: ambiguous ? (parent ? baseName(parent) : '/') : '',
       data: { path: p, kind: dir ? 'dir' : 'file', md: isMd(p) ? '1' : '0', pin: '1' },
+    }));
+  }
+}
+
+/** One row per registered view, above the pages. The dashboard is the home page, not a row. */
+function renderViews(frag) {
+  // `ose.views.list()` answers in registration order, and modules activate concurrently: the
+  // order a person sees is the rice's to decide, out of the `order` each view declares (and
+  // its manifest repeats, docs/MODULES.md). Ties fall back to the title, so two modules that
+  // both say 100 are still in a stable order.
+  const list = [...views.list()]
+    // The dashboard is a view so that the router can mount it, but it is the page the app
+    // opens on and the one `app.home` goes to; a row for it among the modules' views would be
+    // a second front door pretending to be a module.
+    .filter((v) => v.name !== HOME.name)
+    .sort((a, b) => ((a.order ?? 100) - (b.order ?? 100))
+      || String(a.title || a.name).localeCompare(String(b.title || b.name)));
+  if (!list.length) return;
+  frag.appendChild(label('views'));
+  const box = treeBox(frag, 'Views');
+  const r = currentRoute();
+  for (const v of list) {
+    box.appendChild(rowEl({
+      cls: 'sb-view' + (r && r.type === 'view' && r.name === v.name ? ' current' : ''),
+      depth: 0,
+      glyphHtml: viewIcon(v),
+      text: v.title || v.name,
+      data: { view: v.name },
     }));
   }
 }
@@ -369,6 +406,7 @@ function renderTree() {
 
   // Focused, the sidebar is one folder and the app's own rows: pins and scratch are noise.
   if (!focus) renderPinned(frag);
+  renderViews(frag);
 
   frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));
   if (!tree) {
@@ -441,16 +479,17 @@ function rowFor(path) {
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: pins, pages, scratch, the missing-scratch
+// Everything a key can land on, top to bottom: pins, views, pages, scratch, the missing-scratch
 // line. Collapsed folders render no children, so this list is exactly the visible rows.
 function treeRows() {
   return scrollEl ? [...scrollEl.querySelectorAll('.sb-row, .sb-missing')] : [];
 }
 
-/** A stable identity for a row across renders: the path (pins apart from tree rows), or the one missing line. */
+/** A stable identity for a row across renders: the path (pins apart from tree rows), the view, or the one missing line. */
 function rowKey(row) {
   if (!row || !row.dataset) return null;
   if (row.classList.contains('sb-missing')) return 'miss';
+  if (row.dataset.view) return 'view:' + row.dataset.view;
   if (row.dataset.path !== undefined) return (row.dataset.pin === '1' ? 'pin:' : 'path:') + row.dataset.path;
   return null;
 }
@@ -467,6 +506,7 @@ function rovingRow() {
   const r = currentRoute();
   return rowByKey(roving)
     || (r && r.type === 'page' && rowFor(r.path))
+    || (r && r.type === 'view' && rowByKey('view:' + r.name))
     || list[0];
 }
 
@@ -492,7 +532,7 @@ export function focusTree() {
 
 /* -------------------------------------------------------------- selection (C17) */
 
-/** The rows that can be part of a selection: tree rows with a path, so no pins. */
+/** The rows that can be part of a selection: tree rows with a path, so no pins and no views. */
 function selectableRows() {
   return treeRows().filter((r) => r.dataset.path !== undefined && r.dataset.pin !== '1');
 }
@@ -563,6 +603,7 @@ function toggleDir(row) {
  */
 function activateRow(row) {
   if (row.classList.contains('sb-missing')) { commands.run('app.settings'); return; }
+  if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
   const path = row.dataset.path;
   // A pinned folder is a shortcut to a place, not a branch to unfold — unfolding it in a
   // section that draws no children was the one row in the sidebar that did nothing. Clicking
@@ -591,6 +632,8 @@ function activateRow(row) {
  */
 function routeForRow(row) {
   if (!row || row.classList.contains('sb-missing')) return null;
+  // A view row is a route too: the deliberate gestures open it in a tab of its own.
+  if (row.dataset.view) return { type: 'view', name: row.dataset.view };
   const path = row.dataset.path;
   if (!path || row.dataset.kind === 'dir') return null;
   if (row.dataset.md === '1' || isTextFile(path) || isMediaFile(path)) return { type: 'page', path };
@@ -650,7 +693,10 @@ function onTreeKey(e) {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const list = treeRows();
   if (!list.length) return;
-  const row = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row, .sb-missing') : null;
+  // The row the key was typed at: the event's own target first, which is the focused row in
+  // every ordinary press and is right even when the document itself does not hold focus.
+  const row = (e.target && e.target.closest && e.target.closest('.sb-row, .sb-missing'))
+    || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row, .sb-missing') : null);
   // A click on the blank space under the tree focuses the scroller itself: the first arrow
   // key steps onto the tab-stop row instead of doing nothing.
   if (!row) {
@@ -708,7 +754,7 @@ function onTreeKey(e) {
   if (!next) return;
   // Shift + a vertical move extends the range from the anchor to where focus lands; a move
   // without it is a single row again. Only tree rows can be selected, so a range that runs
-  // into the pins simply skips them.
+  // into the views or the pins simply skips them.
   if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (inTree || isSelectable(next))) {
     if (!anchor || !rowByKey(anchor)) anchor = rowKey(row);
     if (isSelectable(next)) selectRange(next);
@@ -1542,7 +1588,7 @@ export function initSidebar(node) {
   // the selection is dropped first, so the menu is never about rows other than the one
   // under the pointer.
   scrollEl.addEventListener('contextmenu', (e) => {
-    const row = e.target.closest('.sb-row');
+    const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
     contextMenu(e.clientX, e.clientY, menuItemsForRow(row));

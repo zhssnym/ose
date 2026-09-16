@@ -166,6 +166,8 @@ html.mac .tb-win { display: none; }
 .sb-row.file.other .grow { color: var(--fg-3); }
 .sb-row.archive { color: var(--fg-3); }
 .sb-row.current { color: var(--fg); }
+.sb-view svg { color: var(--fg-3); }
+.sb-view.current svg { color: var(--accent); }
 .sb-row.current .gl svg { color: var(--accent); }
 /* Multi-select (C17): a selected row sits one surface up; the current page keeps its accent
    over that, so the open page is never lost inside a selection. That one surface up is --bg-4,
