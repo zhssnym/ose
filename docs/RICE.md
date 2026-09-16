@@ -106,8 +106,9 @@ is no `app.start` command any more; `app.home` is where nothing-in-particular go
 
 The sidebar is **modules, pinned, pages, scratch**, top to bottom, in what is drawn and in the
 Up/Down walk alike — the walk reads the rows out of the DOM, so the two cannot disagree. The
-modules section is one row per registered view out of `ose.views.list()`, in the `order` each
-declares, with its own icon and the current-row bar, and it sits above everything the vault
+modules section is one row per registered view out of `ose.views.list()`, in the order of
+`cockpit.json`'s `modules` list (`shell/order.js`; the dashboard's cards follow it too), so a
+module appended to that list lands at the bottom and moving a line moves the row, with its own icon and the current-row bar, and it sits above everything the vault
 put there: it is the app's own section and it does not move when the tree does. The dashboard
 is filtered out of it, being the home page rather than a module's view. A row opens in place on
 a click or Enter and in a tab of its own on the middle button or Ctrl+Enter, like every other

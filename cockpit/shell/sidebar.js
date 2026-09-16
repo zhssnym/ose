@@ -18,6 +18,7 @@ import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHid
 import { openSearch } from './search.js';
 import { moveTabs, closeTabsUnder, openInNewTab } from './tabs.js';
 import { HOME } from './dashboard.js';
+import { byModuleOrder } from './order.js';
 import { isMediaFile } from './media.js';
 import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
@@ -285,16 +286,13 @@ function renderPinned(frag) {
 /** One row per registered view, at the very top. The dashboard is the home page, not a row. */
 function renderViews(frag) {
   // `ose.views.list()` answers in registration order, and modules activate concurrently: the
-  // order a person sees is the rice's to decide, out of the `order` each view declares (and
-  // its manifest repeats, docs/MODULES.md). Ties fall back to the title, so two modules that
-  // both say 100 are still in a stable order.
+  // order a person sees is the rice's, the order of `cockpit.json`'s modules (order.js).
   const list = [...views.list()]
     // The dashboard is a view so that the router can mount it, but it is the page the app
     // opens on and the one `app.home` goes to; a row for it among the modules' views would be
     // a second front door pretending to be a module.
     .filter((v) => v.name !== HOME.name)
-    .sort((a, b) => ((a.order ?? 100) - (b.order ?? 100))
-      || String(a.title || a.name).localeCompare(String(b.title || b.name)));
+    .sort(byModuleOrder);
   if (!list.length) return;
   // "modules", not "views": the row is a module's way in, and the word a person knows for
   // Day, Week, Informatique is the module, not the kind of surface it happens to register.

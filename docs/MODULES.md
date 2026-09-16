@@ -33,7 +33,8 @@ points here.
 - `routes`: patterns the module owns (`ose.route.own`); pages under them get history, the
   window title and quick open. A trailing `/*` is greedy, so `nsi/*` owns
   `nsi/chapitre-1/03-arbres` as well as `nsi/index`; a `*` in the middle is one segment.
-- `view`: optional; the module registers it in `activate` anyway, this is for the sidebar order.
+- `view`: optional; the module registers it in `activate` anyway, this is for the sidebar. Its
+  `order` only breaks ties: the stock rice shows modules in the order `cockpit.json` lists them.
 
 ## Entry: `index.js`
 

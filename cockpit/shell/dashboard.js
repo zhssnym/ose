@@ -14,6 +14,7 @@
 import { ose } from 'ose:kernel';
 import { esc } from 'ose:ui';
 import { openInNewTab } from './tabs.js';
+import { byModuleOrder } from './order.js';
 
 const { bus, commands, route, keys, modules } = ose;
 
@@ -42,12 +43,10 @@ function chordFor(view) {
   return keys.shortcutFor(id) || '';
 }
 
-/** The rows, sorted the way the sidebar sorted its views: the manifest's order, then the name. */
+/** The rows, in the sidebar's order: the order of cockpit.json's modules (order.js). */
 function rows() {
-  const list = modules.list();
-  return list.slice().sort((a, b) =>
-    (((a.view && a.view.order) ?? 100) - ((b.view && b.view.order) ?? 100))
-    || String(a.name || a.id).localeCompare(String(b.name || b.id)));
+  return modules.list().slice().sort((a, b) =>
+    byModuleOrder(a.view || { name: '', title: a.name }, b.view || { name: '', title: b.name }));
 }
 
 function cardHtml(m) {
