@@ -72,6 +72,12 @@ unaffected. Everything registered through the facade is removed automatically on
   allows `python`, `tools/python.exe` and a full path to one. A long command reports lines
   through `onLine` and the command shows progress in the status bar (`ose.status.set('nsi', …)`
   is a field of its own, after the shell's five).
+- Teardown: the `unmount` a view or an owned route answers runs on a navigation, on
+  `ose.modules.unload(<id>)` — the page comes down before `deactivate` — and when the window
+  closes or reloads, and it is awaited (docs/KERNEL.md, the three guarantees). It is where a
+  page banks its clock, saves its buffer and stops its children. On a reload only what
+  `unmount` finishes synchronously is certain to be written, so a page that counts time banks
+  on a timer as well (every ten seconds) and not only on the way out.
 - Events: `ose.watch(folders, fn)` for changes under the module's data; `ose.bus` to talk to
   other modules; `ose.route.on` to react to navigation.
 - Schedules: `ose.schedule(id, { every: 'day', at: '07:00' }, fn)` runs while the app is open
@@ -79,8 +85,11 @@ unaffected. Everything registered through the facade is removed automatically on
 
 ## Rules
 
-1. Import only `ose:*` and files inside the module's own folder. Never the rice, never another
-   module. Modules talk through `ose.bus` and commands.
+1. Import only `ose:*`, files inside the module's own folder, and the rice's `lib/` folder
+   (`../../lib/<file>.js`) — shared plain files, owned by the rice like everything else in
+   `.ose/app`, so two modules can look and behave the same without one of them importing the
+   other. Never another module's folder, never the rice's shell. Modules talk through
+   `ose.bus` and commands.
 2. Read and write only under `data`. Keep module state (a `state.json`, a `log.jsonl`) beside
    the data it describes, in a dotfolder if it should stay out of the tree (`2-nsi/.nsi/`).
 3. Draw only into the elements the kernel hands you (`mount(el)`, `render(el)`), with tokens
@@ -106,9 +115,11 @@ unaffected. Everything registered through the facade is removed automatically on
    while it is in the document.
 4. Every action is a command with a title in plain words; chords through `shortcut`, which
    binds the chord (scope 'window') as well as printing it — a chord the rice's keys.json
-   overrides is neither bound nor printed for the module (`shortcutFor` answers null) — the
-   palette lists them, the menu
-   draws them, and the chord goes away with the command. Nothing needs the mouse.
+   overrides, and a chord the kernel's own keymap already holds (`Ctrl+Shift+N` and the rest
+   of the table in `src/kernel/keys.js`), is neither bound nor printed for the module
+   (`shortcutFor` answers null, and the kernel says so once in the console) — the palette
+   lists them, the menu draws them, and the chord goes away with the command. Nothing needs
+   the mouse.
 5. Both themes. Keyboard reachable. English UI; file content in whatever language it is.
 6. No dependency at runtime: a module ships its own code. Scripts the kernel runs (Python,
    Node) live inside the module folder and are called by name from `run`.

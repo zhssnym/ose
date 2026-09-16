@@ -88,7 +88,10 @@ const theme = EditorView.theme({
   },
   '.cm-content': {
     padding: '0',
-    caretColor: 'var(--accent)',
+    // `--fg`, not the accent: the accent on the light ground is 2.94:1, under the 3:1 floor a
+    // non-text element has to meet, on a line two pixels wide (ADV-N). The code block inside a
+    // page already draws its caret in `--fg` (editor.css), so the two agree now as well.
+    caretColor: 'var(--fg)',
     lineHeight: '1.7',
   },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.7' },
@@ -105,7 +108,7 @@ const theme = EditorView.theme({
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
     backgroundColor: 'var(--sel)',
   },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--fg)', borderLeftWidth: '2px' },
   '.cm-panels': {
     backgroundColor: 'var(--bg-2)',
     color: 'var(--fg)',

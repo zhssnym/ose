@@ -78,6 +78,9 @@
 .ed-code .os-t-num { color: var(--code-num); }
 .ed .milkdown .milkdown-code-block .os-t-com,
 .ed-code .os-t-com { color: var(--code-com); }
+/* A decorator, a shebang, a doctype: the keyword ink, because it is one (ADV-N). */
+.ed .milkdown .milkdown-code-block .os-t-meta,
+.ed-code .os-t-meta { color: var(--code-key); }
 .ed .milkdown .milkdown-code-block .os-t-fn,
 .ed-code .os-t-fn { color: var(--code-fn); }
 .ed .milkdown .milkdown-code-block .os-t-type,

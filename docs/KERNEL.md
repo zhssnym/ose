@@ -106,7 +106,8 @@ ose.route.own(pattern, mount) -> unsubscribe
     pattern like 'nsi/*'. A route { type:'own', path:'nsi/chapitre-1/03-x' } is mounted by
     mount(el, route) -> { title?, unmount? }. History, the window title, quick open rows
     (through ose.route.index(pattern, () => [{ path, title }])) and back/forward work as for
-    a page.
+    a page. `unmount` runs on a navigation, on the unload of its module, and when the window
+    closes or reloads, and it is awaited (the three guarantees, below).
     A pattern is a plain glob with two rules. A **trailing `/*` is greedy**: `nsi/*` owns
     everything under `nsi/`, at any depth, so the route above is its page — an id with a slash
     in it is a format a module picks, and `routes: ["nsi/*"]` means the section, not one level
@@ -127,7 +128,11 @@ ose.commands.register({ id, title, group, shortcut?, when?, run })  -> unsubscri
     scope 'window', `ose.keys.shortcutFor(id)` answers it, and the unsubscribe takes it back
     with the command. It is written like a `keys.bind` combo ('Mod+Shift+J', 'mod+shift+j' and
     'MOD+SHIFT+J' are one chord). An explicit `ose.keys.bind` wins over a `shortcut`, and both
-    win over a shell default.
+    win over a shell default — except that a **module's** `shortcut` never takes a chord the
+    kernel's own keymap holds (`ose.keys.defaults()`): the kernel keeps the chord, the module's
+    command keeps none (`shortcutFor` answers null) and the console says so once, naming both.
+    The rice is not a module and may replace a default this way, as `tab.close` replaces
+    `page.close` on Ctrl+W.
 ose.commands.run(id, ...args) / get(id) / list()
 ose.keys.bind(combo, commandId, { scope: 'window' | 'body' })  -> unsubscribe
     'mod+shift+j'; mod is Ctrl or Cmd. Shell chords are bound on the window in the capture
@@ -203,7 +208,7 @@ ose.focus.get() / set(path) / exit() / name() / isUnder(path) / defaultNewFolder
 ose.assets.url(name)         -> the absolute URL of a kernel asset
 ose.assets.origins()         -> { kernel, app, vault }      the three, as the host named them
 ose.modules.load(ids?)       -> Promise<[{ id, name, state, view, description, error? }]>   the loader, below
-ose.modules.list() / unload(id) / base() / setBase(url)
+ose.modules.list() / unload(id) -> Promise<boolean> / base() / setBase(url)
     A row is the module as `module.json` declares it: `id`, `name`, `state`
     ('active' | 'disabled'), `error` when it is disabled, plus `view`
     ({ name, title, order } or null) and `description` (a string, '' when the manifest has
@@ -249,8 +254,29 @@ docs/MODULES.md rule 6 has the module ship the scripts it runs). `route.own` and
 `route.index` refuse a pattern that is not in `routes`. `state(key)` is `modules.<id>`.
 `schedule(id, …)` becomes `<module>.<id>`. And every registration a module makes is tagged
 with its id, so `ose.modules.unload(id)` takes back its commands, views, tiles, routes,
-settings sections, watches and schedules, kills the processes it started and calls
-`deactivate()` — one call, nothing left behind.
+settings sections, watches and schedules, unmounts the page it has on screen, kills the
+processes it started and calls `deactivate()` — one call, nothing left behind. It answers a
+promise: the unmount is awaited inside it, so the module's last write is finished before
+`deactivate` empties the facade under it.
+
+### The three guarantees for a page that keeps a clock
+
+A view's or an owned route's `unmount` is the one place a module can stop what it started, so
+the kernel promises exactly three things about it (round five, the drills fix):
+
+1. **It is awaited.** The router waits for the promise `unmount` answers before it mounts the
+   next page, the way it has always waited for the editor's `close()`. A throw is caught and
+   logged and the next mount still proceeds. A synchronous `unmount` is unchanged.
+2. **It runs on the unload of its module.** `ose.modules.unload(id)` unmounts the page before
+   `deactivate`, and leaves the column on nothing — what nothing means is the rice's business
+   (the stock cockpit puts its dashboard there).
+3. **It runs when the window closes or reloads.** The window's `closing` notice and `pagehide`
+   — the host's Ctrl+R and the update's relaunch both navigate the web view, and a browser
+   reloads the document — both unmount the view or owned route on screen and then flush the
+   state file. The editor is left to its own `closing` subscriber, which saves and may veto.
+   On that path nothing can be awaited: only what `unmount` finishes synchronously is certain
+   to be written, which is why a page that counts time banks on a timer as well
+   (docs/MODULES.md).
 
 `ose.modules.load()` reads every `modules/*/module.json` from the rice, checks `requires`
 against `ose.api`, imports the entry and calls `activate(facade)`. A module that throws is

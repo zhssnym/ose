@@ -200,9 +200,42 @@ function commandShortcuts() {
   for (const c of allCommands()) {
     if (!c.shortcut) continue;
     const combo = normalizeCombo(c.shortcut);
-    if (combo) out.push({ combo, cmd: c.id, inBody: false });
+    if (!combo) continue;
+    // A chord the kernel already owns is not a **module's** to take. Installing one used to
+    // move Ctrl+Shift+N from `tree.new-folder` to whatever the module asked for, app-wide and
+    // silently, and the sidebar then printed no chord at all for the command it had lost
+    // (ADV-B, first finding). The kernel keeps its binding, the module's command keeps none —
+    // it is still in the palette, and the rice may give it a chord in `keys.json` if the
+    // vault's owner wants one. Said once per command per combo: `index()` runs on every
+    // registration.
+    //
+    // The rice is not a module: it owns the window, and a rice that replaces `page.close` with
+    // a `tab.close` of its own on Ctrl+W is doing what a rice is for (`cockpit/shell/tabs.js`).
+    // Only a command the module facade tagged is held to this.
+    const held = c.module ? kernelCombos().get(combo) : null;
+    if (held) { warnOnce(combo, c.id, held); continue; }
+    out.push({ combo, cmd: c.id, inBody: false });
   }
   return out;
+}
+
+/** The combos KEYMAP holds on this platform, combo -> the command the kernel gives it. */
+let kernelComboCache = null;
+let kernelComboMac = null;
+function kernelCombos() {
+  const mac = isMac();
+  if (kernelComboCache && kernelComboMac === mac) return kernelComboCache;
+  kernelComboMac = mac;
+  kernelComboCache = new Map(KEYMAP.map((k) => [normalizeCombo(comboFor(k)), k.cmd]));
+  return kernelComboCache;
+}
+
+const warned = new Set();
+function warnOnce(combo, cmd, held) {
+  const key = `${combo}|${cmd}`;
+  if (warned.has(key)) return;
+  warned.add(key);
+  console.warn(`[keys] ${cmd} asks for ${combo}, which the kernel binds to ${held}: ${cmd} keeps no chord`);
 }
 
 function index() {

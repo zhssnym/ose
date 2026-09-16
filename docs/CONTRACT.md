@@ -1974,3 +1974,40 @@ Ctrl+Z emptied the buffer and the next save wrote nothing to disk; `setText()` m
 dirty, so the save after it wrote nothing; a file deleted underneath froze the editor
 read-only with the only copy of the text inside it; and a CRLF file was rewritten to LF whole
 on the first keystroke. All five are regression-tested in `work/e/regress.js`.
+
+### The drills fix (K): what the kernel owes a page that keeps a clock
+
+Six reviews of the two drill modules found the same shape of bug over and over — a page goes
+on running after the user has left it — and half of the cause was the kernel's. A view's or an
+owned route's `unmount` now carries three promises, written out in docs/KERNEL.md. **It is
+awaited**: the router waits for it the way it has always waited for the editor's `close()`, so
+a last write finishes before the next page mounts; a throw is caught and logged and the next
+mount still proceeds. **It runs on the unload of its module**: `ose.modules.unload(id)`
+unmounts the page before `deactivate` — until now the page stayed on screen with its interval
+firing on a module the settings list already called disabled, and its teardown then threw on a
+facade that was already empty, losing the unsaved buffer behind the throw — and leaves the
+column on nothing, which the rice turns into its own home. **It runs when the window closes or
+reloads**: the `closing` notice and `pagehide` (the host's Ctrl+R and the update's relaunch
+both navigate the web view; a browser reloads the document) unmount what is on screen and then
+flush the state file. The editor is left to its own `closing` subscriber, which saves and may
+veto; running its close twice would ask the changed-on-disk question against its own write. On
+the unload path nothing can be awaited, so only the synchronous half of an `unmount` is
+certain to be written — which is why the drills contract has a page bank its clock every ten
+seconds as well as on the way out.
+
+A fourth rule, from the same reviews: **a module's `shortcut` never takes a chord the kernel's
+own keymap holds.** Installing Informatique used to move Ctrl+Shift+N from `tree.new-folder`
+to `nsi.next`, app-wide and silently, and the sidebar then printed no chord for the command it
+had lost. The kernel keeps the chord, the module's command keeps none, and the console says so
+once, naming both. The rice is not a module: `keys.json` wins as it always did, and a rice
+command may still replace a default, which is what `tab.close` does to `page.close` on Ctrl+W.
+
+And three smaller repairs behind the same door. The dialogs focus with a task instead of a
+frame: a window that is not compositing never runs a `requestAnimationFrame` callback, so a
+rename prompt opened while Ose was in the background came up with the focus still on the row
+behind it and everything typed into it went nowhere. Escape in the standalone code editor
+leaves the text and puts the keyboard on the page around it (with the search panel open it
+still closes the panel first), because the only way out of a module's editor was a command.
+And two colours: `meta` — Python's decorator, a shebang, a doctype — is no longer painted with
+the comments, and the caret is `--fg` rather than the accent, which was 2.94:1 on the light
+ground under a 3:1 floor.

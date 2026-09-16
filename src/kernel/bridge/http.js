@@ -87,10 +87,16 @@ export async function create() {
     async call(cmd, args) {
       let r;
       try {
+        // `keepalive`: a write started from an unmount on `pagehide` (a page banking its
+        // clock) outlives the document in the browser host, as the Tauri adapter's awaited
+        // `closing` path already does. Bodies over 64 KB are refused with it, so it is only
+        // asked for small ones.
+        const body = JSON.stringify({ args: args || [] });
         r = await fetch(BASE + cmd + FLAGS, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ args: args || [] }),
+          body,
+          keepalive: body.length < 32768,
         });
       } catch (e) {
         throw new Error(`bridge unreachable (${cmd}): ${e?.message || e}. Is the vite dev server running?`);

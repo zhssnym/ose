@@ -210,12 +210,24 @@ export function initRouter(el, { start = true } = {}) {
   if (stateCache().route !== undefined) patchState({ route: undefined });
 
   // On close the editor's own subscriber returns its final save (and may veto, batch 9); the
-  // router's only duty is the state file. Returning the promise is what lets the adapter await
-  // it rather than trusting a timer.
+  // router unmounts what is on screen and then writes the state file. Returning the promise is
+  // what lets the adapter await it rather than trusting a timer.
+  //
+  // The unmount is the third guarantee (docs/KERNEL.md, ADV-T): a page's `unmount` runs on a
+  // navigation, on the unload of its module, and when the window closes or reloads — a module
+  // that banks its clock there does not lose the visit to Ctrl+Q. The state file is flushed
+  // after it, so whatever the unmount patched is in the write.
   bridge.on('window', (d) => {
-    if (d && d.closing) return flushState();
+    if (d && d.closing) return unmountOnUnload().then(flushState);
     return undefined;
   });
+
+  // Ctrl+R (`app.reload`) and the update loop never raise `closing`: the host navigates the web
+  // view back to the rice's index.html and a browser reloads the document, and both of those
+  // are `pagehide` — the same event `state.js` and `kernel.js` already hang their own teardown
+  // on. Nothing here can be awaited (the document is going), so the unmount's synchronous half
+  // is what banks; `flushState` then writes what it patched, exactly as on the closing path.
+  window.addEventListener('pagehide', () => { void unmountOnUnload().then(flushState); });
 
   // The editor names the open page (its H1, or the file's stem when it has none): the window
   // title follows it, on the mount and on every edit of the title strip (S13, defect 8).
@@ -317,6 +329,15 @@ function restoreScroll(scroll, key) {
   requestAnimationFrame(() => { if (scroll.isConnected) scroll.scrollTop = top; });
 }
 
+/**
+ * The page on screen goes away: the editor is closed, or a view's / an owned route's `unmount`
+ * is called — and **awaited**, the way `host.close()` above it always was (docs/KERNEL.md, the
+ * three guarantees; ADV-T finding 2). A page that banks a clock, saves a buffer or kills a
+ * child on the way out needs its last write to finish before the next page mounts, and until
+ * round five the router started that work and walked off. A throw is caught and logged rather
+ * than left to reject, so the next mount always proceeds. A sync `unmount` still works: `await`
+ * on a non-promise is one microtask.
+ */
 async function teardown() {
   if (!current) return;
   rememberScroll();
@@ -324,9 +345,41 @@ async function teardown() {
     const host = pageHost();
     if (host) { try { await host.close(); } catch (e) { console.warn('[router] close page:', e.message || e); } }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
-    try { mountedView.unmount(); } catch (e) { console.error('[shell] view unmount', e); }
+    try { await mountedView.unmount(); } catch (e) { console.error('[shell] view unmount', e); }
   }
   mountedView = null;
+}
+
+/**
+ * The window is going away (a close request, Ctrl+R, the update's relaunch): the view or owned
+ * route on screen is unmounted, so its clock is banked and its children are stopped exactly as
+ * they would be on a navigation. The editor is left alone — it has a `closing` subscriber of
+ * its own that saves and may veto (batch 9), and running its close twice would ask the
+ * changed-on-disk question against its own write. Everything is best effort: on `pagehide` only
+ * the synchronous half of an `unmount` can still run, which is why a module banks on a timer as
+ * well (docs/MODULES.md).
+ */
+async function unmountOnUnload() {
+  if (!current || current.type === 'page') return;
+  if (mountedView && typeof mountedView.unmount === 'function') {
+    try { await mountedView.unmount(); } catch (e) { console.error('[shell] unload unmount', e); }
+  }
+  mountedView = null;
+}
+
+/**
+ * `ose.modules.unload(id)` asks for this when the module it is taking apart owns what is on
+ * screen: the page is unmounted through the router's own teardown — its clock banked, its
+ * editor closed, its processes stopped — before `deactivate` pulls the facade out from under
+ * it, and the column is left on nothing. The rice decides what nothing means (the stock
+ * cockpit's tab strip puts the dashboard there); the kernel knows no view by name.
+ */
+export async function dropCurrent() {
+  if (!current) return;
+  // `show(null)` is the ordinary teardown-and-draw-nothing path, so the unmount is the same one
+  // a navigation runs and is awaited with it. Not `clearRoute`: what a module is taking with it
+  // is not something Ctrl+Shift+T should offer to reopen.
+  await show(null, { focus: false });
 }
 
 function emptyState(html) {

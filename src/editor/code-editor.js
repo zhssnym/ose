@@ -138,6 +138,22 @@ export function codeEditor(el, opts = {}) {
     void save({ explicit: true });
   });
 
+  /**
+   * Escape with no search panel open: leave the text and put the keyboard back on the page
+   * around it. Tab inside CodeMirror is the indent unit and Escape used to do nothing here, so
+   * the only way out of a module's code editor was a command — a keyboard trap in an app whose
+   * rule is that nothing needs the mouse (ADV-N). The nearest page container takes the focus so
+   * the next Tab starts from the page, not from the top of the window; Escape with the search
+   * panel open still closes the panel first (`source.js`).
+   */
+  function leaveEditor() {
+    try { view.view.contentDOM.blur(); } catch { /* already gone */ }
+    const home = host.closest('.page-col') || host.closest('.view-root') || host.closest('.page-host');
+    if (!home) return;
+    if (!home.hasAttribute('tabindex')) home.tabIndex = -1;
+    home.focus({ preventScroll: true });
+  }
+
   // `.md` is the one language the pack does not have to load: source mode's own markdown mode
   // is already in the bundle, and `createSourceView` installs it.
   const isMarkdown = !!path && P.extname(path) === 'md' && !opts.language;
@@ -155,6 +171,7 @@ export function codeEditor(el, opts = {}) {
       markDirty();
       if (typeof opts.onChange === 'function') { try { opts.onChange(getText()); } catch (e) { console.error('[editor] onChange', e); } }
     },
+    onEscape: leaveEditor,
   });
 
   // Grown onto the view rather than passed to `createSourceView`: the language slot and the

@@ -25,7 +25,8 @@ import { bridge } from './bridge/index.js';
 import { clean, resolve } from './paths.js';
 import { toast } from './dialog.js';
 import { run as kernelRun } from './run.js';
-import { uid } from './registry.js';
+import { uid, views } from './registry.js';
+import { currentRoute, ownerFor, dropCurrent } from './router.js';
 
 const API = 1;
 
@@ -277,12 +278,33 @@ async function loadOne(ose, base, id) {
   return entry;
 }
 
-/** Take back everything a module registered, kill what it started, call `deactivate`. */
-export function unload(id) {
+/**
+ * Take back everything a module registered, unmount what it has on screen, kill what it
+ * started, call `deactivate`. Resolves to false when there is no such module.
+ *
+ * The page comes down first, and it is awaited (docs/KERNEL.md, the three guarantees): while
+ * `unmount` runs, the facade is still under it, so the clock banks, the editor saves and the
+ * child is killed by the page itself. Before round five `unload` left the page mounted — its
+ * interval still firing on a module the settings list already called disabled — and the next
+ * navigation then ran its teardown against a facade `deactivate` had already emptied, which
+ * threw before the editor was saved (ADV-T, findings 6 and 7).
+ *
+ * What is "on screen" is read before the registrations go: a view carries the module id the
+ * facade tagged it with, and an owned route carries nothing at all, so its owner is looked up
+ * now and compared with what owns it once the registrations have been taken back.
+ */
+export async function unload(id) {
   const entry = loaded.get(id);
   if (!entry) return false;
+  const route = currentRoute();
+  const view = route && route.type === 'view' ? views.get(route.name) : null;
+  const owner = route && route.type === 'own' ? ownerFor(route.path) : null;
   for (const off of entry.offs.reverse()) { try { off(); } catch (e) { console.error(`[module:${id}] unsubscribe`, e); } }
   entry.offs = [];
+  const mine = (!!view && view.module === id) || (!!owner && ownerFor(route.path) !== owner);
+  if (mine) {
+    try { await dropCurrent(); } catch (e) { console.error(`[module:${id}] unmount`, e); }
+  }
   for (const pid of entry.procs) { try { void kernelRun.kill(pid); } catch { /* going away */ } }
   entry.procs.clear();
   if (entry.mod && typeof entry.mod.deactivate === 'function') {
@@ -292,7 +314,7 @@ export function unload(id) {
   return true;
 }
 
-export function unloadAll() { for (const id of [...loaded.keys()]) unload(id); }
+export async function unloadAll() { for (const id of [...loaded.keys()]) await unload(id); }
 
 /**
  * `ose.modules.load()` (docs/RICE.md step 4): the rice calls it once, after its shell exists.
@@ -311,7 +333,7 @@ export async function load(ose, ids = null) {
       // taken back, so a failed activate leaves no orphan command in the palette.
       entry.error = String(e && e.message ? e.message : e);
       loaded.set(id, entry);
-      unload(id);
+      await unload(id);
       entry.error = String(e && e.message ? e.message : e);
       entry.state = 'disabled';
       console.error(`[module:${id}]`, e);

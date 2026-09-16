@@ -22,6 +22,10 @@ Edit a file, press Ctrl+R (`app.reload`), see the change. The stock rice lives i
                     (`ose.keys.defaults()`, with its macOS alternates and in-body rules that JSON
                     cannot say); the stock file adds only `mod+r` → app.reload and
                     `mod+shift+j` → journal.new. A chord here wins over the default.
+  lib/              plain files two or more modules share (docs/MODULES.md rule 1): a drills
+                    lib, a chart helper. The rice owns them like everything else in .ose/app;
+                    a module imports one as `../../lib/<file>.js` and never reaches into
+                    another module's folder. Optional: a rice with nothing to share has none.
   modules/          one folder per module (docs/MODULES.md): day, week, month, journal, _template
 ```
 

@@ -182,7 +182,12 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); finish(input.value.trim() || null); }
     });
-    requestAnimationFrame(() => { input.focus(); input.select(); });
+    // A timer, not `requestAnimationFrame`: a window that is not compositing — backgrounded,
+    // minimised, or a hidden web view — never runs the frame callback, and the dialog then
+    // comes up with the focus still on whatever opened it, so the first thing typed into a
+    // rename prompt goes nowhere (ADV-N). The delay is only to let the node be in the document;
+    // a task does that as well as a frame does, and it runs whether or not anything is painted.
+    setTimeout(() => { input.focus(); input.select(); }, 0);
   });
 }
 
@@ -199,7 +204,7 @@ export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger 
     // On the OK button only: on the whole box this fired with Cancel focused too, which
     // turned Enter-to-dismiss into Enter-to-delete.
     parts.ok.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
-    requestAnimationFrame(() => parts.ok.focus());
+    setTimeout(() => parts.ok.focus(), 0);
   });
 }
 
@@ -390,7 +395,7 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
     });
 
     build();
-    requestAnimationFrame(() => input.focus());
+    setTimeout(() => input.focus(), 0);
   });
 }
 
@@ -522,7 +527,7 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
     });
 
     build();
-    requestAnimationFrame(() => input.focus());
+    setTimeout(() => input.focus(), 0);
   });
 }
 
@@ -602,7 +607,9 @@ export function contextMenu(x, y, items) {
     frag.appendChild(row);
   }
   ov.box.appendChild(frag);
-  requestAnimationFrame(() => ov.box.querySelector('.menu-row')?.focus());
+  // A task rather than a frame, for the reason `prompt` gives above: a menu opened from a
+  // keyboard gesture in a window that is not painting must still take the focus.
+  setTimeout(() => ov.box.querySelector('.menu-row')?.focus(), 0);
   return ov;
 }
 

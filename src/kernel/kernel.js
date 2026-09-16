@@ -350,7 +350,10 @@ export const ose = {
   update: {
     check: () => bridge.updateCheck(),
     download: () => bridge.updateDownload(),
-    apply: () => bridge.updateApply(),
+    // The relaunch exits the host from a worker thread and the web view may see no unload
+    // event, so the page on screen is taken down first (its clock banked, its editor closed),
+    // the same teardown a navigation runs.
+    apply: async () => { await router.dropCurrent(); return bridge.updateApply(); },
     on: (fn) => bridge.on('update', fn),
   },
 
