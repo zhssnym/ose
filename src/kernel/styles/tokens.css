@@ -167,26 +167,29 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  /* Notion's dark greys (2026-09-16, Hassan): neutral near-black surfaces instead of the warm
+     ones, the terracotta and every semantic colour unchanged. Measured: --fg-3 4.6:1 on --bg-3,
+     --fg-2 5.1:1 on --bg-4, every ink above 4.9:1 on --bg-2. */
 
-  --bg: #1A1917;
-  --bg-2: #1F1E1B;
-  --bg-3: #2A2925;
-  --bg-4: #35332E;
+  --bg: #191919;
+  --bg-2: #202020;
+  --bg-3: #2C2C2C;
+  --bg-4: #333333;
 
-  --border: #33312C;
-  --border-strong: #4C493F;
+  --border: #2F2F2F;
+  --border-strong: #4A4A4A;
 
-  --fg: #ECE9E1;
-  --fg-2: #A9A497;
+  --fg: #D4D4D4;
+  --fg-2: #A8A8A8;
   /* The dark half of L28: #8B8779 cleared --bg and --bg-2 (4.89 / 4.64) but only reached 4.05
      on --bg-3, so it is lightened the same way its light twin was darkened — 5.56 / 5.28 /
      4.61. Small chrome text clears 4.5 on every surface it lands on, in both themes — except
      --bg-4 (4.00), which the light note above explains; --fg-2 is 5.07 there. */
-  --fg-3: #959182;
+  --fg-3: #969696;
 
   --accent: #D97757;
   --accent-hover: #E38A6C;
-  --accent-fg: #1A1917;
+  --accent-fg: #191919;
   --accent-soft: rgba(217, 119, 87, .16);
   --amber: #D4A27F;
   --amber-soft: rgba(212, 162, 127, .16);
