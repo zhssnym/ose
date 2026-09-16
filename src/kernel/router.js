@@ -265,8 +265,13 @@ export function initRouter(el, { start = true } = {}) {
  */
 export function focusMain() {
   if (!mainEl) return false;
+  // `.page-title` is a focus target only when it is the editor's title strip, which is
+  // editable. A view's own H1 wears the same class and there is nothing to type into it, so
+  // focusing it did nothing but draw a ring round the heading — the first thing anyone saw,
+  // because the app opens on a view.
+  const title = mainEl.querySelector('.page-title');
   const pick = mainEl.querySelector('.ProseMirror')
-    || mainEl.querySelector('.page-title')
+    || (title && title.isContentEditable ? title : null)
     || mainEl.querySelector('.view-root')
     || mainEl.querySelector('.start-row')
     || mainEl.querySelector('.miss .btn');   // "Create it" / "Retry": Enter should reach it

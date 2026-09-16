@@ -684,6 +684,9 @@ html.maximized .edge { display: none; }
 /* The shell's .main-scroll is the scroller; a view must not open a second one. */
 .view-root { min-height: 100%; }
 .view-root:focus { outline: none; }
+/* A view's H1 carries `.page-title` but is not the editor's title strip: nothing is typed into
+   it, so it never wears a focus ring either, however focus reached it. */
+.page-title:not([contenteditable="true"]):focus-visible { outline: none; }
 
 /* title row with the previous / today / next group on the right, and the keys that drive it
    said once, quietly, in front of the buttons (a module's navHtml) */
