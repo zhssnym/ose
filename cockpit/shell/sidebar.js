@@ -557,10 +557,22 @@ function toggleDir(row) {
   render();
 }
 
-/** Enter: what a click does. Pages open (and take focus, B3), folders toggle, the missing line opens settings. */
+/**
+ * Enter: what a click does. Pages open (and take focus, B3), folders toggle, a pinned folder
+ * focuses, the missing line opens settings.
+ */
 function activateRow(row) {
   if (row.classList.contains('sb-missing')) { commands.run('app.settings'); return; }
   const path = row.dataset.path;
+  // A pinned folder is a shortcut to a place, not a branch to unfold — unfolding it in a
+  // section that draws no children was the one row in the sidebar that did nothing. Clicking
+  // or Entering it roots the pages section there, exactly what `app.focus-enter` does on any
+  // folder row. It is not a toggle: `app.focus-exit` is the way out, so the folder already in
+  // focus does nothing at all. A pinned page still opens the page.
+  if (row.dataset.pin === '1' && row.dataset.kind === 'dir') {
+    if (getFocus() !== path) setFocus(path);
+    return;
+  }
   if (row.dataset.kind === 'dir') { toggleDir(row); return; }
   if (row.dataset.md === '1') { navigate({ type: 'page', path }); return; }
   // A text file the editor can show opens in it (source mode); a PDF or an image opens in the
