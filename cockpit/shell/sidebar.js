@@ -1,7 +1,8 @@
-// Sidebar: pinned, views, pages, scratch. One scrolling column, no search box (search
+// Sidebar: modules, pinned, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
-// The views section lists what the modules registered; the dashboard (shell/dashboard.js) is
-// the home page and says the same things in cards, and both are ways in. The sidebar carries
+// The modules section, at the very top, lists what the modules registered; the dashboard
+// (shell/dashboard.js) is the home page and says the same things in cards, and both are ways
+// in. The sidebar carries
 // no chrome of its own: the one control that folds it lives in the title bar.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
@@ -281,7 +282,7 @@ function renderPinned(frag) {
   }
 }
 
-/** One row per registered view, above the pages. The dashboard is the home page, not a row. */
+/** One row per registered view, at the very top. The dashboard is the home page, not a row. */
 function renderViews(frag) {
   // `ose.views.list()` answers in registration order, and modules activate concurrently: the
   // order a person sees is the rice's to decide, out of the `order` each view declares (and
@@ -295,8 +296,10 @@ function renderViews(frag) {
     .sort((a, b) => ((a.order ?? 100) - (b.order ?? 100))
       || String(a.title || a.name).localeCompare(String(b.title || b.name)));
   if (!list.length) return;
-  frag.appendChild(label('views'));
-  const box = treeBox(frag, 'Views');
+  // "modules", not "views": the row is a module's way in, and the word a person knows for
+  // Day, Week, Informatique is the module, not the kind of surface it happens to register.
+  frag.appendChild(label('modules'));
+  const box = treeBox(frag, 'Modules');
   const r = currentRoute();
   for (const v of list) {
     box.appendChild(rowEl({
@@ -404,9 +407,11 @@ function renderTree() {
   const curPath = r && r.type === 'page' ? r.path : null;
   const focus = getFocus();
 
-  // Focused, the sidebar is one folder and the app's own rows: pins and scratch are noise.
-  if (!focus) renderPinned(frag);
+  // The modules come first, above everything the vault put there: they are the app's own rows
+  // and they do not move when the tree does. Focused, the sidebar is one folder and the rest of
+  // the app's rows: pins and scratch are noise.
   renderViews(frag);
+  if (!focus) renderPinned(frag);
 
   frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));
   if (!tree) {
@@ -479,8 +484,9 @@ function rowFor(path) {
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: pins, views, pages, scratch, the missing-scratch
-// line. Collapsed folders render no children, so this list is exactly the visible rows.
+// Everything a key can land on, top to bottom: modules, pins, pages, scratch, the
+// missing-scratch line. It is read out of the DOM, so it is the drawing order by construction
+// and the Up/Down walk can never disagree with what is on screen. Collapsed folders render no children, so this list is exactly the visible rows.
 function treeRows() {
   return scrollEl ? [...scrollEl.querySelectorAll('.sb-row, .sb-missing')] : [];
 }

@@ -104,14 +104,23 @@ view of its own is a line under the grid; a disabled one is a line that says why
 `ose.init({ page, start: false })` so the kernel's empty surface never flashes under it. There
 is no `app.start` command any more; `app.home` is where nothing-in-particular goes.
 
-The sidebar lists pinned, views, pages and scratch. The views section is one row per registered
-view (`ose.views.list()`, manifest order, the dashboard left out because it is the home page,
-not a module's surface); a click or Enter opens the view in place, the middle button or
-Ctrl+Enter opens it in a tab of its own. Its top edge carries no chevron: the one toggle is the
-title bar's, drawn in both states, running `app.sidebar` (Ctrl+\). Under 640px of window the
-sidebar hides itself out of the way and comes back when the window is wide again (the L25
+The sidebar is **modules, pinned, pages, scratch**, top to bottom, in what is drawn and in the
+Up/Down walk alike — the walk reads the rows out of the DOM, so the two cannot disagree. The
+modules section is one row per registered view out of `ose.views.list()`, in the `order` each
+declares, with its own icon and the current-row bar, and it sits above everything the vault
+put there: it is the app's own section and it does not move when the tree does. The dashboard
+is filtered out of it, being the home page rather than a module's view. A row opens in place on
+a click or Enter and in a tab of its own on the middle button or Ctrl+Enter, like every other
+row, and the context menu passes it by: there is nothing to rename, move or trash. The sidebar
+carries no chrome of its own either: the one control that folds it is a chevron in the title
+bar's left corner,
+at the sidebar's own x, drawn in the same place whether the sidebar is open or folded, with
+only its glyph turning — pointing left at an open sidebar and right at a folded one. It runs
+`app.sidebar` (Ctrl+\), so `sidebar.open` in state is the one truth. Under 640px of window
+the sidebar hides itself out of the way and comes back when the window is wide again (the L25
 rule); an explicit toggle there — the chord, the chevron, or `app.focus-sidebar` — overrules
-that and opens it anyway, and the overrule lasts until the window is wide again.
+that and opens it anyway, and the overrule lasts until the window is wide again, so narrowing
+the window a second time hides it a second time.
 
 ### The page seam: markdown, images, PDFs
 
