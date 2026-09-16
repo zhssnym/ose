@@ -69,18 +69,23 @@ button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
 .tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
 .tb-crumb.focus { color: var(--accent); }
 
-/* The unfold half of the sidebar's fold chevron: a thin strip at the far left of the title
-   bar, drawn whenever the sidebar is not on screen — the user's fold and the narrow window's
-   own auto-hide alike, because since QA-5 finding 3 the control opens it in both cases. */
-.tb-unfold { display: none; }
-.shell.no-sidebar .tb-unfold {
+/* The sidebar's one control, in the title bar's left corner and in the same spot whether the
+   sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
+   inside the padding the bar already had, where the sidebar begins. Only the glyph turns —
+   pointing left at an open sidebar, right at a folded one. */
+.tb-fold {
   width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
   display: grid; place-items: center;
   color: var(--fg-3); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
-.shell.no-sidebar .tb-unfold:hover { background: var(--bg-3); color: var(--fg); }
-.tb-unfold svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.tb-fold:hover { background: var(--bg-3); color: var(--fg); }
+.tb-fold svg {
+  width: 0.75rem; height: 0.75rem;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+  transform: rotate(180deg); transition: transform var(--t-fast);
+}
+.shell.no-sidebar .tb-fold svg { transform: none; }
 
 .tb-dirty {
   width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
@@ -125,23 +130,6 @@ html.mac .tb-win { display: none; }
 .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
 
-/* The sidebar's own top edge: the fold chevron, on the same line as the tab strip beside it,
-   so the two make one band under the title bar. No label and no bottom border — the sidebar
-   already has an edge, and a second rule here would be a ladder (DESIGN.md "Boxes, not rules"). */
-.sb-head {
-  height: var(--barhead-h); flex: none;
-  display: flex; align-items: center; justify-content: flex-end;
-  padding: 0 var(--sp-2);
-}
-.sb-fold {
-  width: 1.5rem; height: 1.5rem; flex: none;
-  display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.sb-fold:hover { background: var(--bg-3); color: var(--fg); }
-/* The chevron points right; folding runs to the left. */
-.sb-fold svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transform: rotate(180deg); }
 
 /* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
    optional mono tail. A folder and a page at the same depth put their text at the same x

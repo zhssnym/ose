@@ -1,7 +1,8 @@
 // Sidebar: pinned, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
 // There is no views section: a view is a module's surface and the dashboard is where the
-// modules are (shell/dashboard.js), so the sidebar is the vault and nothing else.
+// modules are (shell/dashboard.js), so the sidebar is the vault and nothing else. It carries
+// no chrome of its own either: the one control that folds it lives in the title bar.
 // Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
 // In focus mode the pages section is rooted at one folder and the other sections go away.
 // Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
@@ -1435,22 +1436,11 @@ function emptyMenu() {
 export function initSidebar(node) {
   el = node;
   el.className = 'sidebar';
-  // The fold control, at the top edge of the sidebar and on the same line as the tab strip
-  // beside it. One truth: it runs `app.sidebar`, the same command Ctrl+\ runs, so the state
-  // it writes is `sidebar.open` and nothing else.
-  el.innerHTML = `
-    <div class="sb-head">
-      <button type="button" class="sb-fold">${icon('chevron')}</button>
-    </div>
-    <div class="sb-scroll" tabindex="-1"></div>`;
+  // No head row and no chevron of its own: the fold control is one button in one place, the
+  // title bar's left corner (shell/titlebar.js `.tb-fold`), so the tree starts at the top of
+  // the sidebar instead of under an empty strip.
+  el.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
   scrollEl = el.querySelector('.sb-scroll');
-
-  const fold = el.querySelector('.sb-fold');
-  const foldChord = shortcutFor('app.sidebar');
-  fold.title = foldChord ? `Hide sidebar (${foldChord})` : 'Hide sidebar';
-  fold.setAttribute('aria-label', 'Hide sidebar');
-  fold.setAttribute('aria-expanded', 'true');
-  fold.addEventListener('click', () => commands.run('app.sidebar'));
 
   const saved = sidebarState.get() || {};
   if (Array.isArray(saved.expanded)) expanded = new Set(saved.expanded.filter(Boolean));

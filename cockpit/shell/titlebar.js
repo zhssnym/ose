@@ -7,6 +7,7 @@ import { ose } from 'ose:kernel';
 import { esc, glyph, icon } from 'ose:ui';
 import { segments, titleOf, clean, baseName } from './paths.js';
 import { focusFolder } from './sidebar.js';
+import { sidebarVisible } from './layout.js';
 import { isHost, dragWindow, onMaximize } from './host.js';
 
 const { bus, commands, route, focus } = ose;
@@ -19,6 +20,7 @@ let el = null;
 let crumbsEl = null;
 let dirtyEl = null;
 let maxBtn = null;
+let foldEl = null;
 let navEls = null;
 let maximized = false;
 
@@ -82,7 +84,7 @@ export function initTitlebar(node) {
   el = node;
   el.className = 'titlebar';
   el.innerHTML = `
-    <button class="tb-unfold" type="button">${icon('chevron')}</button>
+    <button class="tb-fold" type="button">${icon('chevron')}</button>
     <div class="tb-mark" title="Ose"><span>ose</span></div>
     <div class="tb-nav">
       <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
@@ -97,15 +99,18 @@ export function initTitlebar(node) {
       <button class="tb-btn close" data-w="close" title="Close" aria-label="Close">${glyph('close')}</button>
     </div>`;
 
-  // The other half of the sidebar's fold chevron: a thin strip at the far left of the title
-  // bar, drawn only while the sidebar is not on screen (shell.css keys it off `.no-sidebar`,
-  // so the narrow-window auto-hide shows it too). Same command as the chevron and as Ctrl+\.
-  const unfold = el.querySelector('.tb-unfold');
-  const unfoldChord = shortcutFor('app.sidebar');
-  unfold.title = unfoldChord ? `Show sidebar (${unfoldChord})` : 'Show sidebar';
-  unfold.setAttribute('aria-label', 'Show sidebar');
-  unfold.addEventListener('mousedown', (e) => e.stopPropagation());
-  unfold.addEventListener('click', () => commands.run('app.sidebar'));
+  // The sidebar's one control: the far-left corner of the title bar, at the sidebar's own x,
+  // in the same place whether the sidebar is open or folded. Only the glyph turns — the
+  // chevron points left at an open sidebar and right at a folded one — and the title says
+  // which way it goes. It runs `app.sidebar`, the same command Ctrl+\ runs, so `sidebar.open`
+  // stays the one truth and there is one thing to find rather than two.
+  foldEl = el.querySelector('.tb-fold');
+  foldEl.addEventListener('mousedown', (e) => e.stopPropagation());
+  foldEl.addEventListener('click', () => commands.run('app.sidebar'));
+  setSidebarShown(sidebarVisible());
+  // The window hides the sidebar on its own under 640px (layout.js `fit`, L25), without
+  // touching the preference, so the glyph follows what is on screen and not what is stored.
+  bus.on('sidebar', setSidebarShown);
 
   crumbsEl = el.querySelector('.tb-crumbs');
   dirtyEl = el.querySelector('.tb-dirty');
@@ -140,13 +145,13 @@ export function initTitlebar(node) {
 
   el.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest('.tb-btn, .tb-crumb, .tb-unfold')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold')) return;
     if (!HOST()) return;
     dragWindow();
   });
 
   el.addEventListener('dblclick', (e) => {
-    if (e.target.closest('.tb-btn, .tb-crumb, .tb-unfold')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold')) return;
     if (!HOST()) return;
     ose.window.maximize();
   });
@@ -157,6 +162,16 @@ export function initTitlebar(node) {
   bus.on('focus', () => renderCrumbs(currentRoute()));
   bus.on('doc:dirty', (d) => setDirty(d && d.dirty));
   bus.on('doc:saved', () => setDirty(false));
+}
+
+/** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
+function setSidebarShown(shown) {
+  if (!foldEl) return;
+  const chord = shortcutFor('app.sidebar');
+  const what = shown ? 'Hide sidebar' : 'Show sidebar';
+  foldEl.title = chord ? `${what} (${chord})` : what;
+  foldEl.setAttribute('aria-label', what);
+  foldEl.setAttribute('aria-expanded', shown ? 'true' : 'false');
 }
 
 export function setDirty(v) { if (dirtyEl) dirtyEl.hidden = !v; }

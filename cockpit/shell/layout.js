@@ -29,6 +29,9 @@ let shell = null;
 let mainEl = null;
 let wantS = 260;
 let autoHidden = false;
+// What the last `fit` put on screen, so the `sidebar` event is emitted on a change and not on
+// every resize frame.
+let shown = null;
 // The user overruled the auto-hide at this width (QA-5 finding 3). Without it `fit` re-armed
 // `autoHidden` on the very call the toggle made to clear it, so under NARROW the sidebar could
 // not be opened at all: Ctrl+\ did nothing, said nothing, and neither chevron was on screen —
@@ -62,6 +65,10 @@ function fit() {
 
   const sOpen = wanted && !autoHidden;
   shell.classList.toggle('no-sidebar', !sOpen);
+  // The title bar's fold button says which way it goes, and the window hides the sidebar on
+  // its own without touching the preference, so what is on screen is announced rather than
+  // read off `sidebar.open` (shell/titlebar.js).
+  if (sOpen !== shown) { shown = sOpen; bus.emit('sidebar', sOpen); }
 
   let s = sOpen ? Math.min(wantS, Math.max(S_MIN, Math.round(avail * S_SHARE))) : 0;
   const over = s + MIN_MAIN - avail;
