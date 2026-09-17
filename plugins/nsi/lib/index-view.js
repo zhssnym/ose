@@ -106,8 +106,10 @@ class IndexView {
   draw(drills) {
     const done = drills.filter(d => d.done).length
     this.count.textContent = `${plural(drills.length, 'drill')} · ${done} done`
+    const next = drills.find(d => !d.done)     // the first drill not done: where the keyboard starts
     const rows = drills.map(d => ({
       id: d.id,
+      here: !!next && next.id === d.id,
       cells: {
         n: d.number == null ? '' : String(d.number),
         title: d.title,

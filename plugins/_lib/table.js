@@ -100,8 +100,11 @@ class DrillTable {
       tr.dataset.id = String(row.id)
       for (const col of this.columns) tr.appendChild(this.cell('td', col, (row.cells || {})[col.key]))
     }
-    // The tab stop goes back where it was, or to the first row when that id is gone.
-    const still = keep != null && this.byId.has(String(keep)) ? String(keep) : String(list[0].id)
+    // The tab stop goes back where it was. With nothing to go back to, it starts on the row the
+    // caller marked `here` (the one to do next), and on the first row when none is marked.
+    const still = keep != null && this.byId.has(String(keep))
+      ? String(keep)
+      : String((list.find(r => r.here) || list[0]).id)
     this.setCurrent(still)
     if (had != null) this.focus(still)
   }

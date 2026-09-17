@@ -109,11 +109,14 @@ class IndexView {
 
   draw({ series, answers }) {
     let done = 0
+    let next = null                     // the first series that is not done: where the keyboard starts
     const rows = series.map(s => {
       const status = statusCell(s, answers)
       if (status.tone === 'ok') done += 1
+      else if (next == null) next = s.id
       return {
         id: s.id,
+        here: next === s.id,
         cells: {
           n: s.n == null ? s.id.replace(/^serie-0*/, '') : String(s.n),
           title: s.titre || s.id,

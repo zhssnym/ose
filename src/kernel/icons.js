@@ -15,6 +15,8 @@ const P = {
   habits: '<rect x="2.25" y="2.25" width="4.75" height="4.75"/><rect x="9" y="2.25" width="4.75" height="4.75"/><rect x="2.25" y="9" width="4.75" height="4.75"/><path d="M10 11.4l1.3 1.3 2.4-2.7"/>',
   journal: '<path d="M3.25 2.75h6.5a2 2 0 0 1 2 2v8.5h-6.5a2 2 0 0 1-2-2z"/><path d="M3.25 10.75h8.5M6 5.5h3.25"/>',
   tasks: '<rect x="2.25" y="2.25" width="11.5" height="11.5"/><path d="M5.25 8.1l1.9 1.9 3.6-4"/>',
+  // A capital sigma with its two serifs: the maths plugin's mark.
+  sigma: '<path d="M12.25 4.75V2.75H3.75L8.5 8l-4.75 5.25h8.5v-2"/>',
   view: '<rect x="2.25" y="2.25" width="11.5" height="11.5"/><path d="M2.25 6h11.5"/>',
   plus: '<path d="M8 3.25v9.5M3.25 8h9.5"/>',
   folderPlus: '<path d="M2.25 4.25A1.25 1.25 0 0 1 3.5 3h2.35l1.4 1.75h5.25A1.25 1.25 0 0 1 13.75 6v5.75A1.25 1.25 0 0 1 12.5 13h-9a1.25 1.25 0 0 1-1.25-1.25z"/><path d="M8 7.25v3.5M6.25 9h3.5"/>',

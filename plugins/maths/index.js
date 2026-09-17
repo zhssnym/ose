@@ -41,7 +41,7 @@ export async function activate(ose) {
     shortcut: 'Mod+Shift+S', run: () => void openNext(),
   })
 
-  ose.views.register('maths', { title: 'Maths', order: 50, icon: 'tasks', mount: mountIndex })
+  ose.views.register('maths', { title: 'Maths', order: 50, icon: 'sigma', mount: mountIndex })
 
   // A series id is one segment (`serie-02`), so one pattern covers every route this plugin owns.
   ose.route.own('maths/*', mountSerie)
