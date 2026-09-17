@@ -10,21 +10,8 @@ src-tauri/target/
 # Per-machine vault root: {"root": "D:/os"}. Every clone writes its own.
 ose.config.json
 
-# Self-test output, written next to the binary or in the working directory.
-selftest.log
-
-# The CI fixture vault is committed whole, including its png, whatever else is ignored above.
-!ci/fake-vault/**
-
 # CI stages the built binary at the repo root before uploading it.
-/os.exe
-/os-macos-arm64.zip
 /ose.exe
-/ose-macos-arm64.zip
-
-# state written by self-test runs against the fake vault
-ci/fake-vault/.ose/
-ci/fake-vault/.trash/
 
 # The orchestration desk (agent briefs, inbox, reports, a throwaway test vault) and the code
 # graph graphify builds: session artefacts, never shipped.
@@ -33,10 +20,3 @@ graphify-out/
 
 # The vault state folder an exe writes when the repo itself is opened as a vault.
 .ose/
-
-# The CI fixture's rice is committed: the self-test asserts the `app` origin against it and a
-# second job loads it in a real window. The state and versions a self-test run writes there
-# are still ignored (three lines: git will not re-include a path whose parent is excluded).
-!ci/fake-vault/.ose/
-ci/fake-vault/.ose/*
-!ci/fake-vault/.ose/app/

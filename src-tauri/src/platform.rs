@@ -1,4 +1,5 @@
-//! Platform integration: opening external URLs and revealing a file in the file manager.
+//! Platform integration: opening external URLs, revealing a file in the file manager, and
+//! what this build is (`--version`, and the `build` field of `platform`).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -6,6 +7,53 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Value};
 
 use crate::{arg_str, Ctx};
+
+// ---- what this build is ----------------------------------------------------
+
+/// The commit and day this executable was built from, stamped by CI (`OSE_BUILD_SHA`,
+/// `OSE_BUILD_DATE` in build.yml, read at compile time). A local build has none and says so.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuildInfo {
+    pub sha: String,
+    pub short: String,
+    pub date: String,
+}
+
+pub fn build_info() -> Option<BuildInfo> {
+    let sha = option_env!("OSE_BUILD_SHA")?.trim();
+    if !is_sha(sha) {
+        return None;
+    }
+    Some(BuildInfo {
+        sha: sha.to_string(),
+        short: sha[..7].to_string(),
+        date: option_env!("OSE_BUILD_DATE").unwrap_or("").trim().to_string(),
+    })
+}
+
+/// `{sha, short, date}` for `platform`, `null` for a local build.
+pub fn build_json() -> Value {
+    match build_info() {
+        Some(b) => json!({ "sha": b.sha, "short": b.short, "date": b.date }),
+        None => Value::Null,
+    }
+}
+
+/// `ose 1.0.0 (a45404e, 2026-09-15)` or `ose 1.0.0 (dev build)`: the `--version` line. The
+/// name is the app's, not the file's: a copy on disk under another name prints `ose` too,
+/// because that is what it is.
+pub fn version_line() -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    match build_info() {
+        Some(b) if !b.date.is_empty() => format!("ose {v} ({}, {})", b.short, b.date),
+        Some(b) => format!("ose {v} ({})", b.short),
+        None => format!("ose {v} (dev build)"),
+    }
+}
+
+fn is_sha(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
 
 /// Windows `CREATE_NO_WINDOW`: no console window for any child process we spawn.
 #[cfg(windows)]
@@ -165,23 +213,23 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 
 /// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
 /// executable's own, or the folder holding `Ose.app` on macOS. `build` is the CI stamp
-/// `{sha, short, date}`, null for a local build (update.rs).
+/// `{sha, short, date}`, null for a local build.
 ///
-/// The three origins (round four, docs/KERNEL.md) are here rather than guessed in the page,
-/// because the spelling is the platform's: `http://ose.localhost` on Windows and
-/// `ose://localhost` on macOS and Linux. Nothing in a rice ever writes one down.
+/// The three origins (docs/KERNEL.md) are here rather than guessed in the page, because the
+/// spelling is the platform's: `http://ose.localhost` on Windows and `ose://localhost` on
+/// macOS and Linux. Nothing in the shell or in a plugin ever writes one down.
 fn platform_info(ctx: &Ctx) -> Value {
     json!({
         "os": os_name(),
         "version": env!("CARGO_PKG_VERSION"),
-        "build": crate::update::build_json(),
+        "build": build_json(),
         "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
         "root": ctx.st.root().map(|p| p.display().to_string()),
-        "api": crate::rice::API,
-        "kernelOrigin": crate::rice::kernel_origin(),
-        "appOrigin": crate::rice::app_origin(),
-        "vaultOrigin": crate::rice::vault_origin(),
+        "api": crate::shell::API,
+        "kernelOrigin": crate::shell::kernel_origin(),
+        "appOrigin": crate::shell::app_origin(),
+        "vaultOrigin": crate::shell::vault_origin(),
     })
 }
 
@@ -205,5 +253,16 @@ mod tests {
         assert!(open_external("javascript:alert(1)").is_err());
         assert!(open_external("nonsense").is_err());
         assert!(open_external("").is_err());
+    }
+
+    /// `ose --version` is what a person runs to see what they have, and CI asserts its shape.
+    #[test]
+    fn the_version_line_names_the_app_and_the_version() {
+        let line = version_line();
+        assert!(line.starts_with(&format!("ose {} (", env!("CARGO_PKG_VERSION"))), "{line}");
+        assert!(line.ends_with(')'), "{line}");
+        assert!(!is_sha("abc"));
+        assert!(!is_sha(&"z".repeat(40)));
+        assert!(is_sha(&"a1b2c3d4".repeat(5)));
     }
 }

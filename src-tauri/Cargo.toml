@@ -1,6 +1,6 @@
 [package]
 name = "ose"
-version = "0.5.0"
+version = "1.0.0"
 description = "Ose"
 authors = ["Hassan Shahir"]
 edition = "2021"
@@ -37,26 +37,10 @@ trash = "5"
 opener = "0.7"
 percent-encoding = "2"
 base64 = "0.22"
-# The update check and the asset download (update.rs). The download cannot run in the webview:
-# GitHub's signed asset host answers without a CORS header, so fetch() from the page is refused
-# before a byte arrives. A small blocking client on a worker thread is all the host needs; rustls
-# so the build never depends on a system OpenSSL, no default features so no gzip/compression
-# crates ride along.
-ureq = { version = "3", default-features = false, features = ["rustls"] }
-# sha256 of the downloaded asset against the digest the release API publishes; pure Rust, and
-# already in the tree as a transitive dependency of tauri (no new download).
+# The sha256 of the import map the host injects into the page, which is how the CSP names that
+# one inline script without allowing every other one (shell.rs). Pure Rust, and already in the
+# tree as a transitive dependency of tauri, so it is no extra download.
 sha2 = "0.10"
-
-# Shift held at launch forces the kernel's fallback page (docs/RICE.md step 3). Reading the
-# key state is the one thing that needs a platform API: `GetAsyncKeyState` on Windows,
-# `NSEvent.modifierFlags` on macOS. Both crates are already in the tree as transitive
-# dependencies of tauri, so neither is a new download; both are named here because a direct
-# `use` needs a direct dependency.
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSEvent"] }
 
 [profile.release]
 lto = true

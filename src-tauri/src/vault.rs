@@ -30,10 +30,11 @@ const HIDDEN: &[&str] = &[
     ".space",
     ".ose",
     // The executable normally lives at the root of its own vault, so it hides itself, and so
-    // do the files an update leaves beside it for a moment (update.rs) and the bundle itself
-    // when it sits at the root on macOS. Both names: the app is `ose` from 0.4.0 on, and a
-    // copy on disk that is still called `os.exe` keeps that name for ever (a swap never
-    // renames the file it found).
+    // does the bundle when it sits at the root on macOS. `WebView2Loader.dll` sits beside a
+    // local MinGW build, which loads it from there (scripts/ship.mjs copies it); the MSVC
+    // build CI publishes links it statically and ships no such file. The old names and the
+    // `.new`, `.old` and `-update` leftovers are what a pre-1.0 build that updated itself may
+    // have left behind, and they stay hidden so an old vault does not suddenly grow clutter.
     "ose.exe",
     "ose.pdb",
     "ose.exe.new",
@@ -42,6 +43,7 @@ const HIDDEN: &[&str] = &[
     "Ose.app.old",
     "ose-update.zip",
     "ose-update-tmp",
+    "WebView2Loader.dll",
     "os.exe",
     "os.pdb",
     "os.exe.new",
@@ -1105,6 +1107,30 @@ mod tests {
         assert!(resolve(root, "C:/Windows").is_err());
     }
 
+    /// The plugin loader lists `.ose/plugins`, a folder inside a hidden one, and filters the
+    /// `_` names itself (docs/PLUGINS.md: `_lib/` is shared files, not a plugin). Both have to
+    /// come back out of `list`: hidden means "not in the tree", not "unreachable".
+    #[test]
+    fn the_plugins_folder_lists_and_keeps_its_underscore_names() {
+        let t = Tmp::new("plugins");
+        let plugins = t.0.join(".ose").join("plugins");
+        fs::create_dir_all(plugins.join("_lib")).unwrap();
+        fs::create_dir_all(plugins.join("day")).unwrap();
+        fs::write(plugins.join("week.js"), "").unwrap();
+        fs::write(plugins.join(".half-written.js"), "").unwrap();
+
+        let names: Vec<String> = list(&t.0, ".ose/plugins")
+            .unwrap()
+            .into_iter()
+            .map(|n| n.name)
+            .collect();
+        assert_eq!(names, ["_lib", "day", "week.js"]);
+
+        // A vault with no plugins folder: an error the caller reads as "no plugins".
+        let bare = Tmp::new("no-plugins");
+        assert!(list(&bare.0, ".ose/plugins").is_err());
+    }
+
     #[test]
     fn hidden_names() {
         assert!(is_hidden(".git"));
@@ -1115,13 +1141,14 @@ mod tests {
         assert!(!is_hidden("Personal"));
     }
 
-    /// The rename (round four): both the new names and the ones a copy already on disk keeps,
-    /// in any case. A visible `ose.exe` in the tree would be a bug people would see at once.
+    /// Everything the app itself leaves at the root of a vault, under both names and in any
+    /// case. A visible `ose.exe` in the tree would be a bug people would see at once, and so
+    /// would the DLL a local build needs beside it.
     #[test]
-    fn both_executable_names_are_hidden() {
+    fn what_the_app_leaves_beside_a_vault_is_hidden() {
         for name in [
             "ose.exe", "ose.pdb", "ose.exe.new", "ose.exe.old", "Ose.app", "Ose.app.old",
-            "ose-update.zip", "ose-update-tmp",
+            "ose-update.zip", "ose-update-tmp", "WebView2Loader.dll",
             "os.exe", "os.pdb", "os.exe.new", "os.exe.old", "os.app", "os.app.old",
             "os-update.zip", "os-update-tmp",
         ] {

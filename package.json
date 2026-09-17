@@ -1,13 +1,14 @@
 {
-  "name": "os-editor",
+  "name": "ose",
   "private": true,
-  "version": "0.5.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:test": "node dev/test-server.mjs",
     "build": "vite build --config vite.kernel.config.js",
     "build:kernel": "vite build --config vite.kernel.config.js",
+    "embed:shell": "node scripts/embed-shell.mjs",
     "ship": "npm run tauri:build && node scripts/ship.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

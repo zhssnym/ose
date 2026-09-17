@@ -1,25 +1,24 @@
-# Builds the Tauri host on both platforms, runs the self-test against ci/fake-vault twice (with
-# the fake rice and with --no-rice), and publishes the binaries. See TAURI.md ("CI",
-# "Self-test", "Kernel origins and the rice loader") for the contract.
+# Builds ose.exe and publishes it.
+#
+# One job, Windows, MSVC: that toolchain links WebView2Loader statically, so the result is one
+# self-contained file with no DLL beside it. A local MinGW build is for development and is not
+# what anyone downloads. macOS is not built; the macOS code in the Rust sources stays, unbuilt.
 name: build
 
 on:
   push:
-    branches: [main, tauri]
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# One build per ref. A newer push cancels the running one; the rolling release is then written
+# One build per ref. A newer push cancels the running one, so the rolling release is written
 # once, by the last run, instead of two runs racing to recreate the same tag.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  SELFTEST_TIMEOUT_SECONDS: 240
 
 jobs:
   windows:
@@ -42,22 +41,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build the web UI and the kernel bundle
+      # dist-kernel/: the four bundles, the two stylesheets and shell/, which the exe embeds.
+      - name: Build the kernel bundles and the shell
         run: npm run build
 
-      # `frontendDist` is `../dist-kernel` (docs/KERNEL.md): the four bundles, the two
-      # stylesheets, the fallback page and the self-test page are embedded in the executable,
-      # so a missing folder is a broken build and not a mystery at runtime.
-      - name: Check the kernel bundle
+      - name: Check the build
         shell: pwsh
         run: |
-          $missing = @('index.html','selftest.html','selftest.js','kernel.js','ui.js','md.js','ui.css') |
+          $missing = @('kernel.js','ui.js','md.js','ui.css','index.html','shell/index.html','shell/main.js') |
             Where-Object { -not (Test-Path "dist-kernel/$_") }
-          if ($missing) { throw "dist-kernel is missing: $($missing -join ', '). Run npm run build:kernel." }
+          if ($missing) { throw "dist-kernel is missing: $($missing -join ', '). Run npm run build." }
           Get-ChildItem dist-kernel | Select-Object Name, Length | Format-Table
 
-      # The stamp the update check compares against the release (update.rs `build_info`):
-      # the commit this build is, and the day, read at compile time.
+      # The stamp `--version` prints: the commit this build is, and the day, read at compile time.
       - name: Stamp the build
         shell: pwsh
         run: |
@@ -67,385 +63,62 @@ jobs:
       # tauri:build resolves to `tauri build --no-bundle` on Windows: one self-contained
       # src-tauri/target/release/ose.exe, no installer.
       - name: Build the host
-        env:
-          OSE_BUILD_SHA: ${{ github.sha }}
         run: npm run tauri:build
 
-      # Two names, the same bytes. `ose.exe` is the app from 0.4.0 on; `os.exe` is there so a
-      # 0.3.x build already on someone's disk still finds the asset it looks for and can update
-      # itself into 0.4.0. Drop the `os.exe` copy (and the release file entry below) once no
-      # 0.3.x is left in the field — say, after 2026-12.
-      - name: Stage ose.exe (and os.exe, for the transition)
+      - name: Stage ose.exe
         shell: pwsh
         run: |
           $exe = "src-tauri/target/release/ose.exe"
           if (-not (Test-Path $exe)) { throw "no binary at $exe" }
           Copy-Item $exe "$env:GITHUB_WORKSPACE/ose.exe" -Force
-          Copy-Item $exe "$env:GITHUB_WORKSPACE/os.exe" -Force
           "{0:N1} MB" -f ((Get-Item $exe).Length / 1MB)
 
-      # `ose --version` is what a person runs to see what they have, and what `ship` and the
-      # update loop agree on. It must say `ose 0.4.x`, and it must say it from the binary CI
-      # is about to publish.
+      # `ose --version` is what a person runs to see what they have. It must say `ose 1.0.x`,
+      # and it must say it from the binary this run is about to publish.
       - name: Version line
         shell: pwsh
         run: |
-          $line = & "$env:GITHUB_WORKSPACE/ose.exe" --version 2>&1 | Out-String
-          $line = $line.Trim()
+          $line = (& "$env:GITHUB_WORKSPACE/ose.exe" --version 2>&1 | Out-String).Trim()
           Write-Host "ose --version: $line"
-          if ($line -notmatch '^ose 0\.\d+\.\d+ \(') { throw "unexpected --version line: $line" }
-
-      # `ose --selftest --root <vault> --log <file>` loads selftest.html, exercises every bridge
-      # command, writes one PASS/FAIL line each through the `log` command and closes its own
-      # window. The log is the contract: the process exit code is reported but not trusted,
-      # because a GUI host can exit non-zero on teardown after a clean run.
-      # The fake rice is in place (ci/fake-vault/.ose/app) for this run; the --no-rice run
-      # further down proves the fallback decision against the same vault.
-      - name: Self-test
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $log = "$env:GITHUB_WORKSPACE/selftest.log"
-          if (Test-Path $log) { Remove-Item $log -Force }
-          $cliArgs = @(
-            '--selftest',
-            '--root', "$env:GITHUB_WORKSPACE/ci/fake-vault",
-            '--log', $log
-          )
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/ose.exe" -ArgumentList $cliArgs -PassThru
-          $null = $p.Handle   # caching the handle keeps ExitCode readable after the process ends
-          $timedOut = $false
-          if (-not $p.WaitForExit([int]$env:SELFTEST_TIMEOUT_SECONDS * 1000)) {
-            $timedOut = $true
-            Write-Host "::error::self-test did not exit within $env:SELFTEST_TIMEOUT_SECONDS seconds; killing it"
-            try { $p.Kill($true) } catch { }
-          } else {
-            Write-Host "self-test process exit code: $($p.ExitCode)"
-          }
-          Write-Host '--- selftest.log ---'
-          if (Test-Path $log) { Get-Content $log } else { Write-Host '(no log file)' }
-          Write-Host '--- end ---'
-          if ($timedOut) { exit 1 }
-          if (-not (Test-Path $log)) { Write-Host '::error::the self-test wrote no log'; exit 1 }
-          $text = Get-Content $log -Raw
-          # -cmatch is case sensitive on purpose: the uppercase FAIL token marks a failed check,
-          # while the lowercase `fail=` in the summary line is just a counter.
-          if ($text -cmatch 'FAIL') { Write-Host '::error::the self-test reported FAIL'; exit 1 }
-          if ($text -cnotmatch 'SELFTEST DONE') { Write-Host '::error::the self-test did not reach SELFTEST DONE'; exit 1 }
-          if ($text -cmatch 'fail=[1-9]') { Write-Host '::error::the self-test summary counts failures'; exit 1 }
-          if ($text -match '\(hard stop\)') { Write-Host '::error::the self-test hit its hard stop'; exit 1 }
-          # The rice is in this vault, so the run must have exercised the `app` origin.
-          if ($text -cnotmatch 'PASS app protocol refuses to leave the rice folder') {
-            Write-Host '::error::the self-test did not run the app-protocol checks; is ci/fake-vault/.ose/app committed?'
-            exit 1
-          }
-          Write-Host 'self-test passed'
-
-      # The window actually going to the rice, which --selftest never does (it loads its own
-      # page). The fake rice imports `ose:kernel` through the injected import map, checks that
-      # the stylesheet link was rewritten, logs one line and quits itself.
-      - name: The rice loads
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $log = "$env:GITHUB_WORKSPACE/rice.log"
-          if (Test-Path $log) { Remove-Item $log -Force }
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/ose.exe" -PassThru -ArgumentList @(
-            '--root', "$env:GITHUB_WORKSPACE/ci/fake-vault", '--log', $log)
-          $null = $p.Handle
-          if (-not $p.WaitForExit(120000)) {
-            Write-Host '::error::the rice run did not exit within 120s; killing it'
-            try { $p.Kill($true) } catch { }
-            if (Test-Path $log) { Get-Content $log }
-            exit 1
-          }
-          Write-Host '--- rice.log ---'
-          if (Test-Path $log) { Get-Content $log } else { Write-Host '(no log file)'; exit 1 }
-          Write-Host '--- end ---'
-          $text = Get-Content $log -Raw
-          if ($text -cnotmatch 'rice ok') { Write-Host '::error::the rice did not report `rice ok`'; exit 1 }
-          if ($text -match 'falling back') { Write-Host '::error::the host fell back off the rice'; exit 1 }
-          Write-Host 'the rice loaded'
-
-      # And the other half of the decision: --no-rice must reach the kernel's fallback page,
-      # with the rice still sitting right there in the vault.
-      - name: The fallback page
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $log = "$env:GITHUB_WORKSPACE/fallback.log"
-          if (Test-Path $log) { Remove-Item $log -Force }
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/ose.exe" -PassThru -ArgumentList @(
-            '--selftest', '--no-rice',
-            '--root', "$env:GITHUB_WORKSPACE/ci/fake-vault", '--log', $log)
-          $null = $p.Handle
-          if (-not $p.WaitForExit([int]$env:SELFTEST_TIMEOUT_SECONDS * 1000)) {
-            Write-Host '::error::the --no-rice run did not exit in time; killing it'
-            try { $p.Kill($true) } catch { }
-            exit 1
-          }
-          Write-Host '--- fallback.log ---'
-          if (Test-Path $log) { Get-Content $log } else { Write-Host '(no log file)'; exit 1 }
-          Write-Host '--- end ---'
-          $text = Get-Content $log -Raw
-          if ($text -cmatch 'FAIL') { Write-Host '::error::the --no-rice self-test reported FAIL'; exit 1 }
-          if ($text -cnotmatch 'SELFTEST DONE') { Write-Host '::error::the --no-rice self-test did not finish'; exit 1 }
-          if ($text -notmatch 'rice: the fallback page') { Write-Host '::error::--no-rice did not take the fallback path'; exit 1 }
-          if ($text -notmatch 'disabled=true|\(disabled\)') { Write-Host '::error::riceInfo did not report the rice as disabled'; exit 1 }
-          Write-Host 'the fallback page was chosen'
+          if ($line -notmatch '^ose 1\.\d+\.\d+ \(') { throw "unexpected --version line: $line" }
 
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: os-windows
-          path: |
-            ose.exe
-            os.exe
-            selftest.log
-            rice.log
-            fallback.log
-          if-no-files-found: warn
+          name: ose-windows
+          path: ose.exe
+          if-no-files-found: error
 
-  macos:
-    runs-on: macos-14
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Add the Apple silicon target
-        run: rustup target add aarch64-apple-darwin
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build the web UI and the kernel bundle
-        run: npm run build
-
-      - name: Check the kernel bundle
-        run: |
-          set -euo pipefail
-          for f in index.html selftest.html selftest.js kernel.js ui.js md.js ui.css; do
-            if [ ! -f "dist-kernel/$f" ]; then echo "::error::dist-kernel is missing $f. Run npm run build:kernel."; exit 1; fi
-          done
-          ls -la dist-kernel
-
-      # tauri:build picks the bundle per platform itself (--bundles app on macOS, see
-      # package.json) and does not forward extra argv, so no flags are passed here. The runner is
-      # Apple silicon, so the default host target is aarch64-apple-darwin; the locate step below
-      # accepts both target/release/... and target/<triple>/release/... layouts in case the
-      # script later builds with an explicit --target.
-      - name: Stamp the build
-        run: |
-          echo "OSE_BUILD_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
-          echo "OSE_BUILD_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
-
-      - name: Build the host
-        env:
-          OSE_BUILD_SHA: ${{ github.sha }}
-        run: npm run tauri:build
-
-      - name: Locate Ose.app
-        id: app
-        run: |
-          set -euo pipefail
-          app=$(find src-tauri/target -maxdepth 6 -type d \( -name 'Ose.app' -o -name 'os.app' \) | head -n 1)
-          if [ -z "$app" ]; then echo "::error::no Ose.app under src-tauri/target"; exit 1; fi
-          echo "path=$app" >> "$GITHUB_OUTPUT"
-          echo "found $app"
-
-      - name: Version line
-        run: |
-          set -euo pipefail
-          bin=$(find "${{ steps.app.outputs.path }}/Contents/MacOS" -type f -perm -u+x | head -n 1)
-          line=$("$bin" --version)
-          echo "ose --version: $line"
-          case "$line" in ose\ 0.*) ;; *) echo "::error::unexpected --version line: $line"; exit 1 ;; esac
-
-      # Same contract as Windows, driven through the binary inside the bundle so the run is a
-      # plain child process. macOS has no GNU `timeout`, hence the background job and wait loop.
-      - name: Self-test
-        run: |
-          set -uo pipefail
-          log="$GITHUB_WORKSPACE/selftest.log"
-          rm -f "$log"
-          bin="${{ steps.app.outputs.path }}/Contents/MacOS/ose"
-          [ -x "$bin" ] || bin="${{ steps.app.outputs.path }}/Contents/MacOS/os"
-          if [ ! -x "$bin" ]; then echo "::error::no executable in ${{ steps.app.outputs.path }}/Contents/MacOS"; exit 1; fi
-          echo "bin=$bin" >> "$GITHUB_ENV"
-          "$bin" --selftest --root "$GITHUB_WORKSPACE/ci/fake-vault" --log "$log" &
-          pid=$!
-          timed_out=0
-          waited=0
-          while kill -0 "$pid" 2>/dev/null; do
-            if [ "$waited" -ge "$SELFTEST_TIMEOUT_SECONDS" ]; then
-              timed_out=1
-              echo "::error::self-test did not exit within ${SELFTEST_TIMEOUT_SECONDS}s; killing it"
-              kill -9 "$pid" 2>/dev/null || true
-              break
-            fi
-            sleep 1
-            waited=$((waited + 1))
-          done
-          wait "$pid" 2>/dev/null || echo "self-test process exit code: $?"
-          echo '--- selftest.log ---'
-          cat "$log" 2>/dev/null || echo '(no log file)'
-          echo '--- end ---'
-          if [ "$timed_out" -eq 1 ]; then exit 1; fi
-          if [ ! -f "$log" ]; then echo '::error::the self-test wrote no log'; exit 1; fi
-          if grep -q 'FAIL' "$log"; then echo '::error::the self-test reported FAIL'; exit 1; fi
-          if ! grep -q 'SELFTEST DONE' "$log"; then echo '::error::the self-test did not reach SELFTEST DONE'; exit 1; fi
-          if grep -Eq 'fail=[1-9]' "$log"; then echo '::error::the self-test summary counts failures'; exit 1; fi
-          if grep -q 'hard stop' "$log"; then echo '::error::the self-test hit its hard stop'; exit 1; fi
-          if ! grep -q 'PASS app protocol refuses to leave the rice folder' "$log"; then
-            echo '::error::the self-test did not run the app-protocol checks; is ci/fake-vault/.ose/app committed?'; exit 1
-          fi
-          echo 'self-test passed'
-
-      # The window actually going to the rice; the fake rice logs one line and quits itself.
-      - name: The rice loads
-        run: |
-          set -uo pipefail
-          log="$GITHUB_WORKSPACE/rice.log"
-          rm -f "$log"
-          "$bin" --root "$GITHUB_WORKSPACE/ci/fake-vault" --log "$log" &
-          pid=$!
-          waited=0
-          while kill -0 "$pid" 2>/dev/null; do
-            if [ "$waited" -ge 120 ]; then echo '::error::the rice run did not exit within 120s'; kill -9 "$pid" 2>/dev/null || true; cat "$log" 2>/dev/null; exit 1; fi
-            sleep 1; waited=$((waited + 1))
-          done
-          echo '--- rice.log ---'; cat "$log" 2>/dev/null || { echo '(no log file)'; exit 1; }; echo '--- end ---'
-          grep -q 'rice ok' "$log" || { echo '::error::the rice did not report `rice ok`'; exit 1; }
-          grep -q 'falling back' "$log" && { echo '::error::the host fell back off the rice'; exit 1; }
-          echo 'the rice loaded'
-
-      - name: The fallback page
-        run: |
-          set -uo pipefail
-          log="$GITHUB_WORKSPACE/fallback.log"
-          rm -f "$log"
-          "$bin" --selftest --no-rice --root "$GITHUB_WORKSPACE/ci/fake-vault" --log "$log" &
-          pid=$!
-          waited=0
-          while kill -0 "$pid" 2>/dev/null; do
-            if [ "$waited" -ge "$SELFTEST_TIMEOUT_SECONDS" ]; then echo '::error::the --no-rice run did not exit in time'; kill -9 "$pid" 2>/dev/null || true; exit 1; fi
-            sleep 1; waited=$((waited + 1))
-          done
-          echo '--- fallback.log ---'; cat "$log" 2>/dev/null || { echo '(no log file)'; exit 1; }; echo '--- end ---'
-          grep -q 'FAIL' "$log" && { echo '::error::the --no-rice self-test reported FAIL'; exit 1; }
-          grep -q 'SELFTEST DONE' "$log" || { echo '::error::the --no-rice self-test did not finish'; exit 1; }
-          grep -q 'rice: the fallback page' "$log" || { echo '::error::--no-rice did not take the fallback path'; exit 1; }
-          echo 'the fallback page was chosen'
-
-      # ditto keeps the bundle structure and the resource forks a plain zip would drop. Two
-      # names, the same archive: `ose-macos-arm64.zip` is the app from 0.4.0 on, and the old
-      # name is there so a 0.3.x build in the field can still update itself. Drop the second
-      # copy (and its release file entry) once no 0.3.x is left — say, after 2026-12.
-      - name: Package the app
-        run: |
-          set -euo pipefail
-          ditto -c -k --keepParent "${{ steps.app.outputs.path }}" "$GITHUB_WORKSPACE/ose-macos-arm64.zip"
-          cp "$GITHUB_WORKSPACE/ose-macos-arm64.zip" "$GITHUB_WORKSPACE/os-macos-arm64.zip"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: os-macos
-          path: |
-            ose-macos-arm64.zip
-            os-macos-arm64.zip
-            selftest.log
-            rice.log
-            fallback.log
-          if-no-files-found: warn
-
+  # Only a push to main publishes. A workflow_dispatch on any ref builds and uploads the
+  # artifact above and stops there.
   release:
-    needs: [windows, macos]
+    needs: windows
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: os-windows
-          path: assets/windows
+          name: ose-windows
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: os-macos
-          path: assets/macos
-
-      # main -> the rolling prerelease `latest`; the tauri branch -> `tauri-preview`;
-      # a v* tag -> a normal release on that tag. Anything else publishes nothing.
-      - name: Decide the release
-        id: rel
-        run: |
-          set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/tags/v*)
-              tag="${GITHUB_REF#refs/tags/}"
-              echo "tag=$tag"          >> "$GITHUB_OUTPUT"
-              echo "name=$tag"         >> "$GITHUB_OUTPUT"
-              echo "prerelease=false"  >> "$GITHUB_OUTPUT"
-              echo "rolling=false"     >> "$GITHUB_OUTPUT"
-              ;;
-            refs/heads/main)
-              echo "tag=latest"        >> "$GITHUB_OUTPUT"
-              echo "name=latest"       >> "$GITHUB_OUTPUT"
-              echo "prerelease=true"   >> "$GITHUB_OUTPUT"
-              echo "rolling=true"      >> "$GITHUB_OUTPUT"
-              ;;
-            refs/heads/tauri)
-              echo "tag=tauri-preview" >> "$GITHUB_OUTPUT"
-              echo "name=tauri preview" >> "$GITHUB_OUTPUT"
-              echo "prerelease=true"   >> "$GITHUB_OUTPUT"
-              echo "rolling=true"      >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "skip=true"         >> "$GITHUB_OUTPUT"
-              echo "no release for $GITHUB_REF"
-              ;;
-          esac
-
-      # The two `os.*` assets are the same bytes as the two `ose.*` ones: a 0.3.x build looks
-      # for the old name and has to be able to update itself into 0.4.0. Delete the two old
-      # lines below, and the copies that make them in the two build jobs, when no 0.3.x is left.
-      # A release tag cannot be moved through the release API: action-gh-release would reuse the
-      # existing tag and publish assets against the old commit. For the two rolling tags the
-      # release and its tag are deleted first and recreated at this commit. The cost is the loss
-      # of the previous download counts, which is the right trade for a rolling prerelease.
-      - name: Retire the previous rolling release
-        if: steps.rel.outputs.skip != 'true' && steps.rel.outputs.rolling == 'true'
+      # A release tag cannot be moved through the release API: the action would reuse the
+      # existing tag and publish the asset against the old commit. The rolling release and its
+      # tag are therefore deleted first and recreated at this commit. The cost is the previous
+      # download count, which is the right trade for a rolling prerelease.
+      - name: Retire the previous latest
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag='${{ steps.rel.outputs.tag }}'
-          gh release delete "$tag" --yes --cleanup-tag || echo "no existing release $tag"
-          gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$tag" || echo "no existing tag $tag"
+          gh release delete latest --yes --cleanup-tag || echo "no existing release latest"
+          gh api -X DELETE "repos/$GH_REPO/git/refs/tags/latest" || echo "no existing tag latest"
 
       - name: Publish
-        if: steps.rel.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.rel.outputs.tag }}
-          name: ${{ steps.rel.outputs.name }}
-          prerelease: ${{ steps.rel.outputs.prerelease == 'true' }}
+          tag_name: latest
+          name: latest
+          prerelease: true
           target_commitish: ${{ github.sha }}
           draft: false
           fail_on_unmatched_files: true
-          files: |
-            assets/windows/ose.exe
-            assets/windows/os.exe
-            assets/macos/ose-macos-arm64.zip
-            assets/macos/os-macos-arm64.zip
+          files: ose.exe

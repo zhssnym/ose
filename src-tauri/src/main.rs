@@ -11,74 +11,33 @@ use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, log_line, protocol, rice, run, state, update, vault, vaults, AppState, Root, Source};
+use ose::{args, log_line, platform, protocol, run, shell, state, vault, vaults, AppState, Root, Source};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
 /// maximised rectangle while maximised, so this is what gets written to `state.json`.
 static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 
-/// `--update`: the page still loads (the webview is the process), but the window is never
-/// shown and nothing but the update loop runs.
-static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-const NO_VAULT_SELFTEST: &str = "ose --selftest needs a vault.\n\n\
-Pass --root <folder>, set OSE_ROOT, or start it from inside a vault (a folder with .ose/ or CLAUDE.md).";
-
 fn main() {
     let opts = args::parse(std::env::args().skip(1));
-
-    // Shift held at launch means `--no-rice` (docs/RICE.md step 3). It is read here, first
-    // thing, because the key has to be down *now*: a second later the user has let go and the
-    // gesture is lost.
-    let shift = rice::shift_held();
-
-    // Relaunched by an update swap: the build that spawned us is still exiting, and the
-    // single-instance plugin below would hand this launch to it. Wait it out first.
-    match opts.after_pid {
-        Some(pid) => {
-            update::wait_for_exit(pid, Duration::from_secs(15));
-        }
-        None => update::wait_for_previous_without_pid(),
-    }
 
     if opts.version {
         // The release binary has no console of its own; borrowing the parent's makes the line
         // land in the terminal that asked.
         attach_parent_console();
-        println!("{}", update::version_line());
-        std::process::exit(0);
-    }
-
-    // A running copy with no window, for the swap test (tests/swap.rs) and nothing else.
-    #[cfg(debug_assertions)]
-    if let Some(secs) = opts.hold {
-        std::thread::sleep(Duration::from_secs(secs));
+        println!("{}", platform::version_line());
         std::process::exit(0);
     }
 
     // Steps 1 to 3 of the resolution order need no app: the argument, the executable's
     // ancestors, the environment. The remembered root (step 4) needs the app's config folder
-    // and is read in `setup`; with nothing at all the UI asks (step 5). Only the self-test,
-    // which has no UI to ask with, still refuses to start without a root.
-    let found = vault::resolve_root(opts.root.as_deref());
-    if opts.selftest && found.is_none() {
-        fatal(opts.log.as_deref(), NO_VAULT_SELFTEST);
-    }
-
-    let root = found.map(|(path, source)| Root { path, source });
-    let mut app_state = AppState::new(
+    // and is read in `setup`; with nothing at all the shell asks (step 5).
+    let root = vault::resolve_root(opts.root.as_deref()).map(|(path, source)| Root { path, source });
+    let app_state = AppState::new(
         root.clone(),
         opts.log.as_deref().and_then(open_log),
         Some(pick_folder),
     );
-    app_state.before_restart = Some(save_for_restart);
-    app_state.set_rice_options(rice::Options {
-        arg: opts.rice.clone(),
-        no_rice: opts.no_rice || shift,
-    });
-    if shift {
-        log_line(&app_state, "rice: Shift held at launch, loading the fallback page");
-    }
+    app_state.set_shell_options(shell::Options { dir: opts.shell.clone() });
     match &root {
         Some(r) => log_line(
             &app_state,
@@ -87,37 +46,24 @@ fn main() {
         None => log_line(&app_state, "ose starting, no vault yet"),
     }
 
-    let selftest = opts.selftest;
-    if opts.update {
-        HEADLESS.store(true, std::sync::atomic::Ordering::Relaxed);
-        log_line(&app_state, "ose --update: headless");
-    }
-    let headless = opts.update;
-
     // One window per vault (S14): when another instance already holds the lock, the plugin
     // below hands it this process's argv and ends the process *inside* `builder.build()`,
     // before a line of ours could run. That is invisible on purpose while a window comes
     // forward — and a trap when it does not, because the copy holding the lock can be a ghost:
-    // a force-killed app whose process is still there, or an update leftover with no window of
-    // its own. "The app does not start and the log says nothing" cost QA-K forty minutes. So
-    // the lock is probed first and the handover is said out loud, in this process's own log
-    // and on its stderr. If the other copy happens to exit between the probe and the plugin's
-    // own check, this launch simply carries on and the log carries on under the line.
-    if !selftest && !headless && another_instance_holds_the_lock(&app_identifier()) {
+    // a force-killed app whose process is still there. "The app does not start and the log
+    // says nothing" cost QA-K forty minutes. So the lock is probed first and the handover is
+    // said out loud, in this process's own log and on its stderr. If the other copy happens to
+    // exit between the probe and the plugin's own check, this launch simply carries on and the
+    // log carries on under the line.
+    if another_instance_holds_the_lock(&app_identifier()) {
         log_line(&app_state, HANDOVER);
     }
 
-    let mut builder = tauri::Builder::default().manage(app_state);
-    // First plugin, as the plugin's own documentation requires: a second launch hands its
-    // argv over and exits before anything else in this process runs (S14). Not for the
-    // self-test: it must run beside a person's open window, and it must never redirect that
-    // window to the fake vault, which is what a handover would do. Nor for the headless
-    // update: `os --update` from a script must swap the file even while a window is open
-    // (renaming a running image is allowed; the window keeps its old image until it restarts).
-    if !selftest && !headless {
-        builder = builder.plugin(tauri_plugin_single_instance::init(on_second_instance));
-    }
-    let app = builder
+    let app = tauri::Builder::default()
+        .manage(app_state)
+        // First plugin, as the plugin's own documentation requires: a second launch hands its
+        // argv over and exits before anything else in this process runs (S14).
+        .plugin(tauri_plugin_single_instance::init(on_second_instance))
         // The native folder picker behind `pickVault` (`pick_folder` below); used from Rust
         // only, so no capability entry is needed: permissions gate the webview's own invoke,
         // not host code.
@@ -133,27 +79,28 @@ fn main() {
         // CORS open, never cached: `http://ose.localhost/kernel.js` on Windows and
         // `ose://localhost/kernel.js` on macOS (docs/KERNEL.md "Origins").
         .register_uri_scheme_protocol("ose", |ctx, request| {
-            rice::serve_kernel(ctx.app_handle(), &request)
+            shell::serve_kernel(ctx.app_handle(), &request)
         })
-        // The rice: `<vault>/.ose/app`, or `--rice <dir>`. Files only; `index.html` gets the
-        // import map and the two stylesheet links on the way out.
+        // The app itself: `/plugins/...` from `<vault>/.ose/plugins` on disk, everything else
+        // from the shell inside the executable (or `--shell <dir>`). Files only; `index.html`
+        // gets the import map and the two stylesheet links on the way out.
         .register_uri_scheme_protocol("app", |ctx, request| {
-            let st = ctx.app_handle().state::<AppState>();
-            rice::serve_rice(st.inner(), &request)
+            let app = ctx.app_handle();
+            let st = app.state::<AppState>();
+            shell::serve_app(st.inner(), &request, |name| {
+                app.asset_resolver().get(name.to_string()).map(|a| (a.bytes, a.mime_type))
+            })
         })
         // The window starts invisible; the first finished page load is the earliest moment
         // showing it cannot flash an empty frame.
         .on_page_load(|webview, payload| {
-            if webview.label() == "main"
-                && matches!(payload.event(), PageLoadEvent::Finished)
-                && !HEADLESS.load(std::sync::atomic::Ordering::Relaxed)
-            {
+            if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Finished) {
                 let window = webview.window();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
         })
-        .setup(move |app| setup(app, selftest, headless))
+        .setup(setup)
         // The one menu item with an action of ours: Quit takes the close path, so the editor's
         // last save is awaited exactly as it is when the window's close button is pressed.
         .on_menu_event(|app, event| {
@@ -174,14 +121,13 @@ fn main() {
 /// path that waits for the editor: CloseRequested -> the adapter's `closing` notice -> destroy.
 /// Once the window is gone the same event means "nothing left to save", and the app exits.
 ///
-/// A code (`app.exit(n)`, the update's restart) is honoured as asked.
+/// A code (`app.exit(n)`) is honoured as asked.
 ///
 /// macOS: the system's own Quit (the Apple menu, the Dock, `terminate:`) reaches tao as
 /// `applicationWillTerminate`, which is already past the point of no return and arrives here as
 /// `RunEvent::Exit`, not `ExitRequested`. The app menu's Quit item must therefore be a custom
-/// item that runs the `quit` command, never `PredefinedMenuItem::quit()` — see the message to
-/// P3 and docs/TAURI.md. `Exit` still writes the geometry, so at worst a forced quit loses the
-/// unsaved buffer, never the window position.
+/// item that runs the `quit` command, never `PredefinedMenuItem::quit()`. `Exit` still writes
+/// the geometry, so at worst a forced quit loses the unsaved buffer, never the window position.
 fn quit_through_the_save_path(app: &tauri::AppHandle) {
     let st = app.state::<AppState>();
     match app.get_webview_window("main") {
@@ -203,7 +149,7 @@ fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
             quit_through_the_save_path(app);
         }
         tauri::RunEvent::Exit => {
-            save_for_restart(app);
+            save_on_exit(app);
             run::kill_all(app.state::<AppState>().inner());
         }
         _ => {}
@@ -372,15 +318,14 @@ fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
                 if let Err(e) = vaults::record(app, &dir) {
                     log_line(st.inner(), &format!("recent vaults: {e}"));
                 }
-                // Whatever the previous vault's modules were running belongs to a world that
+                // Whatever the previous vault's plugins were running belongs to a world that
                 // is gone.
                 run::kill_all(st.inner());
-                // The page reloads itself into the new root; the UI has no other way to swap
-                // every module's idea of where it is. The rice of the *new* vault is a
-                // different folder, so the host re-runs the load decision itself.
+                // The page goes back to the shell's index: the plugins of the *new* vault are
+                // other files, and nothing in the page could swap them under itself.
                 let _ = app.emit("vault", serde_json::json!({ "changed": true }));
                 if let Some(window) = app.get_webview_window("main") {
-                    rice::load_window(app, &window);
+                    shell::load_window(app, &window);
                 }
             }
             Err(e) => log_line(st.inner(), &format!("second instance: {e}")),
@@ -411,7 +356,7 @@ fn pick_folder(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnO
     });
 }
 
-fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let st = app.state::<AppState>();
 
@@ -422,7 +367,7 @@ fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box
                 log_line(st.inner(), &format!("vault root: {} (from remembered)", path.display()));
                 st.set_root(path, Source::Remembered);
             }
-            None => log_line(st.inner(), "no vault: the UI will ask for a folder"),
+            None => log_line(st.inner(), "no vault: the shell will ask for a folder"),
         }
     }
     // The menu bar (macOS only; see `build_menu`). Built everywhere so a mistake here is a
@@ -447,15 +392,6 @@ fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box
         if let Err(e) = vaults::record(&handle, root) {
             log_line(st.inner(), &format!("recent vaults: {e}"));
         }
-    }
-
-    // This build started, so the one it replaced can go (update.rs `finish_previous`).
-    update::finish_previous_in_background(handle.clone());
-
-    // `--update`: no window, no theme, no bounds; the loop runs on its own thread and exits.
-    if headless {
-        update::run_headless(handle);
-        return Ok(());
     }
 
     let window = app
@@ -505,32 +441,16 @@ fn setup(app: &mut tauri::App, selftest: bool, headless: bool) -> Result<(), Box
         st.watch(&handle, root.clone());
     }
 
-    // What the window shows (docs/RICE.md "How it loads"). The self-test is its own page on
-    // the kernel origin; everything else is the rice-or-fallback decision, which `load_window`
-    // makes and logs. The window itself starts on the frontendDist index, which is the
-    // fallback page, so a failure to navigate still leaves something on screen.
-    if selftest {
-        // The self-test has a page of its own, so `load_window` never runs; the decision it
-        // would have made is logged anyway, because that line is what CI reads to prove
-        // `--no-rice` and a broken cockpit.json take the fallback path.
-        log_line(st.inner(), &format!("rice: {} (the self-test has its own page)", rice::decision_line(st.inner())));
-        let url = rice::selftest_url();
-        match tauri::Url::parse(&url) {
-            Ok(url) => {
-                log_line(st.inner(), &format!("selftest: navigating to {url}"));
-                let _ = window.navigate(url);
-            }
-            Err(e) => log_line(st.inner(), &format!("selftest: bad url: {e}")),
-        }
-    } else {
-        rice::load_window(&handle, &window);
-    }
+    // The window shows the shell, whether or not there is a vault: with none it draws its own
+    // vault chooser. It starts on the blank `frontendDist` index (scripts/embed-shell.mjs), so
+    // a failure to navigate leaves a plain window rather than an error page.
+    shell::load_window(&handle, &window);
 
     // A page that never loads must not leave an invisible process behind.
-    let fallback = window.clone();
+    let anyway = window.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(2));
-        let _ = fallback.show();
+        let _ = anyway.show();
     });
 
     Ok(())
@@ -586,9 +506,9 @@ fn save_geometry(window: &tauri::Window) {
     }
 }
 
-/// The `ose::BeforeRestart` hook: `updateApply` exits from a worker thread and never reaches
-/// `CloseRequested`, so it asks for the same save first.
-fn save_for_restart(app: &tauri::AppHandle) {
+/// `RunEvent::Exit`: a quit that never reached `CloseRequested` (macOS `terminate:`, or
+/// `app.exit`) still has its geometry written.
+fn save_on_exit(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         save_geometry(&w.as_ref().window());
     }
@@ -649,50 +569,6 @@ fn open_log(path: &Path) -> Option<File> {
     }
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
-
-/// The self-test with no vault: say so where the user can see it, then exit 2. The ordinary
-/// start never comes here any more; it asks for a folder instead.
-fn fatal(log: Option<&Path>, message: &str) -> ! {
-    eprintln!("{message}");
-    if let Some(path) = log {
-        if let Some(mut file) = open_log(path) {
-            use std::io::Write as _;
-            let _ = writeln!(file, "{message}");
-        }
-    }
-    message_box("Ose", message);
-    std::process::exit(2)
-}
-
-#[cfg(windows)]
-fn message_box(title: &str, text: &str) {
-    use std::ffi::{c_void, OsStr};
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn MessageBoxW(hwnd: *mut c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
-    }
-
-    fn wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
-    }
-
-    let (body, caption) = (wide(text), wide(title));
-    const MB_ICONERROR: u32 = 0x0000_0010;
-    // Safe: both buffers are NUL-terminated and outlive the call.
-    unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            body.as_ptr(),
-            caption.as_ptr(),
-            MB_ICONERROR,
-        );
-    }
-}
-
-#[cfg(not(windows))]
-fn message_box(_title: &str, _text: &str) {}
 
 /// `--version` from a terminal: the release build is a windows-subsystem process with no
 /// console, so it attaches to the parent's; with none (double-clicked) this fails and the

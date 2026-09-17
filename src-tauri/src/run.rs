@@ -1,11 +1,10 @@
 //! `run`: starting a program from the vault, with its output streamed back line by line.
 //!
-//! This is the one hose that reaches outside the editor, so every part of it is narrow on
-//! purpose. There is no shell: `cmd` is a program name looked up on PATH, or a vault-relative
-//! path to a file inside the vault, and `args` is a list that is passed through untouched — so
-//! nothing a person typed into a page can ever be re-parsed as a command line. A program may
-//! only start when its name is in the caller's own allow list (a module's `module.json` `run`)
-//! or in `settings.run.allow`, which is empty until the user puts something in it.
+//! A plugin is the vault owner's own code, so there is no allow list: whatever the page asks
+//! for may start (docs/PLUGINS.md, "What `activate` receives"). What stays narrow is the shape
+//! of the call. There is no shell: `cmd` is a program name looked up on PATH, or a
+//! vault-relative path to a file inside the vault, and `args` is a list that is passed through
+//! untouched, so nothing a person typed into a page can ever be re-parsed as a command line.
 //!
 //! Output is UTF-8 by construction: the child is given `PYTHONUTF8=1`,
 //! `PYTHONIOENCODING=utf-8`, `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` under whatever the caller
@@ -22,7 +21,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tauri::Emitter as _;
 
-use crate::{arg_str, log_line, platform::quiet_command, state, vault, AppState, Ctx};
+use crate::{arg_str, log_line, platform::quiet_command, vault, AppState, Ctx};
 
 /// The default a caller gets when it names no timeout. Long enough for a judge or a formatter,
 /// short enough that a wedged process cannot sit there for the afternoon.
@@ -39,9 +38,6 @@ const UTF8_ENV: &[(&str, &str)] = &[
     ("LC_ALL", "C.UTF-8"),
 ];
 
-/// Extensions that are part of a program's name on Windows and not part of what a caller means
-/// when it allows "python".
-const PROGRAM_EXTS: &[&str] = &["exe", "bat", "cmd", "com"];
 
 // ---- the table of live processes -------------------------------------------
 
@@ -118,42 +114,6 @@ fn done_code(status: Option<std::process::ExitStatus>, killed: bool) -> Option<i
     status.and_then(|s| s.code())
 }
 
-// ---- the allow rule --------------------------------------------------------
-
-/// The name a caller means when it allows a program: the file name, without a directory and
-/// without a Windows program extension. `tools/python.exe` and `python` are the same key;
-/// `python3` is not.
-pub fn program_key(name: &str) -> String {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    let stem = match base.rsplit_once('.') {
-        Some((head, ext)) if !head.is_empty() && PROGRAM_EXTS.contains(&ext.to_ascii_lowercase().as_str()) => head,
-        _ => base,
-    };
-    if cfg!(windows) {
-        stem.to_ascii_lowercase()
-    } else {
-        stem.to_string()
-    }
-}
-
-/// `settings.run.allow` in `.ose/state.json`: the programs the rice itself may start. Default
-/// empty — until the user says otherwise, Ose runs nothing.
-fn settings_allow(st: &AppState) -> Vec<String> {
-    let Some(root) = st.root() else { return Vec::new() };
-    state::get(&root)
-        .get("settings")
-        .and_then(|s| s.get("run"))
-        .and_then(|r| r.get("allow"))
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(Value::as_str).map(program_key).collect())
-        .unwrap_or_default()
-}
-
-fn allowed(st: &AppState, cmd: &str, per_call: &[String]) -> bool {
-    let key = program_key(cmd);
-    per_call.iter().any(|a| program_key(a) == key) || settings_allow(st).contains(&key)
-}
-
 // ---- rpc -------------------------------------------------------------------
 
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
@@ -181,16 +141,9 @@ fn start(ctx: &Ctx, rpc_args: &[Value]) -> Result<Value, String> {
     }
     let program = arg_str(rpc_args, 1)?;
     let argv = string_list(rpc_args.get(2)).ok_or("run: args must be a list of strings")?;
+    // An `allow` field is still accepted and ignored: 0.5.0 callers sent one, and a plugin
+    // that still does is not asking for anything this host refuses.
     let opts = rpc_args.get(3).cloned().unwrap_or(Value::Null);
-
-    let per_call = opts
-        .get("allow")
-        .and_then(Value::as_array)
-        .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>())
-        .unwrap_or_default();
-    if !allowed(ctx.st, &program, &per_call) {
-        return Err(format!("not allowed: {program}"));
-    }
 
     let root = ctx.st.root();
     let exe = resolve_program(root.as_deref(), &program)?;
@@ -383,19 +336,6 @@ fn string_list(v: Option<&Value>) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_program_key_is_the_bare_name() {
-        assert_eq!(program_key("python"), "python");
-        assert_eq!(program_key("tools/judge/python.exe"), "python");
-        assert_eq!(program_key("tools\\python.EXE"), "python");
-        // A version in the name is part of the name.
-        assert_eq!(program_key("python3"), "python3");
-        assert_eq!(program_key("python3.11"), "python3.11");
-        // Not a program extension: nothing is stripped.
-        assert_eq!(program_key("run.sh"), "run.sh");
-        assert_eq!(program_key(".hidden"), ".hidden");
-    }
 
     #[test]
     fn a_path_outside_the_vault_is_refused() {

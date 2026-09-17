@@ -2,9 +2,9 @@
 // Source: the Tauri release binary.
 // Destination: the vault root from OSE_ROOT / ose.config.json / the parent folder (dev/root.mjs).
 //
-// The app is `ose` from 0.4.0 on. A vault that still holds the old `os.exe` keeps it — the
-// update swap renames the file it found and never the app, so an old copy stays valid — but
-// `ship` says it is there, because two executables in one vault is a thing to notice.
+// The app is `ose`. A vault may still hold an `os.exe` from before the rename; nothing here
+// touches it, and the note at the end says it is there, because two executables in one vault
+// is a thing to notice.
 import fs from 'node:fs';
 import path from 'node:path';
 import { repoRoot, vaultRoot, rootSource } from '../dev/root.mjs';
@@ -45,6 +45,6 @@ console.log(`shipped ${dst} (${mb} MB) from ${src} [root from ${rootSource()}]`)
 {
   const old = path.join(root, 'os.exe');
   if (fs.existsSync(old)) {
-    console.log(`note: ${old} is still there (the 0.3.x name). It keeps working and updates itself under its own name; delete it when nothing points at it.`);
+    console.log(`note: ${old} is still there (the name before 0.4.0). It is a build of its own and is not updated by this; delete it when nothing points at it.`);
   }
 }

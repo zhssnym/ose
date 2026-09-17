@@ -1,26 +1,31 @@
 // The kernel build (docs/KERNEL.md). `npm run build:kernel` emits `dist-kernel/`, which the
-// Rust host embeds and serves from the `ose` origin:
+// Rust host embeds:
 //
 //   kernel.js  editor.js  ui.js  md.js      the four bundles the import map names
-//   ui.css     editor.css                   the two stylesheets the rice links
-//   index.html                              the fallback page (no rice in this vault)
-//   selftest.html  selftest.js              the page `ose --selftest` navigates to
+//   ui.css     editor.css                   the two stylesheets the shell links
+//   shell/                                  the interface, copied verbatim from shell/
+//   index.html                              the blank page the window opens on
+//
+// The `ose` origin serves the bundles; the `app` origin serves `shell/` (and the vault's
+// plugins, which are never built and never embedded). The last two come from
+// scripts/embed-shell.mjs, which the closeBundle hook below runs and which also runs by hand.
 //
 // Not an app build: nothing here is hashed, nothing is inlined into HTML, and the four entry
 // file names are part of the contract — the host's import map spells them literally.
 //
 // Who imports whom. `ose:kernel` is the base and bundles everything with state in it: the
-// registries, the bridge, the router, the key engine, the module loader, and the dialogs
+// registries, the bridge, the router, the key engine, the plugin loader, and the dialogs
 // (there must be one overlay stack in a running Ose, not two). `ose:ui` is a facade that names
-// those again from `ose:kernel`; `ose:editor` is K1c's and imports `ose:kernel` and `ose:ui`;
-// `ose:md` is pure parsers and stands alone. So every `ose:*` specifier is **external** in
-// every bundle, and nothing is bundled twice.
+// those again from `ose:kernel`; `ose:editor` imports `ose:kernel` and `ose:ui`; `ose:md` is
+// pure parsers and stands alone. So every `ose:*` specifier is **external** in every bundle,
+// and nothing is bundled twice.
 
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+
+import { embedShell } from './scripts/embed-shell.mjs';
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 
@@ -36,37 +41,24 @@ function stamp() {
   return { version: pkg.version, sha, short: sha.slice(0, 7), date };
 }
 
-// `ose:editor` is K1c's entry. Until it exists the other three still build, so neither package
-// waits on the other; the build says which entries it emitted.
+// Until `ose:editor` exists the other three still build, so neither package waits on the
+// other; the build says which entries it emitted.
 const ENTRIES = {
   kernel: here('src/kernel/kernel.js'),
   ui: here('src/kernel/ui.js'),
   md: here('src/kernel/md.js'),
   'ui.css': here('src/kernel/ui.css'),
-  index: here('src/kernel/fallback.html'),   // emitted as dist-kernel/index.html, see renameFallback
-  selftest: here('selftest.html'),
 };
 if (existsSync(here('src/editor/lib.js'))) ENTRIES.editor = here('src/editor/lib.js');
 
 const s = stamp();
 
-/**
- * An HTML input is emitted under its path relative to the project root, so the fallback page
- * lands at `dist-kernel/src/kernel/fallback.html`. The host asks for
- * `<kernel origin>/index.html` (docs/RICE.md step 3), so it is moved after the write: the
- * bundle's own asset records are read-only here, and a copy of the page at the repo root
- * would be a second file to keep in step. Its links were written one folder deep, so `../../`
- * becomes `./` on the way.
- */
-function renameFallback(outDir) {
+/** The shell into `dist-kernel/shell/`, after the bundles, so one build makes the whole exe. */
+function shellIntoTheBuild(outDir) {
   return {
-    name: 'ose-fallback-at-root',
+    name: 'ose-embed-shell',
     closeBundle() {
-      const from = path.join(outDir, 'src', 'kernel', 'fallback.html');
-      if (!existsSync(from)) return;
-      const html = readFileSync(from, 'utf8').split('../../').join('./');
-      writeFileSync(path.join(outDir, 'index.html'), html, 'utf8');
-      rmSync(path.join(outDir, 'src'), { recursive: true, force: true });
+      embedShell(outDir);
     },
   };
 }
@@ -84,7 +76,7 @@ export default defineConfig({
     __VUE_PROD_DEVTOOLS__: 'false',
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
   },
-  plugins: [renameFallback(here('dist-kernel'))],
+  plugins: [shellIntoTheBuild(here('dist-kernel'))],
   build: {
     outDir: 'dist-kernel',
     emptyOutDir: true,

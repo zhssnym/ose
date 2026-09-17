@@ -1,9 +1,9 @@
-//! The os editor host. One `rpc` command carries the whole bridge surface of CONTRACT.md;
-//! window control is done by the adapter through Tauri's own window API and never reaches here.
+//! The Ose host. One `rpc` command carries the whole bridge surface of CONTRACT.md; window
+//! control is done by the adapter through Tauri's own window API and never reaches here.
 //!
-//! Each module exposes
-//! `handle(ctx, cmd, args) -> Option<Result<Value, String>>`, where `None` means "not mine",
-//! and `rpc` tries vault, state, platform in that order.
+//! Each file below exposes `handle(ctx, cmd, args) -> Option<Result<Value, String>>`, where
+//! `None` means "not mine", and `rpc` tries them in order. A name none of them claims is
+//! answered with `null` rather than an error (`gone`).
 
 use std::fs::File;
 use std::io::Write;
@@ -16,10 +16,9 @@ use serde_json::Value;
 pub mod args;
 pub mod platform;
 pub mod protocol;
-pub mod rice;
 pub mod run;
+pub mod shell;
 pub mod state;
-pub mod update;
 pub mod vault;
 pub mod vaults;
 pub mod versions;
@@ -71,25 +70,19 @@ pub struct Root {
 pub type FolderPicker =
     fn(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnOnce(Option<PathBuf>) + Send>);
 
-/// What the binary does on the ordinary close path (window geometry, theme into the state
-/// file), supplied so `updateApply`, which exits from a worker thread, can do the same before
-/// the process goes away.
-pub type BeforeRestart = fn(app: &tauri::AppHandle);
-
 /// Everything the host owns, managed by Tauri and reachable from any command or thread.
 ///
-/// The root is optional: the app now starts without one and lets the UI ask (CONTRACT.md,
+/// The root is optional: the app starts without one and lets the shell ask (CONTRACT.md,
 /// vault resolution). It is read through `root()` / `require_root()` at call time, never
-/// cached by a module, so `pickVault` changing it is seen by the next command and by the
+/// cached by a caller, so `pickVault` changing it is seen by the next command and by the
 /// `vault` protocol alike.
 pub struct AppState {
     root: RwLock<Option<Root>>,
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
-    pub before_restart: Option<BeforeRestart>,
-    /// `--rice <dir>` and `--no-rice`, settled once at startup (rice.rs).
-    rice: rice::Slot,
+    /// `--shell <dir>`, settled once at startup (shell.rs).
+    shell: shell::Slot,
     /// Every program `run` started, so they can all be killed when the app goes (run.rs).
     pub processes: run::Processes,
 }
@@ -101,19 +94,18 @@ impl AppState {
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
             picker,
-            before_restart: None,
-            rice: rice::slot(rice::Options::default()),
+            shell: shell::slot(shell::Options::default()),
             processes: run::Processes::default(),
         }
     }
 
-    /// `--rice` and `--no-rice`, as the binary parsed them.
-    pub fn rice_options(&self) -> rice::Options {
-        self.rice.read().unwrap_or_else(|p| p.into_inner()).clone()
+    /// `--shell`, as the binary parsed it.
+    pub fn shell_options(&self) -> shell::Options {
+        self.shell.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
-    pub fn set_rice_options(&self, options: rice::Options) {
-        *self.rice.write().unwrap_or_else(|p| p.into_inner()) = options;
+    pub fn set_shell_options(&self, options: shell::Options) {
+        *self.shell.write().unwrap_or_else(|p| p.into_inner()) = options;
     }
 
     /// The open root's path, if any.
@@ -262,12 +254,6 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
 
-        // The update commands talk to the network and the disk for seconds at a time; each
-        // runs on a blocking worker and is awaited here, like the picker.
-        if let Some(r) = update::handle(&app, &cmd).await {
-            return log_err(st, &cmd, r);
-        }
-
         // Before vault.rs: the recent list owns `recentVaults`, `openVault` and the
         // one-argument `forgetVault`; the no-argument one falls through to vault.rs.
         if let Some(r) = vaults::handle(&ctx, &cmd, &args) {
@@ -296,7 +282,7 @@ pub mod commands {
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
-        if let Some(r) = rice::handle(&ctx, &cmd, &args) {
+        if let Some(r) = shell::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = run::handle(&ctx, &cmd, &args) {
@@ -308,7 +294,23 @@ pub mod commands {
         if let Some(r) = platform::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
-        Err(format!("unknown command: {cmd}"))
+        Ok(gone(st, &cmd))
+    }
+
+    /// A command this host does not implement. 1.0.0 took several away at once (`riceInfo`,
+    /// `riceReady`, `riceFailed`, every `update*`), and the page calling one is a page that has
+    /// not caught up yet, not a page that is broken: it gets `null`, which every caller already
+    /// handles, instead of an error that would surface as a toast or a dead view. The name is
+    /// logged the first time it is asked for, so a call that should have gone is still visible
+    /// once in the log and never a thousand times.
+    fn gone(st: &AppState, cmd: &str) -> Value {
+        static SAID: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
+        let mut guard = SAID.lock().unwrap_or_else(|p| p.into_inner());
+        let seen = guard.get_or_insert_with(Default::default);
+        if seen.insert(cmd.to_string()) {
+            log_line(st, &format!("rpc {cmd}: this host has no such command any more, answering null"));
+        }
+        Value::Null
     }
 
     fn log_err(st: &AppState, cmd: &str, r: Result<Value, String>) -> Result<Value, String> {
