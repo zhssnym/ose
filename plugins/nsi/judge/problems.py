@@ -12,13 +12,14 @@ with.
       1-max-dico/
         meta.json enonce.md solution.py tests.py correction.py
       2-…/
-      .nsi/            state.json, log.jsonl, clocks.json
+      .nsi/            log.jsonl, clocks.json
 
 `meta.json` carries a title, `tags` and, for a drill with a signature, a `code`
-block. Four keys, and nothing else is read: `kind`, `source`, `difficulty` and
-`concepts` were words for things that never varied or that `tags` already says,
-and a file that still carries them is read exactly as a file that does not.
-They are left on disk untouched; the judge simply has no use for them.
+block; the plugin reads an optional `date` beside them. Nothing else is read:
+`kind`, `source`, `difficulty` and `concepts` were words for things that never
+varied or that `tags` already says, and a file that still carries them is read
+exactly as a file that does not. They are left on disk untouched; the judge
+simply has no use for them.
 
 The app owns nothing inside a drill folder except the user's answer file
 (solution.py). Everything else is read-only content.
@@ -77,16 +78,8 @@ class Problem:
     # ----------------------------------------------------------------- paths
 
     @property
-    def answer_filename(self) -> str:
-        return ANSWER_FILE
-
-    @property
     def answer_path(self) -> Path:
         return self.path / ANSWER_FILE
-
-    @property
-    def enonce_path(self) -> Path:
-        return self.path / ENONCE_FILE
 
     @property
     def tests_path(self) -> Path:
@@ -170,9 +163,6 @@ class Problem:
             return None
         return self._read(path.name)
 
-    def tests_source(self):
-        return self._read(TESTS_FILE)
-
     def read_answer(self) -> str:
         text = self._read(ANSWER_FILE)
         if text is not None:
@@ -193,10 +183,6 @@ class Problem:
         self.answer_path.write_text(content, encoding="utf-8", newline="")
 
     # ------------------------------------------------------------------ views
-
-    def public_meta(self) -> dict:
-        """meta.json as it is on disk. Nothing in it spoils an answer."""
-        return json.loads(json.dumps(self.meta, ensure_ascii=False))
 
     def summary(self) -> dict:
         return {
@@ -305,11 +291,6 @@ def read_tests(path: Path):
     if isinstance(value, ast.Constant) and value.value is None:
         return (False, None)
     return (True, None)
-
-
-def read_tests_flag(path: Path) -> bool:
-    """True when `path` assigns a non-empty `TESTS`."""
-    return read_tests(path)[0]
 
 
 def load_problem(meta_path: Path):

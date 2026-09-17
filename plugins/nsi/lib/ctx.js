@@ -13,7 +13,7 @@ export const ctx = {
   dataRoot: '',       // vault-relative drills folder, from ose.paths
 }
 
-/** Where `state.json`, `log.jsonl` and the plugin's `clocks.json` live. */
+/** Where `log.jsonl` and the plugin's `clocks.json` live. */
 export const DATA_DIRNAME = '.nsi'
 
 /** Fill the context from `ose`. Called once, from `activate`. */
@@ -105,7 +105,7 @@ async function ask() {
  * A path in the platform's own spelling: backslashes on Windows, forward slashes elsewhere.
  * A path copied out of Ose is pasted into a terminal or a file dialog.
  */
-export function native(path) {
+function native(path) {
   const text = String(path || '')
   return ctx.ose && ctx.ose.platform === 'windows'
     ? text.replace(/\//g, '\\')
@@ -120,11 +120,6 @@ export function absDataRoot() {
 /** A vault-relative path under the drills folder, for `ose.files`. */
 export function vaultPath(relative) {
   return ctx.dataRoot + '/' + String(relative || '').replace(/^\/+/, '')
-}
-
-/** The absolute spelling of a vault path, for the one line at the foot of a page. */
-export function absolute(path) {
-  return native(joinAbs(path))
 }
 
 function joinAbs(path) {

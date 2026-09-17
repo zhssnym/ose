@@ -31,12 +31,13 @@
   border: 1px solid var(--border); border-radius: var(--radius);
   height: auto;
 }
-/* Thirty lines of floor, whatever the file holds: room to think on an empty drill, and the
-   editor still grows past it with the text. The kernel's `grow` floor is five lines on
-   `.cm-content`; this is the same property one class deeper, so the kernel is not touched and
-   every other `codeEditor` keeps the five. */
+/* The editor is where the work happens, so it takes the height the window has left: sixty
+   parts of it, with thirty lines as the floor on a short window, and it still grows past both
+   with the text. The kernel's `grow` floor is five lines on `.cm-content`; this is the same
+   property one class deeper, so the kernel is not touched and every other `codeEditor` keeps
+   the five. */
 .nsi-answer-host .ed-code-grow .cm-editor .cm-content {
-  min-height: calc(var(--fs-ui) * 1.7 * 30);
+  min-height: max(calc(var(--fs-ui) * 1.7 * 30), 60vh);
 }
 
 /* ---------------------------------------------------------------- the verdict */

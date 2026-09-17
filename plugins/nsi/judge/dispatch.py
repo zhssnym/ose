@@ -1,4 +1,4 @@
-"""The two ways a submission is graded, and the state it moves.
+"""The two ways a submission is graded, and the line it writes.
 
 There is one kind of problem, so there is no registry any more: `has_tests`
 picks the path. With cases, `code_checker` runs them and the verdict is the
@@ -6,13 +6,14 @@ judge's. Without, the correction is handed over and the user self-grades — and
 `selfgrade` is valid for every judged problem, tests or not, because a suite
 that passes is not the same thing as an answer you are happy with.
 
-Every drill is the app's own: there is nothing here that belongs to a course,
-so there is nothing to refuse on those grounds either.
+Nothing is scheduled and nothing is stored: the judge judges, appends one line
+to log.jsonl and stops. What comes next is decided by an agent reading that
+file.
 """
 
 from __future__ import annotations
 
-from . import code_checker, scheduler
+from . import code_checker
 
 VERDICTS = ("pass", "partial", "fail")
 
@@ -44,7 +45,7 @@ def _duration(payload) -> int:
 
 
 def _log_entry(problem, verdict, attempt, result, duration_s,
-               correction_viewed=False, extra=None) -> dict:
+               correction_viewed=False, code=None) -> dict:
     entry = {
         "problem": problem.id,
         "verdict": verdict,
@@ -57,65 +58,59 @@ def _log_entry(problem, verdict, attempt, result, duration_s,
         "correction_viewed": bool(correction_viewed),
         "tags": problem.tags,
     }
-    if extra:
-        entry.update(extra)
+    if code is not None:
+        # The exact source that was judged, so an agent reading the log sees
+        # how an attempt failed and not only that it failed.
+        entry["code"] = code
     return entry
 
 
-def _record(store, problem, verdict, result, payload, today=None) -> dict:
-    """Advance state and append the log line as one step.
+def _record(store, problem, verdict, result, payload, correction_viewed=None) -> dict:
+    """Append the one line this submission is worth.
 
-    The duration is parsed *first*: a malformed `duration_s` used to blow up
-    between the state write and the log append, leaving a problem marked solved
-    with no line in log.jsonl to show for it.
+    The attempt number is the count of graded lines this drill already has,
+    plus one: the log is the record, so it is also where the count comes from.
+    The duration is parsed first, because a malformed `duration_s` used to blow
+    up after the state was written and leave a solve with no line to show for
+    it.
     """
     duration_s = _duration(payload)
-    new_state = store.update_problem_state(
-        problem.id, lambda cur: scheduler.apply_verdict(cur, verdict, today)
-    )
+    seen = store.correction_seen(problem.id) if correction_viewed is None \
+        else bool(correction_viewed)
     entry = store.append_log(
-        _log_entry(problem, verdict, new_state["attempts"], result, duration_s,
-                   correction_viewed=new_state.get("correction_viewed"))
+        _log_entry(problem, verdict, store.attempts(problem.id) + 1, result,
+                   duration_s, correction_viewed=seen,
+                   code=problem.read_answer())
     )
-    result["state"] = state_view(new_state)
     result["logged"] = entry
     return result
-
-
-def state_view(entry: dict, today=None) -> dict:
-    view = dict(entry)
-    view["status"] = scheduler.display_status(entry, today)
-    return view
 
 
 # -------------------------------------------------------------------- actions
 
 
-def submit(store, problem, payload: dict, today=None) -> dict:
+def submit(store, problem, payload: dict) -> dict:
     if not problem.has_tests:
         if not problem.has_correction:
             raise NotJudgeable(NOT_JUDGEABLE)
-        return _hand_over_correction(store, problem, payload or {}, today)
+        return _hand_over_correction(problem, payload or {})
 
     result = code_checker.submit(problem, payload or {})
     verdict = result.get("verdict")
     if result.get("graded") and verdict in VERDICTS:
-        _record(store, problem, verdict, result, payload, today)
+        _record(store, problem, verdict, result, payload)
         if verdict == "pass" and "correction" not in result:
             result["correction"] = problem.correction()
             result["correction_format"] = problem.correction_format
-    else:
-        result.setdefault("state", state_view(store.problem_state(problem.id), today))
     return result
 
 
-def _hand_over_correction(store, problem, payload: dict, today=None) -> dict:
-    """No cases to run: save the answer, show the correction, await the grade.
+def _hand_over_correction(problem, payload: dict) -> dict:
+    """No cases to run: read the answer back, show the correction, await the grade.
 
-    Nothing is recorded here — no verdict, no log line. The one thing the state
-    remembers is that the correction was seen, so the self-graded `pass` that
-    follows collects the 7-day interval and not the 14 days a clean first solve
-    earns.
+    Nothing is recorded here — no verdict, no log line. The line comes with the
+    grade, and it says the correction was seen, because grading yourself
+    against it is the only thing it can mean.
     """
     content = payload.get("content")
     if content is not None and not isinstance(content, str):
@@ -128,47 +123,43 @@ def _hand_over_correction(store, problem, payload: dict, today=None) -> dict:
     if content is not None:
         problem.write_answer(content)
 
-    correction = problem.correction()
-    new_state = store.update_problem_state(problem.id, scheduler.mark_correction_viewed)
     return {
         "verdict": None,
         "graded": False,
         "awaiting_selfgrade": True,
-        "correction": correction or "",
+        "correction": problem.correction() or "",
         "correction_format": problem.correction_format,
         "answer": problem.read_answer(),
-        "state": state_view(new_state, today),
     }
 
 
-def selfgrade(store, problem, payload: dict, today=None) -> dict:
+def selfgrade(store, problem, payload: dict) -> dict:
     """Record a grade the user gave themselves. Valid for every judged problem."""
     verdict = (payload or {}).get("verdict")
     if verdict not in VERDICTS:
         raise ValueError("`verdict` must be pass, partial or fail")
     if not problem.judged:
         # There is nothing to have read: a self-grade here is a number about
-        # nothing, and the spaced review would run off it.
+        # nothing.
         raise NotJudgeable(NOT_JUDGEABLE)
     result = {"verdict": verdict, "graded": True}
-    _record(store, problem, verdict, result, payload, today)
+    _record(store, problem, verdict, result, payload, correction_viewed=True)
     return result
 
 
-def reveal(store, problem, today=None) -> dict:
-    """Show the correction. On an unsolved problem this counts as a failure.
+def reveal(store, problem, payload=None) -> dict:
+    """Show the correction. On a drill that has never passed this is a failure.
 
-    A reveal is not a submission, so it adds no log line: only the state moves
-    (status failed, due tomorrow, interval 1, correction_viewed true).
+    That failure is a log line, because the log is the only record: a rule the
+    page prints and the file does not carry would be a rule that does nothing.
+    The line says `correction_viewed` and has no `code`: nothing was judged.
     """
     if not problem.has_correction:
         raise NotJudgeable("there is no correction in this folder yet")
-    new_state = store.update_problem_state(
-        problem.id, lambda cur: scheduler.apply_reveal(cur, today)
-    )
-    correction = problem.correction()
-    return {
-        "correction": correction or "",
-        "correction_format": problem.correction_format,
-        "state": state_view(new_state, today),
-    }
+    result = {"correction": problem.correction() or "",
+              "correction_format": problem.correction_format}
+    if not store.solved(problem.id):
+        entry = _log_entry(problem, "fail", store.attempts(problem.id) + 1,
+                           {}, _duration(payload), correction_viewed=True)
+        result["logged"] = store.append_log(entry)
+    return result

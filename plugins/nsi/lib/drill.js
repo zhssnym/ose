@@ -1,19 +1,22 @@
 /* One drill, one column: the statement, then `solution.py` in the editor, then the verdict.
    Every drill is code, so there is one answer widget and no kind to branch on. A mono clock
    sits at the right of the title line and counts this visit. The route `nsi/<folder>` mounts
-   this. */
+   this.
+
+   Nothing on the page is chrome: no file path, no breadcrumb, no second band. The editor takes
+   the height that is left. */
 
 import { codeEditor, render } from 'ose:editor'
-import { toast } from 'ose:ui'
 import {
-  h, clear, duration, plural, tones, chips, createClock, mountClock,
-  titleLine, metaLine, paneLabel, controls, verdict, pathLine,
+  h, clear, duration, plural, createClock, mountClock,
+  titleLine, metaLine, paneLabel, controls, verdict, errorBlock,
 } from '../../_lib/drills.js'
 
-import { ctx, python, dataRoot, vaultPath, absolute } from './ctx.js'
-import { cli, cache, cachedRow, JudgeError } from './cli.js'
+import { ctx, python, dataRoot, vaultPath } from './ctx.js'
+import { cli, JudgeError } from './cli.js'
+import { cachedRow, stateOf } from './data.js'
 import { readClock, writeClock } from './clocks.js'
-import { refreshIndex, judgeError, isDone } from './index-view.js'
+import { refreshIndex } from './index-view.js'
 
 /** The drill page that has the focus, for the commands. */
 export let active = null
@@ -49,7 +52,9 @@ class DrillPage {
     this.awaitingGrade = false
     const row = cachedRow(id)
     this.cachedTitle = (row && row.title) || id
-    this.best = row ? row.meilleure_s : null
+    // What the log says, until `load` reads it for itself.
+    this.done = !!(row && row.done)
+    this.best = row ? row.best : null
     // The column is put into `el` by `load`, once the drills folder has answered: until then
     // `el` is the kernel's to draw the missing box into.
     this.root = h('div', { class: 'page-col nsi-drill' })
@@ -112,12 +117,10 @@ class DrillPage {
     return !!d && d.judged !== false
   }
 
-  get solved() { return !!this.detail && isDone(this.detail) }
-
   /**
-   * The clock node. A solved drill shows the best time it has been done in, static, and its
-   * clock still runs from zero underneath: a review is timed on its own, and the pass it earns
-   * logs the review's duration, not the first solve's over again (ADV-N).
+   * The clock node. A done drill shows the best time it has been done in, static, and its
+   * clock still runs from zero underneath: a second go is timed on its own, and the pass it
+   * earns logs that go's duration, not the first solve's over again (ADV-N).
    */
   paintClock() {
     if (!this.clockEl) return
@@ -126,10 +129,9 @@ class DrillPage {
       this.clockEl.textContent = 'best ' + duration(this.best)
       return
     }
-    // mountClock paints the running number; this only owns the two other states. A solved
-    // drill with no time in the log has neither: the node stays empty and `.drill-clock:empty`
-    // takes it off the line. It used to keep a `nsi-clock-running` class there, on a node
-    // `display: none` had already hidden — a class that said "running" on nothing (Q1).
+    // mountClock paints the running number; this only owns the two other states. A done drill
+    // with no time in the log has neither: the node stays empty and `.drill-clock:empty` takes
+    // it off the line.
   }
 
   /**
@@ -140,16 +142,15 @@ class DrillPage {
    */
   startClock() {
     if (!this.judgeable) return
-    this.showBest = this.solved
-    // An unsolved drill carries its earlier visits; a review starts at zero.
-    const banked = this.solved ? 0 : this.bankedAtOpen
-    this.clock.setBanked(banked)
+    this.showBest = this.done
+    // A drill you have not done carries its earlier visits; a second go starts at zero.
+    this.clock.setBanked(this.done ? 0 : this.bankedAtOpen)
     if (!this.showBest) this.unbindClock = mountClock(this.clock, this.clockEl)
     this.clock.start()
     this.paintClock()
   }
 
-  /** The running number takes the node over: a review that failed, a drill being worked on. */
+  /** The running number takes the node over: a second go that failed, a drill being worked on. */
   showRunningClock() {
     if (this.showBest) {
       this.showBest = false
@@ -159,8 +160,9 @@ class DrillPage {
   }
 
   bank(seconds) {
-    // A solved drill's time is in the log: `clocks.json` carries only what is still running up.
-    this.pendingBank = writeClock(this.id, this.solved ? null : seconds)
+    // A drill that is done has its time in the log: `clocks.json` carries only what is still
+    // running up.
+    this.pendingBank = writeClock(this.id, this.done ? null : seconds)
       .catch(err => console.error('[nsi] clocks.json', err))
     return this.pendingBank
   }
@@ -175,10 +177,12 @@ class DrillPage {
     clear(this.el).appendChild(this.root)
     clear(this.root).appendChild(h('p', { class: 'empty', text: 'loading…' }))
     try {
-      const body = await cli.detail(this.id)
+      // The judge for what the folder holds, the log for where the user stands with it.
+      const [body, state] = await Promise.all([cli.detail(this.id), stateOf(this.id)])
       if (this.gone) return
       this.detail = body
-      this.best = body.meilleure_s
+      this.done = state.done
+      this.best = state.best
       this.bankedAtOpen = await readClock(this.id)
       if (this.gone) return
       this.draw()
@@ -199,8 +203,7 @@ class DrillPage {
     const head = titleLine(d.title)
     this.clockEl = head.clockEl
     root.appendChild(head.el)
-    this.metaEl = this.meta()
-    root.appendChild(this.metaEl)
+    root.appendChild(this.meta())
 
     root.appendChild(paneLabel('statement'))
     root.appendChild(this.statement())
@@ -218,36 +221,18 @@ class DrillPage {
     this.correctionBox = h('div', { class: 'nsi-correction' })
     if (this.hasCorrection) root.appendChild(this.correctionBox)
 
-    root.appendChild(pathLine(absolute(vaultPath(d.folder)), {
-      onOpen: () => this.openFolder(),
-    }))
-
     this.mountAnswer()
     this.startClock()
-    this.warmTones()
   }
 
   /**
-   * The chips and the one fact under the title. The tones come from the **whole listing's** tag
-   * set and not from this drill's two names: `tones()` assigns a colour by sorted position
-   * inside the set it is given, so a map built from two names made `listes-chainees` blue on the
-   * index and terracotta on its own page (Q2). The listing is the cache the index fills; the
-   * drill's own tags are folded in so a tag the cache has not seen still gets a colour.
+   * The line under the title: the drill's tags, then the one fact. Plain words, no chips: the
+   * index carries the category in its own column now, and a colour per tag was a second
+   * vocabulary to learn for a page that shows one drill.
    */
   meta() {
     const tags = Array.isArray(this.detail.tags) ? this.detail.tags : []
-    const toneMap = tones([...cache.drills.flatMap(d => d.tags || []), ...tags])
-    return metaLine(chips(tags, { tones: toneMap }), [this.fact()])
-  }
-
-  /** The page was opened cold (a reload on the drill route): no listing, so no tone map. */
-  async warmTones() {
-    if (cache.drills.length) return
-    try { await cli.list() } catch { return }
-    if (this.gone || !this.metaEl || !this.metaEl.parentNode) return
-    const next = this.meta()
-    this.metaEl.replaceWith(next)
-    this.metaEl = next
+    return metaLine(null, [...tags, this.fact()])
   }
 
   /** The one fact beside the tags: what the drill can be judged with. */
@@ -271,7 +256,11 @@ class DrillPage {
     }
     const box = h('div', { class: 'nsi-statement' })
     try {
-      box.appendChild(render(text, { basePath: vaultPath(d.folder) }))
+      // Every drill here is Python, so a fenced block that names no language is Python and is
+      // coloured as such.
+      box.appendChild(render(text, {
+        basePath: vaultPath(d.folder), codeLanguage: 'python',
+      }))
     } catch {
       box.appendChild(h('pre', { class: 'nsi-pre' }, text))
     }
@@ -317,8 +306,10 @@ class DrillPage {
         onClick: () => this.toggleCorrection(),
       })
     }
-    const hint = this.hasCorrection && !this.showingCorrection && !this.solved
-      ? 'on an unsolved drill this counts as a failure' : ''
+    // The honest rule, in three words: looking at the answer of a drill you have never passed
+    // is a failure, and the log says so.
+    const hint = this.hasCorrection && !this.showingCorrection && !this.done
+      ? 'counts as a failure' : ''
     const bar = controls(buttons, hint)
     let at = 0
     this.submitButton = this.judgeable ? bar.buttons[at++] : null
@@ -339,7 +330,7 @@ class DrillPage {
   /**
    * Save, then `python solution.py` in the drill's own folder, the output streamed under the
    * controls as it comes, stderr in the error ink, and a `stop` while it runs. Nothing is
-   * judged and nothing is recorded.
+   * judged and nothing is logged: a run is not an attempt.
    */
   async run() {
     if (this.runId) { this.stopRun(); return }
@@ -399,6 +390,7 @@ class DrillPage {
       path: vaultPath(d.answer_path),
       language: 'python',
       // The editor is as tall as the file and never scrolls inside itself; the column scrolls.
+      // Its floor is in style.css: the height the window has left.
       grow: true,
       onSave: () => this.saidSaved(),
     })
@@ -445,8 +437,8 @@ class DrillPage {
       if (this.gone) return
       this.applyState(body)
       this.showResult(body)
-      // The editor keeps its thirty-line floor, so the verdict can land below the fold on a
-      // one-line answer. Submit brings it to the eye rather than leaving it there (ADV-N).
+      // The editor keeps its floor, so the verdict can land below the fold on a one-line
+      // answer. Submit brings it to the eye rather than leaving it there (ADV-N).
       this.result.scrollIntoView({ block: 'center' })
     } catch (err) {
       if (this.gone) return
@@ -466,18 +458,19 @@ class DrillPage {
     }
   }
 
-  /** Take the new state from a judge answer into the page, the clock included. */
+  /**
+   * Take the line the judge wrote into the page, the clock included. The log line is the whole
+   * state: a pass in it is what "done" means, here and on the index.
+   */
   applyState(body) {
-    if (body.status) this.detail.status = body.status
-    if (body.state) {
-      this.detail.attempts = body.state.attempts
-      this.detail.due = body.state.due
-      if (body.state.status) this.detail.status = body.state.status
-    }
-    const seconds = body.logged && Number(body.logged.duration_s)
-    if (this.solved) {
+    const logged = body && body.logged
+    const verdict = logged && logged.verdict
+    if (!verdict) return          // a reveal on a drill that has already passed writes nothing
+    if (verdict === 'pass') {
+      this.done = true
       // A pass ends the visit: the clock stops where it is, and the node becomes the record.
       this.clock.stop()
+      const seconds = Number(logged.duration_s)
       if (Number.isFinite(seconds) && seconds > 0) {
         this.best = this.best ? Math.min(this.best, seconds) : seconds
       }
@@ -489,7 +482,7 @@ class DrillPage {
       this.showRunningClock()
       if (!this.clock.running) this.clock.start()
     }
-    // Solving the drill retires the hint under the band, so the band is redrawn with it.
+    // Passing the drill retires the hint under the band, so the band is redrawn with it.
     this.paintActions()
     refreshIndex()
   }
@@ -556,7 +549,7 @@ class DrillPage {
   async toggleCorrection() {
     if (this.showingCorrection) { this.closeCorrection(); return }
     try {
-      const body = await cli.reveal(this.id)
+      const body = await cli.reveal(this.id, this.clock.elapsedS)
       if (this.gone) return
       this.applyState(body)
       this.openCorrection(body.correction, body.correction_format)
@@ -570,7 +563,6 @@ class DrillPage {
    * The correction with its syntax colours. A Python correction goes into a read-only code
    * editor — the same highlighter, the same `--code-*` tokens as the editor two inches above
    * it — and a markdown one through the kernel's renderer, which colours its fenced blocks.
-   * It used to be flat mono text in a class nothing defined (ADV-N).
    */
   openCorrection(text, format, { scroll = true } = {}) {
     this.showingCorrection = true
@@ -589,7 +581,9 @@ class DrillPage {
     } else {
       try {
         box.appendChild(h('div', { class: 'nsi-statement' },
-          render(String(text || ''), { basePath: vaultPath(this.detail.folder) })))
+          render(String(text || ''), {
+            basePath: vaultPath(this.detail.folder), codeLanguage: 'python',
+          })))
       } catch {
         box.appendChild(h('pre', { class: 'nsi-pre' }, String(text || '')))
       }
@@ -610,23 +604,18 @@ class DrillPage {
     this.correctionEditor = null
     if (ed) { try { ed.close({ force: true }) } catch { /* already gone */ } }
   }
-
-  /* ------------------------------------------------------------------ the folder */
-
-  async openFolder() {
-    const target = vaultPath(this.detail.folder)
-    const files = ctx.ose.files
-    try {
-      if (files.reveal) { await files.reveal(target); return }
-      await files.open(target)
-    } catch (err) {
-      try { await files.open(target) }
-      catch { toast(String((err && err.message) || err), 'err') }
-    }
-  }
 }
 
 /* --------------------------------------------------------------------- pieces */
+
+/** The judge will not run: one box, the words of whatever threw, and a way to try again. */
+function judgeError(err, retry) {
+  return errorBlock({
+    head: 'the judge could not run',
+    detail: [err && err.message, err && err.detail].filter(Boolean).join('\n'),
+    onRetry: retry,
+  })
+}
 
 function fileName(path) {
   return String(path || '').split('/').pop()

@@ -48,10 +48,10 @@ function tail(text, n = 400) {
 /**
  * Run one judge command.
  *   judge(['detail', id])                       -> the payload object
- *   judge(['submit', id], { onStatus, input })  -> the payload object
+ *   judge(['submit', id], { onStatus })         -> the payload object
  * Throws JudgeError on a refusal (`ok:false`), a crash, or a timeout.
  */
-export async function judge(args, opts = {}) {
+async function judge(args, opts = {}) {
   const { ose } = ctx
   // The judge is never run without a folder to run it against. A view or a route has resolved
   // one already, with the element the kernel draws its Choose box into; a command pressed
@@ -96,8 +96,6 @@ export async function judge(args, opts = {}) {
       if (opts.onLine) opts.onLine(line, stream)
     },
   }
-  if (opts.input != null) runOpts.input = opts.input
-
   let result
   try {
     result = await ose.run(await python(), argv, runOpts)
@@ -135,29 +133,16 @@ function after(ms) {
   return new Promise(resolve => setTimeout(() => resolve(null), ms))
 }
 
-/* The last listing, so quick open and the row menu can answer without spawning a process.
-   Filled by every `list` call, never by `activate`. */
-export const cache = { drills: [] }
-
-/** The rows of the last listing, by id. */
-export function cachedRow(id) {
-  return cache.drills.find(d => d.id === id) || null
-}
+/* The four verbs the judge has. It judges one drill, hands over a correction and appends one
+   line to the log; the listing is read off the folder and the log by `data.js`. */
+const seconds = (value) => Math.round(Number(value) || 0)
 
 export const cli = {
-  async list() {
-    const body = await judge(['list'])
-    cache.drills = Array.isArray(body.drills) ? body.drills : []
-    return body
-  },
-  next: () => judge(['next']),
   detail: id => judge(['detail', id]),
-  reveal: id => judge(['reveal', id]),
+  reveal: (id, duration) => judge(['reveal', id, '--duration', seconds(duration)]),
   selfgrade: (id, verdict, duration) =>
-    judge(['selfgrade', id, verdict, '--duration', Math.round(duration || 0)]),
+    judge(['selfgrade', id, verdict, '--duration', seconds(duration)]),
   submit(id, { duration, onStatus } = {}) {
-    return judge(['submit', id, '--duration', Math.round(duration || 0)], { onStatus })
+    return judge(['submit', id, '--duration', seconds(duration)], { onStatus })
   },
-  // `update` takes a JSON spec on stdin, and the one field it writes is `tags`.
-  update: (id, tags) => judge(['update', id], { input: JSON.stringify({ tags }) }),
 }

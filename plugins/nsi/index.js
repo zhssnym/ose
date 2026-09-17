@@ -1,24 +1,26 @@
 /* Informatique — an Ose plugin (docs/PLUGINS.md).
 
-   Generated coding drills, LeetCode-like: one folder per drill under the drills folder, a
-   Python judge in `judge/`, a clock on every drill, spaced review. One kind of drill: a
-   function in `solution.py`, judged by `tests.py` when there is one and self-graded against
-   the correction when there is not.
+   Coding drills, LeetCode-like: one folder per drill under the drills folder, a Python judge
+   in `judge/`, a clock on every drill. One kind of drill: a function in `solution.py`, judged
+   by `tests.py` when there is one and self-graded against the correction when there is not.
 
-   The furniture — the DOM helpers, the chips, the list row, the clock, the verdict, the path
-   line — comes from `../_lib/drills.js`, which the Maths plugin draws from too. The only
-   process this plugin starts is its own CLI. */
+   The plugin shows the drills and records the attempts; it decides nothing. What the next
+   drill should be is worked out by an agent reading `.nsi/log.jsonl` and written into the
+   folder as files.
 
-import { toast } from 'ose:ui'
+   The furniture — the DOM helpers, the clock, the title line, the verdict — comes from
+   `../_lib/drills.js`, and the table from `../_lib/table.js`; the Maths plugin draws with
+   both. The only process this plugin starts is its own CLI. */
+
 import { ensureStylesheet } from '../_lib/drills.js'
 
 import { open, close, onDataRoot } from './lib/ctx.js'
-import { cli, cache } from './lib/cli.js'
-import { mountIndex, unmountIndex, refreshIndex, openDrill, byNumber } from './lib/index-view.js'
+import { cache, listDrills } from './lib/data.js'
+import { mountIndex, unmountIndex, refreshIndex } from './lib/index-view.js'
 import { mountDrill, active } from './lib/drill.js'
 
 export const name = 'Informatique'
-export const description = 'Coding drills as folders, a judge, a clock, spaced review.'
+export const description = 'Coding drills as folders, a judge, a clock, one log.'
 
 export const paths = {
   drills: {
@@ -44,19 +46,6 @@ export async function activate(ose) {
   command('nsi.index', 'Informatique: open the drills',
     () => ose.route.navigate({ type: 'view', name: 'nsi' }))
 
-  command('nsi.next', 'Informatique: next drill', async () => {
-    // Where the user was before the judge was asked. Reading it takes a Python process, and
-    // three seconds later this used to yank them off the page they had moved to (ADV-T).
-    const before = JSON.stringify(ose.route.current())
-    try {
-      const body = await cli.next()
-      if (JSON.stringify(ose.route.current()) !== before) return
-      if (body.empty || !body.drill) { toast(body.reason || 'nothing to do'); return }
-      openDrill(body.drill.id)
-      toast(body.reason)
-    } catch (err) { toast('Informatique: ' + (err.message || err), 'err') }
-  }, 'Mod+Shift+D')
-
   command('nsi.run', 'Informatique: run the solution',
     () => active && active.run(), 'Mod+Shift+R', () => !!active)
 
@@ -72,11 +61,11 @@ export async function activate(ose) {
   ose.route.own('nsi/*', mountDrill)
   ose.route.index('nsi/*', () => {
     // Quick open asks synchronously, so it gets the last listing. With none yet (nothing has
-    // opened the view), one is fetched in the background and the next press has the rows.
+    // opened the view), one is read in the background and the next press has the rows.
     if (!cache.drills.length) warmCache()
-    return [...cache.drills].sort(byNumber).map(d => ({
+    return cache.drills.map(d => ({
       path: 'nsi/' + d.id,
-      title: `${d.number} · ${d.title}`,
+      title: d.number == null ? d.title : `${d.number} · ${d.title}`,
     }))
   })
 
@@ -105,6 +94,6 @@ export function deactivate() {
 let warming = null
 function warmCache() {
   if (warming) return warming
-  warming = cli.list().catch(() => null).finally(() => { warming = null })
+  warming = listDrills().catch(() => null).finally(() => { warming = null })
   return warming
 }

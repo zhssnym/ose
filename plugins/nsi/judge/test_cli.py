@@ -13,7 +13,6 @@ Nothing under a vault is touched.
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import shutil
@@ -25,18 +24,24 @@ from pathlib import Path
 MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 
-from judge import astcheck, code_checker, scheduler, store as store_mod  # noqa: E402
+from judge import astcheck, code_checker, store as store_mod  # noqa: E402
 
 VERBOSE = "-v" in sys.argv
 PASSED = 0
 FAILED = []
 SECTION = "—"
 
-ROW_FIELDS = sorted([
+#: What `detail` answers, and nothing else. No status, no due date, no attempt
+#: count: the log is the state and the plugin reads it.
+DETAIL_FIELDS = sorted([
     "id", "number", "title", "tags", "has_tests", "tests_count",
     "has_correction", "judged",
-    "status", "due", "attempts", "solved_at", "interval_days",
-    "correction_viewed", "overdue_days", "duree_s", "meilleure_s"])
+    "enonce", "answer", "answer_exists", "answer_path",
+    "correction_path", "correction_format", "folder"])
+
+#: Words for state the judge used to keep. None of them may come back.
+STATE_WORDS = {"status", "due", "attempts", "solved_at", "interval_days",
+               "overdue_days", "state", "duree_s", "meilleure_s", "reason"}
 
 
 def section(name: str) -> None:
@@ -212,58 +217,22 @@ class Cli:
     def stderr(self) -> str:
         return self.last.stderr.decode("utf-8", "replace") if self.last else ""
 
+    def store(self):
+        return store_mod.Store(self.root / ".nsi")
+
     def log(self, limit=None) -> list:
         """The log as the judge wrote it, newest first.
 
-        Read from the file: `log` was a CLI verb nothing could reach and it is
-        gone, so the test reads what the plugin would read.
+        Read from the file: it is the only record there is, and it is what the
+        plugin reads too.
         """
-        return store_mod.Store(self.root / ".nsi").read_log(limit)
+        return self.store().read_log(limit)
+
+    def lines_of(self, pid: str) -> list:
+        return [l for l in self.log() if l.get("problem") == pid]
 
 
 # ---------------------------------------------------------------------- tests
-
-
-def test_list(cli):
-    section("list")
-    body = cli("list")
-    ids = [d["id"] for d in body["drills"]]
-    eq("six drills indexed", len(ids), 6)
-    eq("sorted by number, 10 after 5 and not after 1",
-       ids, ["1-max-dico", "2-derouler-inversion", "3-dico-rapide", "5-parcours",
-             "7-une-promesse", "10-trier-sans-trier"])
-    ok("the rows are under `drills`, one word", "problems" not in body, sorted(body))
-
-    row = body["drills"][0]
-    eq("the fields of a row", sorted(row), ROW_FIELDS)
-    ok("no kind, no source, no chapter, no difficulty, no concepts",
-       not {"kind", "source", "source_ref", "chapter", "difficulty",
-            "concepts"} & set(row), sorted(row))
-    eq("the number is an integer", row["number"], 1)
-    eq("and so is 10's", body["drills"][-1]["number"], 10)
-
-    by_id = {d["id"]: d for d in body["drills"]}
-    eq("has_tests: there are cases", by_id["1-max-dico"]["has_tests"], True)
-    eq("and the page can say how many", by_id["1-max-dico"]["tests_count"], 2)
-    eq("no cases, no count", by_id["3-dico-rapide"]["tests_count"], None)
-    eq("has_tests: an empty TESTS counts for nothing",
-       by_id["2-derouler-inversion"]["has_tests"], False)
-    eq("has_tests: no tests.py at all",
-       by_id["3-dico-rapide"]["has_tests"], False)
-    eq("judged: cases", by_id["1-max-dico"]["judged"], True)
-    eq("judged: a correction is enough", by_id["2-derouler-inversion"]["judged"], True)
-    eq("not judged: neither one nor the other",
-       by_id["10-trier-sans-trier"]["judged"], False)
-    eq("and it says so through has_correction too",
-       by_id["10-trier-sans-trier"]["has_correction"], False)
-    eq("a correction that is only a promise is not a correction",
-       by_id["7-une-promesse"]["has_correction"], False)
-    eq("so the promise is not judgeable either",
-       by_id["7-une-promesse"]["judged"], False)
-    ok("no time to start with",
-       all(d["duree_s"] is None and d["meilleure_s"] is None
-           for d in body["drills"]), body["drills"][0])
-    ok("the data dir is announced", body["data_dir"].endswith(".nsi"), body["data_dir"])
 
 
 def test_detail(cli):
@@ -275,35 +244,50 @@ def test_detail(cli):
        body["answer"].startswith("def max_dico(dico):"), body["answer"])
     ok("with a docstring", '"""' in body["answer"], body["answer"])
     eq("the answer file does not exist yet", body["answer_exists"], False)
-    ok("every field of a row is here too",
-       set(ROW_FIELDS) <= set(body), sorted(set(ROW_FIELDS) - set(body)))
+    eq("the fields of a detail, and no others",
+       sorted(set(body) - {"ok", "command"}), DETAIL_FIELDS)
+    ok("no state travels with it", not STATE_WORDS & set(body), sorted(body))
+    ok("no kind, no source, no chapter, no difficulty, no concepts",
+       not {"kind", "source", "source_ref", "chapter", "difficulty",
+            "concepts", "meta"} & set(body), sorted(body))
+    eq("the number is an integer", body["number"], 1)
 
     eq("folder", body["folder"], "1-max-dico")
     eq("answer_path", body["answer_path"], "1-max-dico/solution.py")
-    eq("enonce_path", body["enonce_path"], "1-max-dico/enonce.md")
-    eq("tests_path", body["tests_path"], "1-max-dico/tests.py")
     eq("correction_path", body["correction_path"], "1-max-dico/correction.py")
     eq("correction_format", body["correction_format"], "py")
     eq("has_correction", body["has_correction"], True)
-    eq("meta is rendered whole", body["meta"]["code"]["constraints"]["forbidden"], ["max"])
+    eq("has_tests: there are cases", body["has_tests"], True)
+    eq("and the page can say how many", body["tests_count"], 2)
+    eq("judged: cases", body["judged"], True)
+
+    body = cli("detail", "2-derouler-inversion")
+    eq("has_tests: an empty TESTS counts for nothing", body["has_tests"], False)
+    eq("judged: a correction is enough", body["judged"], True)
 
     body = cli("detail", "3-dico-rapide")
     eq("an old `written` meta is read as code, kind and all", body["has_tests"], False)
+    eq("no cases, no count", body["tests_count"], None)
     eq("with no signature the seed is an English comment", body["answer"], "# answer\n")
     eq("the id is the folder's name, not the meta's", body["id"], "3-dico-rapide")
-    eq("and the meta is answered with the folder's id too",
-       body["meta"]["id"], "3-dico-rapide")
     eq("a markdown correction", body["correction_format"], "md")
 
+    body = cli("detail", "7-une-promesse")
+    eq("a correction that is only a promise is not a correction",
+       body["has_correction"], False)
+    eq("so the promise is not judgeable either", body["judged"], False)
+
     body = cli("detail", "10-trier-sans-trier")
+    eq("the number of a two-digit folder", body["number"], 10)
     eq("free-form: no correction", body["correction_path"], None)
     eq("nor a format", body["correction_format"], None)
     eq("nor a judge", body["judged"], False)
-    eq("tests_path is still where they would go", body["tests_path"],
-       "10-trier-sans-trier/tests.py")
+    eq("and it says so through has_correction too", body["has_correction"], False)
 
     unknown = cli("detail", "99-rien", expect_ok=False)
     eq("unknown id", unknown["error_kind"], "not_found")
+    unknown = cli("detail", "../..", expect_ok=False)
+    eq("and a drill id that walks out of the folder", unknown["error_kind"], "not_found")
 
 
 def test_submit_code(cli, root):
@@ -317,20 +301,23 @@ def test_submit_code(cli, root):
     ok("the violation names the construct",
        body["constraint_violations"][0]["construct"] == "max", body["constraint_violations"])
     eq("no test was run", body["total"], 0)
+    eq("first attempt", body["logged"]["attempt"], 1)
+    eq("the source that was judged is in the line", body["logged"]["code"], CHEAT)
+    ok("and no state came back with it", not STATE_WORDS & set(body), sorted(body))
 
     write(answer, HALF)
     body = cli("submit", pid)
     eq("one test of two", (body["verdict"], body["passed"], body["total"]),
        ("partial", 1, 2))
     ok("the failing test is named", "négatifs" in body["failed_tests"], body["failed_tests"])
+    eq("the attempt is counted off the log", body["logged"]["attempt"], 2)
 
     write(answer, GOOD)
     body = cli("submit", pid, "--duration", "120")
     eq("passed", body["verdict"], "pass")
-    eq("status", body["status"], "solved")
-    eq("three attempts", body["state"]["attempts"], 3)
-    eq("the struggling interval (3 attempts)", body["state"]["interval_days"], 3)
+    eq("three attempts", body["logged"]["attempt"], 3)
     eq("the duration is logged", body["logged"]["duration_s"], 120)
+    eq("and the code with it", body["logged"]["code"], GOOD)
     ok("the correction comes with the pass",
        body.get("correction", "").startswith("def max_dico"), body.get("correction"))
     eq("and its format", body.get("correction_format"), "py")
@@ -342,6 +329,12 @@ def test_submit_code(cli, root):
     ok("and nothing else says it", "concepts" not in entry, sorted(entry))
     ok("nor `kind`, which never varied", "kind" not in entry, sorted(entry))
     ok("nor `source`", "source" not in entry, sorted(entry))
+    eq("the fields of a submit line", sorted(entry),
+       sorted(["problem", "verdict", "attempt", "failed_tests",
+               "constraint_violations", "duration_s", "correction_viewed",
+               "tags", "code", "ts"]))
+    eq("the correction was not seen", entry["correction_viewed"], False)
+    eq("three lines for three submissions", len(cli.lines_of(pid)), 3)
 
 
 def test_submit_without_tests(cli, root):
@@ -355,7 +348,8 @@ def test_submit_without_tests(cli, root):
     ok("and nothing is revealed", "correction" not in body, body)
 
     before = len(cli.log())
-    write(answer, "# la clé 'a' est écrasée par 'c'\n")
+    written = "# la clé 'a' est écrasée par 'c'\n"
+    write(answer, written)
     body = cli("submit", pid, "--duration", "45")
     eq("no automatic verdict", body["verdict"], None)
     eq("not graded", body["graded"], False)
@@ -363,14 +357,16 @@ def test_submit_without_tests(cli, root):
     ok("the correction is handed over", "écrasée" in body["correction"], body["correction"][:80])
     eq("its format", body["correction_format"], "md")
     eq("no log line before the self-grade", len(cli.log()), before)
-    eq("status unchanged", body["status"], "unseen")
-    eq("but the correction is noted as seen", body["state"]["correction_viewed"], True)
+    ok("and no state either", not STATE_WORDS & set(body), sorted(body))
 
     body = cli("selfgrade", pid, "pass", "--duration", "60")
     eq("the grade is recorded", body["verdict"], "pass")
-    eq("solved", body["status"], "solved")
-    eq("correction seen: the short interval", body["state"]["interval_days"], 7)
     eq("one log line this time", len(cli.log()), before + 1)
+    entry = cli.log()[0]
+    eq("first attempt", entry["attempt"], 1)
+    eq("a self-grade is a grade against the correction",
+       entry["correction_viewed"], True)
+    eq("and it carries the answer it graded", entry["code"], written)
 
 
 def test_not_judgeable(cli, root):
@@ -385,40 +381,42 @@ def test_not_judgeable(cli, root):
         eq(f"selfgrade on {pid}", body["error_kind"], "not_judgeable")
         body = cli("reveal", pid, expect_ok=False)
         eq(f"reveal on {pid}", body["error_kind"], "not_judgeable")
-
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("and neither of them moved", rows["7-une-promesse"]["status"], "unseen")
-    eq("nor collected an attempt", rows["7-une-promesse"]["attempts"], 0)
-    eq("nor a log line",
-       [l for l in cli.log() if l.get("problem") == "7-une-promesse"], [])
+        eq(f"and {pid} collected no line", cli.lines_of(pid), [])
 
     # The moment the promise is kept, the drill is judgeable again.
     write(root / "7-une-promesse" / "correction.py",
           "def promesse():\n    return 42\n")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("a correction with code in it counts", rows["7-une-promesse"]["judged"], True)
+    eq("a correction with code in it counts",
+       cli("detail", "7-une-promesse")["judged"], True)
     body = cli("submit", "7-une-promesse")
     eq("and submit hands it over", body["awaiting_selfgrade"], True)
     write(root / "7-une-promesse" / "correction.py", CORRECTION_PLACEHOLDER)
 
 
-def test_reveal_and_selfgrade_anywhere(cli):
-    section("reveal, and a self-grade on a drill that has tests")
+def test_reveal(cli):
+    section("reveal: the rule the page prints is a line in the log")
     body = cli("reveal", "5-parcours")
     ok("the correction is handed over",
        body["correction"].startswith("def somme"), body["correction"][:60])
     eq("with its format", body["correction_format"], "py")
-    eq("revealing without solving is a failure", body["status"], "failed")
-    eq("correction_viewed", body["state"]["correction_viewed"], True)
-    eq("a reveal adds no log line",
-       [l["problem"] for l in cli.log() if l["problem"] == "5-parcours"], [])
+    eq("revealing a drill that never passed is a failure",
+       body["logged"]["verdict"], "fail")
+    eq("the line says the correction was seen",
+       body["logged"]["correction_viewed"], True)
+    ok("and carries no code: nothing was judged", "code" not in body["logged"],
+       sorted(body["logged"]))
+    eq("one line for the drill", len(cli.lines_of("5-parcours")), 1)
 
     body = cli("selfgrade", "5-parcours", "partial")
     eq("a self-grade is accepted even with tests", body["verdict"], "partial")
-    eq("partial counts as a failure", body["status"], "failed")
-    eq("and this time the log moves",
-       [l["problem"] for l in cli.log() if l["problem"] == "5-parcours"],
-       ["5-parcours"])
+    eq("and it is the second attempt", body["logged"]["attempt"], 2)
+    eq("two lines now", len(cli.lines_of("5-parcours")), 2)
+
+    before = len(cli.lines_of("1-max-dico"))
+    body = cli("reveal", "1-max-dico")
+    ok("revealing a drill that has passed writes nothing",
+       "logged" not in body, sorted(body))
+    eq("its lines are where they were", len(cli.lines_of("1-max-dico")), before)
 
     proc = subprocess.run(
         [sys.executable, "-B", "-m", "judge.cli", "--root", str(cli.root),
@@ -429,80 +427,20 @@ def test_reveal_and_selfgrade_anywhere(cli):
     eq("and nothing on stdout", proc.stdout.strip(), b"")
 
 
-def test_next(cli):
-    section("next")
-    body = cli("next")
-    eq("the failure comes back first", body["drill"]["id"], "5-parcours")
-    ok("the reason is in English", "failed" in body["reason"], body["reason"])
-    eq("the row it hands back is a list row", sorted(body["drill"]), ROW_FIELDS)
-    ok("one word for the thing: `drill`", "problem" not in body, sorted(body))
-
-
-def test_timings(cli, root):
-    section("duree_s and meilleure_s")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("the last timed submission", rows["1-max-dico"]["duree_s"], 120)
-    eq("and the best pass", rows["1-max-dico"]["meilleure_s"], 120)
-    eq("a self-grade counts as a submission",
-       rows["2-derouler-inversion"]["duree_s"], 60)
-    eq("and as a pass", rows["2-derouler-inversion"]["meilleure_s"], 60)
-    eq("an untimed submission counts for neither",
-       rows["5-parcours"]["duree_s"], None)
-    eq("a failure is never a best", rows["5-parcours"]["meilleure_s"], None)
-    eq("never submitted: nothing", rows["3-dico-rapide"]["duree_s"], None)
-
-    write(root / "1-max-dico" / "solution.py", GOOD)
-    body = cli("submit", "1-max-dico", "--duration", "45")
-    eq("faster this time", body["verdict"], "pass")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("the last duration follows", rows["1-max-dico"]["duree_s"], 45)
-    eq("the best comes down", rows["1-max-dico"]["meilleure_s"], 45)
-
-    cli("submit", "1-max-dico", "--duration", "300")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("a slower submission does not raise the best",
-       rows["1-max-dico"]["meilleure_s"], 45)
-    eq("but it is the last one", rows["1-max-dico"]["duree_s"], 300)
-    eq("detail says the same",
-       (cli("detail", "1-max-dico")["duree_s"], cli("detail", "1-max-dico")["meilleure_s"]),
-       (300, 45))
-
-    # A best time belongs to a drill that has ever passed, and a later failure
-    # does not take it away (ADV-N: the column blinked in and out).
-    cli("selfgrade", "1-max-dico", "fail", "--duration", "20")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("the drill is failed now", rows["1-max-dico"]["status"], "failed")
-    eq("and it keeps the best time it earned",
-       rows["1-max-dico"]["meilleure_s"], 45)
-    write(root / "1-max-dico" / "solution.py", GOOD)
-    cli("submit", "1-max-dico", "--duration", "300")
-
-
 def test_tags(cli, root):
     section("tags")
-    rows = {d["id"]: d for d in cli("list")["drills"]}
-    eq("written in meta", rows["1-max-dico"]["tags"], ["dictionnaires"])
+    eq("written in meta", cli("detail", "1-max-dico")["tags"], ["dictionnaires"])
     eq("an old `concepts` list is not read as tags any more",
-       rows["3-dico-rapide"]["tags"], [])
+       cli("detail", "3-dico-rapide")["tags"], [])
     eq("a written `tags` is cleaned and de-duplicated",
-       rows["2-derouler-inversion"]["tags"], ["révision", "listes"])
-    ok("always a list, never null",
-       all(isinstance(r["tags"], list) for r in rows.values()),
-       {k: v["tags"] for k, v in rows.items()})
-    eq("detail answers the same",
-       cli("detail", "1-max-dico")["tags"], ["dictionnaires"])
+       cli("detail", "2-derouler-inversion")["tags"], ["révision", "listes"])
     ok("and nothing was written to disk for it",
        "tags" not in json.loads((root / "3-dico-rapide" / "meta.json")
                                 .read_text(encoding="utf-8")), "")
-
-    # The two dead fields: read by nothing, and so on no row and in no detail.
-    legacy = cli("detail", "3-dico-rapide")
-    ok("neither dead field reaches a detail",
-       not {"difficulty", "concepts"} & set(legacy), sorted(legacy))
-    eq("the file itself still carries them", legacy["meta"]["difficulty"], 2)
-    ok("and a meta that never had them reads the same",
-       not {"difficulty", "concepts"} & set(cli("detail", "1-max-dico")["meta"]),
-       sorted(cli("detail", "1-max-dico")["meta"]))
+    on_disk = json.loads((root / "3-dico-rapide" / "meta.json").read_text(encoding="utf-8"))
+    ok("the dead fields are left exactly where they were",
+       (on_disk.get("kind"), on_disk.get("difficulty"), on_disk.get("concepts"))
+       == ("written", 2, ["complexité"]), on_disk)
 
     from judge import problems as problems_mod
     eq("cleaning folds the blanks and the empties",
@@ -510,77 +448,34 @@ def test_tags(cli, root):
     eq("an empty list stays empty", problems_mod.clean_tags([]), [])
 
 
-def test_update(cli, root):
-    section("update: the tags, and nothing else")
-    folder = root / "1-max-dico"
-    meta_path = folder / "meta.json"
-    enonce_path = folder / "enonce.md"
-    raw_before = meta_path.read_text(encoding="utf-8")
-    enonce_before = enonce_path.read_text(encoding="utf-8")
-
-    body = cli("update", "1-max-dico", stdin=json.dumps(
-        {"tags": ["révision", "  dictionnaires  ", "révision"]}, ensure_ascii=False))
-    eq("only the tags change", body["updated"], ["tags"])
-    eq("cleaned and de-duplicated", body["tags"], ["révision", "dictionnaires"])
-    eq("the statement is untouched",
-       enonce_path.read_text(encoding="utf-8"), enonce_before)
-    raw_after = meta_path.read_text(encoding="utf-8")
-    eq("meta.json changed one value and nothing else",
-       raw_after.replace('"révision",\n    "dictionnaires"', '"dictionnaires"'),
-       raw_before)
-    ok("the answer does not carry a rename it did not do",
-       "enonce_renamed" not in body, sorted(body))
-
-    body = cli("update", "1-max-dico", stdin=json.dumps({"tags": []}))
-    eq("emptied tags stay empty", body["tags"], [])
-    eq("a written empty `tags` beats deriving",
-       [d["tags"] for d in cli("list")["drills"] if d["id"] == "1-max-dico"], [[]])
-
-    # A stale `id` is straightened when the file is rewritten anyway. Nothing
-    # else moves: a field the judge does not read is not a field it deletes.
-    stale = root / "3-dico-rapide" / "meta.json"
-    before = json.loads(stale.read_text(encoding="utf-8"))
-    eq("the stale id is still there beforehand", before["id"],
-       "chapitre-1/07-perso-dico-rapide")
-    eq("and the old field name too", before["concepts"], ["complexité"])
-    body = cli("update", "3-dico-rapide",
-               stdin=json.dumps({"tags": ["complexité"]}, ensure_ascii=False))
-    eq("update does not claim to have changed the id", body["updated"], ["tags"])
-    after = json.loads(stale.read_text(encoding="utf-8"))
-    eq("but the file now carries the folder's name", after["id"], "3-dico-rapide")
-    eq("the tags are written", after["tags"], ["complexité"])
-    ok("everything the judge no longer reads is left exactly where it was",
-       (after.get("kind"), after.get("source"), after.get("difficulty"),
-        after.get("concepts")) == ("written", "generated", 2, ["complexité"]),
-       after)
-    ok("`difficulty` down to its own bytes",
-       '"difficulty": 2' in stale.read_text(encoding="utf-8"), "")
-
-    body = cli("update", "1-max-dico", stdin="{}", expect_ok=False)
-    eq("an empty spec is refused", body["error_kind"], "bad_request")
-    body = cli("update", "1-max-dico", stdin=json.dumps({"title": "x"}),
-               expect_ok=False)
-    eq("a title is not something update writes any more",
-       body["error_kind"], "bad_request")
-    body = cli("update", "1-max-dico", stdin=json.dumps({"tags": "révision"}),
-               expect_ok=False)
-    eq("tags that are not a list are refused", body["error_kind"], "bad_request")
-    body = cli("update", "99-rien", stdin=json.dumps({"tags": []}), expect_ok=False)
-    eq("unknown id", body["error_kind"], "not_found")
-
-
-def test_surface(cli):
-    section("the surface: seven verbs, and the help says Informatique")
+def test_surface(cli, root):
+    section("the surface: four verbs, and nothing that schedules")
     from judge import cli as cli_mod
-    eq("seven commands and no more", sorted(cli_mod.COMMANDS),
-       ["detail", "list", "next", "reveal", "selfgrade", "submit", "update"])
-    for gone in ("create", "convert", "migrate", "migrate-flat", "stats", "log"):
+    eq("four commands and no more", sorted(cli_mod.COMMANDS),
+       ["detail", "reveal", "selfgrade", "submit"])
+    for gone in ("list", "next", "update", "create", "convert", "migrate",
+                 "migrate-flat", "stats", "log"):
         ok(f"`{gone}` is gone", gone not in cli_mod.COMMANDS, sorted(cli_mod.COMMANDS))
-    for gone in ("cmd_create", "cmd_convert", "cmd_migrate", "cmd_migrate_flat",
-                 "cmd_stats", "cmd_log", "slugify", "numbering", "spell_number",
-                 "rename_h1", "convert_folder", "comment_block"):
+    for gone in ("cmd_list", "cmd_next", "cmd_update", "set_members",
+                 "cmd_create", "cmd_stats", "slugify", "spell_number"):
         ok(f"and so is `{gone}`", not hasattr(cli_mod, gone), gone)
-    ok("App has no stats either", not hasattr(cli_mod.App, "stats"), "")
+    for gone in ("listing", "next_up", "timings", "row", "stats"):
+        ok(f"App has no `{gone}`", not hasattr(cli_mod.App, gone), gone)
+
+    ok("there is no scheduler file",
+       not (MODULE_DIR / "judge" / "scheduler.py").exists(),
+       sorted(p.name for p in (MODULE_DIR / "judge").iterdir()))
+    import judge as judge_pkg
+    ok("nor a scheduler in the package", "scheduler" not in judge_pkg.__all__,
+       judge_pkg.__all__)
+    for gone in ("normalise", "DEFAULT_STATE", "STATE_KEYS"):
+        ok(f"the store has no `{gone}`", not hasattr(store_mod, gone), gone)
+    for gone in ("read_state", "write_state", "problem_state",
+                 "all_problem_states", "update_problem_state"):
+        ok(f"nor a `{gone}`", not hasattr(store_mod.Store, gone), gone)
+    ok("and no state.json was ever written",
+       not (root / ".nsi" / "state.json").exists(),
+       sorted(p.name for p in (root / ".nsi").iterdir()))
 
     proc = subprocess.run([sys.executable, "-B", "-m", "judge.cli", "--help"],
                           cwd=str(MODULE_DIR), stdout=subprocess.PIPE,
@@ -592,31 +487,27 @@ def test_surface(cli):
     ok("and no longer says NSI", "NSI" not in help_text,
        [l for l in help_text.splitlines() if "NSI" in l])
     ok("--data-dir is gone", "--data-dir" not in help_text, help_text[:400])
-    ok("and --spec with it", "--spec" not in help_text, help_text[:400])
+    ok("and --json with it", "--json" not in help_text, help_text[:400])
 
-    body = cli("list")
+    body = cli("detail", "1-max-dico")
     ok("no __pycache__ is written beside the judge (-B)",
        not (MODULE_DIR / "judge" / "__pycache__").exists(),
        sorted(p.name for p in (MODULE_DIR / "judge").iterdir()))
-    ok("and list still answers", body["ok"], body)
+    ok("and detail still answers", body["ok"], body)
 
 
 def test_missing_folder(cli, root):
     section("a folder that disappears")
-    before = len(cli("list")["drills"])
+    from judge import problems as problems_mod
+    before = len(problems_mod.scan(root))
     gone = root / "10-trier-sans-trier"
     ok("the witness folder is there", gone.is_dir(), gone)
     shutil.rmtree(gone)
 
-    body = cli("list")
-    eq("list answers anyway", body["ok"], True)
-    eq("with one drill fewer", len(body["drills"]), before - 1)
-    ok("and no traceback", "Traceback" not in cli.stderr(), cli.stderr()[-400:])
+    eq("one drill fewer in the index", len(problems_mod.scan(root)), before - 1)
     body = cli("detail", "10-trier-sans-trier", expect_ok=False)
     eq("the detail of the departed is a not_found", body["error_kind"], "not_found")
-    eq("next still answers", cli("next")["ok"], True)
-
-    from judge import problems as problems_mod
+    ok("and no traceback", "Traceback" not in cli.stderr(), cli.stderr()[-400:])
     eq("loading an absent meta.json raises nothing",
        problems_mod.load_problem(gone / "meta.json"), None)
     eq("scanning an absent root gives an empty index",
@@ -629,28 +520,23 @@ def test_has_tests_unit():
     tmp = Path(tempfile.mkdtemp(prefix="nsi-tests-flag-"))
     try:
         cases = {
-            "TESTS = [{\"name\": \"a\"}]\n": True,
-            "TESTS = []\n": False,
-            "TESTS = ()\n": False,
-            "TESTS = None\n": False,
-            "# rien du tout\n": False,
-            "TESTS = [c for c in range(3)]\n": True,
-            "TESTS = [\n": False,
-            "TESTS = []\nTESTS = [1]\n": True,
+            "TESTS = [{\"name\": \"a\"}]\n": (True, 1),
+            "TESTS = []\n": (False, 0),
+            "TESTS = ()\n": (False, 0),
+            "TESTS = None\n": (False, None),
+            "# rien du tout\n": (False, None),
+            "TESTS = [c for c in range(3)]\n": (True, None),
+            "TESTS = [\n": (False, None),
+            "TESTS = []\nTESTS = [1]\n": (True, 1),
         }
         for i, (src, expected) in enumerate(cases.items()):
             path = tmp / f"tests_{i}.py"
             path.write_text(src, encoding="utf-8", newline="")
-            eq(f"{src.splitlines()[0][:28]!r}", problems_mod.read_tests_flag(path), expected)
-        eq("no file at all", problems_mod.read_tests_flag(tmp / "absent.py"), False)
+            eq(f"{src.splitlines()[0][:28]!r}", problems_mod.read_tests(path), expected)
+        eq("no file at all", problems_mod.read_tests(tmp / "absent.py"), (False, None))
         counted = tmp / "counted.py"
         counted.write_text("TESTS = [1, 2, 3]\n", encoding="utf-8", newline="")
         eq("a literal suite is counted", problems_mod.read_tests(counted), (True, 3))
-        looped = tmp / "looped.py"
-        looped.write_text("TESTS = [c for c in range(3)]\n",
-                          encoding="utf-8", newline="")
-        eq("a built suite is tests with no count",
-           problems_mod.read_tests(looped), (True, None))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -671,50 +557,34 @@ def test_correction_body_unit():
     eq("empty markdown is not", body("\n   \n", ".md"), "")
 
 
-def test_scheduler_unit():
-    section("scheduler (unit)")
-    day = _dt.date(2026, 9, 15)
-    fresh = store_mod.normalise(None)
-    solved = scheduler.apply_verdict(fresh, "pass", day)
-    eq("a clean first try: 14 days", solved["interval_days"], 14)
-    eq("due", solved["due"], "2026-09-29")
-    again = scheduler.apply_verdict(solved, "pass", day)
-    eq("passing again before the date pushes nothing", again["due"], solved["due"])
-    eq("but counts an attempt", again["attempts"], solved["attempts"] + 1)
-    review = scheduler.apply_verdict(solved, "pass", _dt.date(2026, 9, 29))
-    eq("a review multiplies by 2.5", review["interval_days"], 35)
-    failed = scheduler.apply_verdict(solved, "partial", day)
-    eq("partial counts as a failure", failed["status"], "failed")
-    eq("back tomorrow", failed["due"], "2026-09-16")
-    legacy = store_mod.normalise({"status": "due", "due": "2020-01-01"})
-    eq("a stored `due` is read back as solved", legacy["status"], "solved")
-    eq("and the date makes it due again", scheduler.display_status(legacy, day), "due")
+def test_log_unit():
+    section("the log is the whole record (unit)")
+    tmp = Path(tempfile.mkdtemp(prefix="nsi-log-"))
+    try:
+        store = store_mod.Store(tmp / ".nsi")
+        eq("no file, no lines", store.read_log(), [])
+        eq("and no attempts", store.attempts("1-a"), 0)
+        eq("nor a solve", store.solved("1-a"), False)
 
-    unseen = [{"id": "10-x", "number": 10, "status": "unseen"},
-              {"id": "2-y", "number": 2, "status": "unseen"},
-              {"id": "9-z", "number": 9, "status": "unseen"}]
-    item, reason = scheduler.pick_next(unseen, [], day)
-    eq("the next unseen drill is the lowest number", item["id"], "2-y")
-    ok("and the reason is in English", "new drill" in reason, reason)
-    item, _ = scheduler.pick_next(unseen[:1] + unseen[2:], [], day)
-    eq("9 before 10, not the other way round", item["id"], "9-z")
-
-    log = [{"verdict": "fail", "tags": ["arbres"]},
-           {"verdict": "fail", "tags": ["arbres"]},
-           {"verdict": "fail", "tags": ["arbres"]},
-           {"verdict": "pass", "tags": ["listes"]},
-           {"verdict": "pass", "tags": ["listes"]},
-           {"verdict": "pass", "tags": ["listes"]},
-           {"verdict": "pass", "concepts": ["arbres"]}]
-    eq("the weakest tag is the one that fails",
-       scheduler.weakest_tags(log), ["arbres", "listes"])
-    eq("an old line's `concepts` counts for no tag",
-       scheduler.tag_rates(log)["arbres"]["attempts"], 3)
-    tagged = [{"id": "1-a", "number": 1, "status": "unseen", "tags": ["listes"]},
-              {"id": "2-b", "number": 2, "status": "unseen", "tags": ["arbres"]}]
-    item, reason = scheduler.pick_next(tagged, log, day)
-    eq("the weakest tag picks the drill", item["id"], "2-b")
-    ok("and says which tag", "arbres" in reason, reason)
+        store.append_log({"problem": "1-a", "verdict": "fail", "attempt": 1})
+        store.append_log({"note": "une correction écrite à la main"})
+        store.append_log({"problem": "2-b", "verdict": "pass", "attempt": 1})
+        store.append_log({"problem": "1-a", "verdict": "partial", "attempt": 2,
+                          "correction_viewed": True})
+        eq("two graded lines for the first", store.attempts("1-a"), 2)
+        eq("a note counts for no attempt", store.attempts("2-b"), 1)
+        eq("partial is not a pass", store.solved("1-a"), False)
+        eq("a pass is", store.solved("2-b"), True)
+        eq("the correction was seen", store.correction_seen("1-a"), True)
+        eq("and not for the other", store.correction_seen("2-b"), False)
+        ok("every line got a timestamp",
+           all(l.get("ts") for l in store.read_log()), store.read_log())
+        eq("newest first", store.read_log(1)[0]["problem"], "1-a")
+        ok("the file is append only: four lines, four writes",
+           len((tmp / ".nsi" / "log.jsonl").read_text(encoding="utf-8")
+               .strip().splitlines()) == 4, "")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_vocabulary_unit():
@@ -739,8 +609,8 @@ def test_vocabulary_unit():
 def test_messages_english(cli, root):
     """The app is English: the checker and the runner speak it too.
 
-    Run last: every case here submits against `1-max-dico` and so moves its
-    record on.
+    Run last: every case here submits against `1-max-dico` and so adds to its
+    record.
     """
     section("the checker and the runner speak English")
     pid = "1-max-dico"
@@ -789,21 +659,17 @@ def main() -> int:
     try:
         build_tree(root)
         cli = Cli(root)
-        test_list(cli)
         test_detail(cli)
         test_submit_code(cli, root)
         test_submit_without_tests(cli, root)
         test_not_judgeable(cli, root)
-        test_reveal_and_selfgrade_anywhere(cli)
-        test_next(cli)
-        test_timings(cli, root)
+        test_reveal(cli)
         test_tags(cli, root)
-        test_update(cli, root)
-        test_surface(cli)
+        test_surface(cli, root)
         test_missing_folder(cli, root)
         test_has_tests_unit()
         test_correction_body_unit()
-        test_scheduler_unit()
+        test_log_unit()
         test_vocabulary_unit()
         test_messages_english(cli, root)
     finally:

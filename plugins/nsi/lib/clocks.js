@@ -15,7 +15,7 @@
    not carry, so a drill that went to the trash does not keep a number for ever. */
 
 import { ctx, vaultPath, DATA_DIRNAME } from './ctx.js'
-import { cache } from './cli.js'
+import { cache } from './data.js'
 
 const FILE = DATA_DIRNAME + '/clocks.json'
 

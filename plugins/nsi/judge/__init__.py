@@ -1,6 +1,6 @@
-"""Judge package: problem index, checkers, scheduler and storage.
+"""Judge package: problem index, checkers, and the log.
 
-Stdlib only. Nothing here imports user code into the server process: the code
+Stdlib only. Nothing here imports user code into this process: the code
 checker always spawns an isolated subprocess.
 """
 
@@ -9,6 +9,5 @@ __all__ = [
     "code_checker",
     "dispatch",
     "problems",
-    "scheduler",
     "store",
 ]
