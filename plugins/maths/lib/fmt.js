@@ -1,4 +1,4 @@
-/* The two spellings that are this module's own. Everything else a duration or a date is
+/* The two spellings that are this plugin's own. Everything else a duration or a date is
    written in comes from the shared lib (`duration`, `clockText`, `ymd`, `stamp`, `median`). */
 
 /**

@@ -1,23 +1,22 @@
 # Informatique
 
-An Ose module (docs/MODULES.md). It turns the drill folders under
-`2-learning/1-school/2-nsi/1-drills/` into a list, a drill page, a judge and a spaced review
-schedule, without a server, a port or a browser tab: the interface is Ose, the judge is a
-Python CLI this module runs through `ose.run`.
+An Ose plugin (docs/PLUGINS.md). It turns the vault's drill folders into a list, a drill
+page, a judge and a spaced review schedule, without a server, a port or a browser tab: the
+interface is Ose, the judge is a Python CLI this plugin runs through `ose.run`.
 
-The module is only for generated coding drills, LeetCode-like: one statement, one function in
+The plugin is only for generated coding drills, LeetCode-like: one statement, one function in
 `solution.py`, judged by `tests.py` when there is one and self-graded against the correction
 when there is not. Nothing school-related lives here. The exercises a teacher set stay in the
-vault as files and are simply not this module's business.
+vault as files and are simply not this plugin's business.
 
 The id stays `nsi` — the folder, the route prefix `nsi/` and the command ids are all `nsi`, so
 state and links survive the rename. "Informatique" is what a person reads.
 
-The furniture is not this module's: the DOM helpers, the chips, the list row and its keyboard,
+The furniture is not this plugin's: the DOM helpers, the chips, the list row and its keyboard,
 the clock, the title line, the meta line, the pane label, the control band, the verdict, the
-error box and the path line come from the rice's own `lib/drills.js` and `lib/drills.css`,
-which the Maths module draws from too (`work/contracts/drills-lib.md`). What is left here is
-the editor host, the run output, the tests table and the statement.
+error box and the path line come from the shared `../_lib/drills.js` and `../_lib/drills.css`,
+which the Maths plugin draws from too. What is left here is the editor host, the run output,
+the tests table and the statement.
 
 ## What it registers
 
@@ -31,9 +30,12 @@ the editor host, the run output, the tests table and the statement.
 | route    | `nsi/*`      | one drill: statement, `solution.py`, verdict, clock |
 
 Four commands and no settings section. There is no tile and no view of what is due: the
-scheduler is `nsi.next` and nothing else pushes a review at you. The data root is
-`module.json`'s and cannot be changed from inside the app — it is the one the manifest allows,
-so a field offering to change it was offering a module that could read nothing. Python is
+scheduler is `nsi.next` and nothing else pushes a review at you.
+
+One path, declared as `drills`: a folder named `nsi`, one folder per drill, each with
+`enonce.md`, `meta.json` and `solution.py`. The plugin never spells it. Ose finds it by name
+and asks where it is when it cannot, on the page the view or the drill would have drawn; the
+answer is remembered under `plugins.nsi.paths` and the page is mounted again. Python is
 resolved once a session by asking it: `python`, then `python3`, the first that answers
 `--version`.
 
@@ -88,10 +90,10 @@ resolved once a session by asking it: `python`, then `python3`, the first that a
 
 ## The data
 
-One drill is one folder, directly under the data root, and the id is the folder's name:
+One drill is one folder, directly under the drills folder, and the id is the folder's name:
 
 ```
-2-learning/1-school/2-nsi/1-drills/
+drills/nsi/
   1-inversion-dictionnaire/
     meta.json              machine fields (below)
     enonce.md              the statement, H1 = title
@@ -100,7 +102,7 @@ One drill is one folder, directly under the data root, and the id is the folder'
     correction.py          the reference, hidden until solved or revealed
   2-liste-chainee-recursive/
   .nsi/
-    state.json             per-drill state, owned by the module
+    state.json             per-drill state, owned by the plugin
     log.jsonl              one line per submission, append only, never edited
     clocks.json            seconds banked per unsolved drill
 ```
@@ -132,11 +134,13 @@ promise, not a correction: the drill counts as not judgeable until something is 
 }
 ```
 
-`tags` is a list of short strings, and it is the only field the app writes. `code` is optional:
-without `code.function` a drill has no signature to test. There is no chapter, no source, no
-difficulty and no kind: the list is flat, every drill is one of yours, and the three fields
-that never varied are gone. A meta that still carries them is read exactly as one that does
-not, and an older `concepts` list still answers as the drill's tags.
+Four keys, and the judge reads no others: `title`, `tags`, `code` and, when `code` is there,
+what is inside it. `tags` is a list of short strings and it is the only field the app writes.
+`code` is optional: without `code.function` a drill has no signature to test. There is no
+chapter, no source, no difficulty, no kind and no `concepts`: the list is flat, every drill is
+one of yours, and `tags` is the one name for what a drill is about. A meta that still carries
+any of them is read exactly as one that does not, and they are left on disk where they are:
+a field the judge does not read is not a field it deletes.
 
 ### `tests.py`
 
@@ -176,8 +180,8 @@ the unseen drill carrying your weakest tag.
 ## The judge by hand
 
 ```
-cd <vault>/.ose/app/modules/nsi
-python -B -m judge.cli --root <vault>/2-learning/1-school/2-nsi/1-drills list
+cd <vault>/.ose/plugins/nsi
+python -B -m judge.cli --root <vault>/drills/nsi list
 python -B -m judge.cli --root ... next
 python -B -m judge.cli --root ... detail    3-longueur-liste-chainee-recursive
 python -B -m judge.cli --root ... submit    3-longueur-liste-chainee-recursive --duration 300
@@ -187,8 +191,10 @@ echo '{"tags":["revision"]}' | python -B -m judge.cli --root ... update 1-recher
 ```
 
 Seven verbs and no more. `--root` is global and comes before the command; `--duration` belongs
-to its command and comes after it. `-B` because the judge lives inside the rice, and the rice
-is plain files a person edits: no `__pycache__` belongs there.
+to its command and comes after it. `-B` because the judge lives in the vault, and a vault is
+plain files a person edits: no `__pycache__` belongs there. This is exactly what the plugin
+runs: the working directory is the plugin's own folder, and `--root` is the drills folder Ose
+resolved, absolute.
 
 Every command prints **one JSON object** on stdout: `{"ok": true, "command": …, …}` or
 `{"ok": false, "error": …, "error_kind": …}` with exit code 1. `error_kind` is `not_found`,
@@ -200,12 +206,12 @@ ASCII-safe JSON, so `é` crosses any console code page as `é` and comes back as
 The tests are `python -B -m judge.test_cli` (stdlib, no pytest): they build a throwaway drill
 tree in the temp dir and drive the CLI as a real subprocess.
 
-## Rules this module keeps
+## Rules this plugin keeps
 
-- It writes nothing outside `2-learning/1-school/2-nsi/1-drills` (its `data` in `module.json`),
-  and nothing inside a drill folder except your answer file — and that only when you have
-  changed it. `Delete…` sends a folder to the trash and nothing else ever removes a file.
+- It writes nothing outside the drills folder, and nothing inside a drill folder except your
+  answer file — and that only when you have changed it. `Delete…` sends a folder to the trash
+  and nothing else ever removes a file.
 - Its numbers live beside the data, never in `.ose/state.json`.
 - Python is stdlib only, no pip, no network. The interface is plain ES modules and one
-  stylesheet built from the kernel's tokens, over the rice's shared `lib/drills.js`.
+  stylesheet built from the kernel's tokens, over the shared `../_lib/drills.js`.
 - `log.jsonl` is append only. A correction is a new line.

@@ -15,9 +15,10 @@ with.
       .nsi/            state.json, log.jsonl, clocks.json
 
 `meta.json` carries a title, `tags` and, for a drill with a signature, a `code`
-block. Nothing else is read: `kind`, `source` and `difficulty` were three words
-for one thing that never varied, and a file that still has them is read exactly
-as a file that does not.
+block. Four keys, and nothing else is read: `kind`, `source`, `difficulty` and
+`concepts` were words for things that never varied or that `tags` already says,
+and a file that still carries them is read exactly as a file that does not.
+They are left on disk untouched; the judge simply has no use for them.
 
 The app owns nothing inside a drill folder except the user's answer file
 (solution.py). Everything else is read-only content.
@@ -60,17 +61,13 @@ class Problem:
     def tags(self) -> list:
         """Short labels for the drill. Always a list, never null.
 
-        `meta.tags` when the file has them — including an explicit `[]`, which
-        means "none", not "derive some". Otherwise derived at read time from the
-        `concepts` an older meta wrote down: one name won, and it is `tags`, but
-        a vault written before that still reads right. Deriving is a read:
-        nothing is put back on disk until `update` is asked for it.
+        `meta.tags` and nothing else — including an explicit `[]`, which means
+        "none". The `concepts` an older meta wrote down is not read any more:
+        one name won, and it is `tags`. A file that still has a `concepts` list
+        keeps it, and the drill has no tags until `tags` is written.
         """
         value = self.meta.get("tags")
-        if isinstance(value, list):
-            return clean_tags(value)
-        legacy = self.meta.get("concepts")
-        return clean_tags(legacy) if isinstance(legacy, list) else []
+        return clean_tags(value) if isinstance(value, list) else []
 
     @property
     def code_meta(self) -> dict:
@@ -321,7 +318,7 @@ def load_problem(meta_path: Path):
     try:
         raw = meta_path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        # The folder went away between the listing and the read — the module
+        # The folder went away between the listing and the read — the plugin
         # trashes folders while the judge is running. Not a fault, not a line.
         return None
     except (OSError, UnicodeDecodeError) as exc:
@@ -360,7 +357,7 @@ def scan(root: Path) -> dict:
     found = []
     for folder in folders:
         # Every probe below is a question about a folder that may already be in
-        # the recycle bin: the module trashes one while a `list` is in flight,
+        # the recycle bin: the plugin trashes one while a `list` is in flight,
         # and a scan must come back short, never come back with a traceback.
         try:
             if folder.name.startswith(".") or not folder.is_dir():

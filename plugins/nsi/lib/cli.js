@@ -1,10 +1,10 @@
-/* The one way this module talks to the judge: `python -B -m judge.cli` through `ose.run`, one
+/* The one way this plugin talks to the judge: `python -B -m judge.cli` through `ose.run`, one
    JSON object back. Nothing else spawns a process.
 
-   `-B` because the judge lives inside the rice, and the rice is plain files a person edits:
-   a `__pycache__` of build output has no business there (ADV-B). */
+   `-B` because the judge lives in the vault, under `.ose/plugins/nsi`, and a vault is plain
+   files a person edits: a `__pycache__` of build output has no business there (ADV-B). */
 
-import { ctx, python, absDataRoot } from './ctx.js'
+import { ctx, python, dataRoot, absDataRoot } from './ctx.js'
 
 export class JudgeError extends Error {
   constructor(message, kind, detail) {
@@ -53,6 +53,13 @@ function tail(text, n = 400) {
  */
 export async function judge(args, opts = {}) {
   const { ose } = ctx
+  // The judge is never run without a folder to run it against. A view or a route has resolved
+  // one already, with the element the kernel draws its Choose box into; a command pressed
+  // before either was ever opened resolves it here, quietly, and answers one sentence when
+  // the vault has no drills folder at all.
+  if (!ctx.dataRoot && !await dataRoot()) {
+    throw new JudgeError('no drills folder in this vault', 'not_found')
+  }
   const timeout = opts.timeout || TIMEOUT
   const argv = ['-B', '-m', 'judge.cli', '--root', absDataRoot(), ...args.map(String)]
 
@@ -66,8 +73,7 @@ export async function judge(args, opts = {}) {
   const printed = new Promise(resolve => { announce = resolve })
 
   const runOpts = {
-    cwd: ctx.dataRoot,           // inside `data`: the module facade guards the cwd too
-    env: { PYTHONPATH: absModuleDir() },
+    cwd: ctx.pluginDir,          // the plugin's own folder: `-m judge.cli` resolves from it
     timeout,
     onLine(line, stream) {
       if (stream === 'stderr') {
@@ -127,12 +133,6 @@ export async function judge(args, opts = {}) {
 
 function after(ms) {
   return new Promise(resolve => setTimeout(() => resolve(null), ms))
-}
-
-/** Absolute path of this module's folder: PYTHONPATH, so `-m judge.cli` resolves. */
-function absModuleDir() {
-  const root = (ctx.vaultRoot || '').replace(/[\\/]+$/, '')
-  return root + '/' + ctx.moduleDir
 }
 
 /* The last listing, so quick open and the row menu can answer without spawning a process.

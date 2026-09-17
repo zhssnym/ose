@@ -10,9 +10,9 @@
  */
 
 import { confirm, toast } from 'ose:ui'
-import { h, clear, duration, plural, list, errorBlock } from '../../../lib/drills.js'
+import { h, clear, duration, plural, list, errorBlock } from '../../_lib/drills.js'
 
-import { ctx, vaultPath, seriePath, resultatPath } from './ctx.js'
+import { ctx, requireRoot, vaultPath, serieFile, seriePath, resultatPath } from './ctx.js'
 import { readAll } from './store.js'
 import { openSerie } from './serie.js'
 
@@ -38,7 +38,11 @@ class IndexView {
     this.root = h('div', { class: 'page-col maths-index' })
     this.meta = h('p', { class: 'page-meta' })
     this.rowsHost = h('div', { class: 'maths-rows-host' })
-    this.root.append(h('h1', { class: 'page-title', text: 'Maths' }), this.meta, this.rowsHost)
+    // Where the kernel draws its box when the vault does not say where the series are. It is an
+    // element of its own so the box lands in something empty and the list keeps its host.
+    this.boxHost = h('div', { class: 'maths-box-host' })
+    this.root.append(h('h1', { class: 'page-title', text: 'Maths' }), this.meta,
+      this.rowsHost, this.boxHost)
     clear(el).appendChild(this.root)
     this.list = null
   }
@@ -54,6 +58,11 @@ class IndexView {
       this.meta.textContent = ''
       this.rowsHost.appendChild(h('p', { class: 'empty', text: 'reading the series…' }))
     }
+    // The folder is asked for here and not once at boot: the owner can point the plugin at
+    // another one, and a `null` is a box in `boxHost` saying what is missing, not an error.
+    const root = await requireRoot(clear(this.boxHost))
+    if (token !== this.token) return
+    if (!root) { this.nothing(); return }
     let body = null
     try {
       body = await readAll()
@@ -64,6 +73,14 @@ class IndexView {
     }
     if (token !== this.token) return
     this.draw(body)
+  }
+
+  /** No folder: the box says so, and there is no list to keep. */
+  nothing() {
+    if (this.list) { this.list.dispose(); this.list = null }
+    this.byKey = new Map()
+    this.meta.textContent = ''
+    clear(this.rowsHost)
   }
 
   fail(err) {
@@ -88,7 +105,7 @@ class IndexView {
         rows,
         onOpen: (key) => void openSerie(key),
         menu: (key) => this.menu(key),
-        empty: `no serie-NN folders under ${vaultPath('')} yet. The generator writes them.`,
+        empty: `no serie-NN.md in ${vaultPath('')} yet. The generator writes them.`,
       })
     } else {
       this.list.refresh(rows)
@@ -135,21 +152,22 @@ class IndexView {
     const items = [
       { label: 'Open', run: () => void openSerie(s.id) },
       { sep: true },
-      { label: 'Open folder', run: () => void this.openFolder(s.id) },
-      { label: 'Open serie.md', run: () => ctx.ose.route.navigate({ type: 'page', path: seriePath(s.id) }) },
+      { label: `Open ${serieFile(s.id)}`, run: () => ctx.ose.route.navigate({ type: 'page', path: seriePath(s.id) }) },
+      { label: 'Show in the file manager', run: () => void this.reveal(s.id) },
     ]
     if (s.hasResultat) {
-      items.push({ label: 'Open resultat.md', run: () => ctx.ose.route.navigate({ type: 'page', path: resultatPath(s.id) }) })
+      items.push({ label: 'Open the result', run: () => ctx.ose.route.navigate({ type: 'page', path: resultatPath(s.id) }) })
     }
     items.push({ sep: true })
-    // The same verb gets the same treatment in both modules: the danger ink here and in the
+    // The same verb gets the same treatment in both plugins: the danger ink here and in the
     // dialog it opens. It was the ink of `Open` on this menu and red on Informatique's (Q1).
     items.push({ label: 'Delete…', danger: true, run: () => void this.remove(s) })
     return items
   }
 
-  async openFolder(name) {
-    const target = vaultPath(name)
+  /** The series file where it lives, selected in the file manager. */
+  async reveal(id) {
+    const target = seriePath(id)
     try {
       const files = ctx.ose.files
       if (files.reveal) await files.reveal(target)
@@ -164,13 +182,13 @@ class IndexView {
     const number = s.n == null ? s.id.replace(/^serie-0*/, '') : String(s.n)
     const yes = await confirm({
       title: `Delete Série ${number}?`,
-      body: `${s.id}/ and everything in it goes to the trash. What it wrote to the log stays there.`,
+      body: `${serieFile(s.id)} goes to the trash. What it wrote to the log and its result file stay.`,
       ok: 'Delete',
       danger: true,
     })
     if (!yes) return
     try {
-      await ctx.ose.files.trash(vaultPath(s.id))
+      await ctx.ose.files.trash(seriePath(s.id))
     } catch (err) {
       toast('Maths: ' + ((err && err.message) || err), 'err')
       return

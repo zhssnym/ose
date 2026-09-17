@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Informatique judge: the command line the Ose module drives.
+"""Informatique judge: the command line the Ose plugin drives.
 
     python -m judge.cli <command> --root <drills root> [--json]
 
 `--root` is the drills folder: a flat directory of `N-slug/` folders.
-`state.json`, `log.jsonl` and the module's `clocks.json` live in `<root>/.nsi`.
+`state.json`, `log.jsonl` and the plugin's `clocks.json` live in `<root>/.nsi`.
 
 Seven verbs and no more: `list`, `next`, `detail`, `submit`, `selfgrade`,
 `reveal`, `update`. The one-off chores this file used to carry — create,
@@ -56,7 +56,7 @@ class CliError(Exception):
 
 
 def status(text: str) -> None:
-    """One progress marker on stderr. The module streams these into the panel."""
+    """One progress marker on stderr. The plugin streams these into the panel."""
     sys.stderr.write("@@STATUS " + json.dumps({"text": text}) + "\n")
     sys.stderr.flush()
 
@@ -185,7 +185,7 @@ class App:
         return payload
 
     def relative(self, path) -> str:
-        """A path the module can hand to `ose.files`, relative to the data root."""
+        """A path the plugin can hand to `ose.files`, relative to the drills folder."""
         if path is None:
             return None
         try:
@@ -348,7 +348,7 @@ def cmd_update(app: App, args) -> dict:
     """Change the `tags` of one drill, and nothing else.
 
     The title lives in two places — `meta.json` and the H1 of `enonce.md` — and
-    a rename that kept them together was the module's only writer of a file the
+    a rename that kept them together was the plugin's only writer of a file the
     user wrote. Renaming is opening `enonce.md`, which the row menu already
     does; what is left here is the one field that has no other door.
     """
@@ -378,8 +378,9 @@ def cmd_update(app: App, args) -> dict:
     # The file is being rewritten anyway, so an `id` left over from the nested
     # layout is straightened on the way past rather than left to rot. It was
     # never believed — the folder name is the id — and it is not reported as a
-    # change the caller asked for. A `concepts` list is the old name of this
-    # same field: it goes when `tags` lands, so the file says one thing.
+    # change the caller asked for. Every other key is left exactly where it is,
+    # including the ones the judge no longer reads: a field it does not
+    # understand is not a field it deletes.
     try:
         on_disk = json.loads(raw)
     except (json.JSONDecodeError, AttributeError):
@@ -390,8 +391,6 @@ def cmd_update(app: App, args) -> dict:
         changes["id"] = problem.id
 
     raw = set_members(raw, changes)
-    if "concepts" in on_disk:
-        raw = drop_member(raw, "concepts")
     meta_path.write_text(raw, encoding="utf-8", newline="")
 
     fresh = problems_mod.load_problem(meta_path)
@@ -399,30 +398,6 @@ def cmd_update(app: App, args) -> dict:
             "updated": ["tags"],
             "title": fresh.title if fresh else problem.title,
             "tags": fresh.tags if fresh else changes["tags"]}
-
-
-def drop_member(raw: str, key: str) -> str:
-    """Take one member out of a JSON object's text, comma and all.
-
-    The bytes around it do not move, the same way `set_members` leaves them.
-    """
-    spans = _member_spans(raw)
-    if key not in spans:
-        return raw
-    key_start, _value_start, value_end = spans[key]
-    # Swallow the separator: the comma before this member when there is one,
-    # otherwise the comma after it.
-    start = key_start
-    before = raw.rfind(",", 0, key_start)
-    if before >= 0 and not raw[before + 1:key_start].strip():
-        start = before
-    else:
-        after = value_end
-        while after < len(raw) and raw[after].isspace():
-            after += 1
-        if after < len(raw) and raw[after] == ",":
-            value_end = after + 1
-    return raw[:start] + raw[value_end:]
 
 
 # --------------------------------------------------------------------- shell

@@ -13,9 +13,9 @@ import {
   h, clear, append, duration, plural, tones, chips, ymd,
   titleLine, metaLine, controls, verdict, errorBlock, pathLine, focusMode,
   createClock, mountClock,
-} from '../../../lib/drills.js'
+} from '../../_lib/drills.js'
 
-import { ctx, seriePath, absPath, vaultPath } from './ctx.js'
+import { ctx, requireRoot, serieFile, seriePath, absPath } from './ctx.js'
 import { readSerie, readState, readLog, lastMisses, record } from './store.js'
 import { Session, priorAnswers, PAUSE_CAP_MS } from './session.js'
 import { resultBlock } from './summary.js'
@@ -118,7 +118,13 @@ class SeriePage {
 
   async load() {
     this.metaHost.textContent = ''
-    clear(this.body).appendChild(h('p', { class: 'empty', text: 'reading the series…' }))
+    // The folder first, into a body with nothing in it: `null` is the kernel's box, and the page
+    // stops there. Nothing else on the page can be drawn without it.
+    clear(this.body)
+    const root = await requireRoot(this.body)
+    if (this.gone) return
+    if (!root) { clear(this.pathHost); return }
+    this.body.appendChild(h('p', { class: 'empty', text: 'reading the series…' }))
     let serie = null
     let state = null
     let misses = []
@@ -183,13 +189,14 @@ class SeriePage {
   }
 
   foot() {
-    clear(this.pathHost).appendChild(pathLine(absPath(this.name), {
-      onOpen: () => void this.openFolder(),
+    clear(this.pathHost).appendChild(pathLine(absPath(serieFile(this.name)), {
+      onOpen: () => void this.reveal(),
     }))
   }
 
-  async openFolder() {
-    const target = vaultPath(this.name)
+  /** The series file where it lives, selected in the file manager. */
+  async reveal() {
+    const target = seriePath(this.name)
     try {
       const files = ctx.ose.files
       if (files.reveal) await files.reveal(target)
@@ -289,7 +296,7 @@ class SeriePage {
   errorPane() {
     const box = errorBlock({
       head: 'this series does not parse',
-      detail: `${this.name}/serie.md does not follow the grammar, so it cannot be run. Nothing has been changed in the file.`,
+      detail: `${serieFile(this.name)} does not follow the grammar, so it cannot be run. Nothing has been changed in the file.`,
       onRetry: () => void this.load(),
     })
     const list = h('ul', { class: 'maths-error-list' })
@@ -301,7 +308,7 @@ class SeriePage {
     box.insertBefore(h('button', {
       class: 'drill-link mono-sm', type: 'button',
       onclick: () => ctx.ose.route.navigate({ type: 'page', path: seriePath(this.name) }),
-    }, 'open serie.md'), box.querySelector('.btn'))
+    }, `open ${serieFile(this.name)}`), box.querySelector('.btn'))
     return box
   }
 

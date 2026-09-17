@@ -28,7 +28,7 @@
    costs ten seconds and not the visit.
 */
 
-import { h, clear, focusMode, stamp, median } from '../../../lib/drills.js'
+import { h, clear, focusMode, stamp, median } from '../../_lib/drills.js'
 import { statementNode, inlineNode } from './math.js'
 import { appendLog, setEnCours } from './store.js'
 
@@ -315,7 +315,7 @@ export class Session {
     this.onEnd(summary)
   }
 
-  /** Everything the summary, `state.json`, `bilan.md` and `resultat.md` are made of. */
+  /** Everything the summary, `state.json`, `bilan.md` and the result file are made of. */
   summarise() {
     const byNumber = new Map()
     for (const a of this.prior) byNumber.set(a.n, a)
@@ -416,7 +416,7 @@ export class Session {
   /**
    * The keys live on the session's root, so the focus must never leave it. A redraw throws away
    * whatever had it — an option the mouse clicked, the control it pressed — and the focus would
-   * fall back to `body`, where nothing this module binds is listening.
+   * fall back to `body`, where nothing this plugin binds is listening.
    */
   keepFocus() {
     const root = this.bands.root

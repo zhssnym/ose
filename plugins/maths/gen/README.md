@@ -2,9 +2,8 @@
 
 `generate.py` writes one series of automatism questions into the vault, in the grammar of
 `briefs/FORMAT-drills.md`. Python 3, standard library only, no sympy, no npm, nothing to
-install. It is a desk tool: the `maths` module never runs it, has no `run` permission, and
-does not know it exists. Hassan (or an agent working on the vault from outside) runs it by
-hand every few days.
+install. It is a desk tool: the `maths` plugin never runs it and does not know it exists.
+Hassan (or an agent working on the vault from outside) runs it by hand every few days.
 
 Everything a question needs is computed. A template draws its parameters at random from the
 seed, the answer comes out of the arithmetic, and the three wrong options are the error
@@ -15,12 +14,12 @@ patterns of `1-erreurs.md` and the usual ones, never random values. `n² - 9` al
 ## Running it
 
 ```
-python generate.py --out <1-drills> --serie 5 --date 2026-09-19 --count 70 --seed 5 \
+python generate.py --out <the series folder> --serie 5 --date 2026-09-19 --count 70 --seed 5 \
     --weights puissances=16,suites=18,signes-inegalites=14,developpement-factorisation=12,fractions=10
 ```
 
-It creates `<1-drills>/serie-05/serie.md`, validates what it wrote, and prints the counts per
-family, the spread of the correct letter, and how many templates were used. It refuses to
+It creates `<the series folder>/serie-05.md`, validates what it wrote, and prints the counts
+per family, the spread of the correct letter, and how many templates were used. It refuses to
 leave an invalid file behind: if the check fails it prints the offending lines and exits 1.
 
 - `--count` defaults to 70, `--duree` to 25, `--seed` to the series number.
@@ -35,7 +34,7 @@ leave an invalid file behind: if the check fails it prints the offending lines a
 Checking a file, which anyone can do at any time:
 
 ```
-python generate.py --check <1-drills>/serie-05/serie.md
+python generate.py --check <the series folder>/serie-05.md
 python generate.py --list-templates
 ```
 
@@ -49,7 +48,7 @@ malformed `<!-- reponse: X -->`, a `<!-- regle: … -->` that does not close on 
 
 ## The families and their templates
 
-Thirty-three templates. Every one carries its own `regle`, the one line the module shows in
+Thirty-three templates. Every one carries its own `regle`, the one line the plugin shows in
 the reprise of the misses.
 
 **puissances** (8) — `puiss-meme-base` (a^{pn}/a^{qn}, including negative exponents),
@@ -103,16 +102,16 @@ Then add `("nom-du-gabarit", t_nom)` to `GABARITS` under its family. A new famil
 key in `GABARITS` with at least four templates; the slug must be lowercase ASCII with
 hyphens, and `FORMAT-drills.md` already reserves `racines`, `logarithmes`, `exponentielle`,
 `derivees` and `trigonometrie`. Nothing else to declare: `--weights` accepts it at once and
-the module colours an unknown family by hash.
+the plugin colours an unknown family by hash.
 
-LaTeX is rendered by Temml in the module: `\dfrac` for fractions, braces around every
+LaTeX is rendered by Temml in the plugin: `\dfrac` for fractions, braces around every
 exponent (`a^{2n}`, never `a^2n`), `\times` for a product, `\leqslant` and `\geqslant`,
 `\mathbb{N}`, `\left(` `\right)`, and no `\text` unless a sentence really has to live inside
 the maths. A statement or an option with an odd number of `$` is refused by the checker.
 
 ## After five series: the next five
 
-The module rewrites `.drills/bilan.md` after every session. It is a table, one row per family:
+The plugin rewrites `.math/bilan.md` after every session. It is a table, one row per family:
 the median thinking time over the last five series with its trend against the five before, the
 accuracy over the same, and under it every miss as `serie · n · famille · attendu · choisi ·
 règle`. Read it, then reweight towards the families where the median time is still high. The
@@ -129,8 +128,8 @@ The rule for the new weights, 70 questions over five families:
 Then, from the vault root, for the five days that follow:
 
 ```
-cd 2-learning/1-school/1-math/1-drills
-G=../../../../.ose/app/modules/maths/gen/generate.py
+cd drills/math
+G=../../.ose/plugins/maths/gen/generate.py
 W=puissances=12,suites=20,signes-inegalites=16,developpement-factorisation=12,fractions=10
 python $G --out . --serie 5 --date 2026-09-19 --count 70 --seed 5 --weights $W
 python $G --out . --serie 6 --date 2026-09-20 --count 70 --seed 6 --weights $W

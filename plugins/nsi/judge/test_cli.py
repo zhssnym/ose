@@ -5,7 +5,7 @@
 
 Builds a throwaway flat drill tree in the system temp dir and drives
 `python -m judge.cli` against it as a real subprocess, so what is tested is
-exactly what the Ose module runs: the arguments, the one JSON object on
+exactly what the Ose plugin runs: the arguments, the one JSON object on
 stdout, the exit code, and the accents on the way through.
 
 Nothing under a vault is touched.
@@ -66,8 +66,8 @@ def eq(label: str, got, expected) -> bool:
 # ------------------------------------------------------------------ fixtures
 
 #: A meta.json as the format stands now: a title, tags, and a `code` block when
-#: the drill has a signature. No `kind`, no `source`, no `difficulty` — three
-#: words for one thing that never varied.
+#: the drill has a signature. No `kind`, no `source`, no `difficulty`, no
+#: `concepts`: words for a thing that never varied, or for what `tags` says.
 META_CODE = {
     "title": "Maximum d'un dictionnaire",
     "tags": ["dictionnaires"],
@@ -108,8 +108,9 @@ EMPTY_TESTS_PY = ("# Un cas : {\"name\": \"cas simple\", \"args\": (1, 2), \"exp
                   "TESTS = []\n")
 
 #: A meta written before the flattening and before `tags` had its name: a stale
-#: `id` and a `concepts` list. Both are read through, neither is believed, and
-#: `concepts` still answers as the drill's tags.
+#: `id`, a `difficulty` and a `concepts` list. The file is read exactly as one
+#: without them — the id is the folder's, and the drill has no tags — and every
+#: one of them is left on disk where it is.
 META_LEGACY = {
     "id": "chapitre-1/07-perso-dico-rapide",
     "title": "Pourquoi un dictionnaire est rapide",
@@ -215,7 +216,7 @@ class Cli:
         """The log as the judge wrote it, newest first.
 
         Read from the file: `log` was a CLI verb nothing could reach and it is
-        gone, so the test reads what the module would read.
+        gone, so the test reads what the plugin would read.
         """
         return store_mod.Store(self.root / ".nsi").read_log(limit)
 
@@ -481,8 +482,8 @@ def test_tags(cli, root):
     section("tags")
     rows = {d["id"]: d for d in cli("list")["drills"]}
     eq("written in meta", rows["1-max-dico"]["tags"], ["dictionnaires"])
-    eq("an old `concepts` list still answers as tags",
-       rows["3-dico-rapide"]["tags"], ["complexité"])
+    eq("an old `concepts` list is not read as tags any more",
+       rows["3-dico-rapide"]["tags"], [])
     eq("a written `tags` is cleaned and de-duplicated",
        rows["2-derouler-inversion"]["tags"], ["révision", "listes"])
     ok("always a list, never null",
@@ -493,6 +494,15 @@ def test_tags(cli, root):
     ok("and nothing was written to disk for it",
        "tags" not in json.loads((root / "3-dico-rapide" / "meta.json")
                                 .read_text(encoding="utf-8")), "")
+
+    # The two dead fields: read by nothing, and so on no row and in no detail.
+    legacy = cli("detail", "3-dico-rapide")
+    ok("neither dead field reaches a detail",
+       not {"difficulty", "concepts"} & set(legacy), sorted(legacy))
+    eq("the file itself still carries them", legacy["meta"]["difficulty"], 2)
+    ok("and a meta that never had them reads the same",
+       not {"difficulty", "concepts"} & set(cli("detail", "1-max-dico")["meta"]),
+       sorted(cli("detail", "1-max-dico")["meta"]))
 
     from judge import problems as problems_mod
     eq("cleaning folds the blanks and the empties",
@@ -526,8 +536,8 @@ def test_update(cli, root):
     eq("a written empty `tags` beats deriving",
        [d["tags"] for d in cli("list")["drills"] if d["id"] == "1-max-dico"], [[]])
 
-    # A stale `id` is straightened when the file is rewritten anyway, and the
-    # old name of the field goes with it: the file ends up saying one thing.
+    # A stale `id` is straightened when the file is rewritten anyway. Nothing
+    # else moves: a field the judge does not read is not a field it deletes.
     stale = root / "3-dico-rapide" / "meta.json"
     before = json.loads(stale.read_text(encoding="utf-8"))
     eq("the stale id is still there beforehand", before["id"],
@@ -539,11 +549,12 @@ def test_update(cli, root):
     after = json.loads(stale.read_text(encoding="utf-8"))
     eq("but the file now carries the folder's name", after["id"], "3-dico-rapide")
     eq("the tags are written", after["tags"], ["complexité"])
-    ok("and `concepts` is gone, not left beside them",
-       "concepts" not in after, sorted(after))
     ok("everything the judge no longer reads is left exactly where it was",
-       (after.get("kind"), after.get("source"), after.get("difficulty"))
-       == ("written", "generated", 2), after)
+       (after.get("kind"), after.get("source"), after.get("difficulty"),
+        after.get("concepts")) == ("written", "generated", 2, ["complexité"]),
+       after)
+    ok("`difficulty` down to its own bytes",
+       '"difficulty": 2' in stale.read_text(encoding="utf-8"), "")
 
     body = cli("update", "1-max-dico", stdin="{}", expect_ok=False)
     eq("an empty spec is refused", body["error_kind"], "bad_request")
@@ -690,13 +701,14 @@ def test_scheduler_unit():
 
     log = [{"verdict": "fail", "tags": ["arbres"]},
            {"verdict": "fail", "tags": ["arbres"]},
-           {"verdict": "fail", "concepts": ["arbres"]},
+           {"verdict": "fail", "tags": ["arbres"]},
            {"verdict": "pass", "tags": ["listes"]},
            {"verdict": "pass", "tags": ["listes"]},
-           {"verdict": "pass", "concepts": ["listes"]}]
-    eq("an old line's `concepts` still counts as tags",
+           {"verdict": "pass", "tags": ["listes"]},
+           {"verdict": "pass", "concepts": ["arbres"]}]
+    eq("the weakest tag is the one that fails",
        scheduler.weakest_tags(log), ["arbres", "listes"])
-    eq("and the rate is read off both names",
+    eq("an old line's `concepts` counts for no tag",
        scheduler.tag_rates(log)["arbres"]["attempts"], 3)
     tagged = [{"id": "1-a", "number": 1, "status": "unseen", "tags": ["listes"]},
               {"id": "2-b", "number": 2, "status": "unseen", "tags": ["arbres"]}]

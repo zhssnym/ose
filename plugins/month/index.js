@@ -1,24 +1,37 @@
 // Month: three sections and nothing else. The month's goals, the systems matrix with the
 // loss each system has taken and one summary line under it, and Hassan's review. Everything
-// comes from two sources and nothing is written here:
-//   plans      <plans>/<year>/<YYYY-MM>*.md   goals, `# Systems`, `# Monthly Review`
-//   systemsLog the append-only check log
-// Both paths come from `ose.sources`, so they follow the settings; the file schema is
-// `<plans>/CLAUDE.md` and the parsers in `ose:md` match it exactly. Plan names are tolerant:
-// the year folder is listed and any file starting with the month is that month's plan, the
-// exact `2026-09.md` winning when several match. The app never creates a file there.
+// comes from one folder and nothing is written here:
+//   <reports>/<year>/<YYYY-MM>*.md   goals, `# Systems`, `# Monthly Review`
+//   <reports>/systems.jsonl          the append-only check log, derived from the same folder
+// The folder is the `reports` path and nothing here spells it; the file schema is the reports
+// folder's own README and the parsers in `../_lib/plans.js` match it exactly. Plan names are
+// tolerant: the year folder is listed and any file starting with the month is that month's plan,
+// the exact `2026-09.md` winning when several match. The app never creates a file there.
 // The cells are read-only on purpose; checking a system is a Day-view action.
 
 import { esc, loadingLine } from 'ose:ui';
 import {
-  parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies, isGapLine,
-  ymd, ym, ddmm, parseDate, sameDay, monthDays, monthName,
-  startOfMonth, addMonths, pad,
+  ymd, ym, ddmm, parseDate, sameDay, monthDays, monthName, startOfMonth, addMonths, pad,
 } from 'ose:md';
-import { navHtml, bindNav } from './nav.js';
-import { resolvePlanPath } from './plan.js';
+import {
+  parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies, isGapLine, resolvePlanPath,
+} from '../_lib/plans.js';
+import { navHtml, bindNav } from '../_lib/nav.js';
+import { pathInto } from '../_lib/view.js';
 
-let ose = null;   // the facade, from activate()
+export const name = 'Month';
+export const description = "The month's goals, the systems matrix with the loss each has taken, and the review. Read-only: checking a system is a Day action.";
+
+export const paths = {
+  reports: {
+    folder: 'reports',
+    hint: 'One folder per year holding one file per month named YYYY-MM.md, with the sections Goals, # Systems and # Monthly Review.',
+  },
+};
+
+const LOG_FILE = 'systems.jsonl';   // the check log, derived from the reports folder
+
+let ose = null;   // the plugin's own `ose`, from activate()
 
 /** A transient line in the status bar; the view always gives the slot back. */
 let flashTimer = null;
@@ -31,14 +44,12 @@ function flash(text) {
 let el = null, root = null;
 let cursor = startOfMonth(new Date());
 let plan = null, path = '', systems = [], log = { done: new Map(), first: new Map(), names: [] };
-let planDir = '', logPath = '';          // the source paths this render was built from
-let dirMissing = false, logMissing = false;
-let offSources = null, offNav = null;
+// the paths this render was built from; '' means `ose.paths` could not resolve the folder and
+// the goals box is holding the kernel's box instead
+let reportsDir = '', logPath = '';
+let logMissing = false;
+let offPaths = null, offNav = null;
 let seq = 0;   // a navigation while a read is in flight must not be overwritten by it
-
-/** A source that is not there is said out loud, with the path and where to change it. */
-const srcEmpty = (path, what = 'file') =>
-  `<div class="empty">no ${what} at ${esc(path)} · set it in settings (ctrl+,)</div>`;
 
 const $ = (sel) => el && el.querySelector(sel);
 const isDone = (s, d) => log.done.get(logKey(ymd(d), s.name)) === true;
@@ -132,7 +143,8 @@ function prose(text) {
 
 function renderGoals() {
   const box = $('#moGoals');
-  if (dirMissing) { box.innerHTML = srcEmpty(planDir, 'folder'); return; }
+  // no reports folder: the box is holding the kernel's missing panel for the whole view
+  if (!box || !reportsDir) return;
   if (!plan) { box.innerHTML = `<div class="empty">no plan file for ${esc(monthName(cursor))}</div>`; return; }
   // A month written outside the schema has its goals as plain paragraphs; they are the intro,
   // never invented into goal bullets. Show them rather than dropping them on the floor.
@@ -153,11 +165,14 @@ function renderGoals() {
 
 function renderMatrix() {
   const box = $('#moMatrix');
+  if (!box) return;
+  // the goals box carries the one missing panel; this section stays quiet rather than repeating it
+  if (!reportsDir) { box.innerHTML = ''; box.classList.add('is-empty'); return; }
   if (!systems.length) {
-    // No systems and no log: the source itself is missing, which is a different problem from
-    // a month nobody checked anything in.
+    // No systems and no log: the log itself is missing, which is a different problem from a
+    // month nobody checked anything in.
     box.innerHTML = logMissing && !plan
-      ? srcEmpty(logPath)
+      ? `<div class="empty">no check log at ${esc(logPath)}</div>`
       : `<div class="empty">no systems for ${esc(monthName(cursor))}</div>`;
     box.classList.add('is-empty');
     return;
@@ -200,6 +215,8 @@ function renderMatrix() {
 
 function renderReview() {
   const box = $('#moReview');
+  if (!box) return;
+  if (!reportsDir) { box.innerHTML = ''; return; }
   const text = plan && plan.review;
   if (!text) { box.innerHTML = '<div class="empty">not written yet</div>'; return; }
   box.innerHTML = prose(text);
@@ -209,10 +226,10 @@ function render() {
   if (!el) return;
   $('#moTitle').textContent = monthName(cursor);
   $('#moMeta').innerHTML = [
-    `<button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>`,
-    `<button type="button" class="v-link" data-path="${esc(logPath)}">${esc(logPath)}</button>`,
+    path ? `<button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>` : '',
+    logPath ? `<button type="button" class="v-link" data-path="${esc(logPath)}">${esc(logPath)}</button>` : '',
     `<span>${systems.length} system${systems.length === 1 ? '' : 's'}</span>`,
-  ].join('');
+  ].filter(Boolean).join('');
   $('[data-nav="today"]').hidden = sameDay(startOfMonth(new Date()), cursor);
   renderGoals();
   renderMatrix();
@@ -224,22 +241,32 @@ function render() {
 async function load() {
   const my = ++seq;
   const at = cursor;
+  // The folder first, into the goals box: everything on this page comes from it, so one box
+  // there says it once. Asking before the loading lines are armed keeps a timer from painting
+  // "loading…" over a box the kernel has just drawn.
+  const found = await pathInto(ose, 'reports', $('#moGoals'));
+  if (my !== seq || !el) return;
+  reportsDir = found;
+  logPath = reportsDir ? `${reportsDir}/${LOG_FILE}` : '';
+  if (!reportsDir) {
+    plan = null; path = ''; systems = []; log = { done: new Map(), first: new Map(), names: [] };
+    render();
+    return;
+  }
+
   // the three regions the reads feed say "loading…" only past a blink
   const stops = ['#moGoals', '#moMatrix', '#moReview'].map((s) => loadingLine($(s)));
   const stop = () => stops.forEach((f) => f());
   try {
-    const dir = ose.sources.get('plans');
-    const logFile = ose.sources.get('systemsLog');
-    const [hasDir, found, hasLog, logText] = await Promise.all([
-      ose.files.exists(dir),
-      resolvePlanPath(ose.files, at, dir),
-      ose.files.exists(logFile),
-      ose.files.exists(logFile).then((y) => (y ? ose.files.read(logFile) : '')),
+    const [plans, hasLog, logText] = await Promise.all([
+      resolvePlanPath(ose.files, at, reportsDir),
+      ose.files.exists(logPath),
+      ose.files.exists(logPath).then((y) => (y ? ose.files.read(logPath) : '')),
     ]);
-    const planText = found.exists ? await ose.files.read(found.path) : '';
+    const planText = plans.exists ? await ose.files.read(plans.path) : '';
     if (my !== seq || !el) return;
-    planDir = dir; path = found.path; logPath = logFile;
-    dirMissing = !hasDir; logMissing = !hasLog;
+    path = plans.path;
+    logMissing = !hasLog;
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);
     systems = systemsFor(plan, log, at);
@@ -278,7 +305,8 @@ const view = {
     root = $('#moRoot');
     el.addEventListener('click', onClick);
     offNav = bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) });
-    offSources = ose.bus.on('sources', () => load());
+    // a folder chosen or reset elsewhere is a different month to build: resolve again and re-read
+    offPaths = ose.paths.on(() => load());
     const saved = ose.state('month').get();
     cursor = (saved && parseDate(`${saved}-01`)) || startOfMonth(new Date());
     // the title needs no read: it is on screen before the data, and the keys work from the
@@ -289,7 +317,7 @@ const view = {
   },
 
   unmount() {
-    if (offSources) { offSources(); offSources = null; }
+    if (offPaths) { offPaths(); offPaths = null; }
     if (offNav) { offNav(); offNav = null; }
     clearTimeout(flashTimer); flashTimer = null;
     if (el) el.removeEventListener('click', onClick);
@@ -299,7 +327,7 @@ const view = {
   refresh() { if (el) load(); },
 };
 
-/* --------------------------------------------------------------- the module */
+/* --------------------------------------------------------------- the plugin */
 
 export async function activate(app) {
   ose = app;
@@ -308,23 +336,11 @@ export async function activate(app) {
     id: 'view.month', title: 'Month', group: 'view',
     run: () => ose.route.navigate({ type: 'view', name: 'month' }),
   });
-  // A check written by the Day view lands in the log this view draws.
-  ose.watch(() => { if (el) load(); });
-  addStyles();
+  // A check written by the Day view lands in the log this view draws. `watch(fn)` is the whole
+  // vault, so the change list is filtered against the folder that was actually resolved.
+  ose.watch((d) => {
+    if (!el) return;
+    const mine = (p) => !!p && !!reportsDir && (p === reportsDir || p.startsWith(`${reportsDir}/`));
+    if (!d || d.lost || (d.changes || []).some((c) => c && (mine(c.path) || mine(c.to)))) load();
+  });
 }
-
-export function deactivate() { removeStyles(); }
-
-/* ------------------------------------------------------------------ styles */
-
-// docs/MODULES.md rule 3: a <link> the entry adds and `deactivate` takes away, resolved
-// against the module's own folder so nothing here names an origin.
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./month.css', import.meta.url).href;
-  document.head.appendChild(sheet);
-}
-function removeStyles() { if (sheet) { sheet.remove(); sheet = null; } }

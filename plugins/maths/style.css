@@ -1,16 +1,22 @@
-/* Maths module styles: what is this module's own and nothing else.
+/* Maths plugin styles: what is this plugin's own and nothing else. The loader links this file
+ * while the plugin is active, and nothing in the plugin adds a `<link>` of its own.
  *
  * The list row, the chips, the title line, the meta line, the three bands, the option row, the
  * control band, the pane label, the error block and the path line are the shared lib's
- * (`../../lib/drills.css`). What is left here is the maths — the statement's paragraphs, the
- * option's letter, Temml's placement — and the two things only a finished series has: the
- * result block and a miss.
+ * (`../_lib/drills.css`, which the lib links itself). What is left here is the maths — the
+ * statement's paragraphs, the option's letter, Temml's placement — and the two things only a
+ * finished series has: the result block and a miss.
  *
  * Colours, fonts, sizes and spacing come from the kernel's tokens only: no hex, no bare pixel.
  * Both themes follow the tokens, so there is nothing theme-specific here. Every selector is
- * prefixed `maths-`, because a module's stylesheet is global while it is in the document
- * (MODULES.md rule 3) — except where it qualifies one of the lib's own classes.
+ * prefixed `maths-`, because a plugin's stylesheet is global while it is linked
+ * (PLUGINS.md rule 3) — except where it qualifies one of the lib's own classes.
  */
+
+/* Temml's own stylesheet: the MathML rules, no fonts (the system maths font draws it). One
+ * stylesheet is linked for a plugin, so the vendored one comes in through this import, which
+ * has to stay the first rule of the file. */
+@import './vendor/Temml-Local.css';
 
 /* ------------------------------------------------------------------- list */
 
@@ -41,7 +47,7 @@
 /* ----------------------------------------------------------- the result */
 
 /* The score is the verdict's figure now, in the lib's own `.drill-verdict` under the control
-   band — one component for "here is how you did" in both modules (Q1). This module's own
+   band — one component for "here is how you did" in both plugins (Q1). This plugin's own
    `.maths-score` face is gone with it. */
 .maths-note { color: var(--fg-3); margin: var(--sp-5) 0 0; }
 .maths-table { margin: var(--sp-4) 0 0; }
@@ -77,7 +83,7 @@
 
 /* ----------------------------------------------------------------- Temml */
 
-/* Temml's own stylesheet does the MathML; these lines are the module's, and only about where
+/* Temml's own stylesheet does the MathML; these lines are the plugin's, and only about where
    the maths sits in a line of text. No font is shipped: `math` falls to Cambria Math on Windows
    and to the platform's maths font elsewhere, which is what Temml-Local.css asks for, and the
    prose around it is the serif of the page title, so the two agree. */

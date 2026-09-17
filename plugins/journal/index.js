@@ -1,8 +1,8 @@
 // Journal: write once at the top, read the whole record underneath.
 //
-// The folder is the `journal` source, so it follows settings and the view re-reads on the
-// `sources` event. Names are tolerant per CONTRACT.md batch 5: an entry is any `YYYY-MM-DD*.md`
-// in that folder and the date always comes from the file name, never from the heading. A new
+// The folder is the `journal` path, found by `ose.paths`, and the view re-reads when that choice
+// changes. Names are tolerant: an entry is any `YYYY-MM-DD*.md` in that folder and the date
+// always comes from the file name, never from the heading. A new
 // entry is written as `YYYY-MM-DD.md` with the H1 "# YYYY-MM-DD - Journal"; a second thought the
 // same day is appended after a "---" separator to whatever file that day already has. Existing
 // text is never edited by this view; there are no edit controls at all. Older files carry a
@@ -12,14 +12,25 @@
 // box, then every entry latest first in one continuous column with the date in a 96px left
 // margin. Newest 30 days render first, the rest on scroll or a "show earlier" row.
 //
-// The record has two modes, remembered under `views.journal.mode`: `full` prints every entry,
+// The record has two modes, remembered under the `mode` state key: `full` prints every entry,
 // `compact` prints one 28px line per day (date, weekday, first line) that expands in place when
 // clicked. The writing box grows with its content without a maximum; the page scrolls, it does not.
 
 import { esc, loadingLine } from 'ose:ui';
-import { journalFileName, journalHeading, naturalCompare } from 'ose:md';
+import { naturalCompare } from 'ose:md';
+import { pathInto } from '../_lib/view.js';
 
-let ose = null;   // the facade, from activate()
+export const name = 'Journal';
+export const description = 'Write once at the top, read the whole record underneath. One file per day; the app appends and never edits.';
+
+export const paths = {
+  journal: {
+    folder: 'journal',
+    hint: 'A folder of one file per day named YYYY-MM-DD.md (anything after the date is ignored); the app appends, never edits.',
+  },
+};
+
+let ose = null;   // the plugin's own `ose`, from activate()
 
 /** A transient line in the status bar; the view always gives the slot back. */
 let flashTimer = null;
@@ -40,9 +51,6 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/** The journal folder: the `journal` source, whatever settings (or a test override) points at. */
-const dir = () => ose.sources.get('journal');
-
 /* ----------------------------------------------------------------- helpers */
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -50,6 +58,10 @@ const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDat
 const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / 86400000);
+/** The name a new entry is written under. Existing entries may be named anything. */
+const journalFileName = (d) => `${ymd(d)}.md`;
+/** The H1 a new entry opens with. */
+const journalHeading = (d) => `# ${ymd(d)} - Journal`;
 
 /** `2026-09-06.md`, `2026-09-06 - Journal.md` -> a local Date, or null when it is not dated. */
 function dateFromName(name) {
@@ -111,8 +123,7 @@ function renderThought(text) {
 
 let el = null;                    // the element the shell handed us
 let days = [];                    // [{name, path, date, year, text?, thoughts?}] newest first
-let dirPath = '';                 // the folder this listing came from
-let dirMissing = false;           // that folder is not there
+let folder = '';                  // the resolved journal folder; '' when it could not be found
 let dirError = '';                // the folder is there but listing it threw: the message
 let sig = '';                     // signature of the listing, so refresh() is cheap
 let shown = 0;                    // how many days are in the DOM
@@ -120,10 +131,10 @@ let wantFocus = false;
 let loading = false;
 let clock = null;                 // 30s tick
 let io = null;                    // sentinel observer for lazy rendering
-let offSources = null;            // the `sources` subscription, dropped on unmount
+let offPaths = null;              // the `ose.paths` subscription, dropped on unmount
 let scroller = null;              // the element that scrolls this view, watched as a fallback
 let titleYmd = '';                // the date the header is drawn for
-let mode = 'full';                // 'full' | 'compact', persisted in views.journal.mode
+let mode = 'full';                // 'full' | 'compact', persisted under the `mode` state key
 let opened = new Set();           // day names expanded while in compact mode
 
 const $ = (s) => el && el.querySelector(s);
@@ -195,16 +206,15 @@ function compactHtml(day) {
 /** Rebuild the rendered part of the record from memory. No reads, so no flicker. */
 function drawRecord() {
   const box = $('#jrRecord');
-  if (!box) return;
+  // no folder: the record is holding the kernel's missing panel, and nothing may paint over it
+  if (!box || !folder) return;
   box.classList.toggle('is-compact', mode === 'compact');
   if (!days.length) {
-    // three different problems, one line each: the folder is not there, it could not be read,
-    // or nobody has written in it yet. The line is the shared .empty of DESIGN.md.
-    box.innerHTML = `<div class="empty">${dirMissing
-      ? `no folder at ${esc(dirPath)} · set it in settings (ctrl+,)`
-      : dirError
-        ? `could not read ${esc(dirPath)}: ${esc(dirError)}`
-        : 'no entries yet'}</div>`;
+    // two different problems, one line each: the folder could not be read, or nobody has
+    // written in it yet. The line is the shared .empty of DESIGN.md.
+    box.innerHTML = `<div class="empty">${dirError
+      ? `could not read ${esc(folder)}: ${esc(dirError)}`
+      : 'no entries yet'}</div>`;
     $('#jrMore').hidden = true;
     return;
   }
@@ -274,20 +284,23 @@ function maybeMore() {
 async function load() {
   if (loading || !el) return;
   loading = true;
-  // the record says "loading…" only when the listing and the first reads outlast a blink
-  const stop = loadingLine($('#jrRecord'));
+  let stop = () => false;
   try {
-    const folder = dir();
-    // a folder that is not there and a folder that cannot be listed are two different facts,
-    // and the second one is an error worth the console
+    // the record is the part that reads the folder, so a folder that cannot be found leaves the
+    // kernel's box there; the composer above it goes quiet because there is nowhere to write
+    const found = await pathInto(ose, 'journal', $('#jrRecord'));
+    if (!el) return;
+    folder = found;
+    syncSave();
+    if (!folder) { days = []; sig = ''; shown = 0; drawHeader(); return; }
+    // the record says "loading…" only when the listing and the first reads outlast a blink
+    stop = loadingLine($('#jrRecord'));
+    // the folder resolved, so it is there; a folder that cannot be listed is a different fact,
+    // and it is an error worth the console
     let items = null;
     dirError = '';
-    if (await ose.files.exists(folder)) {
-      try { items = await ose.files.list(folder); }
-      catch (e) { console.error('[journal] list', folder, e); dirError = String(e.message || e); }
-    }
-    dirPath = folder;
-    dirMissing = items === null && !dirError;
+    try { items = await ose.files.list(folder); }
+    catch (e) { console.error('[journal] list', folder, e); dirError = String(e.message || e); }
     // any `YYYY-MM-DD*.md` is an entry; newest first, and a natural order inside one date
     const files = (items || [])
       .filter((i) => i.kind === 'file' && /\.md$/i.test(i.name) && dateFromName(i.name))
@@ -331,12 +344,12 @@ async function load() {
 
 async function save() {
   const ta = $('#jrText'), btn = $('#jrSave');
-  if (!ta) return;
+  if (!ta || !folder) return;
   const text = ta.value.trim();
   if (!text) return;
   btn.disabled = true;
   try {
-    const now = new Date(), folder = dir(), today = ymd(now);
+    const now = new Date(), today = ymd(now);
     // a second thought goes into whatever file today already has, however it is named;
     // the first one of the day creates the canonical `YYYY-MM-DD.md`
     const existing = days.find((d) => ymd(d.date) === today);
@@ -365,7 +378,7 @@ async function save() {
     }
     day.text = fresh;
     day.thoughts = parseEntry(fresh);
-    dirPath = folder; dirMissing = false; dirError = '';   // writing the file created the folder if it was gone
+    dirError = '';                // the write proves the folder is readable
     sig = '';                     // the next refresh() re-lists and re-signs
     drawHeader();
     drawRecord();
@@ -394,9 +407,10 @@ function grow(ta) {
   ta.style.height = `${Math.max(min, ta.scrollHeight + borders)}px`;
 }
 
+/** Save is live only with something written and a folder to write it into. */
 function syncSave() {
   const ta = $('#jrText'), btn = $('#jrSave');
-  if (ta && btn) btn.disabled = !ta.value.trim();
+  if (ta && btn) btn.disabled = !ta.value.trim() || !folder;
 }
 
 // own debounce, because saving must be able to cancel a pending draft write
@@ -416,7 +430,8 @@ function onClick(ev) {
     // the real file name, whatever it is called: `2026-09-03.md`, `2026-09-03 - Journal.md`, …
     const name = open.dataset.open;
     const d = days.find((x) => x.name === name);
-    ose.route.navigate({ type: 'page', path: d ? d.path : `${dir()}/${name}` });
+    const path = d ? d.path : (folder ? `${folder}/${name}` : '');
+    if (path) ose.route.navigate({ type: 'page', path });
     return;
   }
   const m = ev.target.closest('[data-mode]');
@@ -525,9 +540,8 @@ const view = {
     scroller = scrollParent(el) || window;
     scroller.addEventListener('scroll', maybeMore, { passive: true });
 
-    // the folder moved in settings (or a test pointed it elsewhere): re-list from scratch
-    offSources = ose.bus.on('sources', (e) => {
-      if (e && e.key && e.key !== 'journal') return;
+    // the folder was chosen or reset elsewhere: resolve again and re-list from scratch
+    offPaths = ose.paths.on(() => {
       days = []; sig = ''; shown = 0; opened = new Set();
       load();
     });
@@ -539,7 +553,7 @@ const view = {
   unmount() {
     clearInterval(clock); clock = null;
     clearTimeout(flashTimer); flashTimer = null;
-    if (offSources) { offSources(); offSources = null; }
+    if (offPaths) { offPaths(); offPaths = null; }
     if (io) { io.disconnect(); io = null; }
     if (scroller) { scroller.removeEventListener('scroll', maybeMore); scroller = null; }
     if (el) el.removeEventListener('click', onClick);
@@ -557,7 +571,7 @@ const view = {
   },
 };
 
-/* --------------------------------------------------------------- the module */
+/* --------------------------------------------------------------- the plugin */
 
 export async function activate(app) {
   ose = app;
@@ -566,10 +580,11 @@ export async function activate(app) {
     id: 'view.journal', title: 'Journal', group: 'view',
     run: () => ose.route.navigate({ type: 'view', name: 'journal' }),
   });
-  // The one command with a chord in the stock rice (`keys.json`: mod+shift+j): open the
-  // journal and put the caret in the box, wherever you were.
+  // The one command of this plugin with a chord (mod+shift+j): open the journal and put the
+  // caret in the box, wherever you were.
   ose.commands.register({
     id: 'journal.new', title: 'New journal entry', group: 'view',
+    shortcut: 'mod+shift+j',
     hint: 'the writing box, focused',
     run: () => {
       ose.route.navigate({ type: 'view', name: 'journal' });
@@ -580,23 +595,11 @@ export async function activate(app) {
     },
   });
   // A file written into the journal folder by anything else — an agent, an editor tab — is
-  // part of the record this view draws.
-  ose.watch(() => { if (el) load(); });
-  addStyles();
+  // part of the record this view draws. `watch(fn)` is the whole vault, so the change list is
+  // filtered against the folder that was actually resolved.
+  ose.watch((d) => {
+    if (!el) return;
+    const mine = (p) => !!p && !!folder && (p === folder || p.startsWith(`${folder}/`));
+    if (!d || d.lost || (d.changes || []).some((c) => c && (mine(c.path) || mine(c.to)))) load();
+  });
 }
-
-export function deactivate() { removeStyles(); }
-
-/* ------------------------------------------------------------------ styles */
-
-// docs/MODULES.md rule 3: a <link> the entry adds and `deactivate` takes away, resolved
-// against the module's own folder so nothing here names an origin.
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./journal.css', import.meta.url).href;
-  document.head.appendChild(sheet);
-}
-function removeStyles() { if (sheet) { sheet.remove(); sheet = null; } }

@@ -1,27 +1,47 @@
 // Day: one day, side by side. Left, the timetable for that weekday drawn 07:00 to 23:30.
 // Right, the cards — the systems that apply to the date, the tasks that belong on it, and
-// whatever any other module has registered as a tile.
+// whatever any other plugin has registered as a tile.
 //
-// Reads four sources, all of them configurable: the timetable, the month's plan (for
-// `# Systems`), the systems log, and the todo source. Writes: one appended line per system
-// check, and the exact source line of a task, in the file that task came from. The resolved
-// paths are listed under the title, so what the day is built from is never a guess.
+// Three things are asked of `ose.paths` and nothing is spelled here: the calendar, the reports
+// folder (the month's plan and, derived from it, `<reports>/systems.jsonl`) and the todo file.
+// Each part of the view asks for its own, so a day with no todo file still draws its timetable
+// and the box saying what is missing sits in the tasks card alone. Writes: one appended line per
+// system check, and the exact source line of a task, in the file that task came from.
 //
-// The right column is `ose.tiles.list()`: this module registers the two tiles that were the
-// hard-coded halves of the old Day view, and a module that registers its own appears beside
+// The right column is `ose.tiles.list()`: this plugin registers the two tiles that were the
+// hard-coded halves of the old Day view, and a plugin that registers its own appears beside
 // them in `order` (docs/KERNEL.md `ose.tiles`). Nothing else in Ose draws tiles.
 
 import { esc, loadingLine } from 'ose:ui';
+import { ymd, ddmm, dayTitle, parseDate, addDays, sameDay, dayIdx, pad, hhmm } from 'ose:md';
+import { TIMETABLE, parseTimetable } from '../_lib/timetable.js';
 import {
-  TIMETABLE, parseTimetable, parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies,
-  ymd, ddmm, dayTitle, parseDate, addDays, sameDay, dayIdx, pad, hhmm,
-} from 'ose:md';
-import { navHtml, bindNav } from './nav.js';
-import { resolvePlanPath } from './plan.js';
+  parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies, resolvePlanPath,
+} from '../_lib/plans.js';
+import { navHtml, bindNav } from '../_lib/nav.js';
+import { pathInto } from '../_lib/view.js';
 import {
-  initTasks, indexTasks, groupsForDay, taskRow, taskById, toggleTask,
-  getTaskSource, taskSourceMissing, taskFiles,
+  initTasks, setTaskPath, taskPath, indexTasks, groupsForDay, taskRow, taskById, toggleTask,
+  taskSourceMissing, taskFiles,
 } from './tasks.js';
+
+export const name = 'Day';
+export const description = 'Today: the timetable for the weekday, the systems due on the date, the tasks that belong on it, and whatever tiles other plugins add.';
+
+export const paths = {
+  calendar: {
+    file: 'calendar',
+    hint: 'One H1 per weekday (Lundi to Dimanche) and one line per block: - 08h20 à 09h15 Maths · salle 333 [maths].',
+  },
+  todo: {
+    file: 'todo',
+    hint: 'A markdown file of - [ ] items with optional 📅 due dates.',
+  },
+  reports: {
+    folder: 'reports',
+    hint: 'One folder per year holding one file per month named YYYY-MM.md, with the sections Goals, # Systems and # Monthly Review.',
+  },
+};
 
 const { START, END, HOUR_H } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -29,24 +49,24 @@ const NARROW = 900;      // main-column width below which the two columns stack
 const TIME_MIN = 40;     // px of block height before the times fit under the name
 const SUB_MIN = 72;      // and before the room or note fits under those
 const LIMIT = 8;         // rows shown per task section before "show all"
+const LOG_FILE = 'systems.jsonl';   // the check log, derived from the reports folder
 
-let ose = null;          // the facade, from activate()
+let ose = null;          // the plugin's own `ose`, from activate()
 let el = null, root = null;
 let cursor = new Date();
 let events = [], systems = [], log = { done: new Map(), first: new Map(), names: [] };
 let plan = null;
-// the source paths this render was built from, and whether each one is actually there
-let ttFile = '', plansDir = '', planFile = '', logFile = '';
-let ttMissing = false, dirMissing = false, planMissing = false;
+// the paths this render was built from; '' means `ose.paths` could not resolve that key and the
+// part that needed it is holding the kernel's box instead
+let calPath = '', reportsDir = '', planFile = '', logFile = '', todoFile = '';
+let planMissing = false;
 let expanded = new Set(), busy = false, seq = 0;
-let ro = null, tickTimer = null, offSources = null, offNav = null, offTasks = null;
+let ro = null, tickTimer = null, offPaths = null, offNav = null;
 let mountedTiles = [];   // the tile ids this view has on screen
 let sysEl = null, tasksEl = null;   // the boxes the two own tiles drew into
 
 /** Every empty, missing and loading message is the one `.empty` line of DESIGN.md. */
 const note = (text) => `<div class="empty">${text}</div>`;
-/** A source that is not there is said out loud, with the path and where to change it. */
-const srcNote = (path, what = 'file') => note(`no ${what} at ${esc(path)} · set it in settings (ctrl+,)`);
 
 const $ = (sel) => el && el.querySelector(sel);
 const isDone = (name, d) => log.done.get(logKey(ymd(d), name)) === true;
@@ -87,7 +107,8 @@ function skeleton() {
 
 function renderTimeline() {
   const box = $('#dyTl');
-  if (!box) return;
+  // no calendar: the box is holding the kernel's missing panel, and nothing may paint over it
+  if (!box || !calPath) return;
   const d = dayIdx(cursor);
   const list = events.filter((e) => e.d === d);
   const out = ['<div class="dy-times">'];
@@ -111,9 +132,7 @@ function renderTimeline() {
   box.innerHTML = out.join('');
   if (!list.length) {
     // the same .empty line as everywhere else; .dy-tl-empty only spans it across both columns
-    box.insertAdjacentHTML('beforeend', `<div class="dy-tl-empty empty">${ttMissing
-      ? `no file at ${esc(ttFile)} · set it in settings (ctrl+,)`
-      : 'nothing in the timetable for this day'}</div>`);
+    box.insertAdjacentHTML('beforeend', '<div class="dy-tl-empty empty">nothing in the timetable for this day</div>');
   }
   tick();
 }
@@ -177,9 +196,9 @@ function unmountTiles() {
 
 function renderSystems() {
   const box = sysEl;
-  if (!box) return;
+  // no reports folder: the card is holding the kernel's missing panel
+  if (!box || !reportsDir) return;
   const list = systems.filter((s) => applies(s, cursor));
-  if (dirMissing) { box.innerHTML = srcNote(plansDir, 'folder'); return; }
   if (!list.length) {
     // no systems at all and no plan for the month is a different thing from a rest day
     box.innerHTML = (!systems.length && planMissing)
@@ -205,7 +224,7 @@ function renderSystems() {
 }
 
 async function toggleSystem(name) {
-  if (busy) return;
+  if (busy || !logFile) return;
   busy = true;
   const date = ymd(cursor), k = logKey(date, name);
   const prev = log.done.get(k);
@@ -253,8 +272,10 @@ function group(g) {
 
 function renderTasks() {
   const box = tasksEl;
-  if (!box) return;
-  if (taskSourceMissing()) { box.innerHTML = srcNote(getTaskSource(), 'todo source'); return; }
+  // no todo file: the card is holding the kernel's missing panel
+  if (!box || !todoFile) return;
+  // the path resolved and then the file went away between the resolve and the read
+  if (taskSourceMissing()) { box.innerHTML = note(`nothing to read at ${esc(taskPath())}`); return; }
   const out = groupsForDay(cursor).map(group).join('');
   box.innerHTML = out || note('nothing due, nothing late');
 }
@@ -279,22 +300,23 @@ async function onToggleTask(id) {
 
 /**
  * The files this day was actually built from, in the order it reads them: the resolved plan
- * file rather than the folder it sits in, and one entry per task list rather than the todo
- * folder. Redrawn again once the task index resolves, since that is what names the lists.
+ * file rather than the folder it sits in, and the todo file rather than the key that named it.
+ * A path `ose.paths` could not resolve is simply not there. Redrawn again once the task index
+ * resolves, since that is what names the file it read.
  */
 function renderMeta() {
   const box = $('#dyMeta');
   if (!box) return;
   const files = taskFiles();
-  box.innerHTML = [ttFile, planFile, logFile, ...(files.length ? files : [getTaskSource()])]
+  box.innerHTML = [calPath, planFile, logFile, ...(files.length ? files : [todoFile])]
     .filter(Boolean)
     .map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`).join('');
 }
 
 /**
- * Everything the five reads feed. The tasks box is left out on the first pass of a load, since
- * the index resolves after it: drawing it from the previous index and again a moment later
- * would be a flash of the wrong list.
+ * Everything the reads feed. The tasks box is left out on the first pass of a load, since the
+ * index resolves after it: drawing it from the previous index and again a moment later would be
+ * a flash of the wrong list.
  */
 function render({ tasks = true } = {}) {
   if (!el) return;
@@ -311,26 +333,36 @@ function render({ tasks = true } = {}) {
 async function load() {
   const my = ++seq;
   const at = cursor;
-  const tt = ose.sources.get('timetable');
-  const dir = ose.sources.get('plans');
-  const logPath = ose.sources.get('systemsLog');
+  // The paths first, each into the part that needs it: a key that cannot be resolved leaves the
+  // kernel's box in that part alone and the other two carry on. Asking before the loading lines
+  // are armed keeps a timer from painting "loading…" over a box the kernel has just drawn.
+  const [cal, reports, todo] = await Promise.all([
+    pathInto(ose, 'calendar', $('#dyTl')),
+    pathInto(ose, 'reports', sysEl),
+    pathInto(ose, 'todo', tasksEl),
+  ]);
+  if (my !== seq || !el) return;
+  calPath = cal; reportsDir = reports; todoFile = todo;
+  logFile = reportsDir ? `${reportsDir}/${LOG_FILE}` : '';
+  setTaskPath(todoFile);
+
   // each region says "loading…" only if its reads take longer than a blink; a fast reload keeps
   // the previous day on screen until the new one replaces it
-  const stopTl = loadingLine($('#dyTl')), stopSys = loadingLine(sysEl), stopTasks = loadingLine(tasksEl);
+  const stopTl = loadingLine(calPath ? $('#dyTl') : null);
+  const stopSys = loadingLine(reportsDir ? sysEl : null);
+  const stopTasks = loadingLine(todoFile ? tasksEl : null);
   try {
-    // the month's file is found by listing `<plans>/<year>/`: names after the date are free
-    const [hasTt, ttText, hasDir, found, logText] = await Promise.all([
-      ose.files.exists(tt),
-      ose.files.exists(tt).then((y) => (y ? ose.files.read(tt) : '')),
-      ose.files.exists(dir),
-      resolvePlanPath(ose.files, at, dir),
-      ose.files.exists(logPath).then((y) => (y ? ose.files.read(logPath) : '')),
+    // the month's file is found by listing `<reports>/<year>/`: names after the date are free
+    const [ttText, found, logText] = await Promise.all([
+      calPath ? ose.files.read(calPath) : '',
+      reportsDir ? resolvePlanPath(ose.files, at, reportsDir) : { path: '', dir: '', exists: false },
+      logFile ? ose.files.exists(logFile).then((y) => (y ? ose.files.read(logFile) : '')) : '',
     ]);
     const planText = found.exists ? await ose.files.read(found.path) : '';
     if (my !== seq || !el) return;
-    ttFile = tt; plansDir = dir; planFile = found.path; logFile = logPath;
-    ttMissing = !hasTt; dirMissing = !hasDir; planMissing = !found.exists;
-    events = parseTimetable(ttText);
+    planFile = found.path;
+    planMissing = !!reportsDir && !found.exists;
+    events = calPath ? parseTimetable(ttText) : [];
     plan = planText ? parseMonthlyPlan(planText) : null;
     log = parseSystemsLog(logText);
     systems = systemsFor(plan, log, at);
@@ -348,6 +380,12 @@ async function load() {
     stopTl(); stopSys(); stopTasks();
   }
 }
+
+/** The paths this view reads, so a change anywhere else in the vault costs it nothing. */
+const watched = () => [calPath, reportsDir, todoFile].filter(Boolean);
+const under = (p, root) => !!p && (p === root || p.startsWith(`${root}/`));
+const mine = (d) => !d || d.lost
+  || (d.changes || []).some((c) => c && watched().some((r) => under(c.path, r) || under(c.to, r)));
 
 /* ------------------------------------------------------------- interaction */
 
@@ -401,7 +439,8 @@ const view = {
     ro = new ResizeObserver((entries) => fit(entries[0].contentRect.width));
     ro.observe(el);
 
-    offSources = ose.bus.on('sources', () => load());
+    // a path chosen or reset elsewhere is a different day to build: resolve again and re-read
+    offPaths = ose.paths.on(() => load());
     const saved = ose.state('date').get();
     if (!el) return;
     cursor = (saved && parseDate(saved)) || new Date();
@@ -415,7 +454,7 @@ const view = {
   },
 
   unmount() {
-    if (offSources) { offSources(); offSources = null; }
+    if (offPaths) { offPaths(); offPaths = null; }
     if (offNav) { offNav(); offNav = null; }
     if (ro) { ro.disconnect(); ro = null; }
     clearInterval(tickTimer); tickTimer = null;
@@ -428,11 +467,11 @@ const view = {
   refresh() { if (el) load(); },
 };
 
-/* --------------------------------------------------------------- the module */
+/* --------------------------------------------------------------- the plugin */
 
 export async function activate(app) {
   ose = app;
-  offTasks = initTasks(app);
+  initTasks(app);
 
   ose.views.register('day', view);
   ose.commands.register({
@@ -440,8 +479,8 @@ export async function activate(app) {
     run: () => ose.route.navigate({ type: 'view', name: 'day' }),
   });
 
-  // The two halves of the old Day view, now tiles like any other module's — same markup, same
-  // look, and a module's tile takes its place beside them by registering one.
+  // The two halves of the old Day view, now tiles like any other plugin's — same markup, same
+  // look, and a plugin's tile takes its place beside them by registering one.
   ose.tiles.register({
     id: 'day.systems', title: 'systems', order: 10,
     render: (box) => { sysEl = box; renderSystems(); return { refresh: renderSystems, unmount: () => { if (sysEl === box) sysEl = null; } }; },
@@ -451,28 +490,7 @@ export async function activate(app) {
     render: (box) => { tasksEl = box; box.classList.add('dy-tasks'); renderTasks(); return { refresh: renderTasks, unmount: () => { if (tasksEl === box) tasksEl = null; } }; },
   });
 
-  // The vault changing under the view is the same thing as the day changing: re-read.
-  ose.watch(() => { if (el) load(); });
-
-  addStyles();
+  // One of the three things this view reads changing on disk is the same thing as the day
+  // changing: re-read. Anything else in the vault is none of its business.
+  ose.watch((d) => { if (el && mine(d)) load(); });
 }
-
-export function deactivate() {
-  if (offTasks) { offTasks(); offTasks = null; }
-  removeStyles();
-}
-
-/* ------------------------------------------------------------------ styles */
-
-// docs/MODULES.md rule 3: a stylesheet is a <link> the entry adds and `deactivate` takes away.
-// `import.meta.url` is this file, so the href resolves against the module folder in the host
-// and in the browser dev server alike, and nothing here names an origin.
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./day.css', import.meta.url).href;
-  document.head.appendChild(sheet);
-}
-function removeStyles() { if (sheet) { sheet.remove(); sheet = null; } }

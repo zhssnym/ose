@@ -4,7 +4,7 @@
        { "1-recherche-dictionnaire-temps-constant": 117 }
 
    Beside the data and not in `.ose/state.json` (ADV-U, ADV-T): the files are the database, a
-   module's numbers belong next to the files they describe, and the kernel's state file is for
+   plugin's numbers belong next to the files they describe, and the kernel's state file is for
    the editor. It was in `.ose/state.json` under a doubled key, another reviewer's probe wiped
    it, and with it every drill's time.
 

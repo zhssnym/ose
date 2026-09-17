@@ -1,27 +1,34 @@
-/* The module's own small context: the facade `activate` was handed, the vault root, and the
-   folder this module is served from. Every other file reads it from here instead of taking
-   `ose` as an argument everywhere.
+/* The plugin's own small context: the `ose` `activate` was handed, the vault root, and the
+   series folder once something has resolved it. Every other file reads it from here instead of
+   taking `ose` as an argument everywhere.
 
-   The data root is `module.json`'s and nothing else. It used to be a settings field whose own
-   note admitted that typing anything but the manifest's value gave you a module that could
-   read nothing (ADV-B); the field, the section and the override are gone. */
+   The folder is spelled nowhere (PLUGINS.md rule 2). It is what `ose.paths` answers for the key
+   `series`, asked for when a view or a route mounts: `null` means the vault does not say where
+   the series are, and the box that says so is drawn in the element the view hands over. It used
+   to be a constant in this file, and before that a settings field whose own note admitted that
+   typing anything but the manifest's value gave you a plugin that could read nothing (ADV-B). */
 
 export const ctx = {
-  ose: null,          // the facade from activate(ose), scoped by module.json
+  ose: null,          // the ose from activate(ose)
   vaultRoot: '',      // absolute, from ose.vault.info()
-  moduleDir: '',      // vault-relative folder of this module
+  dataRoot: null,     // the series folder, vault-relative, or null while nothing has resolved it
 }
 
-/* `module.json`'s `data[0]`. The manifest is the permission, so it is also the path. */
-export const DATA_ROOT = '2-learning/1-school/1-math/1-drills'
-export const DEFAULT_MODULE_DIR = '.ose/app/modules/maths'
+/* The plugin's own dotfolder, inside the folder whose data it describes (PLUGINS.md rule 2).
+   Everything the plugin writes lives in it: the log, the state, the bilan, the results. */
+export const DOT = '.math'
 
-/* The module's own dotfolder, beside the data it describes (MODULES.md rule 2). */
-export const DOT = '.drills'
-
-/** What the module reads and writes. One field, from the manifest. */
-export function conf() {
-  return { dataRoot: DATA_ROOT }
+/**
+ * The series folder, asked of `ose.paths` rather than remembered, because the owner can point
+ * the plugin at another one at any moment. With `el`, a `null` also draws the standard box into
+ * it: what is missing, the hint, and Choose. Hand it an element with nothing in it.
+ */
+export async function requireRoot(el) {
+  const found = el
+    ? await ctx.ose.paths.get('series', { el })
+    : await ctx.ose.paths.get('series')
+  ctx.dataRoot = found || null
+  return ctx.dataRoot
 }
 
 /**
@@ -35,10 +42,12 @@ export function native(path) {
     : text.replace(/\\/g, '/')
 }
 
-/** A path under the data root, vault-relative, for ose.files. */
+/** A path under the series folder, vault-relative, for ose.files. */
 export function vaultPath(relative) {
+  const root = ctx.dataRoot
+  if (!root) throw new Error('the series folder has not been resolved')
   const tail = String(relative || '').replace(/^\/+/, '')
-  return tail ? DATA_ROOT + '/' + tail : DATA_ROOT
+  return tail ? root + '/' + tail : root
 }
 
 /** The same path, absolute and native, for the quiet line at the foot of a page. */
@@ -47,6 +56,9 @@ export function absPath(relative) {
   return native(root + '/' + vaultPath(relative))
 }
 
-/* The paths the module navigates to, as vault paths. */
-export const seriePath = (serie) => vaultPath(`${serie}/serie.md`)
-export const resultatPath = (serie) => vaultPath(`${serie}/resultat.md`)
+/* One series is one file, and what the plugin writes about it goes in the dotfolder beside it.
+   The names are here, once; the folder under them is the only thing that moves. */
+export const serieFile = (id) => `${id}.md`
+export const resultatFile = (id) => `${DOT}/${id}-resultat.md`
+export const seriePath = (id) => vaultPath(serieFile(id))
+export const resultatPath = (id) => vaultPath(resultatFile(id))

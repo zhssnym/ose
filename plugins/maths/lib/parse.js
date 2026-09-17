@@ -1,6 +1,6 @@
-/* `serie.md`, the grammar of work/briefs/FORMAT-drills.md, parsed strictly.
+/* A series file, the grammar of work/briefs/FORMAT-drills.md, parsed strictly.
  *
- * Strict means: the module refuses a file that deviates and names the line. It never rewrites
+ * Strict means: the plugin refuses a file that deviates and names the line. It never rewrites
  * the file and never guesses what was meant — a series that does not parse has no start
  * button and a list of errors with line numbers, which is the fastest way for the generator
  * to be told what it got wrong.

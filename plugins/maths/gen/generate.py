@@ -2,15 +2,16 @@
 # -*- coding: utf-8 -*-
 """Générateur de séries d'automatismes de calcul.
 
-Python 3, bibliothèque standard seulement. Le module ne lance jamais ce script :
+Python 3, bibliothèque standard seulement. Le plugin ne lance jamais ce script :
 c'est un outil de bureau, lancé à la main (ou par un agent) tous les quelques jours.
+Une série est un fichier : <dossier>/serie-NN.md.
 
-    python generate.py --out <dossier 1-drills> --serie 2 --date 2026-09-16 \
+    python generate.py --out <dossier des séries> --serie 2 --date 2026-09-16 \
         --count 70 --seed 2 \
         --weights puissances=16,suites=18,signes-inegalites=14,\
 developpement-factorisation=12,fractions=10
 
-    python generate.py --check <dossier>/serie-02/serie.md
+    python generate.py --check <dossier>/serie-02.md
 
 Chaque question sort d'un gabarit à paramètres tirés au sort ; la bonne réponse est
 calculée, jamais écrite à la main, et les trois distracteurs sont les erreurs réelles
@@ -1600,14 +1601,14 @@ def lire_poids(txt):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Générateur de séries d'automatismes")
-    ap.add_argument("--out", help="le dossier 1-drills où écrire serie-NN/serie.md")
+    ap.add_argument("--out", help="le dossier des séries où écrire serie-NN.md")
     ap.add_argument("--serie", type=int, help="le numéro de la série")
     ap.add_argument("--date", help="AAAA-MM-JJ")
     ap.add_argument("--count", type=int, default=70, help="nombre de questions (défaut 70)")
     ap.add_argument("--duree", type=int, default=25, help="durée en minutes (défaut 25)")
     ap.add_argument("--seed", type=int, help="graine ; à défaut, le numéro de la série")
     ap.add_argument("--weights", help="famille=poids,famille=poids")
-    ap.add_argument("--check", help="vérifier un serie.md et sortir")
+    ap.add_argument("--check", help="vérifier une série et sortir")
     ap.add_argument("--list-templates", action="store_true", help="lister les gabarits")
     a = ap.parse_args(argv)
 
@@ -1642,9 +1643,8 @@ def main(argv=None):
 
     questions = fabriquer(a.count, poids, seed)
     texte = rendre(a.serie, a.date, a.duree, questions)
-    dossier = Path(a.out) / ("serie-%02d" % a.serie)
-    dossier.mkdir(parents=True, exist_ok=True)
-    cible = dossier / "serie.md"
+    cible = Path(a.out) / ("serie-%02d.md" % a.serie)
+    cible.parent.mkdir(parents=True, exist_ok=True)
     with open(cible, "w", encoding="utf-8", newline="\n") as f:
         f.write(texte)
 

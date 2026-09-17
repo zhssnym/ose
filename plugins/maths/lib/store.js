@@ -1,9 +1,9 @@
-/* Every read and every write the drills do, over `ose.files`, scoped by `module.json`'s
-   `data`. The bytes are FORMAT-drills.md's.
+/* Every read and every write the drills do, over `ose.files`, under the folder `ose.paths`
+   answered for `series`. The bytes are FORMAT-drills.md's.
 
    There used to be an adapter, a host and a re-export barrel between this file and `ose.files`
    — a port for a portal that has no code, twenty-four of whose thirty-nine exports were dead
-   (ADV-B). They are gone; this is the one file in the module that spells a vault path.
+   (ADV-B). They are gone; this file builds every path it uses from `lib/ctx.js`.
 
    **Every write goes through one promise chain** (`serial`). Two writes of `state.json` that
    overlap raced the host's atomic rename and left a `.state.json.NNN.tmp` orphan in the vault
@@ -12,17 +12,17 @@
    orphans a previous version left behind. */
 
 import { parseSerie } from './parse.js'
-import { ctx, DOT, vaultPath } from './ctx.js'
-import { median, duration } from '../../../lib/drills.js'
+import { ctx, DOT, vaultPath, serieFile, resultatFile } from './ctx.js'
+import { median, duration } from '../../_lib/drills.js'
 import { think, frenchDate } from './fmt.js'
 
 export const LOG = `${DOT}/log.jsonl`
 export const STATE = `${DOT}/state.json`
 export const BILAN = `${DOT}/bilan.md`
-export const serieFile = (id) => `${id}/serie.md`
-export const resultatFile = (id) => `${id}/resultat.md`
 
-const SERIE_DIR = /^serie-\d+$/
+/* A series is a file, and its name is its id. `README.md` and `erreurs.md` sit in the same
+   folder and are the owner's own: nothing here lists them and nothing here writes to them. */
+const SERIE_FILE = /^serie-\d+\.md$/
 
 /** The exact bytes of `state.json`. */
 export const stateText = (state) => JSON.stringify({
@@ -48,17 +48,17 @@ function serial(fn) {
 
 /* ---------------------------------------------------------------- reading */
 
-/** Every series folder, in name order. */
+/** Every series id, in name order. The id of `serie-02.md` is `serie-02`. */
 export async function listSeries() {
   let rows = []
   try { rows = await files().list(vaultPath('')) } catch { return [] }
   return rows
-    .filter(r => r.kind === 'dir' && SERIE_DIR.test(r.name))
-    .map(r => r.name)
+    .filter(r => r.kind === 'file' && SERIE_FILE.test(r.name))
+    .map(r => r.name.replace(/\.md$/, ''))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 }
 
-/** One series read and parsed. `missing` when the folder holds no `serie.md`. */
+/** One series read and parsed. `missing` when the file is gone since it was listed. */
 export async function readSerie(id) {
   let body = null
   try { body = await files().read(vaultPath(serieFile(id))) } catch { body = null }
@@ -110,7 +110,7 @@ export async function readAll() {
   const series = []
   for (const id of ids) {
     const serie = await readSerie(id)
-    // The row menu offers `Open resultat.md` only when there is one to open: a menu item that
+    // The row menu offers the result file only when there is one to open: a menu item that
     // opens an empty page is a second door to nothing.
     try { serie.hasResultat = await files().exists(vaultPath(resultatFile(id))) }
     catch { serie.hasResultat = false }
@@ -160,9 +160,9 @@ export function appendLog(entry) {
 }
 
 /**
- * What a completed session does to `state.json`, `bilan.md` and `resultat.md`. The first
+ * What a completed session does to `state.json`, `bilan.md` and the result file. The first
  * attempt fills the row; a redo only bumps `tentatives`, because the row keeps the first
- * attempt's numbers, and `resultat.md` is never rewritten.
+ * attempt's numbers, and the result file is never rewritten.
  */
 export async function record(id, summary, today) {
   const first = await serial(async () => {
@@ -244,7 +244,7 @@ export async function writeBilan() {
   const out = []
   out.push('# Bilan des automatismes')
   out.push('')
-  out.push(`Écrit par le module Maths le ${frenchDate()}. Fenêtre : ${last.length ? last.join(', ') : 'aucune série'}.`)
+  out.push(`Écrit par le plugin Maths le ${frenchDate()}. Fenêtre : ${last.length ? last.join(', ') : 'aucune série'}.`)
   out.push('')
   out.push('| famille | médiane | tendance | justes | total | précision |')
   out.push('| --- | --- | --- | --- | --- | --- |')
@@ -273,8 +273,9 @@ const byNumber = (a, b) =>
   String(a.serie).localeCompare(String(b.serie), undefined, { numeric: true }) || a.n - b.n
 
 /**
- * `serie-NN/resultat.md`, written once, for the first attempt only. A second attempt leaves
- * the file alone, the way the row keeps the first attempt's numbers.
+ * `.math/serie-NN-resultat.md`, written once, for the first attempt only. A second attempt
+ * leaves the file alone, the way the row keeps the first attempt's numbers. It is the plugin's
+ * own writing, so it lives in the plugin's own folder, beside the log and the state.
  */
 export function writeResultat(id, summary) {
   const out = []
@@ -308,5 +309,5 @@ export async function sweepTemp() {
       if (row.kind !== 'file' || !/^\..+\.tmp$/.test(row.name)) continue
       try { await files().trash(vaultPath(`${DOT}/${row.name}`)) } catch { /* it is gone */ }
     }
-  } catch { /* no .drills yet */ }
+  } catch { /* no .math yet */ }
 }

@@ -1,9 +1,8 @@
 // The period navigation of a chronological view: the `‹ today ›` group, and the keys that
-// drive it. DOM and listeners only; nothing here touches a hose.
+// drive it. DOM and listeners only; nothing here touches the vault.
 //
-// A module may not import another module (docs/MODULES.md rule 1), so the month view carries
-// the same forty lines. That is the price of a module being a folder you can copy out of the
-// rice and into another vault, and it is the right price.
+// Day and Month had the same forty lines each, byte for byte. A plugin may not import another
+// plugin, so the copy that stays is this one.
 
 import { esc } from 'ose:ui';
 

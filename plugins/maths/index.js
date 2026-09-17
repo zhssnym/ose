@@ -1,10 +1,10 @@
-/* Maths — an Ose module (docs/MODULES.md).
+/* Maths — an Ose plugin (docs/PLUGINS.md).
  *
- * Daily calculation drills. One series a day, one folder per series under
- * `2-learning/1-school/1-math/1-drills`, seventy questions, twenty-five minutes, four options
- * hidden behind one control. The generator writes the series; this module runs them, times
- * them, logs every answer as it is given and writes the three reports the next generation
- * reads. It starts no process, ever (`run: []`).
+ * Daily calculation drills. One series a day, one markdown file per series in the folder
+ * `ose.paths` answers for `series`, seventy questions, twenty-five minutes, four options hidden
+ * behind one control. The generator writes the series; this plugin runs them, times them, logs
+ * every answer as it is given and writes the three reports the next generation reads. It starts
+ * no process, ever.
  *
  * Two commands, because two things happen here: open the list, and start the day's series.
  * `maths.reveal`, `maths.pause` and `maths.bilan` are gone — the first two duplicated Space and
@@ -12,29 +12,34 @@
  * and the path line already reach (ADV-B).
  *
  * The furniture — the list row, the chips, the clock, the bands, the verdict, the error box,
- * the path line — is the rice's own `lib/drills.js`, shared with Informatique. This module
- * draws what is its own: the grammar, the maths, the session and the reports.
+ * the path line — is `../_lib/drills.js`, shared with the nsi plugin. This one draws what is its
+ * own: the grammar, the maths, the session and the reports.
  */
 
 import { toast } from 'ose:ui'
-import { h, ensureStylesheet } from '../../lib/drills.js'
+import { ensureStylesheet } from '../_lib/drills.js'
 
-import { ctx, DEFAULT_MODULE_DIR, DATA_ROOT } from './lib/ctx.js'
+import { ctx, requireRoot } from './lib/ctx.js'
 import { readAll, readState, sweepTemp } from './lib/store.js'
 import { mountIndex, refreshIndex } from './lib/index-view.js'
 import { mountSerie, openSerie, requestStart, activePage } from './lib/serie.js'
 
-let styleLinks = []
+export const name = 'Maths'
+export const description = 'Calculation drills: one series a day, timed, with a thinking-time curve.'
+
+/* Where the series are. The plugin writes nothing outside this folder and its `.math/`. */
+export const paths = {
+  series: { folder: 'math', hint: 'One markdown file per series, named serie-NN.md.' },
+}
+
 let pending = null
+let offPaths = null
 
 export async function activate(ose) {
   ctx.ose = ose
-  ctx.moduleDir = moduleDirFromUrl()
   const info = await ose.vault.info()
   ctx.vaultRoot = (info && info.root) || ''
   ensureStylesheet()
-  addStylesheets()
-  void sweepTemp()
 
   const command = (id, title, run, shortcut) => {
     ose.commands.register({ id, title, group: 'Maths', shortcut, run })
@@ -48,43 +53,60 @@ export async function activate(ose) {
 
   ose.views.register('maths', { title: 'Maths', order: 50, icon: 'tasks', mount: mountIndex })
 
-  // A series name is one segment (`serie-02`), so one pattern covers every route this module
-  // owns, and it is the one module.json declares.
+  // A series id is one segment (`serie-02`), so one pattern covers every route this plugin owns.
   ose.route.own('maths/*', mountSerie)
   ose.route.index('maths/*', () => cache.map(s => ({
     path: 'maths/' + s.id,
     title: s.n ? `Série ${s.n}` : s.id,
   })))
 
-  ose.watch([DATA_ROOT], () => {
+  // The folder is not known here: a view or a route resolves it, the owner can point the plugin
+  // at another one, and until there is one the folder itself is what we are waiting for. So the
+  // watch is the vault's and the filter is the folder of the moment.
+  ose.watch(({ changes }) => {
+    const root = ctx.dataRoot
+    if (root && !changes.some(c => under(root, c.path) || under(root, c.to))) return
     clearTimeout(pending)
     pending = setTimeout(() => { void warm(); refreshIndex() }, 300)
   })
+
+  // A folder chosen by hand moves everything at once. The kernel mounts the route on screen
+  // again; the list of series behind quick open is ours to redo.
+  offPaths = ose.paths.on(() => { void warm(); refreshIndex() })
 
   void warm()
 }
 
 export function deactivate() {
   // The debounce outlived `deactivate`, so a tick landing inside 300 ms of a vault change ran
-  // against a facade that was already null (ADV-T).
+  // against an `ose` that was already null (ADV-T).
   clearTimeout(pending)
   pending = null
-  for (const link of styleLinks) if (link.parentNode) link.parentNode.removeChild(link)
-  styleLinks = []
-  // `drills.css` stays: the lib is shared, and the last module to deactivate cannot know
-  // whether the other one is still on screen.
+  // The watch is taken back with the plugin's other registrations; this subscription is not one
+  // of them (PLUGINS.md), so it is undone here.
+  if (offPaths) { offPaths(); offPaths = null }
+  // `drills.css` stays: the lib is shared, and the last plugin to deactivate cannot know whether
+  // the other one is still on screen. `style.css` is the loader's to unlink, not ours.
   ctx.ose = null
 }
 
 /* ------------------------------------------------------------------ parts */
 
-/* Quick open asks synchronously, so it is answered from the last listing. */
+const under = (root, path) => !!path && (path === root || String(path).startsWith(root + '/'))
+
+/* Quick open asks synchronously, so it is answered from the last listing. The folder is asked
+   for again every time: this runs at boot, when the vault changes and after a Choose, and any
+   of those can be the moment the folder appears. */
 let cache = []
+let swept = null
 let warming = null
 function warm() {
   if (warming) return warming
-  warming = readAll()
-    .then(body => { cache = body.series })
+  warming = (async () => {
+    const root = await requireRoot()
+    if (root && root !== swept) { swept = root; void sweepTemp() }
+    cache = root ? (await readAll()).series : []
+  })()
     .catch(() => null)
     .finally(() => { warming = null })
   return warming
@@ -110,6 +132,9 @@ function warm() {
  *   3. anywhere else — go to the series in progress, or to the first that is not done, and
  *      start it. That is the command's whole job.
  *
+ * With no folder resolved there is nothing to start: the list is where the box that says so is
+ * drawn, so the command goes there.
+ *
  * The read takes a moment, and the user is allowed to go elsewhere in that moment: the route is
  * compared before and after, and a route that moved is left alone. It used to yank the user off
  * the page he had moved to, three seconds later (ADV-T).
@@ -118,22 +143,26 @@ async function startNext() {
   if (activePage && activePage.live) { activePage.focusSession(); return }   // 1
   const before = routeKey(ctx.ose.route.current())
   try {
+    if (!await requireRoot()) {
+      ctx.ose.route.navigate({ type: 'view', name: 'maths' })
+      return
+    }
     const state = await readState()
     const going = state.en_cours && state.en_cours.serie ? state.en_cours.serie : null
-    let name = going
-    if (!name) {
+    let id = going
+    if (!id) {
       const { series } = await readAll()
       const next = series.find(s => s.ok && ((state.series || {})[s.id] || {}).statut !== 'fait')
       if (!next) { toast('Maths: every series is done'); return }
-      name = next.id
+      id = next.id
     }
     if (routeKey(ctx.ose.route.current()) !== before) return
     const page = activePage
     if (page && page.live) { page.focusSession(); return }                   // 1, after the read
     if (going && page && page.name !== going && page.focusDoor()) return      // 2
-    requestStart(name)
-    if (page && page.name === name) await page.load()                        // 3
-    else await openSerie(name)
+    requestStart(id)
+    if (page && page.name === id) await page.load()                          // 3
+    else await openSerie(id)
   } catch (err) {
     toast('Maths: ' + ((err && err.message) || err), 'err')
   }
@@ -141,38 +170,3 @@ async function startNext() {
 
 const routeKey = (route) =>
   !route ? '' : `${route.type || ''}:${route.path || route.name || ''}`
-
-/**
- * Two stylesheets, both from this module's own folder: Temml's (the MathML rules, no fonts —
- * the system maths font draws it) and the module's own. `import './maths.css'` is not a thing
- * in a rice with no bundler, so they are `<link>`s the entry adds and `deactivate` takes away
- * (MODULES.md rule 3). `import.meta.url` spells no origin.
- */
-function addStylesheets() {
-  if (styleLinks.length) return
-  for (const name of ['./vendor/Temml-Local.css', './maths.css']) {
-    const link = h('link', { rel: 'stylesheet' })
-    link.dataset.module = 'maths'
-    link.href = new URL(name, import.meta.url).href
-    document.head.appendChild(link)
-    styleLinks.push(link)
-  }
-}
-
-/**
- * Where this module's files are, vault-relative.
- * `app://localhost/modules/maths/index.js` (the host) and
- * `/…/work/vault/.ose/app/modules/maths/index.js` (a dev server serving the rice)
- * both answer `.ose/app/modules/maths`.
- */
-function moduleDirFromUrl() {
-  try {
-    const dir = new URL(import.meta.url).pathname.replace(/\/[^/]*$/, '')
-    const at = dir.lastIndexOf('/.ose/app/')
-    if (at >= 0) return '.ose/app' + dir.slice(at + '/.ose/app'.length)
-    const tail = dir.replace(/^\/+/, '').replace(/\/+$/, '')
-    return tail ? '.ose/app/' + tail : DEFAULT_MODULE_DIR
-  } catch {
-    return DEFAULT_MODULE_DIR
-  }
-}

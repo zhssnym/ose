@@ -1,94 +1,75 @@
-// The task index of the Day module. One source: the `todo` key, whatever settings points it
-// at. Since batch 5 that source is either a folder, in which case every `*.md` directly inside
-// it is one task list, or a single markdown file, which is one unlabelled list. The files are
-// read on demand and again after the bridge reports a change under that path, so there is no
-// vault walk, no search narrowing and no per-file mtime cache. Nesting in a file (`  - [ ]`
-// under a parent item) is kept as indentation on the row. Toggling rewrites the exact source
-// line of the file the task came from, after checking it has not moved, and nothing else.
+// The task index of the Day plugin. One source: the `todo` path, one markdown file, whatever
+// `ose.paths` resolved it to. It is read on demand and again after the host reports a change to
+// it, so there is no vault walk, no search narrowing and no per-file mtime cache. Nesting in the
+// file (`  - [ ]` under a parent item) is kept as indentation on the row. Toggling rewrites the
+// exact source line, after checking it has not moved, and nothing else.
 
 import { esc } from 'ose:ui';
-import { parseTasks, toggleTaskLine, firstH1, naturalCompare, ymd, PRIORITY_RANK } from 'ose:md';
+import { ymd } from 'ose:md';
+import { parseTasks, toggleTaskLine, PRIORITY_RANK } from '../_lib/tasks.js';
 
-// The module's facade, handed over by `activate` before anything here runs.
+// The plugin's `ose`, handed over by `activate` before anything here runs.
 let ose = null;
 export function initTasks(app) {
   ose = app;
-  // Two subscriptions for the life of the module: the index cares about its own files changing
-  // on disk, and about the source being pointed somewhere else in settings.
-  const offWatch = ose.watch((d) => {
+  // One subscription for the life of the plugin, taken back by the kernel on unload: the index
+  // cares about its own file changing on disk. `watch(fn)` with no folders is the whole vault,
+  // so the change list is filtered here rather than at subscription time, because the resolved
+  // path changes when the user chooses another file.
+  ose.watch((d) => {
     for (const c of (d && d.changes) || []) if (c && (touches(c.path) || touches(c.to))) { stale = true; return; }
   });
-  const offSources = ose.bus.on('sources', (e) => { if (!e || e.key === 'todo') forget(); });
-  return () => { offWatch(); offSources(); };
 }
 
 const INDENT_UNIT = 2;     // spaces per nesting level in the file
 const MAX_DEPTH = 4;       // deeper nesting still renders, it just stops moving right
 
-/**
- * The path the index reads. Normally the `todo` source; `setTaskSource` overrides it for this
- * session only, which is how the harness points at a scratch copy without touching settings.
- */
-let OVERRIDE = null;
-export function setTaskSource(path) {
-  OVERRIDE = path ? String(path).replace(/^\/+/, '').replace(/\/+$/, '') : null;
+/** The file the index reads: the resolved `todo` path, set by the view after `ose.paths.get`. */
+let src = '';
+export function setTaskPath(path) {
+  const next = path ? String(path).replace(/^\/+/, '').replace(/\/+$/, '') : '';
+  if (next === src) return;
+  src = next;
   forget();
 }
-export function getTaskSource() { return OVERRIDE || ose.sources.get('todo'); }
+export function taskPath() { return src; }
 
-/** Drop what was read: the path changed, or a file under it did. */
+/** Drop what was read: the path changed, or the file under it did. */
 function forget() { all = []; groups = []; loaded = false; missing = false; stale = true; }
 
-let all = [];              // every task line of every list, in group then file order
-let groups = [];           // [{ path, name, label, tasks }] in natural file order
-let isFolder = false;      // the last read found a folder rather than a single file
-let loaded = false;        // the source has been read at least once
-let missing = false;       // the last read found nothing at the source path
+let all = [];              // every task line of the file, in file order
+let groups = [];           // [{ path, name, label, tasks }]: one entry, the file
+let loaded = false;        // the file has been read at least once
+let missing = false;       // the last read found nothing at the path
 let stale = true;          // something changed under us (or it was never read)
 let reading = null;        // the in-flight read, so callers coalesce
 
-/** A change that touches the source: the path itself, or anything inside it when it is a folder. */
+/** A change that touches the file the index read. */
 function touches(p) {
-  const src = getTaskSource();
-  if (!p || !src) return false;
-  return p === src || p.startsWith(`${src}/`);
+  return !!p && !!src && p === src;
 }
 
 /* ------------------------------------------------------------------ index */
 
-/** One markdown file -> one group. The label is its first H1, else its name without `.md`. */
-async function readGroup(path, name, labelled) {
+/**
+ * The one markdown file -> one group. It carries no label: a single list has nothing to be
+ * told apart from, so the Day view draws its rows flat with no heading above them.
+ */
+async function readGroup(path) {
   let text = '';
   try { text = await ose.files.read(path); }
   catch (e) { console.warn('[tasks-index] unreadable', path, e); }
-  return {
-    path,
-    name,
-    label: labelled ? (firstH1(text) || name.replace(/\.md$/i, '')) : null,
-    tasks: parseTasks(text, path),
-  };
+  return { path, name: path.split('/').pop(), label: null, tasks: parseTasks(text, path) };
 }
 
 async function build() {
-  const src = getTaskSource();
   groups = [];
-  isFolder = false;
   missing = true;
   try {
     const st = src ? await ose.files.stat(src) : { exists: false };
     if (st && st.exists) {
       missing = false;
-      isFolder = st.kind === 'dir';
-      if (isFolder) {
-        // every markdown file directly in the folder is one list, in natural file order
-        const files = (await ose.files.list(src))
-          .filter((n) => n.kind === 'file' && /\.md$/i.test(n.name))
-          .sort((a, b) => naturalCompare(a.name, b.name));
-        groups = await Promise.all(files.map((f) => readGroup(`${src}/${f.name}`, f.name, true)));
-      } else {
-        // a single file is one group without a label: the Day view shows its sections flat
-        groups = [await readGroup(src, src.split('/').pop(), false)];
-      }
+      groups = [await readGroup(src)];
     }
   } catch (e) {
     console.warn('[tasks-index] unreadable source', src, e);
@@ -102,7 +83,7 @@ async function build() {
 }
 
 /**
- * Read the source when it has never been read or has changed since. Concurrent calls coalesce
+ * Read the file when it has never been read or has changed since. Concurrent calls coalesce
  * onto the same read. `{force:true}` re-reads even when nothing looked stale.
  */
 export function indexTasks({ force = false } = {}) {
@@ -112,14 +93,12 @@ export function indexTasks({ force = false } = {}) {
   return reading;
 }
 
-/** The lists of the last index, in file order. Empty until `indexTasks()` has resolved once. */
+/** The list of the last index. Empty until `indexTasks()` has resolved once. */
 export const taskGroups = () => groups;
-/** Every task of every list, flat. */
+/** Every task of the file, flat. */
 export const allTasks = () => all;
-/** True when the last read found nothing at the source path. */
+/** True when the last read found nothing at the resolved path. */
 export const taskSourceMissing = () => loaded && missing;
-/** True when the source is a folder of lists rather than one file. */
-export const taskSourceIsFolder = () => isFolder;
 /** The files actually read, for the Day view's meta line. */
 export const taskFiles = () => groups.map((g) => g.path);
 /** Forget what was read, so the next `indexTasks()` reads again. */
@@ -158,7 +137,7 @@ export function tasksForDay(date, list = all) {
 
 /**
  * The same split, per list, in file order. A group with nothing on that day is dropped, so a
- * folder of ten lists does not print ten empty headings.
+ * day with nothing on it prints one line rather than an empty heading.
  * -> [{ path, label, overdue, due, undated, count }]
  */
 export function groupsForDay(date, list = groups) {
@@ -210,11 +189,11 @@ export function taskDepth(t) {
  */
 export function taskRow(t, { short = false } = {}) {
   const depth = taskDepth(t);
-  const src = `${t.path}:${t.line + 1}`;
+  const source = `${t.path}:${t.line + 1}`;
   return `<div class="tk-row${t.done ? ' done' : ''}${depth ? ' sub' : ''}" data-id="${esc(t.id)}" style="--tk-depth:${depth}">
     <button class="tk-check" data-toggle="${esc(t.id)}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}"><span class="check${t.done ? ' on' : ''}"></span></button>
     <div class="tk-body"><span class="tk-text">${esc(t.text)}</span>${taskChips(t)}</div>
-    <button class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(src)}">${esc(short ? `:${t.line + 1}` : src)}</button>
+    <button class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(source)}">${esc(short ? `:${t.line + 1}` : source)}</button>
   </div>`;
 }
 

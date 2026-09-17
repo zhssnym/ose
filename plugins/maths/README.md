@@ -1,18 +1,18 @@
 # Maths
 
-Calculation drills as folders: one series a day, seventy questions, twenty-five minutes, four
+Calculation drills as files: one series a day, seventy questions, twenty-five minutes, four
 options behind one control. The measure that counts is not the score but the median thinking
-time per question, between the question appearing and the key that reveals the options
-(`2-learning/1-school/1-math/1-drills/0-index.md`, Hassan's design note).
+time per question, between the question appearing and the key that reveals the options (the
+README beside the series, Hassan's design note).
 
-The module runs the series, times them, logs every answer the moment it is given, and writes
-the three files the next generation reads. It starts no process, ever (`run: []`), and it
-writes nothing outside `2-learning/1-school/1-math/1-drills`.
+The plugin runs the series, times them, logs every answer the moment it is given, and writes
+the three files the next generation reads. It starts no process, ever, and it writes nothing
+outside the series folder.
 
 Its furniture — the list row, the chips, the clock, the three bands, the control band, the
-error block, the path line — is the rice's shared `lib/drills.js` and `lib/drills.css`, which
-Informatique draws from too. What is here is what is this module's own: the grammar of
-`serie.md`, the maths, the session and the reports.
+error block, the path line — is the shared `../_lib/drills.js` and `../_lib/drills.css`, which
+the nsi plugin draws from too. What is here is what is this plugin's own: the grammar of a
+series file, the maths, the session and the reports.
 
 ## What it registers
 
@@ -21,13 +21,18 @@ Informatique draws from too. What is here is what is this module's own: the gram
 | command | `maths.index` | Maths: open the series |
 | command | `maths.start` | Maths: start the next series — `Ctrl+Shift+S`. Never ends a session: inside a live one it focuses it, and on a page that is not the series in progress it draws that door and stops |
 | view | `maths` | the list, order 50, icon `tasks` |
-| route | `maths/*` | one series page per folder (`maths/serie-02`) |
+| route | `maths/*` | one series page per file (`maths/serie-02`) |
 | quick open | `maths/*` | `Série 2`, one row per series |
-| settings | — | none. The data root is `module.json`'s and cannot be anything else |
+| path | `series` | `{ folder: 'math' }`: one markdown file per series, named `serie-NN.md`. Nothing else is ever spelled |
+| style | `style.css` | linked by the loader while the plugin is active; it imports Temml's own sheet |
 | run | — | none |
 
 Space, Enter, Escape and 1–4 / A–D are the session's own keys, bound on the session's element
 and not on the window: they mean nothing anywhere else in the app, so they are not commands.
+
+The folder is resolved when the list or a series page mounts, never at load. While the vault
+says nothing about where the series are, the page draws the kernel's box — what is missing, the
+hint, **Choose…** — and stops there.
 
 ## The interface
 
@@ -36,14 +41,14 @@ mono figure of one kind — how long the series took once it is done, the date i
 then. The score is not on the row; it is the verdict's figure on the series page. A done row is
 the green ground; the series in progress carries the accent left edge. A file that does not
 parse says `malformed` where its name would be. The counts line reads `3 series · 1 done`.
-Nothing on this list creates a series. The row menu is Open · Open folder · Open `serie.md` ·
-Open `resultat.md` (when there is one) · Delete… in the danger ink, which asks, then trashes
-the folder.
+Nothing on this list creates a series. The row menu is Open · Open `serie-NN.md` · Show in the
+file manager · Open the result (when there is one) · Delete… in the danger ink, which asks,
+then trashes the series file; the log and the result file stay.
 
 **The series page.** `Série N` with the clock at its right, running only while a session is;
 one meta line of the family chips with their counts and then the facts; then the door, the
-session or the result; and the folder's path at the foot. The page is one skeleton and it
-never changes shape.
+session or the result; and the file's path at the foot. The page is one skeleton and it never
+changes shape.
 
 - **The door** is one button — `start`, `resume` or `redo` — with `Ctrl+Shift+S` printed
   beside it and the hint after. When another series is half finished the door says so and
@@ -64,21 +69,25 @@ Everything is reachable from the keyboard and nothing needs the mouse. Both them
 
 ## The data
 
-Everything under `2-learning/1-school/1-math/1-drills`, the format of
-`work/briefs/FORMAT-drills.md`.
+Everything inside the folder `ose.paths` answers for `series`, the format of
+`work/briefs/FORMAT-drills.md`. One series is one file, and everything the plugin writes is in
+the dotfolder beside them:
 
 ```
-1-drills/
-  0-index.md              Hassan's design note
-  1-erreurs.md            his post-mortem. The module never writes here.
-  serie-02/serie.md       one series: the grammar below
-  serie-02/resultat.md    written once, when the first attempt completes
-  .drills/log.jsonl       append only, one JSON object per line
-  .drills/state.json      rewritten whole
-  .drills/bilan.md        rewritten after every session; what the generator reads
+<series>/
+  README.md               Hassan's design note. The plugin never writes here.
+  erreurs.md              his post-mortem. Never written either, and never listed as a series.
+  serie-02.md             one series: the grammar below. The id is the stem, `serie-02`.
+  .math/log.jsonl         append only, one JSON object per line
+  .math/state.json        rewritten whole
+  .math/bilan.md          rewritten after every session; what the generator reads
+  .math/serie-02-resultat.md   written once, when the first attempt completes
 ```
 
-`serie.md` is `# Série N`, a header of `date` / `duree` / `familles`, then
+A series is a file matching `serie-NN.md` and nothing else is listed, so the two files above
+and anything else the owner keeps there are left alone.
+
+`serie-NN.md` is `# Série N`, a header of `date` / `duree` / `familles`, then
 `## <n> · <famille>`, the statement, exactly four options `- A.` to `- D.`,
 `<!-- reponse: X -->` and an optional `<!-- regle: … -->`. The parser is strict: a file that
 deviates is refused with the number of the line it went wrong on, has no start button, and is
@@ -91,34 +100,36 @@ come back to, rewritten every ten seconds while a session runs so a reload costs
 and not the visit. `en_cours` carries two fields beyond FORMAT-drills.md's sketch, both
 additive: `pause_s`, so a resumed run can write a true `pause_s` on its session line, and `vu`,
 the last moment the session was on the page — the run that picks the series back up counts the
-wall time since as pause, so leaving the page is a pause and not a hole in the arithmetic. `bilan.md` counts only complete attempts and counts each question once, so
-an abandoned run and a redo do not double it.
+wall time since as pause, so leaving the page is a pause and not a hole in the arithmetic.
+`bilan.md` counts only complete attempts and counts each question once, so an abandoned run and
+a redo do not double it.
 
 ## The generator
 
 The series are not written by hand. `gen/generate.py` builds them from thirty-three templates
-over the five families, and it is a desk tool: **the module never runs it**, has no `run`
-permission and does not know it exists. Hassan, or an agent working on the vault from outside,
-runs it every few days, once per series:
+over the five families, and it is a desk tool: **the plugin never runs it** and does not know
+it exists. Hassan, or an agent working on the vault from outside, runs it every few days, once
+per series:
 
 ```
-python gen/generate.py --out 2-learning/1-school/1-math/1-drills --serie 5 \
+python gen/generate.py --out <the series folder> --serie 5 \
   --date 2026-09-19 --count 70 --seed 5 \
   --weights puissances=16,suites=18,signes-inegalites=14,developpement-factorisation=12,fractions=10
 ```
 
 Every answer is computed, never typed, and the three wrong options are the real error patterns
-of `1-erreurs.md` rather than random values. The same seed gives byte for byte the same file.
-`python gen/generate.py --check <serie.md>` parses the same grammar this module does and names
-the line of any deviation, so a series is checked where it is written rather than argued about
-here. After five series `.drills/bilan.md` says where the median thinking time is still high,
-and the next five are generated with the weights moved there; `gen/README.md` holds the rule
-and the exact command.
+of `erreurs.md` rather than random values. The same seed gives byte for byte the same file.
+`python gen/generate.py --check <serie-NN.md>` parses the same grammar this plugin does and
+names the line of any deviation, so a series is checked where it is written rather than argued
+about here. After five series `.math/bilan.md` says where the median thinking time is still
+high, and the next five are generated with the weights moved there; `gen/README.md` holds the
+rule and the exact command.
 
-## Rules this module keeps
+## Rules this plugin keeps
 
-- It reads and writes only under the folder `module.json` names, and it starts no process.
-- It never rewrites a file it did not write. `1-erreurs.md` and `0-index.md` are Hassan's.
+- It spells no vault path: it asks `ose.paths` for `series` and derives everything from it. It
+  writes only inside that folder and its `.math/`, and it starts no process.
+- It never rewrites a file it did not write. `erreurs.md` and `README.md` are Hassan's.
 - French is the content's, not the chrome's: `Série 2` is the file's own heading, and every
   label around it — family, questions, correct, median, missed, chosen, expected — is English.
 - Every colour, size and space is a token. No hex, no bare pixel beyond a 1px or 2px border.

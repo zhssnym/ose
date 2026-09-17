@@ -6,7 +6,9 @@
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: var(--sp-3); margin: 0 0 var(--sp-5); min-height: 108px;
 }
-.mo-goals .empty { grid-column: 1 / -1; }
+/* the shared .empty line, and the kernel's box for a path it could not find, are not cards:
+   they run the width of the goals grid rather than sitting in one 210px column */
+.mo-goals .empty, .mo-goals > .path-box { grid-column: 1 / -1; }
 .mo-card { border: 1px solid var(--border); background: var(--bg-2); padding: var(--sp-3); }
 /* inside a card the card's own padding is the air above the label, not a section gap */
 .mo-card .label { padding-top: 0; }

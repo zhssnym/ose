@@ -1,9 +1,9 @@
-/* Informatique module styles: only what is this module's own.
+/* Informatique plugin styles: only what is this plugin's own.
 
    The row, the chips, the title line, the meta line, the pane label, the controls, the verdict,
    the error box and the path line are the shared lib's (`lib/drills.css`), so nothing about
    them is written twice. What is left here is the editor host, the run output, the tests table
-   and the statement — the three things only this module draws.
+   and the statement — the three things only this plugin draws.
 
    Colours, fonts, sizes and spacing come from the kernel's tokens (ui.css) only: no hex, no
    bare pixel padding beyond the 1px and 2px borders. Both themes follow the tokens, so there

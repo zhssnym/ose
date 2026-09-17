@@ -8,9 +8,9 @@ import { toast } from 'ose:ui'
 import {
   h, clear, duration, plural, tones, chips, createClock, mountClock,
   titleLine, metaLine, paneLabel, controls, verdict, pathLine,
-} from '../../../lib/drills.js'
+} from '../../_lib/drills.js'
 
-import { ctx, python, vaultPath, absolute } from './ctx.js'
+import { ctx, python, dataRoot, vaultPath, absolute } from './ctx.js'
 import { cli, cache, cachedRow, JudgeError } from './cli.js'
 import { readClock, writeClock } from './clocks.js'
 import { refreshIndex, judgeError, isDone } from './index-view.js'
@@ -50,8 +50,10 @@ class DrillPage {
     const row = cachedRow(id)
     this.cachedTitle = (row && row.title) || id
     this.best = row ? row.meilleure_s : null
+    // The column is put into `el` by `load`, once the drills folder has answered: until then
+    // `el` is the kernel's to draw the missing box into.
     this.root = h('div', { class: 'page-col nsi-drill' })
-    clear(el).appendChild(this.root)
+    clear(el)
 
     // One clock, one owner. It is created here and stopped here and nowhere else (ADV-T).
     this.clock = createClock({
@@ -69,7 +71,7 @@ class DrillPage {
 
   /**
    * Leaving the page. The editor's save goes first: `pauseClock` used to, and when the clock's
-   * write threw on a facade that was already gone it took the save with it and the user's
+   * write threw on an `ose` that was already gone it took the save with it and the user's
    * `solution.py` was lost silently (ADV-T).
    */
   async unmount() {
@@ -98,7 +100,7 @@ class DrillPage {
     this.clock.dispose()
     try { await this.pendingBank } catch (err) { console.error('[nsi] clocks.json', err) }
     if (this.unbindClock) { this.unbindClock(); this.unbindClock = null }
-    try { ctx.ose.status.clear('nsi') } catch { /* the facade may be gone */ }
+    try { ctx.ose.status.clear('nsi') } catch { /* `ose` may be gone */ }
     clear(this.el)
   }
 
@@ -166,6 +168,11 @@ class DrillPage {
   /* ----------------------------------------------------------------------- load */
 
   async load() {
+    const folder = await dataRoot(this.el)
+    if (this.gone) return
+    // No drills folder: the kernel's box is in `el`, and a choice remounts this route.
+    if (!folder) return
+    clear(this.el).appendChild(this.root)
     clear(this.root).appendChild(h('p', { class: 'empty', text: 'loading…' }))
     try {
       const body = await cli.detail(this.id)
@@ -542,7 +549,7 @@ class DrillPage {
   /**
    * `show the correction` / `hide the correction`. The third button of the one band, and a
    * toggle rather than a question: the confirm it used to raise asked something it already knew
-   * the answer to, stayed on screen after the user left the module, and revealed 1,400 px below
+   * the answer to, stayed on screen after the user left the plugin, and revealed 1,400 px below
    * the fold without scrolling to any of it (ADV-V). It had a band of its own until Q2 counted
    * two on the page.
    */

@@ -91,4 +91,6 @@
 /* An asynchronous region says "loading…" only when its reads outlast a blink (`loadingLine`
    from `ose:ui`). While it holds that one line, a grid drops its columns so the line is not
    squeezed into the first cell. */
-.wk-grid.is-loading { display: block; width: auto; min-width: 0; }
+/* The kernel's box for a path it could not find is held the same way: one thing in the frame,
+   so the columns and the 718px floor go. */
+.wk-grid.is-loading, .wk-grid:has(> .path-box) { display: block; width: auto; min-width: 0; }

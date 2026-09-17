@@ -153,12 +153,13 @@ def overdue_days(entry: dict, day: _dt.date | None = None) -> int:
 
 
 def tags_of(entry) -> list:
-    """The tags of one log line. `concepts` is the name older lines used."""
-    for key in ("tags", "concepts"):
-        value = (entry or {}).get(key)
-        if isinstance(value, list):
-            return value
-    return []
+    """The tags of one log line. One name, `tags`, and no older one.
+
+    A line written before that name won says `concepts`; it stays in the log,
+    which is append only, and it counts for no tag.
+    """
+    value = (entry or {}).get("tags")
+    return value if isinstance(value, list) else []
 
 
 def tag_rates(log_entries, min_attempts: int = 3, window: int = 20) -> dict:

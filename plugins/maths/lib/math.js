@@ -3,13 +3,13 @@
  * A statement and an option are not markdown. They are paragraphs, `$…$` inline and `$$…$$`
  * display, and text everywhere else — text that becomes a text node and never a string of
  * markup. Temml builds its MathML as DOM nodes through `render(latex, node, opts)`, so no
- * `innerHTML` is spoken anywhere in this module, and a `$` that never closes stays a `$`.
+ * `innerHTML` is spoken anywhere in this plugin, and a `$` that never closes stays a `$`.
  *
  * Temml is imported here, once, rather than handed in through an adapter: the portal layer
- * that made that necessary is gone (ADV-B), and the vendored file is this module's own.
+ * that made that necessary is gone (ADV-B), and the vendored file is this plugin's own.
  */
 
-import { h, append } from '../../../lib/drills.js'
+import { h, append } from '../../_lib/drills.js'
 import temml from '../vendor/temml.mjs'
 
 /**

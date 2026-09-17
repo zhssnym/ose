@@ -6,7 +6,7 @@
    translated. The misses are separated by air and nothing else — they used to be fifty-seven
    bordered boxes in an eleven-thousand-pixel ladder (ADV-V). */
 
-import { h, duration, paneLabel } from '../../../lib/drills.js'
+import { h, duration, paneLabel } from '../../_lib/drills.js'
 import { statementNode, inlineNode } from './math.js'
 import { think } from './fmt.js'
 
@@ -18,7 +18,7 @@ import { think } from './fmt.js'
  *   note     optional, the quiet first line (`2 attempts · done 2026-09-16`)
  *
  * The score is not here: it is the figure of the `.drill-verdict` the page draws under its
- * control band, which is the one place both modules say how it went (Q1). A second score in a
+ * control band, which is the one place both plugins say how it went (Q1). A second score in a
  * second face under the H1 was the thing ADV-V called a second 34 px face.
  */
 export function resultBlock(data) {

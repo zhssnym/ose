@@ -1,37 +1,72 @@
-/* The module's own small context: the facade `activate` was handed, the vault root, the data
-   root and the folder this module is served from. Every other file reads it from here instead
-   of taking `ose` as an argument everywhere.
+/* The plugin's own small context: the `ose` activate was handed, the vault root, the drills
+   folder and the folder this plugin is served from. Every other file reads it from here
+   instead of taking `ose` as an argument everywhere.
 
-   There are no settings. The data root is `module.json`'s — the manifest is the only thing
-   allowed to name it, so a text field offering to change it was offering a module that could
-   read nothing (ADV-B). Python is resolved once per session by asking it. */
+   There are no settings. The drills folder is `ose.paths`' answer, asked for when a view or a
+   route mounts, so a text field offering to change it would be a second door onto a thing the
+   kernel already owns (ADV-B). Python is resolved once per session by asking it. */
 
 export const ctx = {
-  ose: null,          // the facade from activate(ose), scoped by module.json
+  ose: null,          // the `ose` from activate(ose)
   vaultRoot: '',      // absolute, from ose.vault.info()
-  moduleDir: '',      // vault-relative folder of this module, for ose.run's cwd
-  dataRoot: '',       // vault-relative, from module.json's `data`
+  pluginDir: '',      // vault-relative folder of this plugin, the judge's cwd
+  dataRoot: '',       // vault-relative drills folder, from ose.paths
 }
 
-/** Where `state.json`, `log.jsonl` and the module's `clocks.json` live. */
+/** Where `state.json`, `log.jsonl` and the plugin's `clocks.json` live. */
 export const DATA_DIRNAME = '.nsi'
 
-/** Fill the context from the facade. Called once, from `activate`. */
+/** Fill the context from `ose`. Called once, from `activate`. */
 export async function open(ose) {
   ctx.ose = ose
-  // The facade hands the module its own manifest and its own folder, so nothing here has to
-  // guess at a path out of `import.meta.url` (it used to) or take one from settings.
-  const manifest = (ose.module && ose.module.manifest) || {}
-  ctx.moduleDir = (ose.module && ose.module.folder) || ''
-  ctx.dataRoot = String((manifest.data || [])[0] || '').replace(/^\/+|\/+$/g, '')
+  // The plugin's own folder, as a vault path: `.ose/plugins/nsi`, a legal cwd for `ose.run`
+  // and where the judge lives, so nothing here has to guess at a path out of
+  // `import.meta.url` (it used to).
+  ctx.pluginDir = (ose.plugin && ose.plugin.folder) || ''
   const info = await ose.vault.info()
   ctx.vaultRoot = (info && info.root) || ''
 }
 
 export function close() {
   ctx.ose = null
+  ctx.dataRoot = ''
+  listener = null
   pythonName = null
   asking = null
+}
+
+/* ----------------------------------------------------------------------- the drills */
+
+let listener = null
+
+/** Told the drills folder whenever it resolves to a different one. One subscriber, `activate`'s. */
+export function onDataRoot(fn) {
+  listener = fn
+}
+
+/**
+ * The drills folder, asked of `ose.paths` when a view or a route mounts. Answers the
+ * vault-relative path, or null — and a null with an `el` has drawn the kernel's own box into
+ * it: what is missing, the hint, and Choose. Nothing else in this plugin spells a vault path.
+ *
+ * Asked twice on the way to a null, because the kernel appends its box to whatever `el` holds:
+ * the first call is quiet, and only when it comes back empty is the page cleared and the box
+ * asked for. The tree the kernel resolves against is cached, so the second call costs nothing.
+ */
+export async function dataRoot(el) {
+  let path = await ctx.ose.paths.get('drills')
+  if (!path && el) {
+    while (el.firstChild) el.removeChild(el.firstChild)
+    path = await ctx.ose.paths.get('drills', { el })
+  }
+  const next = String(path || '').replace(/^\/+|\/+$/g, '')
+  // A folder that has gone missing leaves the last one standing: a path is still wanted for
+  // the error the judge is about to answer with, and `<vault>/` is not one.
+  if (next && next !== ctx.dataRoot) {
+    ctx.dataRoot = next
+    if (listener) listener(next)
+  }
+  return next || null
 }
 
 /* --------------------------------------------------------------------------- python */
@@ -43,7 +78,6 @@ let asking = null
  * The Python this machine answers to: `python`, then `python3`, the first that answers
  * `--version`. Asked once and remembered for the session — it is a fact about the machine, not
  * a preference, and the settings field that used to hold it had two legal values (ADV-B).
- * `module.json` allows exactly these two names, so nothing else can be tried.
  */
 export function python() {
   if (pythonName) return Promise.resolve(pythonName)
@@ -55,7 +89,7 @@ async function ask() {
   for (const name of ['python', 'python3']) {
     try {
       const result = await ctx.ose.run(name, ['--version'], {
-        cwd: ctx.dataRoot, timeout: 5000,
+        cwd: ctx.pluginDir, timeout: 5000,
       })
       if (result && result.code === 0) return name
     } catch { /* not this one */ }
@@ -78,12 +112,12 @@ export function native(path) {
     : text.replace(/\\/g, '/')
 }
 
-/** Absolute path of the data root: the `--root` the judge takes. */
+/** Absolute path of the drills folder: the `--root` the judge takes. */
 export function absDataRoot() {
   return native(joinAbs(ctx.dataRoot))
 }
 
-/** A vault-relative path under the data root, for `ose.files`. */
+/** A vault-relative path under the drills folder, for `ose.files`. */
 export function vaultPath(relative) {
   return ctx.dataRoot + '/' + String(relative || '').replace(/^\/+/, '')
 }

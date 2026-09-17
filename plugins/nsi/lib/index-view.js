@@ -3,14 +3,14 @@
    Every row operation is on the context menu, by mouse or by key.
 
    Nothing on this list creates a drill: drills come from a generator, the way Maths' series do,
-   and the `+ new drill` row that used to sit at the bottom made an empty folder the module then
+   and the `+ new drill` row that used to sit at the bottom made an empty folder the plugin then
    offered to grade you against (ADV-N, ADV-U, ADV-V, ADV-B). */
 
 import { prompt, confirm, toast } from 'ose:ui'
 import { h, clear, plural, duration, tones, list, errorBlock }
-  from '../../../lib/drills.js'
+  from '../../_lib/drills.js'
 
-import { ctx, vaultPath } from './ctx.js'
+import { ctx, dataRoot, vaultPath } from './ctx.js'
 import { cli } from './cli.js'
 
 const live = new Set()
@@ -24,8 +24,20 @@ export function mountIndex(el) {
   live.add(view)
   view.refresh()
   return {
-    unmount() { live.delete(view); view.unmount() },
+    unmount: () => unmountIndex(),
     refresh: () => view.refresh(),
+  }
+}
+
+/**
+ * Leaving the view. The router keeps the object `views.register` was handed and calls
+ * `unmount()` on that, not on what `mount` answered, so the list's keyboard has to be given
+ * back from here. One view is on screen at a time; anything else in `live` is already gone.
+ */
+export function unmountIndex() {
+  for (const view of [...live]) {
+    live.delete(view)
+    view.unmount()
   }
 }
 
@@ -41,17 +53,11 @@ export function byNumber(a, b) {
 class IndexView {
   constructor(el) {
     this.el = el
-    this.root = h('div', { class: 'page-col nsi-index' })
-    clear(el).appendChild(this.root)
     this.token = 0
     this.byId = new Map()
     this.list = null
-    this.head = h('h1', { class: 'page-title', text: 'Informatique' })
-    this.count = h('p', { class: 'page-meta' })
-    this.body = h('div', {})
-    this.root.appendChild(this.head)
-    this.root.appendChild(this.count)
-    this.root.appendChild(this.body)
+    this.root = null
+    clear(el)
   }
 
   unmount() {
@@ -59,8 +65,31 @@ class IndexView {
     clear(this.el)
   }
 
+  /** The page column, built the first time the drills folder answers. */
+  frame() {
+    if (this.root) return
+    this.root = h('div', { class: 'page-col nsi-index' })
+    this.head = h('h1', { class: 'page-title', text: 'Informatique' })
+    this.count = h('p', { class: 'page-meta' })
+    this.body = h('div', {})
+    this.root.appendChild(this.head)
+    this.root.appendChild(this.count)
+    this.root.appendChild(this.body)
+    clear(this.el).appendChild(this.root)
+  }
+
   async refresh() {
     const token = ++this.token
+    // The drills folder before anything else. Without one the kernel has drawn what is missing
+    // and its Choose button into `el`, and there is no list to draw over it.
+    const folder = await dataRoot(this.el)
+    if (token !== this.token) return
+    if (!folder) {
+      if (this.list) { this.list.dispose(); this.list = null }
+      this.root = null
+      return
+    }
+    this.frame()
     if (!this.list && !this.body.childElementCount) {
       this.count.textContent = ''
       this.body.appendChild(h('p', { class: 'empty', text: 'reading the drills…' }))

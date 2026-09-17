@@ -28,12 +28,15 @@
 .dy-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
 /* the shared .empty line under the two columns; this only makes it span both */
 .dy-tl-empty { grid-column: 1 / -1; }
+/* The kernel's box for a path it could not find is the only thing in the frame while it is
+   there, so the frame drops its two columns rather than squeezing it into the 44px gutter. */
+.dy-tl:has(> .path-box) { display: block; }
 
 /* One event block, the same one the week grid draws: --sp-half inside its column, the family
    colour at 15% with a 2px bar, name / times / room stacked one pixel apart (an optical gap;
    the scale starts above it). Its text starts --sp-2 from the edge of the block once the bar
    is counted. The day column is wide enough for one size up, and that is all it changes.
-   The week module carries the same rules for its own `.wk-ev`: a module ships its own look. */
+   The week plugin carries the same rules for its own `.wk-ev`: a plugin ships its own look. */
 .dy-ev {
   --c: var(--c-rest);
   position: absolute; left: var(--sp-half); right: var(--sp-half);
@@ -121,9 +124,9 @@
 }
 .tk-src:hover { color: var(--accent); text-decoration: underline; }
 
-/* One tile: the card a module contributes to this view (`ose.tiles`), with the tile's title
-   as the .label above it. The two this module registers draw a .dy-box inside; another
-   module's draws whatever it likes, in the same width. */
+/* One tile: the card a plugin contributes to this view (`ose.tiles`), with the tile's title
+   as the .label above it. The two this plugin registers draw a .dy-box inside; another
+   plugin's draws whatever it likes, in the same width. */
 .dy-tile { min-width: 0; }
 .dy-tile + .label { padding-top: var(--sp-5); }
 

@@ -1,15 +1,24 @@
 // Week: the timetable grid for the current week, a "now / next" box, and per-day totals.
-// The week comes from the `timetable` source and nowhere else; the path is whatever settings
-// says, and the view re-reads on the `sources` event. The file no longer carries the (Q1)/(Q2)
-// alternating-week markers, so there is no toggle and no stored state.
+// The week comes from the `calendar` path and nowhere else; `ose.paths` finds it and the view
+// re-reads whenever that choice changes. The file no longer carries the (Q1)/(Q2) alternating
+// week markers, so there is no toggle and no stored state.
 
 import { esc, loadingLine } from 'ose:ui';
-import {
-  TIMETABLE, parseTimetable, pad, dayIdx, addDays, startOfWeek,
-  hhmm, dur, until, DAY_SHORT,
-} from 'ose:md';
+import { pad, dayIdx, addDays, startOfWeek, hhmm, dur, until, DAY_SHORT } from 'ose:md';
+import { TIMETABLE, parseTimetable } from '../_lib/timetable.js';
+import { pathInto } from '../_lib/view.js';
 
-let ose = null;   // the facade, from activate()
+export const name = 'Week';
+export const description = 'The timetable for the current week, what is on now and next, and the personal work each day holds.';
+
+export const paths = {
+  calendar: {
+    file: 'calendar',
+    hint: 'One H1 per weekday (Lundi to Dimanche) and one line per block: - 08h20 à 09h15 Maths · salle 333 [maths].',
+  },
+};
+
+let ose = null;   // the plugin's own `ose`, from activate()
 
 /** A transient line in the status bar; the view always gives the slot back. */
 let flashTimer = null;
@@ -25,7 +34,7 @@ const TIME_MIN = 2 * HOUR_H;     // a block needs two hour rows before it prints
 const SUB_MIN = 3 * HOUR_H;      // and three before the room or note fits under them
 
 let el = null, events = [], tickTimer = null, dayTimer = null, lastDay = -1, loading = false;
-let path = '', offSources = null, again = false;
+let path = '', offPaths = null, again = false;
 
 const nowMinutes = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
 const $ = (sel) => el && el.querySelector(sel);
@@ -40,7 +49,7 @@ function skeleton() {
   <div class="page-col">
     <h1 class="page-title">Week</h1>
     <div class="page-meta" id="wkMeta">
-      <button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>
+      <button type="button" class="v-link" data-path="" hidden></button>
       <span>${esc(fmt(monday))} to ${esc(fmt(addDays(monday, 6)))}</span>
       <span id="wkSource"></span>
     </div>
@@ -55,6 +64,15 @@ function skeleton() {
     <div class="empty" id="wkEmpty" hidden></div>
   </div>
 </div>`;
+}
+
+/** The meta line's link to the file the grid was built from; nothing when there is no file. */
+function drawPathLink() {
+  const link = $('#wkMeta .v-link');
+  if (!link) return;
+  link.dataset.path = path;
+  link.textContent = path;
+  link.hidden = !path;
 }
 
 /* -------------------------------------------------------------------- grid */
@@ -150,26 +168,35 @@ function tick() {
 /* -------------------------------------------------------------------- data */
 
 async function load() {
-  // a source change during a read must not be swallowed by the coalescing guard
+  // a path change during a read must not be swallowed by the coalescing guard
   if (loading) { again = true; return; }
   loading = true;
-  // the grid says "loading…" only when the read outlasts a blink; a fast re-read keeps the
-  // grid that is already there until build() replaces it
-  const stop = loadingLine($('#wkGrid'));
+  let stop = () => false;
   try {
-    path = ose.sources.get('timetable');
-    const link = $('#wkMeta .v-link');
-    if (link) { link.dataset.path = path; link.textContent = path; }
-    const has = await ose.files.exists(path);
-    events = has ? parseTimetable(await ose.files.read(path)) : [];
-    stop();
+    // the grid is the part that needs the calendar, so a calendar that cannot be found leaves
+    // the kernel's box there and the rest of the page keeps its shape
+    const found = await pathInto(ose, 'calendar', $('#wkGrid'));
+    if (!el) return;
+    path = found;
+    drawPathLink();
     const empty = $('#wkEmpty');
+    if (!path) {
+      events = [];
+      if (empty) empty.hidden = true;
+      if ($('#wkSource')) $('#wkSource').textContent = '';
+      if ($('#wkSum')) $('#wkSum').textContent = ' ';
+      tick();
+      return;
+    }
+    // the grid says "loading…" only when the read outlasts a blink; a fast re-read keeps the
+    // grid that is already there until build() replaces it
+    stop = loadingLine($('#wkGrid'));
+    events = parseTimetable(await ose.files.read(path));
+    if (!el) return;
+    stop();
     if (empty) {
       empty.hidden = events.length > 0;
-      // a missing source is never a silent fallback: say the path and where to change it
-      empty.textContent = has
-        ? `no blocks parsed from ${path}`
-        : `no file at ${path} · set it in settings (ctrl+,)`;
+      empty.textContent = `no blocks parsed from ${path}`;
     }
     if ($('#wkSource')) $('#wkSource').textContent = `${events.length} blocks`;
     build();
@@ -177,7 +204,7 @@ async function load() {
     console.error('[week]', e);
     flash(`week: ${e.message || e}`);
     // a failed read leaves the grid frame empty (a loading line must not stay behind) and says
-    // what went wrong in the same slot a missing file uses
+    // what went wrong in the same slot an empty file uses
     if (stop()) { const g = $('#wkGrid'); if (g) g.innerHTML = ''; }
     const empty = $('#wkEmpty');
     if (empty) { empty.hidden = false; empty.textContent = `could not read ${path}: ${e.message || e}`; }
@@ -203,10 +230,10 @@ const view = {
 
   async mount(host) {
     el = host;
-    path = ose.sources.get('timetable');
     el.innerHTML = skeleton();
     el.addEventListener('click', onClick);
-    offSources = ose.bus.on('sources', () => load());
+    // a calendar chosen or reset elsewhere is a different week to draw: resolve again and re-read
+    offPaths = ose.paths.on(() => load());
     // focus lands on the view, not nowhere, so Tab reaches the path link and the shell's keys
     // have a target from the first frame
     const root = $('#wkRoot');
@@ -217,7 +244,7 @@ const view = {
   },
 
   unmount() {
-    if (offSources) { offSources(); offSources = null; }
+    if (offPaths) { offPaths(); offPaths = null; }
     clearTimeout(flashTimer); flashTimer = null;
     clearInterval(tickTimer); tickTimer = null;
     clearInterval(dayTimer); dayTimer = null;
@@ -228,7 +255,7 @@ const view = {
   refresh() { if (el) load(); },
 };
 
-/* --------------------------------------------------------------- the module */
+/* --------------------------------------------------------------- the plugin */
 
 export async function activate(app) {
   ose = app;
@@ -237,23 +264,10 @@ export async function activate(app) {
     id: 'view.week', title: 'Week', group: 'view',
     run: () => ose.route.navigate({ type: 'view', name: 'week' }),
   });
-  // The timetable changing on disk is the only thing this view reads.
-  ose.watch(() => { if (el) load(); });
-  addStyles();
+  // The calendar changing on disk is the only thing this view reads; `watch(fn)` is the whole
+  // vault, so the change list is filtered here against the path that was actually resolved.
+  ose.watch((d) => {
+    if (!el) return;
+    if (!d || d.lost || (d.changes || []).some((c) => c && path && (c.path === path || c.to === path))) load();
+  });
 }
-
-export function deactivate() { removeStyles(); }
-
-/* ------------------------------------------------------------------ styles */
-
-// docs/MODULES.md rule 3: a <link> the entry adds and `deactivate` takes away, resolved
-// against the module's own folder so nothing here names an origin.
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./week.css', import.meta.url).href;
-  document.head.appendChild(sheet);
-}
-function removeStyles() { if (sheet) { sheet.remove(); sheet = null; } }
