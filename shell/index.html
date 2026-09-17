@@ -4,18 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ose</title>
+<link rel="icon" href="./logo.png">
 <!-- The kernel rewrites these two hrefs on the way out (docs/KERNEL.md "Origins"), so no file
-     in the rice ever spells an origin. The rice's own sheets follow them, and win. -->
+     of the shell ever spells an origin. The shell's own sheets follow them, and win. -->
 <link data-ose="ui" rel="stylesheet" href="">
 <link data-ose="editor" rel="stylesheet" href="">
-<link rel="stylesheet" href="./shell/shell.css">
+<link rel="stylesheet" href="./shell.css">
 <link rel="stylesheet" href="./theme.css">
 </head>
 <body>
 <div id="app"></div>
-<!-- Every line of rice JavaScript is in a file: the kernel's CSP allows no inline script, and
+<!-- Every line of shell JavaScript is in a file: the kernel's CSP allows no inline script, and
      the one inline <script> in this page is the import map the kernel injects above. -->
-<script type="module" src="./shell/first-paint.js"></script>
-<script type="module" src="./shell/main.js"></script>
+<script type="module" src="./first-paint.js"></script>
+<script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -1,14 +1,14 @@
 // The tab strip: one tab per open route, above the page column.
 //
 // The kernel has one current route and a history stack, and it does not know the word "tab".
-// This file is the whole of it: a rice-side list of routes that follows `ose.route.on` — a
+// This file is the whole of it: a shell-side list of routes that follows `ose.route.on` — a
 // route that is not in the list joins it, a route that is becomes the active one — plus the
 // close, cycle and reopen commands. A tab's identity is the kernel's own route key
 // (`page:<path>`, `own:<path>`, `view:<name>`), so a page reached from the tree, from quick
 // open and from a link is one tab, not three.
 //
 // The model is the editor's, not the browser's. An **ordinary** open — a click or Enter in the
-// tree, quick open, a link, back, forward, a module's own `route.navigate` — replaces what is
+// tree, quick open, a link, back, forward, a plugin's own `route.navigate` — replaces what is
 // in the tab you are looking at. The strip never grows on its own, because a strip that does
 // is a strip nobody closes. A tab is made **on purpose**: middle click, Ctrl+Enter on a tree
 // row, Ctrl+click on a pinned row or a dashboard card, `tab.new` (Ctrl+T), Ctrl+Shift+T. One
@@ -44,7 +44,7 @@ let prevKey = null;
 let closed = [];
 // Route keys whose page has unsaved changes, from the editor's own `doc:dirty`.
 const dirty = new Set();
-// Until the rice has navigated once, a null route is the boot, not a close.
+// Until the shell has navigated once, a null route is the boot, not a close.
 let armed = false;
 // Set by `openInNewTab` for the length of one navigation: the next route makes a tab of its
 // own instead of replacing what is in front. Nothing else in the file writes it.
@@ -63,7 +63,7 @@ function keyOf(r) {
 /**
  * What the tab reopens with. A line, a column, a heading or a query says where *one* open
  * lands and is not part of the page (the router spends them on the way in); the tab is the
- * page. An owned route keeps every field it came with: those are the module's, not ours.
+ * page. An owned route keeps every field it came with: those are the plugin's, not ours.
  */
 function keepRoute(r) {
   if (r.type === 'page') return { type: 'page', path: clean(r.path) };
@@ -76,7 +76,7 @@ function keepRoute(r) {
 /**
  * A tab's label is what the window title says for that route: a page's H1 (the editor
  * publishes it on `pageTitle`) or its stem, a view's title, an owned route's title as its
- * module registered it through `ose.route.index`.
+ * plugin registered it through `ose.route.index`.
  */
 function labelOf(r) {
   if (!r) return '';
@@ -205,7 +205,7 @@ function onEmptySurface() {
   if (!armed || !activeKey) return;
   const key = activeKey;
   remember(key);
-  // The last tab does not disappear: it goes home. Nothing in this rice lands on the kernel's
+  // The last tab does not disappear: it goes home. Nothing in this shell lands on the kernel's
   // empty surface (QA-5 finding 2), and with no home tab to fall back to this is what says so
   // — the ordinary replace in `onRoute` puts the dashboard where the closed page was.
   if (tabs.length <= 1) {

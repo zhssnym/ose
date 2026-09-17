@@ -1,7 +1,7 @@
 // The first frame, before the kernel is imported. Two attributes, nothing else.
 //
 // `index.html` used to do this in an inline script; the kernel's CSP allows no inline script
-// in a rice, so it is a file — the first module in the page, which runs before `main.js` and
+// in the shell, so it is a file — the first script in the page, which runs before `main.js` and
 // before anything is drawn. Both values are set again, from the host's own answer, once
 // `ose.ready` resolves (`main.js`): this is only so the very first paint is the right theme
 // and the right font stack.

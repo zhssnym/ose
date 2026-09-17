@@ -1,15 +1,14 @@
 // Status bar. Left: every field `ose.status.all()` answers, in the bar's own order, joined by
-// ' · ' — the shell's five and then whatever a module set, each one a button when it carries
+// ' · ' — the shell's five and then whatever a plugin set, each one a button when it carries
 // an `onClick` and coloured when it carries a `kind`.
-// Right: the update item when a newer build is published (a button, in the accent, the only
-// colour in the bar), the settings hint, the resolved theme, and which kernel is answering.
+// Right: the zoom while it is not 100 %, the settings hint, the resolved theme, and which
+// kernel is answering.
 import { ose } from 'ose:kernel';
 import { esc } from 'ose:ui';
 import { hostKind, isHost } from './host.js';
-import { statusItem } from './update.js';
 import { zoomLabel } from './settings.js';
 
-const { bus, store, status, commands } = ose;
+const { bus, status, commands } = ose;
 
 let leftEl = null, rightEl = null;
 let sawFs = false;
@@ -27,13 +26,11 @@ function renderLeft() {
 }
 
 function renderRight() {
-  const upd = statusItem();
   // The zoom shows only while it is not 100 %: a bar that always says `100%` teaches nobody
   // anything, and one that says `110%` explains why the window looks different (S4). It is a
   // button, so clicking or tabbing to it and pressing Enter puts the app back to 100 %.
   const zoom = zoomLabel();
   rightEl.innerHTML =
-    (upd ? `<button type="button" class="st-item st-update" title="A newer build is published">${esc(upd)}</button><span class="st-sep"></span>` : '') +
     (zoom ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button><span class="st-sep"></span>` : '') +
     `<span class="st-item st-hint">ctrl+, settings</span>` +
     `<span class="st-sep"></span>` +
@@ -49,7 +46,7 @@ export function initStatusbar(node) {
   rightEl = node.querySelector('.st-right');
 
   status.watch(renderLeft);
-  // A field a module set with an `onClick` is a button, and this is where it is pressed.
+  // A field a plugin set with an `onClick` is a button, and this is where it is pressed.
   leftEl.addEventListener('click', (e) => {
     const b = e.target.closest('.st-click');
     if (!b) return;
@@ -58,10 +55,8 @@ export function initStatusbar(node) {
   });
   bus.on('theme', renderRight);
   bus.on('settings', renderRight);
-  store.watch('update', renderRight);
   rightEl.addEventListener('click', (e) => {
-    if (e.target.closest('.st-update')) commands.run('app.update');
-    else if (e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
+    if (e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
   });
   renderLeft();
   renderRight();

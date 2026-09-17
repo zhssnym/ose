@@ -38,7 +38,7 @@
   overflow: hidden;
 }
 
-/* The logo (cockpit/logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
+/* The logo (logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
 .tb-mark {
   width: 1.125rem; height: 1.125rem; flex: none;
   display: grid; place-items: center;
@@ -182,16 +182,9 @@ html.mac .tb-win { display: none; }
 .sb-row.selected.link .grow { color: var(--fg-2); }
 /* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
    anything drawn outside it, which is where the base 2px offset would put it. */
-.sb-row:focus-visible, .sb-missing:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
+.sb-row:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
 /* Empty lines start where the name of a depth-0 row does (E9). One size for both, from `.empty`. */
 .sb-empty { padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--tree-inset); text-align: left; }
-/* The scratch source points at nothing: one line, and clicking it opens settings. */
-.sb-missing {
-  display: block; width: 100%; line-height: 1.5;
-  padding-left: var(--tree-inset); padding-right: var(--sp-3);
-  color: var(--fg-3); transition: color var(--t-fast);
-}
-.sb-missing:hover, .sb-missing:focus-visible { color: var(--accent); }
 
 /* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
 .sb-row[draggable="true"] { -webkit-user-drag: element; }
@@ -283,7 +276,7 @@ html.mac .tb-win { display: none; }
 
 /* ------------------------------------------------------------------ dashboard */
 
-/* The home tab (shell/dashboard.js): one card per module, in the page column, under the same
+/* The home tab (shell/dashboard.js): one card per plugin, in the page column, under the same
    title as any other view. The same box every time — border, --bg-2, the hairline radius — no
    icons, no counts, no colour. Two across the column, one under 40rem of it. */
 .dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
@@ -298,7 +291,7 @@ html.mac .tb-win { display: none; }
 .dash-name { font-family: var(--font-title); font-size: var(--fs-body); color: var(--fg); line-height: 1.2; }
 .dash-desc { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); }
 .dash-key { justify-self: start; }
-/* A module with no view of its own, and a module that is disabled: a line under the grid, in
+/* A plugin with no view of its own, and one that is disabled: a line under the grid, in
    the chrome voice, not a card that opens nothing. */
 .dash-rest { display: flex; flex-direction: column; gap: var(--sp-1); }
 .dash-rest:not(:empty) { margin-top: var(--sp-5); }
@@ -419,12 +412,6 @@ body.resizing * { cursor: col-resize !important; }
 .st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
 /* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
 .st-hint { color: var(--fg-2); }
-/* a newer build is published: the one accent in the bar, and a button so Tab reaches it.
-   Accent-coloured *text* takes --accent-ink: --accent itself is 2.96:1 on --bg and 2.76 on
-   --bg-2, which is under the 4.5 an 11px face needs (L28's rule, QA F16). The hover keeps the
-   ink and underlines instead, because there is no darker accent than the ink. */
-.st-update { color: var(--accent-ink); cursor: pointer; }
-.st-update:hover { text-decoration: underline; }
 /* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
    bar's own colour and only warms up under the pointer (S4) */
 .st-zoom { color: var(--fg-2); cursor: pointer; }
@@ -463,14 +450,6 @@ html.maximized .edge { display: none; }
 .sr-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
 .sr-row.active .grow { color: var(--fg); }
 
-/* the update dialog: one line saying which build to which, then the commit subjects, each
-   with its short sha in the chrome voice; the list scrolls before the dialog outgrows a short
-   window. Text is content, so the UI face and size (DESIGN.md, two typefaces). */
-.upd-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 40vh; overflow-y: auto; }
-.upd-row { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; font-size: var(--fs-ui); line-height: 1.5; }
-.upd-sha { flex: none; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
-.upd-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 /* settings. Rows are grouped by whitespace, not by hairlines (E4): the rules in one dialog
    read as a form; twelve pixels of air between rows read as a list. A row is the same grid as
    a source row — name and control on one line, one sentence underneath — so the whole dialog
@@ -504,39 +483,31 @@ html.maximized .edge { display: none; }
 .seg-b:last-child { border-right: 0; }
 .seg-b:hover { background: var(--bg-3); color: var(--fg); }
 .seg-b.on { background: var(--accent); color: var(--accent-fg); }
-/* under the updates row: the build this executable is, when it last asked, and `Check now`;
-   the row above carries the switch, this line carries the facts */
-.set-upd { display: flex; align-items: center; gap: var(--sp-3); padding: 0 0 var(--sp-3); color: var(--fg-3); }
-.set-upd-checked::before { content: "· "; }
-.set-upd .btn { margin-left: auto; flex: none; }
-/* sources: the name, one sentence about the shape expected there, the path, and the controls.
-   The `sources` heading is a plain .label: flush with the rows, its own top padding the gap. */
-.set-src {
+/* a declared path (docs/PLUGINS.md `ose.paths`): its label, one sentence about the shape
+   expected there, where it resolved, and the two controls. The heading above a list of them is
+   a plain .label: flush with the rows, its own top padding the gap. */
+.set-path {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: start; gap: var(--sp-1) var(--sp-3);
   padding: var(--sp-3) 0;
 }
-.set-src-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
-.set-src-act {
+.set-path-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
+.set-path-act {
   grid-column: 2; grid-row: 1 / span 3;
   display: flex; gap: var(--sp-2); align-items: center; justify-content: flex-end;
 }
-.set-src-note {
+.set-path-note {
   grid-column: 1; grid-row: 2; max-width: 64ch;
   font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
 }
-/* a stat that threw: the host's words, in the error colour, where the sentence was (B5) */
-.set-src-note.err { color: var(--err); }
-.set-src-path {
+.set-path-value {
   grid-column: 1; grid-row: 3; margin-top: var(--sp-1);
   display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0;
   color: var(--fg-2);
 }
-.set-src-p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.set-src-missing {
-  flex: none; font-style: normal; color: var(--err); letter-spacing: .06em;
-}
-.set-src-missing::before { content: "· "; color: var(--fg-3); letter-spacing: 0; }
+.set-path-value span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* `missing` or `ambiguous`: nothing will draw until someone points at the right thing */
+.set-path-bad { font-style: normal; color: var(--err); letter-spacing: .06em; }
 
 .set-info {
   margin-top: var(--sp-4); padding: var(--sp-2) var(--sp-3);
@@ -653,33 +624,38 @@ html.maximized .edge { display: none; }
   letter-spacing: .06em;
 }
 
-/* ------------------------------------- settings: what a module contributes (round four) */
+/* ------------------------------------- settings: what a plugin contributes */
 
-/* A module's section is drawn into an empty box under the stock rows; the rows inside it are
-   the module's own, so this only gives it the same gutter every other block has. */
+/* A plugin's section is drawn into an empty box under the stock rows; the rows inside it are
+   the plugin's own, so this only gives it the same gutter every other block has. */
 .set-section { padding-bottom: var(--sp-3); }
 
-/* One line per module: its id, its name, whether it is running, and why not. */
-.set-mod {
+/* One line per plugin: its name, what it says it does, and whether it is running. Its paths
+   follow it as .set-path rows, so a plugin reads as a heading and the things it needs. */
+.set-plug {
   display: flex;
   align-items: baseline;
   gap: var(--sp-3);
   min-width: 0;
-  padding: var(--sp-half) 0;
+  padding: var(--sp-3) 0 0;
   color: var(--fg-2);
 }
-.set-mod-id { flex: none; color: var(--fg); }
-.set-mod .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.set-mod-state { flex: none; color: var(--fg-3); }
-.set-mod-state.err { color: var(--err); }
-.set-mod-why { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--err); }
+.set-plug-name { flex: none; font-size: var(--fs-ui); color: var(--fg); }
+.set-plug .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-plug-state { flex: none; color: var(--fg-3); }
+.set-plug-state.err { color: var(--err); }
+/* why a plugin is disabled: its own line under the name, because the sentence is a stack
+   trace's first line and never fits beside anything */
+.set-plug-why { padding-top: var(--sp-1); color: var(--err); line-height: 1.5; }
+/* the two buttons under the list: reload every plugin from disk, open the folder */
+.set-plug-act { display: flex; gap: var(--sp-2); padding: var(--sp-3) 0; }
 
 
-/* --------------------------------------- the page column's view chrome (round four) */
+/* --------------------------------------- the page column's view chrome */
 
-/* A view is a module drawing into the page column, and this is the column's own furniture:
+/* A view is a plugin drawing into the page column, and this is the column's own furniture:
    the root a view mounts into, the title row with its period navigation, and a path that
-   navigates when it is clicked. The four stock views use it; any module may. */
+   navigates when it is clicked. The stock views use it; any plugin may. */
 
 /* The shell's .main-scroll is the scroller; a view must not open a second one. */
 .view-root { min-height: 100%; }
@@ -689,7 +665,7 @@ html.maximized .edge { display: none; }
 .page-title:not([contenteditable="true"]):focus-visible { outline: none; }
 
 /* title row with the previous / today / next group on the right, and the keys that drive it
-   said once, quietly, in front of the buttons (a module's navHtml) */
+   said once, quietly, in front of the buttons (a plugin's navHtml) */
 .v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
 .v-nav { display: flex; align-items: center; flex: none; margin-top: var(--sp-2); }
 /* adjacent buttons share one border: the overlap is the border width, not spacing */

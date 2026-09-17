@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "os-editor",
+      "name": "ose-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
@@ -11,20 +11,11 @@
       "port": 5173
     },
     {
-      "name": "os-test",
+      "name": "ose-test",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev:test"
-      ],
-      "port": 5174
-    },
-    {
-      "name": "os-test-rice",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set OSE_RICE=work/vault/.ose/app&& node dev/test-server.mjs"
       ],
       "port": 5174
     }

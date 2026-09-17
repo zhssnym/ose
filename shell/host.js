@@ -2,7 +2,7 @@
 // browser tab, and the four window hoses the batch-12 shell used to read off the bridge
 // (drag, resize by an edge, the maximised state, a vault change). All of them are `ose` now.
 //
-// One file knows; everybody else calls it. A rice for another kind of window — a decorated
+// One file knows; everybody else calls it. A shell for another kind of window — a decorated
 // one, a kiosk — replaces this file and nothing else.
 
 import { ose } from 'ose:kernel';
@@ -38,7 +38,7 @@ export function onMaximize(fn) {
   return off;
 }
 
-/** A second launch named another folder and the host adopted it: the rice starts over on it. */
+/** A second launch named another folder and the host adopted it: the shell starts over on it. */
 export const onVaultChange = (fn) => ose.vault.onChange(fn);
 
 /**

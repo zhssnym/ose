@@ -20,8 +20,8 @@ const HOST = isHost;
  * (http.js); in the host the path is the app's own and this is a plain reload.
  */
 export function reloadIntoVault() {
-  // In the host the kernel reloads the window it is in, which re-runs the rice decision
-  // (K1a's `reloadRice`). In the browser `replace(pathname)` is a reload that also drops the
+  // In the host the kernel reloads the window it is in, which brings the shell back up.
+  // In the browser `replace(pathname)` is a reload that also drops the
   // page query, which is how the dev flag `?novault=1` is cleared (the dev bridge).
   if (isHost()) { void ose.reload(); return; }
   location.replace(location.pathname);
@@ -145,7 +145,7 @@ let lostOv = null;
 /**
  * The vault folder itself stopped existing: renamed, unmounted, deleted (S29). One dialog,
  * once — not a toast per failed call — with the two answers there are. `Retry` reloads the
- * app when the folder is back, because every module read its world from that folder at boot.
+ * app when the folder is back, because every plugin read its world from that folder at boot.
  * The watcher saying the vault is back closes it by itself.
  */
 export function vaultLost(root) {

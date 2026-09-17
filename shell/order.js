@@ -1,29 +1,27 @@
-// The order modules are shown in, in the sidebar and on the dashboard.
+// The order plugins are shown in, in the sidebar and on the dashboard.
 //
-// It is the order of `cockpit.json`'s `modules` list, which is the rice's own file: to move a
-// module, move its line. A module added to the end of that list lands at the bottom. The
-// loader activates modules concurrently, so `ose.modules.list()` has no order worth keeping;
-// a view no listed module owns comes after them all, by its declared `order`, then its title.
+// A view carries its place: `order`, then its title (docs/PLUGINS.md). There is no list of
+// plugins anywhere and the loader activates them concurrently, so there is nothing else to
+// sort by: a plugin that wants to sit between two others changes the `order` of its view. The
+// stock six use 10 to 60.
 
-import { ose } from 'ose:kernel';
-
-let listed = [];
-try {
-  const res = await fetch(new URL('../cockpit.json', import.meta.url), { cache: 'no-store' });
-  const cockpit = await res.json();
-  if (Array.isArray(cockpit.modules)) listed = cockpit.modules.map(String);
-} catch { /* no cockpit.json: every module falls back to its declared order */ }
-
-/** A view's place: the index of the module that owns it in cockpit.json, or after them all. */
-function rank(viewName) {
-  const owner = ose.modules.list().find((m) => m.view && m.view.name === viewName);
-  const i = owner ? listed.indexOf(owner.id) : -1;
-  return i < 0 ? listed.length : i;
-}
+const rank = (v) => (Number.isFinite(v && v.order) ? v.order : 100);
+const title = (v) => String((v && (v.title || v.name)) || '');
 
 /** Sort comparator over `{ name, title, order }` view rows. */
-export function byModuleOrder(a, b) {
-  return (rank(a.name) - rank(b.name))
-    || ((a.order ?? 100) - (b.order ?? 100))
-    || String(a.title || a.name).localeCompare(String(b.title || b.name));
+export function byViewOrder(a, b) {
+  return (rank(a) - rank(b)) || title(a).localeCompare(title(b));
+}
+
+/**
+ * A plugin's place: its first view's, so a plugin sits where the thing it opens sits. One with
+ * no view at all has nothing to sort by and goes last, which is where the dashboard draws it:
+ * a line under the grid rather than a card that opens nothing.
+ */
+export function byPluginOrder(a, b) {
+  const first = (p) => ((p && p.views) || []).slice().sort(byViewOrder)[0];
+  const va = first(a), vb = first(b);
+  if (va && vb) return byViewOrder(va, vb);
+  if (va || vb) return va ? -1 : 1;
+  return String(a.name || a.id).localeCompare(String(b.name || b.id));
 }

@@ -24,7 +24,7 @@ const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 // exactly the way Ctrl+P does. Re-exported here because this is where they used to be.
 export { fuzzy };
 
-/* ------------------------------------------------------------------ sources */
+/* -------------------------------------------------------------- what is listed */
 
 function commandItems(q) {
   const out = [];
@@ -37,7 +37,7 @@ function commandItems(q) {
       kind: 'cmd', id: c.id, group: c.group || 'app',
       title: c.title, hint: c.hint || '',
       // `shortcutFor` is the whole truth: a command registered with a `shortcut` that the
-      // rice's keys.json has since taken answers null here, and the row prints nothing rather
+      // shell's keys.json has since taken answers null here, and the row prints nothing rather
       // than a chord that runs the other command (QA-K defect 4).
       shortcut: shortcutFor(c.id) || '',
       score: m.score + (titleMatch ? titleMatch.score * 1.5 : 0),
@@ -86,11 +86,11 @@ function titleMap() {
 }
 
 /**
- * The rows a module registers through `ose.route.index(pattern, fn)` (docs/KERNEL.md): an NSI
+ * The rows a plugin registers through `ose.route.index(pattern, fn)` (docs/KERNEL.md): an NSI
  * problem is a page in every way a person cares about — it has a title, it is navigated to, it
  * gets history and a window title — and it is not a file, so `allPages()` has never seen one.
- * Quick open is rice, so this is where the two lists meet (QA-K defect 2). Never throws: a
- * module whose index function is broken costs its own rows and nothing else.
+ * Quick open is the shell's, so this is where the two lists meet. Never throws: a plugin whose
+ * index function is broken costs its own rows and nothing else.
  */
 function ownedRows() {
   try { return route.indexed() || []; } catch (e) { console.error('[shell] route.indexed', e); return []; }
@@ -99,7 +99,7 @@ function ownedRows() {
 function fileItems(q) {
   const paths = allPages();
   const seen = new Set(paths);
-  const owned = new Map();                 // path -> the module's title for it
+  const owned = new Map();                 // path -> the plugin's title for it
   for (const row of ownedRows()) {
     if (!row || !row.path || seen.has(row.path)) continue;   // a real file of that name wins
     seen.add(row.path);

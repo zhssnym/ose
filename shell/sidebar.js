@@ -1,6 +1,6 @@
-// Sidebar: modules, pinned, pages, scratch. One scrolling column, no search box (search
+// Sidebar: plugins, pinned, pages, scratch. One scrolling column, no search box (search
 // is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
-// The modules section, at the very top, lists what the modules registered; the dashboard
+// The plugins section, at the very top, lists what the plugins registered; the dashboard
 // (shell/dashboard.js) is the home page and says the same things in cards, and both are ways
 // in. The sidebar carries
 // no chrome of its own: the one control that folds it lives in the title bar.
@@ -18,7 +18,7 @@ import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHid
 import { openSearch } from './search.js';
 import { moveTabs, closeTabsUnder, openInNewTab } from './tabs.js';
 import { HOME } from './dashboard.js';
-import { byModuleOrder } from './order.js';
+import { byViewOrder } from './order.js';
 import { isMediaFile } from './media.js';
 import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
@@ -35,7 +35,6 @@ const setFocus = (path) => ose.focus.set(path);
 const exitFocus = () => ose.focus.exit();
 const isUnderFocus = (path) => ose.focus.isUnder(path);
 const defaultNewFolder = () => ose.focus.defaultNewFolder();
-const getSource = (key) => ose.sources.get(key);
 const relativeHref = (from, to) => links.href(from, to);
 const rewriteInboundMany = (pairs) => links.rewriteMoved(pairs);
 const findInbound = (path) => links.inbound(path);
@@ -62,10 +61,11 @@ let anchor = null;
 
 const ARCHIVE = '_Archive';
 
-// The scratch folder is a source, not a name in the code: `7-scratchpad` today, whatever the
-// user points it at tomorrow (CONTRACT.md batch 5). Everything that used to say 'Scratchpad'
-// asks here, and the sidebar re-renders on the `sources` event.
-export function scratchFolder() { return getSource('scratch'); }
+// The scratch folder is a path the shell declares, not a name in the code: `scratchpad` today,
+// whatever the user points it at tomorrow (docs/PLUGINS.md `ose.paths`). Everything that used
+// to say 'Scratchpad' asks here, and the sidebar re-renders on `ose.paths.on`. Nothing
+// resolved is an empty string: the section is not drawn and a new page lands at the root.
+export function scratchFolder() { return ose.paths.of('app').peek('scratch') || ''; }
 
 /* ------------------------------------------------------------------ tree data */
 
@@ -285,19 +285,19 @@ function renderPinned(frag) {
 
 /** One row per registered view, at the very top. The dashboard is the home page, not a row. */
 function renderViews(frag) {
-  // `ose.views.list()` answers in registration order, and modules activate concurrently: the
-  // order a person sees is the rice's, the order of `cockpit.json`'s modules (order.js).
+  // `ose.views.list()` answers in registration order, and plugins activate concurrently: the
+  // order a person sees is each view's own `order`, then its title (order.js).
   const list = [...views.list()]
     // The dashboard is a view so that the router can mount it, but it is the page the app
-    // opens on and the one `app.home` goes to; a row for it among the modules' views would be
-    // a second front door pretending to be a module.
+    // opens on and the one `app.home` goes to; a row for it among the plugins' views would be
+    // a second front door pretending to be a plugin.
     .filter((v) => v.name !== HOME.name)
-    .sort(byModuleOrder);
+    .sort(byViewOrder);
   if (!list.length) return;
-  // "modules", not "views": the row is a module's way in, and the word a person knows for
-  // Day, Week, Informatique is the module, not the kind of surface it happens to register.
-  frag.appendChild(label('modules'));
-  const box = treeBox(frag, 'Modules');
+  // "plugins", not "views": the row is a plugin's way in, and the word a person knows for
+  // Day, Week, Informatique is the plugin, not the kind of surface it happens to register.
+  frag.appendChild(label('plugins'));
+  const box = treeBox(frag, 'Plugins');
   const r = currentRoute();
   for (const v of list) {
     box.appendChild(rowEl({
@@ -340,25 +340,14 @@ function renderNode(node, depth, frag, curPath) {
 }
 
 /**
- * The scratch folder, flat: its files as rows, its folders expandable in place. When the source
- * points at nothing (a renamed vault, a typo in settings) the listing goes away and the section
- * carries one mono line saying where to fix it, rather than an empty state that lies.
+ * The scratch folder, flat: its files as rows, its folders expandable in place. A vault with
+ * no scratch folder has no scratch section: the path is unresolved, Settings › Files is where
+ * one is chosen, and a new page lands at the vault root until one is.
  */
 function renderScratch(frag, curPath) {
   const dir = scratchFolder();
   const node = dir ? findNode(dir) : null;
-  if (!node || node.kind !== 'dir') {
-    frag.appendChild(label('scratch'));
-    const miss = document.createElement('button');
-    miss.type = 'button';
-    // One font size for every empty line in the tree (E9): `.empty` already sets the mono face.
-    miss.className = 'empty sb-empty sb-missing';
-    miss.textContent = 'scratch folder missing · set it in settings';
-    miss.title = dir ? `${dir} is not in the vault` : 'no scratch folder is set';
-    miss.addEventListener('click', () => commands.run('app.settings'));
-    frag.appendChild(miss);
-    return;
-  }
+  if (!node || node.kind !== 'dir') return;
   const kids = sortChildren(node.children || [], false);
   frag.appendChild(label('scratch', dir));
   if (!kids.length) {
@@ -405,7 +394,7 @@ function renderTree() {
   const curPath = r && r.type === 'page' ? r.path : null;
   const focus = getFocus();
 
-  // The modules come first, above everything the vault put there: they are the app's own rows
+  // The plugins come first, above everything the vault put there: they are the app's own rows
   // and they do not move when the tree does. Focused, the sidebar is one folder and the rest of
   // the app's rows: pins and scratch are noise.
   renderViews(frag);
@@ -482,17 +471,16 @@ function rowFor(path) {
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: modules, pins, pages, scratch, the
-// missing-scratch line. It is read out of the DOM, so it is the drawing order by construction
+// Everything a key can land on, top to bottom: plugins, pins, pages, scratch. It is read out
+// of the DOM, so it is the drawing order by construction
 // and the Up/Down walk can never disagree with what is on screen. Collapsed folders render no children, so this list is exactly the visible rows.
 function treeRows() {
-  return scrollEl ? [...scrollEl.querySelectorAll('.sb-row, .sb-missing')] : [];
+  return scrollEl ? [...scrollEl.querySelectorAll('.sb-row')] : [];
 }
 
-/** A stable identity for a row across renders: the path (pins apart from tree rows), the view, or the one missing line. */
+/** A stable identity for a row across renders: the path (pins apart from tree rows) or the view. */
 function rowKey(row) {
   if (!row || !row.dataset) return null;
-  if (row.classList.contains('sb-missing')) return 'miss';
   if (row.dataset.view) return 'view:' + row.dataset.view;
   if (row.dataset.path !== undefined) return (row.dataset.pin === '1' ? 'pin:' : 'path:') + row.dataset.path;
   return null;
@@ -603,10 +591,9 @@ function toggleDir(row) {
 
 /**
  * Enter: what a click does. Pages open (and take focus, B3), folders toggle, a pinned folder
- * focuses, the missing line opens settings.
+ * focuses.
  */
 function activateRow(row) {
-  if (row.classList.contains('sb-missing')) { commands.run('app.settings'); return; }
   if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
   const path = row.dataset.path;
   // A pinned folder is a shortcut to a place, not a branch to unfold — unfolding it in a
@@ -635,7 +622,7 @@ function activateRow(row) {
  * `activateRow`, which does the focusing and the toggling those gestures have no business in.
  */
 function routeForRow(row) {
-  if (!row || row.classList.contains('sb-missing')) return null;
+  if (!row) return null;
   // A view row is a route too: the deliberate gestures open it in a tab of its own.
   if (row.dataset.view) return { type: 'view', name: row.dataset.view };
   const path = row.dataset.path;
@@ -699,8 +686,8 @@ function onTreeKey(e) {
   if (!list.length) return;
   // The row the key was typed at: the event's own target first, which is the focused row in
   // every ordinary press and is right even when the document itself does not hold focus.
-  const row = (e.target && e.target.closest && e.target.closest('.sb-row, .sb-missing'))
-    || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row, .sb-missing') : null);
+  const row = (e.target && e.target.closest && e.target.closest('.sb-row'))
+    || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row') : null);
   // A click on the blank space under the tree focuses the scroller itself: the first arrow
   // key steps onto the tab-stop row instead of doing nothing.
   if (!row) {
@@ -1317,8 +1304,8 @@ async function copyLink(path, kind) {
 /**
  * The thing a tree command acts on (D3): `{ path, kind }` for the focused tree row (the row
  * focus will return to, while a palette or menu is up: see focusOrigin), else the open page,
- * else null. The vault root is `{ path: '', kind: 'dir' }`, which the missing-scratch line and
- * the blank space under the tree stand for.
+ * else null. The vault root is `{ path: '', kind: 'dir' }`, which the blank space under the
+ * tree stands for.
  */
 function treeTarget() {
   const o = focusOrigin();
@@ -1545,7 +1532,7 @@ export function initSidebar(node) {
   // toggles a tree row in the selection and Shift+click selects the run from the anchor to
   // it, neither of which opens anything (C17); a plain click is a single row again.
   scrollEl.addEventListener('click', (e) => {
-    const row = e.target.closest('.sb-row, .sb-missing');
+    const row = e.target.closest('.sb-row');
     if (!row) return;
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
@@ -1606,8 +1593,11 @@ export function initSidebar(node) {
   bus.on('route', () => { const r = currentRoute(); if (r && r.type === 'page') expandAncestors(r.path); render(); scrollToCurrent(); });
   bus.on('booted', () => render());
   bus.on('focus', () => { render(); scrollToCurrent(); });
-  // The scratch section is a source; repointing it in settings moves the section straight away.
-  bus.on('sources', ({ key }) => { if (key === 'scratch') { render(); scrollToCurrent(); } });
+  // The scratch section is a declared path; repointing it in settings moves the section
+  // straight away, and resetting it takes the section off the column.
+  ose.paths.on(({ owner, key }) => {
+    if (owner === 'app' && key === 'scratch') { render(); scrollToCurrent(); }
+  });
 
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
@@ -1625,6 +1615,6 @@ export function initSidebar(node) {
   refreshTree();
 }
 
-// Focus mode is the kernel's (`ose.focus`); re-exported here so a rice file that already
+// Focus mode is the kernel's (`ose.focus`); re-exported here so a shell file that already
 // imports the sidebar has one import, exactly as the batch-12 shell did.
 export { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder };

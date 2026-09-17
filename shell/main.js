@@ -1,11 +1,11 @@
-// Boot. The rice's entry, and the only file that decides an order.
+// Boot. The shell's entry, and the only file that decides an order.
 //
-//   ose.ready  ->  the shell  ->  ose.init  ->  the rice's own surfaces  ->  the modules
+//   ose.ready  ->  the shell  ->  ose.init  ->  the shell's own surfaces  ->  the plugins
 //
-// The app opens on the dashboard (shell/dashboard.js): the home tab, one card per module, and
-// no page — there is still no startup *route* (docs/CONTRACT.md batch 2), only a home the user
-// leaves by picking something. With no vault open the shell is not built at all — one surface
-// asks for a folder and the rice starts again on the answer.
+// The app opens on the dashboard (shell/dashboard.js): the home tab, one card per plugin, and
+// no page — there is still no startup *route*, only a home the user leaves by picking
+// something. With no vault open the shell is not built at all: one surface asks for a folder
+// and the shell starts again on the answer.
 
 import { ose } from 'ose:kernel';
 import { toast } from 'ose:ui';
@@ -15,7 +15,6 @@ import { initPageHost } from './page.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
-import { initUpdate } from './update.js';
 import { startSurface } from './start.js';
 import { initDashboard } from './dashboard.js';
 import { initTabs } from './tabs.js';
@@ -23,7 +22,7 @@ import { initTabs } from './tabs.js';
 /**
  * The two stylesheets the kernel rewrites into `index.html` (docs/KERNEL.md "Origins"). A host
  * fills them in before the page is parsed; a plain file server does not, and then the kernel's
- * own assets answer for them. Either way no rice file spells an origin.
+ * own assets answer for them. Either way no shell file spells an origin.
  */
 function linkKernelStyles() {
   for (const link of document.querySelectorAll('link[data-ose]')) {
@@ -32,11 +31,11 @@ function linkKernelStyles() {
   }
 }
 
-/** `keys.json`: the chords this rice adds over the kernel's shell map (docs/RICE.md). */
+/** `keys.json`: the chords the shell adds over the kernel's window map. */
 async function loadKeys() {
   let map = null;
   try {
-    const res = await fetch(new URL('../keys.json', import.meta.url), { cache: 'no-store' });
+    const res = await fetch(new URL('./keys.json', import.meta.url), { cache: 'no-store' });
     if (!res.ok) return;
     map = await res.json();
   } catch (e) { console.warn('[shell] keys.json', e); return; }
@@ -48,17 +47,32 @@ async function loadKeys() {
 }
 
 /**
- * The modules of this rice (docs/MODULES.md). One that throws is disabled with a toast and
- * named in settings; the rest, and the shell, are untouched.
+ * The shell's own path: where a new page lands when no folder is focused. It is declared under
+ * the owner `app`, like a plugin's, so the sidebar's scratch section and Settings › Files read
+ * it the same way a plugin reads its own (docs/PLUGINS.md `ose.paths`). Resolved once here,
+ * before the sidebar is drawn, so the section is right on the first frame.
  */
-async function loadModules() {
+async function resolveScratch() {
+  ose.paths.declare('app', {
+    scratch: { folder: 'scratchpad', hint: 'Where new pages land unless a folder is focused.' },
+  });
+  try { await ose.paths.of('app').get('scratch'); } catch (e) { console.warn('[shell] scratch', e); }
+}
+
+/**
+ * The plugins of this vault (docs/PLUGINS.md). One that throws is disabled for the session,
+ * toasted by the loader and named in Settings › Plugins; the rest, and the shell, are
+ * untouched.
+ */
+async function loadPlugins() {
   try {
-    const list = await ose.modules.load();
-    const bad = (list || []).filter((m) => m && m.state !== 'active');
-    for (const m of bad) console.warn('[shell] module disabled:', m.id, m.error);
+    const list = await ose.plugins.load();
+    for (const p of (list || []).filter((p) => p && p.state !== 'active')) {
+      console.warn('[shell] plugin disabled:', p.id, p.error);
+    }
   } catch (e) {
-    console.error('[shell] modules', e);
-    toast('modules could not be loaded: ' + (e.message || e), 'err');
+    console.error('[shell] plugins', e);
+    toast('plugins could not be loaded: ' + (e.message || e), 'err');
   }
 }
 
@@ -90,17 +104,19 @@ async function boot() {
     return;
   }
 
+  await resolveScratch();
+
   const els = mountShell(root);
   // Who draws a page, and what the page list is. Before `ose.init`, because the router mounts
   // with the shell and the first thing it may be asked for is a page.
   initPageHost();
-  // The home this rice opens on, and the strip that holds it. Both before `ose.init`: the
+  // The home this shell opens on, and the strip that holds it. Both before `ose.init`: the
   // dashboard has to be a registered view before anything navigates to it, and the strip has
   // to be listening before the first route event.
   initDashboard();
   initTabs(els.tabs, els.main);
-  // The one call that starts the kernel in the rice: the theme, the key engine, and the
-  // router mounted into the rice's own page column. `start: false` because this rice has a
+  // The one call that starts the kernel in the shell: the theme, the key engine, and the
+  // router mounted into the shell's own page column. `start: false` because the shell has a
   // home of its own; without it the kernel's empty surface would flash away under the
   // dashboard on every boot.
   ose.init({ page: els.main, start: false });
@@ -108,15 +124,14 @@ async function boot() {
   initPalette();
   initSearch();
   initSettings();
-  initUpdate();
   await loadKeys();
 
-  // The home tab, before the modules load: the dashboard is on screen while they activate and
-  // fills in when `booted` says they have. A module that navigates somewhere else on activate
+  // The home tab, before the plugins load: the dashboard is on screen while they activate and
+  // fills in when `booted` says they have. A plugin that navigates somewhere else on activate
   // opens a second tab, which is what a second tab is for.
   startSurface();
 
-  await loadModules();
+  await loadPlugins();
 
   ose.status.set('mode', 'READY');
   ose.bus.emit('booted');

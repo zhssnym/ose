@@ -10,7 +10,7 @@
 // The web view draws it itself over the vault origin (`ose.files.assetUrl`): an `<img src>`
 // for a picture, and for a PDF an `<iframe>` whose document is the web view's own PDF viewer —
 // Chromium's in WebView2, WKWebView's on macOS. That is why the host's CSP names the vault
-// origin in `frame-src` as well as `img-src` (src-tauri/src/rice.rs) and why the vault
+// origin in `frame-src` as well as `img-src` and why the vault
 // protocol answers `application/pdf` for `.pdf` (src-tauri/src/protocol.rs). No library, no
 // bytes through the bridge, no temp file.
 //
@@ -36,8 +36,8 @@ export const isImageFile = (p) => IMAGE_EXTS.has(extOf(p));
 export const isPdfFile = (p) => extOf(p) === 'pdf';
 export const isMediaFile = (p) => isPdfFile(p) || isImageFile(p);
 
-// docs/MODULES.md rule 3, and the same trick the stock modules use: the stylesheet is a <link>
-// this file adds, resolved against itself, so no line in the rice ever spells an origin. The
+// docs/PLUGINS.md rule 3, and the same trick a plugin's style.css uses: the stylesheet is a
+// <link> this file adds, resolved against itself, so no line of the shell spells an origin. The
 // shell lives as long as the window, so it is added once and left.
 let sheet = null;
 function addStyles() {

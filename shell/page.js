@@ -1,8 +1,8 @@
 // The page seam: who draws a markdown page, and which pages the app offers.
 //
 // The kernel's router never imports `ose:editor` — the editor is a bundle of its own and the
-// kernel must not know it exists (docs/KERNEL.md). The rice joins them here, in one call, and
-// that is the whole of the editor's place in the stock rice: everything else the editor does
+// kernel must not know it exists (docs/KERNEL.md). The shell joins them here, in one call, and
+// that is the whole of the editor's place in the shell: everything else the editor does
 // (its commands, its chords, its dialogs, its autosave) it does for itself.
 
 import { ose } from 'ose:kernel';
@@ -18,7 +18,7 @@ export function initPageHost() {
   holdPageCommands();
 
   ose.setPageHost({
-    // The branch is the extension and nothing else (docs/RICE.md "The page seam"): a PDF and
+    // The branch is the extension and nothing else (docs/SHELL.md "The page seam"): a PDF and
     // an image are drawn by `media.js`, everything else — markdown, and the source-mode text
     // files the editor claims — by `markdownPage`. Both answer the same handle, so the three
     // calls below do not know which they are holding.
@@ -54,9 +54,9 @@ export function initPageHost() {
  * the path (router.js). That is right for markdown and wrong for a `.pdf` or a `.png`: it puts
  * a markdown file behind a media extension, and the web view is then asked to draw it
  * (QA-5 finding 4). The kernel must not learn extensions — docs/KERNEL.md, and the router is
- * right to stay generic — so the rice takes that one box back for the paths it claims.
+ * right to stay generic — so the shell takes that one box back for the paths it claims.
  *
- * Two halves, because the box is drawn after the rice is told about the route:
+ * Two halves, because the box is drawn after the shell is told about the route:
  *
  *  - a capture-phase guard on the button. It needs no timing at all: a press on `Create it`
  *    while a media route is on screen never reaches the kernel's own handler, so nothing is
@@ -68,7 +68,7 @@ export function initPageHost() {
  *
  * Both reach for the kernel's `.miss` box by the one attribute the router gives its button.
  * That is a coupling, and it is the reason `work/reports/P.md` asks for a page-host hook
- * (`claims(path)`) so the router can skip its own miss for a path the rice will draw.
+ * (`claims(path)`) so the router can skip its own miss for a path the shell will draw.
  */
 const CREATE = '[data-act="create"]';
 let watcher = null;
@@ -122,7 +122,7 @@ function initMediaMiss() {
 }
 
 /**
- * The page on screen, for a rice file that needs to ask. Null on a view or the start surface.
+ * The page on screen, for a shell file that needs to ask. Null on a view or the start surface.
  * It is a `markdownPage` handle or a `mediaPage` one: ask `page.kind` before reaching for a
  * method only one of them has.
  */

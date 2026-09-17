@@ -1,17 +1,15 @@
 // The settings dialog (Ctrl+,). Small, flat, one dialog. The values themselves are the
-// kernel's (src/kernel/settings-core.js, docs/KERNEL.md `ose.settings`); this file draws them
-// and is rice, not kernel: K2 moves it into `cockpit/shell/`.
+// kernel's (src/kernel/settings-core.js, docs/KERNEL.md `ose.settings`); this file draws them.
 import { ose } from 'ose:kernel';
-import { esc, openOverlay, pickFile, pickFolder, toast } from 'ose:ui';
+import { esc, openOverlay, pickFolder, toast } from 'ose:ui';
 import { reloadIntoVault, chooseVault } from './vault.js';
 import { hostKind } from './host.js';
-import { buildLine, checkedLine, reschedule } from './update.js';
 
 const { bus, commands, store } = ose;
 
 // The values are the kernel's (`ose.settings`); the steps a person can pick between are the
 // dialog's, because they are what this dialog draws. The kernel validates against its own
-// copy, so a rice that offers a step the kernel does not know simply gets 100 %.
+// copy, so a shell that offers a step the kernel does not know simply gets 100 %.
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.5, 1.65, 1.8];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
@@ -25,12 +23,6 @@ const onRepaint = (fn) => ose.settings.onRepaint(fn);
 const themePref = () => ose.theme.get();
 const setTheme = (next) => ose.theme.set(next);
 const flushState = () => ose.state('sidebar').flush();
-
-const SOURCE_KEYS = ose.sources.keys();
-const sourceInfo = (key) => ose.sources.info(key) || {};
-const getSource = (key) => ose.sources.get(key);
-const setSource = (key, path) => ose.sources.set(key, path);
-const isDefaultSource = (key) => !!sourceInfo(key).isDefault;
 
 /** One step in or out, clamped at the ends rather than wrapping. */
 function stepZoom(dir) {
@@ -59,80 +51,98 @@ function seg(name, options, value) {
   ).join('') + '</div>';
 }
 
-/* ------------------------------------------------------------------ sources */
+/* ------------------------------------------------------------------- paths */
 
-// One row per source key: what it is, one sentence saying what the app expects to find there,
-// the path it points at, and the controls. The path is mono because it is a path; a path that
-// is not there says `missing` rather than failing silently inside a view (CONTRACT.md batch 5).
-// `todo` takes a file or a folder, so it gets both pickers instead of one `choose…`.
-function srcRow(key) {
-  const info = sourceInfo(key);
-  const kind = info.kind || 'file';
-  const choose = kind === 'either'
-    ? `<button class="btn" data-src="${esc(key)}" data-act="file">file…</button>`
-      + `<button class="btn" data-src="${esc(key)}" data-act="folder">folder…</button>`
-    : `<button class="btn" data-src="${esc(key)}" data-act="${kind === 'folder' ? 'folder' : 'file'}">choose…</button>`;
-  return `<div class="set-src" data-key="${esc(key)}">
-      <div class="set-src-name">${esc(info.label || key)}</div>
-      <div class="set-src-act">
-        ${choose}
-        <button class="btn set-src-reset" data-src="${esc(key)}" data-act="reset" hidden>reset</button>
+// One row per declared path (docs/PLUGINS.md `ose.paths`): its label, one sentence saying what
+// the thing must contain, where it resolved, and the two controls. The value is mono because
+// it is a path; `missing` and `ambiguous` are the danger colour, because a path that did not
+// resolve is a view that cannot draw until someone points at the right folder.
+function pathRow(row) {
+  return `<div class="set-path" data-owner="${esc(row.owner)}" data-key="${esc(row.key)}">
+      <div class="set-path-name">${esc(row.label || row.key)}</div>
+      <div class="set-path-act">
+        <button class="btn" data-act="choose">Choose…</button>
+        <button class="btn" data-act="reset"${row.saved ? '' : ' hidden'}>Reset</button>
       </div>
-      <div class="set-src-note">${esc(info.sentence || '')}</div>
-      <div class="set-src-path mono-sm"><span class="set-src-p text-select"></span><i class="set-src-missing" hidden>missing</i></div>
+      <div class="set-path-note">${esc(row.hint || '')}</div>
+      <div class="set-path-value mono-sm">${row.status === 'ok'
+        ? `<span class="text-select" title="${esc(row.path)}">${esc(row.path)}</span>`
+        : `<i class="set-path-bad">${esc(row.status)}</i>`}</div>
     </div>`;
 }
 
-// Existence is re-read every time the dialog opens and after every change: the vault is a
-// folder on disk, and the point of the row is to say when it has moved out from under us.
-function paintSources(box) {
-  for (const key of SOURCE_KEYS) {
-    const el = box.querySelector(`.set-src[data-key="${CSS.escape(key)}"]`);
-    if (!el) continue;
-    const path = getSource(key);
-    const info = sourceInfo(key);
-    const pathEl = el.querySelector('.set-src-p');
-    const missEl = el.querySelector('.set-src-missing');
-    const noteEl = el.querySelector('.set-src-note');
-    pathEl.textContent = path;
-    el.querySelector('.set-src-path').title = path;
-    missEl.hidden = true;
-    noteEl.textContent = info.sentence || '';
-    noteEl.classList.remove('err');
-    el.querySelector('.set-src-reset').hidden = isDefaultSource(key);
-    // A stat that throws (a locked file, a bridge fault) is not a healthy source, and used to
-    // be painted as one (B5): it reads `missing`, and the note says what the host said.
-    ose.files.stat(path)
-      .then((st) => { if (pathEl.textContent === path) missEl.hidden = !!(st && st.exists); })
-      .catch((e) => {
-        console.warn('[shell] stat', path, e.message || e);
-        if (pathEl.textContent !== path) return;
-        missEl.hidden = false;
-        noteEl.textContent = String(e.message || e);
-        noteEl.classList.add('err');
-      });
+/** Every declared path of one owner, in the order it was declared. */
+const pathsOf = (owner) => {
+  try { return ose.paths.of(owner).list(); } catch (e) { console.warn('[shell] paths', owner, e); return []; }
+};
+
+/** Settings › Files: the shell's own path, where a new page lands (main.js declares it). */
+function paintFiles(box) {
+  const host = box.querySelector('.set-files');
+  if (!host) return;
+  host.innerHTML = pathsOf('app').map(pathRow).join('');
+}
+
+/* ----------------------------------------------------------------- plugins */
+
+/**
+ * Every plugin of this vault, what it says it is, whether it is running, and the paths it
+ * needs. A plugin that threw on import or in `activate` is disabled for the session and says
+ * so here as well as in its toast, which is the one place a person can go and look afterwards.
+ */
+function paintPlugins(box) {
+  const host = box.querySelector('.set-plugins');
+  if (!host) return;
+  const list = ose.plugins.list();
+  if (!list.length) {
+    host.innerHTML = `<div class="set-note">No plugins. A plugin is a folder in .ose/plugins.</div>`;
+    return;
+  }
+  host.innerHTML = list.map((p) => `<div class="set-plug">
+        <span class="set-plug-name">${esc(p.name || p.id)}</span>
+        <span class="grow mono-sm">${esc(p.description || '')}</span>
+        <span class="set-plug-state mono-sm${p.state === 'active' ? '' : ' err'}">${esc(p.state)}</span>
+      </div>`
+    + (p.error ? `<div class="set-plug-why mono-sm">${esc(String(p.error))}</div>` : '')
+    + pathsOf(p.id).map(pathRow).join('')).join('');
+}
+
+/** Both path lists at once: one repaint, whichever of them a choice touched. */
+function paintPaths(box) {
+  paintFiles(box);
+  paintPlugins(box);
+}
+
+/** Choose… and Reset, for a row of either list. A cancelled picker changes nothing. */
+async function pathAction(owner, key, act, box) {
+  const scope = ose.paths.of(owner);
+  try {
+    if (act === 'reset') scope.reset(key);
+    else await scope.choose(key);
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), 'err');
+  }
+  paintPaths(box);
+}
+
+/** The plugins folder, for `Open plugins folder`: a vault with none gets one rather than an error. */
+async function revealPlugins() {
+  const dir = '.ose/plugins';
+  try {
+    if (!(await ose.files.exists(dir))) await ose.files.mkdir(dir);
+    await ose.files.reveal(dir);
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e), 'err');
   }
 }
 
-async function chooseSource(key, how, box) {
-  const info = sourceInfo(key);
-  const current = getSource(key);
-  const title = `${info.label || key}…`;
-  const picked = how === 'folder'
-    ? await pickFolder({ title, current })
-    : await pickFile({ title, ext: info.ext, current });
-  if (picked === null) return;
-  setSource(key, picked);
-  paintSources(box);
-}
-
-/* --------------------------------------------------------- what the modules contribute */
+/* --------------------------------------------------------- what the plugins contribute */
 
 /**
- * A module's own section (`ose.settings.section`), drawn under the stock rows in the order the
- * kernel keeps them. The module is handed one empty box and draws into it; a section that
- * throws is one line saying so, never a dialog that fails to open (docs/MODULES.md: one bad
- * module is one bad row).
+ * A plugin's own section (`ose.settings.section`), drawn under the stock rows in the order the
+ * kernel keeps them. The plugin is handed one empty box and draws into it; a section that
+ * throws is one line saying so, never a dialog that fails to open: one bad plugin is one bad
+ * row.
  */
 function paintSections(box) {
   const host = box.querySelector('.set-sections');
@@ -153,31 +163,12 @@ function paintSections(box) {
   }
 }
 
-/**
- * The modules this rice loaded, and why one of them is not running. A module that threw in
- * `activate` is disabled for the session and says so here as well as in its toast, which is
- * the one place a person can go and look afterwards.
- */
-function paintModules(box) {
-  const host = box.querySelector('.set-modules');
-  if (!host) return;
-  const list = ose.modules.list();
-  if (!list.length) { host.textContent = ''; return; }
-  host.innerHTML = `<div class="label">modules</div>`
-    + list.map((m) => `<div class="set-mod mono-sm">
-        <span class="set-mod-id">${esc(m.id)}</span>
-        <span class="grow">${esc(m.name || '')}</span>
-        <span class="set-mod-state${m.state === 'active' ? '' : ' err'}">${esc(m.state)}</span>
-        ${m.error ? `<span class="set-mod-why">${esc(String(m.error))}</span>` : ''}
-      </div>`).join('');
-}
-
 /* ------------------------------------------------------------------ the dialog */
 
 /**
  * One settings row: the name, its control on the right, and one sentence underneath saying
- * what the choice does (DESIGN.md's settings pattern). Same grid as a source row, so the two
- * halves of the dialog read as one list.
+ * what the choice does (DESIGN.md's settings pattern). Same grid as a path row, so the whole
+ * dialog reads as one list.
  */
 function row(label, control, note = '') {
   return `<div class="set-row">
@@ -217,7 +208,7 @@ export async function openSettings() {
   const s = settings();
   // The rows need the width; the body scrolls when the window is short, so the dialog stays
   // inside 1280x800 without clipping anything.
-  let unwatchUpdate = null;
+  let unwatchPaths = null;
   let unwatchTheme = null;
   // The zoom chords change the value from outside the dialog; the kernel's settings core
   // announces a write and the segmented control follows it (it used to reach in the other way,
@@ -228,7 +219,7 @@ export async function openSettings() {
     onClose: () => {
       openOv = null;
       offRepaint && offRepaint();
-      unwatchUpdate && unwatchUpdate();
+      unwatchPaths && unwatchPaths();
       unwatchTheme && unwatchTheme();
     },
   });
@@ -275,23 +266,22 @@ export async function openSettings() {
       ${row('Spellcheck',
         seg('spell', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.spellcheck === false ? 'off' : 'on'),
         "The web view's own checker, in the display language of the system.")}
+      <div class="set-files"></div>
 
-      <div class="label">sources</div>
-      <div class="set-src-list">${SOURCE_KEYS.map(srcRow).join('')}</div>
-
-      <div class="label">updates</div>
-      ${row('Updates',
-        seg('updates', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.updates === false ? 'off' : 'on'),
-        'The one network call the app makes: the rolling release of its own repository.')}
-      <div class="set-upd mono-sm"><span class="set-upd-build"></span><span class="set-upd-checked"></span><button class="btn sm" data-act="check">Check now</button></div>
+      <div class="label">plugins</div>
+      <div class="set-plugins"></div>
+      <div class="set-plug-act">
+        <button class="btn sm" data-act="reload">Reload plugins</button>
+        <button class="btn sm" data-act="plugins-folder">Open plugins folder</button>
+      </div>
 
       <div class="set-sections"></div>
-      <div class="set-modules"></div>
 
+      <div class="label">about</div>
       <div class="set-info mono-sm text-select">
         <div><span>vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button class="btn sm" data-act="vault">Change vault…</button></div>
         <div><span>from</span><i class="set-vault-src">—</i></div>
-        <div><span>kernel</span>${esc(`${ose.version.kernel} · ${hostKind()} · ${ose.platform}`)}</div>
+        <div><span>version</span>${esc(`${ose.version.kernel} · ${hostKind()} · ${ose.platform}`)}</div>
       </div>
     </div>
     <div class="dlg-foot"><span class="grow mono-sm faint">changes apply immediately</span><button class="btn primary" data-act="done">Done</button></div>`;
@@ -307,14 +297,12 @@ export async function openSettings() {
     .then((v) => { if (srcEl.isConnected) srcEl.textContent = v && v.source ? `${v.source}${v.remembered ? ' · remembered' : ''}` : '—'; })
     .catch((e) => { if (srcEl.isConnected) srcEl.textContent = String(e.message || e); });
 
-  // The build this executable is, and when it last asked; repainted as checks land.
-  const paintUpdate = () => {
-    ov.box.querySelector('.set-upd-build').textContent = buildLine();
-    ov.box.querySelector('.set-upd-checked').textContent = checkedLine();
-  };
-  paintUpdate();
-  unwatchUpdate = store.watch('update', paintUpdate);
-  ov.box.querySelector('[data-act="check"]').addEventListener('click', () => { void commands.run('app.update-check'); });
+  ov.box.querySelector('[data-act="reload"]').addEventListener('click', () => { void commands.run('app.reload'); });
+  ov.box.querySelector('[data-act="plugins-folder"]').addEventListener('click', () => { void revealPlugins(); });
+
+  // A path chosen from a view's own box, or by another window on the same vault, moves the
+  // row here while the dialog is open.
+  unwatchPaths = ose.paths.on(() => { if (openOv) paintPaths(ov.box); });
 
   // Ctrl+Shift+L works with the dialog open, and the dialog must not then be the one place in
   // the app still claiming the old theme.
@@ -324,15 +312,13 @@ export async function openSettings() {
   });
 
   paintSections(ov.box);
-  paintModules(ov.box);
-  paintSources(ov.box);
+  paintPaths(ov.box);
   paintAttachments(ov.box);
   ov.box.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-src]');
+    const b = e.target.closest('.set-path-act .btn');
     if (!b) return;
-    const key = b.dataset.src;
-    if (b.dataset.act === 'reset') { setSource(key, null); paintSources(ov.box); }
-    else void chooseSource(key, b.dataset.act, ov.box);
+    const el = b.closest('.set-path');
+    void pathAction(el.dataset.owner, el.dataset.key, b.dataset.act, ov.box);
   });
 
   ov.box.addEventListener('click', (e) => {
@@ -350,7 +336,6 @@ export async function openSettings() {
     else if (group === 'trash') save({ trash: v });
     else if (group === 'spell') save({ spellcheck: v === 'on' });
     else if (group === 'attach') void chooseAttachments(v, ov.box);
-    else if (group === 'updates') { save({ updates: v === 'on' }); reschedule(); paintUpdate(); }
   });
 
   requestAnimationFrame(() => ov.box.querySelector('.seg-b')?.focus());

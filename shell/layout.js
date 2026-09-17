@@ -2,7 +2,7 @@
 // window itself — how the columns give way, the resizer, the frameless edges, the drops and
 // the browser keys the web view would otherwise act on.
 //
-// This is the rice's own layout. The kernel knows none of it: `ose.init({ page })` is handed
+// This is the shell's own layout. The kernel knows none of it: `ose.init({ page })` is handed
 // the element this file builds, and from there the router draws into it.
 
 import { ose } from 'ose:kernel';
@@ -196,7 +196,7 @@ function watchMainWidth(el) {
  * Where typing should go once something is on the page column: the editor body, else the
  * title, else a view's root, else the first recent row of the empty surface (B3). The router
  * does this itself after every navigation; this is the other half — Esc out of the tree, and
- * the `app.focus-page` command — and it is rice, because the page column is the rice's element.
+ * the `app.focus-page` command — and it is the shell's, because the page column is its element.
  */
 export function focusPage() {
   if (!mainEl) return false;
@@ -263,7 +263,7 @@ function guardWindowDrops() {
  * unmounted, deleted. The watcher says so once — a `lost` notice — instead of failing every
  * call with a toast of its own, and says so again when it comes back. The other half is a
  * second launch naming a different folder, which the host adopts; the page reloads into it,
- * because every module read its world at boot.
+ * because every plugin read its world at boot.
  */
 function watchVault() {
   ose.watch((d) => {
@@ -288,7 +288,7 @@ function watchVault() {
 // capture phase, so the web view's Open-file dialog never gets a chance either way. A key this
 // guard swallows must be one nothing in the app wants.
 //
-// Ctrl+R is **not** in the set: it is the rice's own reload (docs/RICE.md: edit a file, press
+// Ctrl+R is **not** in the set: it is the app's own reload (edit a plugin, press
 // Ctrl+R, see the change), bound in keys.json to `app.reload`, which saves the open page
 // first. F5 and the rest are the web view's, and they throw the buffer away without asking.
 const BROWSER_KEYS = new Set([
@@ -326,12 +326,12 @@ function guardContextMenu() {
 /* ------------------------------------------------------------------ reload */
 
 /**
- * Ctrl+R (docs/RICE.md). The rice is files on disk: edit one, reload, see it. A reload gives
- * the editor neither the `closing` notice it saves on nor a chance to ask about a conflict, so
- * the open page is saved and the state file flushed first — the same order the vault change
- * and the update take.
+ * Ctrl+R (docs/PLUGINS.md). A plugin is files on disk: edit one, reload, see it. A reload
+ * gives the editor neither the `closing` notice it saves on nor a chance to ask about a
+ * conflict, so the open page is saved and the state file flushed first — the same order the
+ * vault change takes.
  */
-async function reloadRice() {
+async function reloadApp() {
   try { await commands.run('page.save'); } catch (e) { console.warn('[shell] save before reload', e); }
   await sidebarState.flush();
   void ose.reload();
@@ -340,7 +340,7 @@ async function reloadRice() {
 /* ------------------------------------------------------------------ build */
 
 /**
- * Build the shell into `rootEl` and answer its parts. Nothing is navigated to and no module
+ * Build the shell into `rootEl` and answer its parts. Nothing is navigated to and no plugin
  * has run yet: `main.js` calls this, then hands `els.main` to `ose.init`.
  */
 export function mountShell(rootEl) {
@@ -414,11 +414,11 @@ export function mountShell(rootEl) {
     when: () => isHost(),
     run: () => { ose.window.quit().catch((e) => console.error('[shell] quit', e)); },
   });
-  // The rice is files on disk: edit one, reload, see it (docs/RICE.md). In the host this
-  // re-runs the kernel's rice decision; in the browser it is F5 by another name.
+  // A plugin is files on disk: edit one, reload, see it (docs/PLUGINS.md). The page comes
+  // back and every plugin is imported again; in the browser it is F5 by another name.
   commands.register({
-    id: 'app.reload', title: 'Reload the rice', group: 'app', hint: 'after editing a rice file',
-    run: () => void reloadRice(),
+    id: 'app.reload', title: 'Reload plugins', group: 'app', hint: 'the page, and every plugin from disk',
+    run: () => void reloadApp(),
   });
 
   watchMainWidth(els.main);
@@ -427,7 +427,7 @@ export function mountShell(rootEl) {
   window.addEventListener('beforeunload', () => sidebarState.flush());
   fit();
 
-  // Modules registered after the shell may change what is on screen; measure once more.
+  // Plugins registered after the shell may change what is on screen; measure once more.
   bus.on('booted', () => { fit(); });
 
   return els;

@@ -1,22 +1,22 @@
-// The dashboard: the home of the stock rice, and the first tab.
+// The dashboard: the home of the shell, and the first tab.
 //
 // It is a view like any other (`ose.views.register('dashboard', …)`), so the router mounts it,
 // the history remembers it and a tab holds it without anything new in the kernel. What it
-// draws is one card per module the loader has seen — name, the manifest's one-line
-// description, and the chord that opens its view when a command owns one. Nothing is counted,
-// nothing is fetched: the dashboard reads `ose.modules.list()` and that is all. A launcher
-// would put numbers on it; this is the same page column, the same title, the same boxes as
-// everywhere else in Ose, so arriving here does not feel like leaving the app.
+// draws is one card per plugin the loader has seen — its name, its one-line description, and
+// the chord that opens its view when a command owns one. Nothing is counted, nothing is
+// fetched: the dashboard reads `ose.plugins.list()` and that is all. A launcher would put
+// numbers on it; this is the same page column, the same title, the same boxes as everywhere
+// else in Ose, so arriving here does not feel like leaving the app.
 //
-// Modules activate after `ose.init`, so the view redraws on `booted` (main.js emits it once
-// the loader has answered) and on a later `modules` change if one is ever announced.
+// Plugins activate after `ose.init`, so the view redraws on `booted` (main.js emits it once
+// the loader has answered) and on a later `plugins` change if one is ever announced.
 
 import { ose } from 'ose:kernel';
 import { esc } from 'ose:ui';
 import { openInNewTab } from './tabs.js';
-import { byModuleOrder } from './order.js';
+import { byViewOrder, byPluginOrder } from './order.js';
 
-const { bus, commands, route, keys, modules } = ose;
+const { bus, commands, route, keys, plugins } = ose;
 
 /** The home route. `tabs.js` and `start.js` both ask here rather than spelling the name. */
 export const HOME = { type: 'view', name: 'dashboard' };
@@ -32,8 +32,8 @@ let offBooted = null;
 const NARROW = 640;
 
 /**
- * The command that opens a view, by the convention every stock module follows: `view.<name>`
- * navigates to `{ type:'view', name }`. A module that names its command something else simply
+ * The command that opens a view, by the convention every stock plugin follows: `view.<name>`
+ * navigates to `{ type:'view', name }`. A plugin that names its command something else simply
  * gets no chord on its card, which is better than printing one that does something else.
  */
 function chordFor(view) {
@@ -43,18 +43,20 @@ function chordFor(view) {
   return keys.shortcutFor(id) || '';
 }
 
-/** The rows, in the sidebar's order: the order of cockpit.json's modules (order.js). */
+/** The plugins, in the sidebar's order: their views' `order`, then title (order.js). */
 function rows() {
-  return modules.list().slice().sort((a, b) =>
-    byModuleOrder(a.view || { name: '', title: a.name }, b.view || { name: '', title: b.name }));
+  return plugins.list().slice().sort(byPluginOrder);
 }
 
-function cardHtml(m) {
-  const chord = chordFor(m.view);
+/** The view a card opens: the first of the plugin's, in the order the sidebar lists them. */
+const mainView = (p) => ((p && p.views) || []).slice().sort(byViewOrder)[0] || null;
+
+function cardHtml(p, view) {
+  const chord = chordFor(view);
   return `
-    <button type="button" class="dash-card" data-view="${esc(m.view.name)}">
-      <span class="dash-name">${esc(m.view.title || m.name || m.id)}</span>
-      <span class="dash-desc">${esc(m.description || '')}</span>
+    <button type="button" class="dash-card" data-view="${esc(view.name)}">
+      <span class="dash-name">${esc(p.name || p.id)}</span>
+      <span class="dash-desc">${esc(p.description || '')}</span>
       ${chord ? `<span class="dash-key kbd">${esc(chord)}</span>` : ''}
     </button>`;
 }
@@ -62,23 +64,26 @@ function cardHtml(m) {
 function render() {
   if (!root) return;
   const all = rows();
-  const cards = all.filter((m) => m.state === 'active' && m.view);
-  const bare = all.filter((m) => m.state === 'active' && !m.view);
-  const off = all.filter((m) => m.state !== 'active');
+  const cards = all.filter((p) => p.state === 'active' && mainView(p));
+  const bare = all.filter((p) => p.state === 'active' && !mainView(p));
+  const off = all.filter((p) => p.state !== 'active');
 
   const grid = root.querySelector('.dash-grid');
   const rest = root.querySelector('.dash-rest');
-  grid.innerHTML = cards.map(cardHtml).join('');
-  if (!cards.length) grid.innerHTML = `<div class="empty">no module is loaded</div>`;
+  grid.innerHTML = cards.map((p) => cardHtml(p, mainView(p))).join('');
+  // A vault with no plugins is a plain editor, and the home page says so in one quiet line
+  // rather than looking like something failed. With plugins but no cards the lines below
+  // carry the whole story already.
+  if (!all.length) grid.innerHTML = `<div class="empty">No plugins. A plugin is a folder in .ose/plugins.</div>`;
 
-  // A module with no view of its own is a line under the grid, not a card that opens nothing.
+  // A plugin with no view of its own is a line under the grid, not a card that opens nothing.
   // A disabled one says why, in the same line shape, in the error colour.
   const lines = [];
   if (bare.length) {
-    lines.push(`<div class="dash-line mono-sm">also loaded: ${bare.map((m) => esc(m.name || m.id)).join(', ')}</div>`);
+    lines.push(`<div class="dash-line mono-sm">also loaded: ${bare.map((p) => esc(p.name || p.id)).join(', ')}</div>`);
   }
-  for (const m of off) {
-    lines.push(`<div class="dash-line mono-sm err">${esc(m.name || m.id)} is disabled: ${esc(m.error || 'unknown')}</div>`);
+  for (const p of off) {
+    lines.push(`<div class="dash-line mono-sm err">${esc(p.name || p.id)} is disabled: ${esc(p.error || 'unknown')}</div>`);
   }
   rest.innerHTML = lines.join('');
 }
@@ -86,8 +91,7 @@ function render() {
 const view = {
   title: HOME_TITLE,
   icon: 'view',
-  // Never in a sidebar list of views: the stock sidebar has none, and a rice that draws one
-  // wants its own home first, not a row among the modules'.
+  // Never in a sidebar list of views: it is the page the app opens on, not a plugin's way in.
   order: 0,
 
   mount(host) {
@@ -129,7 +133,7 @@ const view = {
 
     render();
     // The loader answers after `ose.init`: the cards appear the moment it does, in place,
-    // rather than the dashboard being drawn twice or waiting for the modules to open at all.
+    // rather than the dashboard being drawn twice or waiting for the plugins to open at all.
     offBooted = bus.on('booted', render);
     return { unmount: view.unmount, refresh: render };
   },
@@ -146,7 +150,7 @@ export function initDashboard() {
   ose.views.register('dashboard', view);
   commands.register({
     id: 'app.home', title: 'Home', group: 'navigate',
-    hint: 'the dashboard: one card per module',
+    hint: 'the dashboard: one card per plugin',
     run: () => { void route.navigate(HOME); },
   });
 }

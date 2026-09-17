@@ -1,23 +1,26 @@
-// Dev bridge: Node implementation of CONTRACT.md for browser development.
+// Dev bridge: the Node implementation of what the Tauri host answers, for browser development.
 // Filesystem + /vault assets + state + SSE events + fs watcher.
 // Only used by `vite` in dev; the shipped app talks to the Tauri host instead (src/bridge/tauri.js).
+//
+// A command this bridge does not implement answers null and is named once in the log, exactly
+// as the host does: the two sides are changed by different hands and neither may break the
+// other.
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { repoRoot, vaultRoot, rootSource } from './root.mjs';
+import { vaultRoot, rootSource } from './root.mjs';
 
 const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space',
-  // The executable, and what an update leaves beside it for a moment, and the bundle itself on
-  // macOS (vault.rs). Both names: the app is `ose` from 0.4.0 on and a copy already on disk
-  // keeps the name it has.
-  'ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.old', 'Ose.app', 'Ose.app.old', 'ose-update.zip', 'ose-update-tmp',
-  'os.exe', 'os.pdb', 'os.exe.new', 'os.exe.old', 'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
+  // The executable itself, and the bundle on macOS (vault.rs). Both names: the app is `ose`
+  // from 0.4.0 on and a copy already on disk keeps the name it has.
+  'ose.exe', 'ose.pdb', 'Ose.app',
+  'os.exe', 'os.pdb', 'os.app']);
 // The types `/vault/...` answers with. It follows the host's table (src-tauri/src/protocol.rs
-// `mime_of`) for everything the rice can put on a page, because a PDF page and an image page
-// are drawn by the web view itself from this type and nothing else (docs/RICE.md "The page
-// seam"): a `.bmp` served as octet-stream is a broken picture in the browser dev and a good
-// one in the host, which is the worst kind of difference between the two.
+// `mime_of`) for everything the shell can put on a page, because a PDF page and an image page
+// are drawn by the web view itself from this type and nothing else: a `.bmp` served as
+// octet-stream is a broken picture in the browser dev and a good one in the host, which is the
+// worst kind of difference between the two.
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const IS_WIN = process.platform === 'win32';
 
@@ -365,31 +368,14 @@ export function bridgePlugin() {
     }
   };
 
-  // ---------------------------------------------------------------- run (round four, K1a)
-  // The same shapes as the host (src-tauri/src/run.rs): no shell, an allow rule that is the
-  // caller's list plus `settings.run.allow`, the UTF-8 floor, lines streamed as the `run`
-  // event, `{done:true, code, timedOut}` at the end, and every child killed when this server
-  // stops. A module tested in the browser must meet exactly the refusal it meets in the app.
+  // ---------------------------------------------------------------- run
+  // The same shapes as the host (src-tauri/src/run.rs): no shell, the UTF-8 floor, lines
+  // streamed as the `run` event, `{done:true, code, timedOut}` at the end, and every child
+  // killed when this server stops. There is no allow list and no refusal: a plugin is the
+  // vault owner's own code and may run any program (docs/PLUGINS.md).
   const RUN_UTF8 = { PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
   const RUN_DEFAULT_TIMEOUT = 60000;
-  const PROGRAM_EXTS = new Set(['exe', 'bat', 'cmd', 'com']);
   const running = new Map(); // id -> { child, timedOut }
-
-  // `tools/python.exe` and `python` are the same name; `python3` is not.
-  const programKey = (name) => {
-    const base = String(name ?? '').split(/[\\/]/).pop();
-    const dot = base.lastIndexOf('.');
-    const stem = dot > 0 && PROGRAM_EXTS.has(base.slice(dot + 1).toLowerCase()) ? base.slice(0, dot) : base;
-    return IS_WIN ? stem.toLowerCase() : stem;
-  };
-
-  const settingsAllow = () => {
-    try {
-      const state = JSON.parse(fss.readFileSync(statePath(), 'utf8'));
-      const list = state?.settings?.run?.allow;
-      return Array.isArray(list) ? list.map(programKey) : [];
-    } catch { return []; }
-  };
 
   const runKill = async (id) => {
     const entry = running.get(id);
@@ -405,10 +391,6 @@ export function bridgePlugin() {
     if (!id.trim()) throw new Error('run needs an id');
     if (running.has(id)) throw new Error('run id in use: ' + id);
     if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new Error('run: args must be a list of strings');
-
-    const key = programKey(program);
-    const perCall = Array.isArray(opts.allow) ? opts.allow.map(programKey) : [];
-    if (!perCall.includes(key) && !settingsAllow().includes(key)) throw new Error('not allowed: ' + program);
 
     // A program name goes to PATH; anything with a separator is a file inside the vault.
     let exe = String(program ?? '').trim();
@@ -464,19 +446,6 @@ export function bridgePlugin() {
     return { id, pid: child.pid };
   };
 
-  // ---------------------------------------------------------------- the rice (round four)
-  // In the browser the rice is whatever vite is serving as its root, so `reloadRice` is F5 and
-  // there is nothing for the host to do. `riceInfo` still answers the real shape so a module
-  // reading it behaves the same in both places. `OSE_RICE` names a folder, else `cockpit/` in
-  // the repo when it is there, else `<vault>/.ose/app`.
-  const riceDir = () => {
-    const asked = (process.env.OSE_RICE || '').trim();
-    if (asked && asked !== 'legacy') return { dir: path.resolve(asked), source: 'arg' };
-    const cockpit = path.join(repoRoot, 'cockpit');
-    if (fss.existsSync(path.join(cockpit, 'index.html'))) return { dir: cockpit, source: 'arg' };
-    return { dir: path.join(root, '.ose', 'app'), source: 'vault' };
-  };
-
   // ---------------------------------------------------------------- commands
   const statePath = () => path.join(root, '.ose', 'state.json'); // same file the Tauri host uses
   // The dev bridge always has a root (dev/root.mjs). `?novault=1` on the page makes rootInfo
@@ -484,6 +453,8 @@ export function bridgePlugin() {
   // can be seen in a browser; pickVault then "chooses" the configured root without a dialog and
   // the page reloads without the flag. The flag arrives as a query on the bridge call (http.js).
   let noVault = false;
+  // A command this bridge does not implement: named once in the log, null to the caller.
+  const unknown = new Set();
   const cmds = {
     rootInfo: async () => (noVault ? { root: null, name: null } : { root, name: path.basename(root) }),
     vaultInfo: async () => (noVault
@@ -572,30 +543,9 @@ export function bridgePlugin() {
 
     run: async (id, cmd, args, opts) => run(id, cmd, args, opts),
     runKill: async (id) => runKill(id),
-    riceInfo: async () => {
-      const { dir, source } = riceDir();
-      const present = fss.existsSync(path.join(dir, 'index.html'));
-      let requires = null, why = null;
-      try {
-        const manifest = JSON.parse(fss.readFileSync(path.join(dir, 'cockpit.json'), 'utf8'));
-        requires = typeof manifest.requires === 'number' ? manifest.requires : null;
-        if (requires !== null && requires > 1) why = `cockpit.json requires ose.api ${requires}; this kernel is 1`;
-      } catch { /* no cockpit.json, or not JSON: the host reports the same */ }
-      return { dir, source, present: present && !why, disabled: false, requires, why, api: 1 };
-    },
-    // The browser reloads itself; the host navigates. Both answer null.
-    reloadRice: async () => null,
-    riceReady: async () => null,
-    riceFailed: async () => null,
 
-    log: async (text) => { console.log('[selftest]', String(text)); },
+    log: async (text) => { console.log('[app]', String(text)); },
     platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
-
-    // Self-update is the host's (update.rs). The browser is a dev build: nothing to compare
-    // with, nothing to download, and no request is ever made from here.
-    updateCheck: async () => ({ current: null, latest: null, behind: false, commits: [], asset: null, error: null }),
-    updateDownload: async () => { throw new Error('not in the dev bridge'); },
-    updateApply: async () => { throw new Error('not in the dev bridge'); },
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
@@ -643,7 +593,11 @@ export function bridgePlugin() {
         res.setHeader('Cache-Control', 'no-store');
         try {
           const { args = [] } = body ? JSON.parse(body) : {};
-          if (!Object.prototype.hasOwnProperty.call(cmds, cmd)) throw new Error('unknown command ' + cmd);
+          if (!Object.prototype.hasOwnProperty.call(cmds, cmd)) {
+            if (!unknown.has(cmd)) { unknown.add(cmd); console.log(`[bridge] no such command: ${cmd} (answering null)`); }
+            res.end(JSON.stringify({ ok: true, result: null }));
+            return;
+          }
           const result = await cmds[cmd](...args);
           res.end(JSON.stringify({ ok: true, result: result === undefined ? null : result }));
         } catch (e) {

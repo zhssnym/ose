@@ -1,5 +1,5 @@
-/* The rice's own token overrides. The stock one is empty on purpose: the stock rice is the
-   kernel's own look (ui.css), and this file is where a different rice changes it.
+/* The shell's own token overrides. It is empty on purpose: the app's look is the kernel's own
+   (ui.css), and this file is the one place that changes it.
 
    Override tokens here, never a rule and never a hex value anywhere else:
 
