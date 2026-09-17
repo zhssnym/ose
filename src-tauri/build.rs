@@ -6,6 +6,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OSE_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=OSE_BUILD_DATE");
 
+    // The kernel bundles and the shell are embedded by `generate_context!` when the crate is
+    // compiled, and cargo does not know that. A directory here means "any file under it", so a
+    // change to the JavaScript alone rebuilds the exe instead of shipping the previous one.
+    println!("cargo:rerun-if-changed=../dist-kernel");
+
     // On Windows, tauri-build compiles the icon and version resource and links it into bin
     // targets only, together with an application manifest that opts the process into Common
     // Controls v6. tauri (`common-controls-v6`, a default feature) and the dialog plugin both

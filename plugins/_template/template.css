@@ -1,6 +1,0 @@
-/* One class of our own in front of every selector: a module stylesheet is global while it is
-   in the document, and two modules must never collide. Colours, sizes and spacing come from
-   the kernel's tokens (`ui.css`); a hex value here would be a bug (docs/DESIGN.md). */
-
-.tpl-body { min-height: 4rem; }
-.tpl-count { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border); background: var(--bg-2); color: var(--fg-2); }

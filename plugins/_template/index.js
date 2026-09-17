@@ -1,95 +1,112 @@
-// A module that does one of everything, and nothing you have to delete before it runs: one
-// command, one view that renders a markdown file, one tile that counts what is under `data`,
-// one settings section with one switch, and its own stylesheet. Copy the folder, rename the
-// id in `module.json`, add it to `cockpit.json`'s `modules`, and it is your module.
+// A plugin that does one of everything and runs the moment it is copied: one declared path, one
+// command, one view, one tile, one settings section, one stylesheet.
 //
-// Read docs/MODULES.md first; the four rules that matter are repeated where they apply below.
+// Copy this folder into `<vault>/.ose/plugins/`, rename it, press Ctrl+R. The folder name is the
+// id; the loader never loads a name starting with `_`, which is why this copy sits here inert.
+//
+// Read docs/PLUGINS.md first. The rules that matter are repeated where they apply below.
 
 import { render } from 'ose:editor';
 import { esc, toast } from 'ose:ui';
 import { ymd } from 'ose:md';
 
-// The facade `activate` is handed: the same shape as `ose`, with `files`, `watch`, `run` and
-// `state` scoped by this manifest. Never import `ose:kernel` in a module — that object is the
-// unscoped one, and the point of a module is that it cannot reach past its own `data`.
+// The `ose` handed to `activate`: the whole object, with this plugin's own `plugin`, `state` and
+// `paths` on it. Never `import { ose } from 'ose:kernel'`: registrations made on that one are not
+// tagged and would survive an unload.
 let ose = null;
 
-/** The one folder this module reads. Anything outside `data` in module.json is refused. */
-const HOME = '7-scratchpad';
+export const name = 'Template';
+export const description = 'One of everything: a path, a command, a view, a tile, a setting.';
 
-/* -------------------------------------------------------------------- view */
+/**
+ * What this plugin needs from the vault, by name. It never spells a path: `ose.paths` looks the
+ * name up in the tree and, when the name is not enough, draws a box that asks once and remembers.
+ * `hint` is the sentence that box and Settings show.
+ */
+export const paths = {
+  notes: { folder: 'scratchpad', hint: 'Any folder of markdown notes. Its README.md is shown.' },
+};
+
+/* -------------------------------------------------------------------------------- the view */
 
 const view = {
   name: 'template',
   title: 'Template',
+  order: 90,
 
-  async mount(host) {
-    host.innerHTML = `
+  async mount(el) {
+    el.innerHTML = `
       <div class="view-root tpl-root" tabindex="-1">
         <div class="page-col">
           <h1 class="page-title">Template</h1>
-          <div class="page-meta"><span>${esc(HOME)}</span></div>
-          <div class="tpl-body"><div class="empty">reading…</div></div>
+          <div class="page-meta mono-sm"></div>
+          <div class="tpl-body"></div>
         </div>
       </div>`;
-    const body = host.querySelector('.tpl-body');
-    host.querySelector('.view-root').focus({ preventScroll: true });
+    el.querySelector('.view-root').focus({ preventScroll: true });
+    const body = el.querySelector('.tpl-body');
+    const meta = el.querySelector('.page-meta');
 
-    // `render` is `ose:editor`'s read-only markdown: sanitised, links resolved, images through
-    // the vault origin. A page you can edit is `markdownPage`, and a route of your own
-    // (`ose.route.own`) is where that belongs.
-    //
-    // The file is `<data>/README.md` when the vault has one — a module reads its own data
-    // through `ose.files` and nowhere else — and this module's own README when it does not,
-    // which is a file inside the module folder and so fetched, not read.
-    const path = `${HOME}/README.md`;
-    let text = '';
-    let from = path;
-    try {
-      text = await ose.files.read(path);
-    } catch {
-      from = 'the module’s own README.md';
-      text = await fetch(new URL('./README.md', import.meta.url)).then((r) => r.text()).catch(() => '');
+    // With `el`, a path that cannot be resolved draws the standard box into it and answers null.
+    // The box is the whole answer: say nothing else and let the user finish it.
+    const dir = await ose.paths.get('notes', { el: body });
+    if (!dir) { meta.textContent = 'no folder yet'; return; }
+    meta.textContent = dir;
+
+    const rows = await ose.files.list(dir);
+    const readme = rows.find((f) => f.kind !== 'dir' && f.name.toLowerCase() === 'readme.md');
+    if (!readme) {
+      const n = rows.filter((f) => f.kind !== 'dir').length;
+      body.innerHTML = `<div class="empty">${n} file${n === 1 ? '' : 's'} in ${esc(dir)},`
+        + ` and no README.md</div>`;
+      return;
     }
-    body.textContent = '';
-    if (!text) { body.innerHTML = `<div class="empty">nothing to show at ${esc(path)}</div>`; return; }
-    body.appendChild(render(text, {
-      basePath: path,
-      onLink: (p) => ose.route.navigate({ type: 'page', path: p }),
+    // `render` is read-only markdown: sanitised, links resolved, images through the vault origin.
+    // A page the user edits is `markdownPage`, and it belongs on a route of the plugin's own.
+    body.appendChild(render(await ose.files.read(readme.path), {
+      basePath: readme.path,
+      onLink: (path) => ose.route.navigate({ type: 'page', path }),
     }));
-    host.querySelector('.page-meta').innerHTML = `<span>${esc(from)}</span>`;
   },
 
-  unmount() { /* nothing of ours is left in the document */ },
+  // On the registration, not on what `mount` answers: that is where the router looks for it. The
+  // kernel takes every registration back on unload, so this only undoes what the view itself put
+  // in the document, and here that is nothing.
+  unmount() {},
 };
 
-/* -------------------------------------------------------------------- tile */
+/* -------------------------------------------------------------------------------- the tile */
 
 /**
- * A tile is a card on whichever view asks for tiles; the stock Day view does. `render` is
- * called once when that view mounts and answers `{ refresh, unmount }`; the kernel calls
- * `refresh` when anybody asks for one, including the watch below.
+ * A tile is a card on whichever view asks for tiles; the stock Day view does. `render(el)` is
+ * called once when that view mounts and answers `{ refresh, unmount }`; `refresh` runs whenever
+ * anybody asks for one, including the watch in `activate`.
  */
-function renderTile(box) {
+function renderTile(el) {
   const paint = async () => {
-    let n = 0;
-    try { n = (await ose.files.list(HOME)).filter((f) => f.kind === 'file').length; } catch { n = 0; }
-    if (!box.isConnected) return;
-    box.innerHTML = `<div class="tpl-count mono-sm">${n} file${n === 1 ? '' : 's'} in ${esc(HOME)}</div>`;
+    // `peek` is the synchronous answer, for a place that cannot draw a box: a tile is not the
+    // view that asked for the path, so it says nothing rather than asking a second time.
+    const dir = ose.paths.peek('notes');
+    let text = 'no folder yet';
+    if (dir) {
+      try {
+        const n = (await ose.files.list(dir)).filter((f) => f.kind !== 'dir').length;
+        text = `${n} file${n === 1 ? '' : 's'} in ${dir}`;
+      } catch { text = `${dir} could not be read`; }
+    }
+    if (!el.isConnected) return;
+    el.innerHTML = `<div class="tpl-count mono-sm">${esc(text)}</div>`;
   };
   void paint();
   return { refresh: () => void paint() };
 }
 
-/* ---------------------------------------------------------------- settings */
+/* ---------------------------------------------------------------------------- the settings */
 
-/**
- * One switch, kept under `settings.modules.<id>` by way of `ose.state`. A module never writes
- * anywhere else in the settings object, and never into a file outside `data`.
- */
-function renderSettings(box) {
+/** One switch, kept under `plugins.<id>.greet` in `.ose/state.json` through `ose.state`. */
+function renderSettings(el) {
   const on = ose.state('greet').get() !== false;
-  box.innerHTML = `<div class="set-row">
+  el.innerHTML = `<div class="set-row">
       <div class="set-name">Say hello</div>
       <div class="set-ctl"><div class="seg" data-seg="tpl-greet">
         <button type="button" class="seg-b${on ? ' on' : ''}" data-v="on">on</button>
@@ -97,7 +114,7 @@ function renderSettings(box) {
       </div></div>
       <div class="set-note">Whether the command answers with a toast.</div>
     </div>`;
-  box.addEventListener('click', (e) => {
+  el.addEventListener('click', (e) => {
     const b = e.target.closest('.seg-b');
     if (!b) return;
     b.parentElement.querySelectorAll('.seg-b').forEach((n) => n.classList.toggle('on', n === b));
@@ -105,44 +122,49 @@ function renderSettings(box) {
   });
 }
 
-/* ------------------------------------------------------------------ module */
+/* ------------------------------------------------------------------------------ the plugin */
 
-export async function activate(app) {
+/**
+ * Registrations and subscriptions only: `activate` runs while the window is opening, so it reads
+ * no file and starts no process. It may be async.
+ */
+export function activate(app) {
   ose = app;
+  const id = ose.plugin.id;
+  const tile = `${id}.count`;
 
-  // Every action is a command with a title in plain words. `shortcut` arms the chord and the
-  // palette prints it; leave it out and the rice's keys.json can bind one instead.
+  // Every action is a command with a title in plain words, so it is in the palette and reachable
+  // from the keyboard. `shortcut` arms a chord; leave it out and the shell's keys.json can bind
+  // one instead.
   ose.commands.register({
-    id: 'template.hello', title: 'Template: say hello', group: 'template',
-    hint: 'proves the module is alive',
+    id: `${id}.hello`,
+    title: 'Template: say hello',
+    group: id,
+    hint: 'proves the plugin is alive',
     run: () => {
       if (ose.state('greet').get() === false) return;
-      toast(`hello from the template · ${ymd(new Date())}`, 'info');
+      toast(`hello from ${ose.plugin.name} · ${ymd(new Date())}`, 'info');
     },
   });
 
-  ose.views.register('template', view);
-  ose.tiles.register({ id: 'template.count', title: 'template', order: 90, render: renderTile });
-  ose.settings.section({ id: 'template', title: 'template', render: renderSettings });
+  ose.views.register(view.name, view);
+  ose.tiles.register({ id: tile, title: 'template', order: 90, render: renderTile });
+  ose.settings.section({ id, title: 'template', render: renderSettings });
 
-  // Changes under `data` only: a module's watch never sees the rest of the vault.
-  ose.watch(() => ose.tiles.refresh('template.count'));
+  // The watch is the whole vault, so filter it down to the folder this plugin actually resolved.
+  ose.watch((e) => {
+    const dir = ose.paths.peek('notes');
+    if (!dir) return;
+    if (e.lost || e.changes.some((c) => c.path === dir || c.path.startsWith(dir + '/'))) {
+      ose.tiles.refresh(tile);
+    }
+  });
 
-  addStyles();
+  // The tile reads the folder too, so redraw it when the user chooses another one.
+  ose.paths.on(() => ose.tiles.refresh(tile));
 }
 
-// Everything registered through the facade is taken back by the kernel; what is left for a
-// module to undo is what it put in the document itself.
-export function deactivate() { removeStyles(); }
-
-/* ------------------------------------------------------------------ styles */
-
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./template.css', import.meta.url).href;   // spells no origin
-  document.head.appendChild(sheet);
-}
-function removeStyles() { if (sheet) { sheet.remove(); sheet = null; } }
+// Optional. The kernel takes back every registration, kills every process the plugin started and
+// unlinks `style.css`; what is left for `deactivate` is whatever the plugin put in the document
+// by itself, and this one puts nothing there.
+export function deactivate() {}

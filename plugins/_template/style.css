@@ -1,0 +1,15 @@
+/* One class of our own in front of every selector: a plugin stylesheet is global while the plugin
+   is active, and two plugins must never collide. The loader links this file by name, so there is
+   no `<link>` code to write and nothing to remove on unload.
+
+   Colours, sizes and spacing come from the kernel's tokens (`ui.css`); a hex value or a bare
+   pixel padding here would be a bug (docs/DESIGN.md). Both themes, every time. */
+
+.tpl-body { min-height: 4rem; }
+
+.tpl-count {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--fg-2);
+}

@@ -26,9 +26,15 @@ plugin, human or agent. `docs/KERNEL.md` lists every call on `ose`; `docs/DESIGN
   state.json             window, theme, and under `plugins.<id>` each plugin's state and paths
 ```
 
-- The id is the folder name, or the file name without `.js`: `[a-z0-9-]+`.
+- The id is the folder name, or the file name without `.js`: `[a-z0-9-]+`. A folder and a file
+  carrying the same id are one plugin, the folder.
 - An entry whose name starts with `_` or `.` is never loaded. `_lib/` is where shared files go;
-  a plugin imports one as `../_lib/<file>.js`.
+  a plugin imports one as `../_lib/<file>.js`. The stock `_lib/` holds the drills library the
+  two drill plugins draw with and the timetable, plan, task, navigation and view helpers the
+  four planner plugins share.
+- A folder with no `index.js`, and a name that is not a legal id, are each a disabled row saying
+  so rather than silence: a folder in `.ose/plugins` that is not a plugin is spelled `_name`, so
+  anything else there is a typo.
 - There is no manifest, no list of plugins anywhere, and no version number on a plugin. What is
   in the folder is what is loaded. Plugins are not shipped inside the app.
 
@@ -99,26 +105,49 @@ export const paths = {
 
 `file` or `folder` is the name to look for. `ext` defaults to `md`. `hint` is one sentence on what
 the thing must contain; it is shown when the thing is missing and in Settings. `label` is
-optional and defaults to the key.
+optional, defaults to the key and is printed verbatim (`calendar not found`), so a plugin that
+wants a capital sets one.
 
 Resolved in this order, the first that answers wins:
 
-1. the path chosen before (saved under `plugins.<id>.paths.<key>`), if it still exists;
-2. the one file or folder in the vault whose name is exactly the name asked for;
-3. the one whose name contains it;
-4. nothing: the path is `missing`, or `ambiguous` when step 2 or 3 found several.
+1. the path chosen before (saved under `plugins.<id>.paths.<key>`), if it still exists and is of
+   the declared kind: a saved file where a folder is asked for falls through to the name. Its
+   extension is not checked, so a deliberate `todo.txt` for `{ file: 'todo' }` survives;
+2. a choice another plugin saved for the same thing (the same kind, name and `ext`), if it still
+   exists;
+3. the one file or folder in the vault whose name is exactly the name asked for;
+4. nothing: the path is `null`, `ambiguous` when several things carry that exact name and
+   `missing` in every other case.
 
-Matching ignores case. Hidden entries (dotfolders, what the tree hides) are never candidates.
-"The one" means exactly one: two candidates are never guessed between.
+**A choice made in one plugin serves every plugin that asks for the same thing.** Day and Week
+both read the calendar, so renaming that file costs one click, not one per plugin. Step 2 resolves
+rather than copies: the choice still belongs to whoever made it, the row says so (`sharedFrom`),
+and a `reset` there releases it for everyone at once. Choosing in this plugin saves a choice of
+its own, which then wins.
+
+**A partial match is offered, never assumed.** A name that merely contains the one asked for is
+never resolved on its own: it is a candidate, carried on the row and drawn in the box as a
+one-click button, exactly like the several-exact-matches case. A silently wrong folder is worse
+than a question: with `drills/math` gone, `{ folder: 'math' }` would otherwise land on
+`school/1-math` and the plugin would read it without a word.
+
+Matching ignores case, and a file matches on its stem with the extension `ext` asks for, so
+`{ file: 'systems', ext: 'jsonl' }` never answers `systems.md`. Hidden entries (dotfolders, what
+the tree hides) are never candidates. "The one" means exactly one: two are never guessed between.
 
 | call | answers |
 |---|---|
-| `await ose.paths.get(key, { el })` | the vault-relative path, or `null`. With `el`, a `null` also draws the standard box into `el`: what is missing, the hint, the candidates as buttons when the match was ambiguous, and **Choose…**, which opens the vault picker. A choice is saved and the route on screen is mounted again. |
+| `await ose.paths.get(key, { el })` | the vault-relative path, or `null`. With `el`, a `null` also draws the standard box into `el`: what is missing, the hint, the line saying what was looked for, the candidates as buttons (the several exact matches, or "Closest match:" for the near ones), and **Choose…**, which opens the vault picker. A choice made in the box is saved and the route on screen is mounted again. |
 | `ose.paths.peek(key)` | the last resolved value, synchronously, or `null`. |
 | `await ose.paths.choose(key)` | opens the picker; the new path, or `null` on cancel. |
-| `ose.paths.reset(key)` | forgets the saved choice. |
-| `ose.paths.list()` | `[{ owner, key, kind, name, ext, label, hint, path, saved, status }]`, `status` one of `ok`, `missing`, `ambiguous`; `kind` is `file` or `folder`. |
+| `ose.paths.reset(key)` | forgets the saved choice; the name decides again. |
+| `ose.paths.list()` | `[{ owner, key, kind, name, ext, label, hint, path, saved, status, candidates, sharedFrom }]`, `status` one of `ok`, `missing`, `ambiguous`; `kind` is `file` or `folder`; `candidates` is what the box would offer; `sharedFrom` is the owner whose choice answered, or `null`. |
 | `ose.paths.on(fn)` | `fn({ owner, key, path })` when a choice is made or reset; answers an unsubscribe. |
+
+`get` always awaits a fresh tree, so what a view acts on is never stale. `peek` and `list` are
+synchronous and answer off the cached tree: a watcher event marks it stale and a new one is
+fetched, but the old one keeps answering until it lands, so one save anywhere in the vault never
+makes Settings read `missing` for a second.
 
 A thing that lives inside a resolved folder is derived from it, not declared again: the systems
 log is `<reports>/systems.jsonl`, a plugin's own dotfolder is `<data>/.math/`.
@@ -135,7 +164,8 @@ the location is a setting.
   independently and concurrently.
 - A plugin that throws on import or in `activate` is disabled for the session: whatever it
   registered is taken back, a toast names it, and Settings › Plugins shows the error. The rest of
-  Ose is unaffected.
+  Ose is unaffected. It keeps the paths it declared, so Settings still shows what it needs and a
+  choice already made for it is not lost.
 - Ctrl+R (`app.reload`) reloads the page and therefore every plugin from disk. Editing a plugin
   is: save the file, Ctrl+R.
 - `ose.plugins.list()` answers `[{ id, name, description, state, error?, single, views }]`,

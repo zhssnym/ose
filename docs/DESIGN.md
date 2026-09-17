@@ -1,6 +1,11 @@
-# os editor: design system
+# Ose: design system
 
-Read this before writing any UI. Every module must look like it was made by one hand.
+Read this before writing any UI. The app, the shell and every plugin must look like they were
+made by one hand.
+
+**Vocabulary.** The **app** is `ose.exe`, the whole thing. The **shell** is the interface inside
+it: title bar, tabs, sidebar, palette, settings, home. A **plugin** is local code in the vault,
+under `.ose/plugins`, that draws one view inside the app. There is no other word.
 
 ## The brief, in one line
 
@@ -13,7 +18,7 @@ Claude's colours. Think of a 1990s plant-control panel redrawn by Anthropic's de
   title. Nothing is cramped, ever. Every padding, margin and gap is a step of the spacing scale
   in `tokens.css` (`--sp-1` 4, `--sp-2` 8, `--sp-3` 12, `--sp-4` 16, `--sp-5` 24, `--sp-6` 32,
   `--sp-7` 48; `--sp-half` for a deliberate 2px optical nudge, with a comment saying why). A
-  bare pixel value in a module stylesheet is a bug. Panels sit at `--sp-3` to `--sp-4`.
+  bare pixel value in a plugin stylesheet is a bug. Panels sit at `--sp-3` to `--sp-4`.
 - **Boxes, not rules.** Whitespace groups things. A 1px hairline is for the edge of a box or the
   bottom of a bar, never a ladder of dividers between rows. Two things that are the same kind
   of thing get the same component: one bar height (`--panelhead-h`, or `--barhead-h` for the
@@ -41,9 +46,10 @@ Claude's colours. Think of a 1990s plant-control panel redrawn by Anthropic's de
 
 ## Tokens
 
-All colours, fonts, and sizes come from `src/styles/tokens.css`. Never write a hex colour in a
-module stylesheet. Light is the default on `:root`; dark is `:root[data-theme="dark"]`. The
-theme attribute is set by the shell; modules only read tokens.
+All colours, fonts, and sizes come from `src/kernel/styles/tokens.css`, served as part of
+`ui.css`. Never write a hex colour in a plugin stylesheet; the shell's `theme.css` is the one
+place a token is overridden. Light is the default on `:root`; dark is `:root[data-theme="dark"]`.
+The theme attribute is set by the shell; plugins only read tokens.
 
 Key tokens (see the file for the full list):
 
@@ -83,12 +89,29 @@ Key tokens (see the file for the full list):
   scrollable area (see `base.css`).
 - **Tooltips.** Mono 11px, `--fg` on `--bg-3`, 1px border, no arrow, 300ms delay.
 - **Empty states.** One short sentence in `--fg-3`, mono, centred. No illustrations.
+- **The missing-path box.** What a view is given when the file or folder it asked for is not
+  there, or when several things match the name. The kernel draws it, into the element the view
+  handed to `ose.paths.get(key, { el })`, so every plugin asks the same question the same way; a
+  plugin never writes one of its own. A column of `--sp-2` gaps on `--bg-2`, 1px `--border`,
+  `--sp-4` of padding, at most 34rem wide, spanning every column of whatever grid it lands in:
+  `.path-box`, with `.path-box-title` (the label verbatim, `--fg`), `.path-box-hint` and
+  `.path-box-what` (`--fg-2`, the name in mono inside a `code`), `.path-box-near` over
+  `.path-box-picks` with one `.path-box-pick` button per candidate, and `.path-box-actions`
+  holding the primary `.path-box-choose`. Every control is a real button, focus lands on
+  Choose…, and the box wraps rather than assuming a page width: a Day tile is a third of a
+  column.
+- **A Settings › Plugins row.** Per plugin a heading line, `.set-plug`: the name in `--fg`, the
+  description in mono `--fg-3`, the state at the end in `--fg-3` or `--err`, with the error
+  under it on its own line (`.set-plug-why`, `--err`). Under it one `.set-path` row per declared
+  path, on the same grid as any settings row: `.set-path-name`, `.set-path-value` (the path, or
+  `missing` / `ambiguous` as `.set-path-bad` in `--err`), `.set-path-note` for the hint, and
+  `.set-path-act` holding Choose… and Reset. The section's own buttons sit in `.set-plug-act`.
 
 ## Layout
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ titlebar 36px  [os] path/breadcrumb    ─  ☐  ✕   │
+│ titlebar 36px  logo path/breadcrumb   ─  ☐  ✕   │
 ├──────────┬──────────────────────────────────────┤
 │ sidebar  │ main                                 │
 │ 260px    │ page (editor) or view                │
@@ -114,7 +137,7 @@ width, square corners, 1px border. Code blocks in `--font-mono` 13px on `--bg-2`
 (`--accent` itself is 2.96:1 on the page and is for surfaces, borders and the hover underline),
 underline on hover only.
 
-## Views (week, habits, journal, tasks)
+## Views (day, week, month, journal, drills)
 
 Same page column and title treatment as an editor page so switching between a page and a view
 does not feel like changing app. Dense data (the week grid, the habit matrix) uses mono 11px
@@ -126,7 +149,7 @@ at low opacity with a 2px left bar in the full colour.
 The UI is in English. Hassan's files are in French and English; never translate file content.
 Labels are short and lowercase in chrome ("pages", "views", "scratch"), Title Case in dialogs.
 
-## Checklist before you say a module is done
+## Checklist before you say a plugin is done
 
 - Both themes checked, no colour that is not a token.
 - Keyboard: every action reachable, focus visible, Esc closes what Enter opened.
