@@ -1,0 +1,22 @@
+{
+  "id": "nsi",
+  "name": "Informatique",
+  "requires": 1,
+  "entry": "index.js",
+  "data": [
+    "2-learning/1-school/2-nsi/1-drills"
+  ],
+  "run": [
+    "python",
+    "python3"
+  ],
+  "routes": [
+    "nsi/*"
+  ],
+  "view": {
+    "name": "nsi",
+    "title": "Informatique",
+    "order": 60
+  },
+  "description": "Coding drills as folders, a judge, a clock, spaced review."
+}

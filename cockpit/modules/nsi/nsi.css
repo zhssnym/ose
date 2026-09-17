@@ -1,0 +1,96 @@
+/* Informatique module styles: only what is this module's own.
+
+   The row, the chips, the title line, the meta line, the pane label, the controls, the verdict,
+   the error box and the path line are the shared lib's (`lib/drills.css`), so nothing about
+   them is written twice. What is left here is the editor host, the run output, the tests table
+   and the statement — the three things only this module draws.
+
+   Colours, fonts, sizes and spacing come from the kernel's tokens (ui.css) only: no hex, no
+   bare pixel padding beyond the 1px and 2px borders. Both themes follow the tokens, so there
+   is nothing theme-specific here. */
+
+.nsi-hint { color: var(--fg-3); }
+
+/* --------------------------------------------------------------- the statement */
+
+/* The statement is prose, at the page's content size. A fenced block inside it is code, and
+   code in this app is `--fs-ui` on `--bg-2` — which is what the editor below it is, so the two
+   read as one page and not as two (ADV-V measured 12px here against 13px there). */
+.nsi-statement { font-size: var(--fs-content); line-height: var(--lh-body); }
+.nsi-statement pre, .nsi-pre {
+  font-family: var(--font-mono); font-size: var(--fs-ui);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--sp-3); overflow-x: auto; white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------------ the editor */
+
+/* `grow: true`: the editor is as tall as its text, so the host must not box it in with a
+   height or a scroller of its own. The border is the box; the column scrolls. */
+.nsi-answer-host {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  height: auto;
+}
+/* Thirty lines of floor, whatever the file holds: room to think on an empty drill, and the
+   editor still grows past it with the text. The kernel's `grow` floor is five lines on
+   `.cm-content`; this is the same property one class deeper, so the kernel is not touched and
+   every other `codeEditor` keeps the five. */
+.nsi-answer-host .ed-code-grow .cm-editor .cm-content {
+  min-height: calc(var(--fs-ui) * 1.7 * 30);
+}
+
+/* ---------------------------------------------------------------- the verdict */
+
+/* One place, directly under the controls: the verdict, the tests table and the run output all
+   land here, so nothing the user presses moves what they are about to read. */
+.nsi-result { margin-top: var(--sp-4); }
+.nsi-result:empty { margin-top: 0; }
+
+.nsi-warn { color: var(--err-ink); font-size: var(--fs-ui); margin: var(--sp-3) 0 0; }
+.nsi-violations { margin: var(--sp-3) 0 0; padding-left: var(--sp-5); font-size: var(--fs-ui); }
+.nsi-violations li { margin-bottom: var(--sp-1); }
+
+/* The table is for what went wrong; it appears only when a test failed. */
+.nsi-scroll { overflow-x: auto; margin-top: var(--sp-4); }
+.nsi-tests { width: 100%; font-size: var(--fs-ui); }
+.nsi-tests td, .nsi-tests th { vertical-align: top; }
+.nsi-tests code { font-family: var(--font-mono); font-size: var(--fs-chrome); }
+.nsi-mark { font-family: var(--font-mono); }
+.nsi-tests tr.ok .nsi-mark { color: var(--ok-ink); }
+.nsi-tests tr.bad .nsi-mark { color: var(--err-ink); }
+.nsi-call { color: var(--fg-3); }
+.nsi-trace { margin: 0; max-width: calc(var(--page-w) / 2); }
+
+/* -------------------------------------------------------------------- the run */
+
+.nsi-run-head {
+  display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2);
+}
+.nsi-run-label {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+}
+/* A floor of three lines so the panel does not jump open, and a ceiling of sixteen so a program
+   that prints a thousand lines does not make a page of a thousand lines: past the ceiling the
+   pane scrolls inside itself and everything under it holds still (Q2 measured 650 px and still
+   growing). `.nsi-pre` already scrolls sideways. */
+.nsi-run-out {
+  margin: 0;
+  min-height: calc(var(--fs-ui) * 1.7 * 3);
+  max-height: calc(var(--fs-ui) * 1.7 * 16);
+  overflow-y: auto;
+}
+.nsi-run-out .err { color: var(--err-ink); }
+
+/* ------------------------------------------------------------- the correction */
+
+/* What the band's third button opens, under the verdict. The correction is code, so it is
+   drawn by the code editor in read-only: the same highlighter and the same `--code-*` tokens
+   as the answer above it. Its own control line is gone — there is one band on the page. */
+.nsi-correction { margin-top: var(--sp-6); }
+.nsi-correction:empty { display: none; }
+.nsi-correction-host {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-2);
+  height: auto;
+}

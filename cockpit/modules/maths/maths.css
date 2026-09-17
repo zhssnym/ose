@@ -1,0 +1,91 @@
+/* Maths module styles: what is this module's own and nothing else.
+ *
+ * The list row, the chips, the title line, the meta line, the three bands, the option row, the
+ * control band, the pane label, the error block and the path line are the shared lib's
+ * (`../../lib/drills.css`). What is left here is the maths — the statement's paragraphs, the
+ * option's letter, Temml's placement — and the two things only a finished series has: the
+ * result block and a miss.
+ *
+ * Colours, fonts, sizes and spacing come from the kernel's tokens only: no hex, no bare pixel.
+ * Both themes follow the tokens, so there is nothing theme-specific here. Every selector is
+ * prefixed `maths-`, because a module's stylesheet is global while it is in the document
+ * (MODULES.md rule 3) — except where it qualifies one of the lib's own classes.
+ */
+
+/* ------------------------------------------------------------------- list */
+
+/* `malformed` is not a state of a drill, it is a state of the file: the row keeps the lib's
+   shape and the one word that is not a name takes the error ink. The row used to say nothing
+   at all, and a red date was the only sign (ADV-M). */
+.maths-malformed { color: var(--err-ink); }
+
+
+/* ---------------------------------------------------------------- session */
+
+/* The session owns the keyboard for as long as it is on screen: the root holds the focus, so
+   the ring it would draw around the whole column is not drawn. Nothing inside it is a tab stop
+   and Tab is trapped, so there is nothing else for the ring to mean. */
+.maths-session { outline: none; }
+
+.maths-opt-letter { color: var(--fg-3); flex: none; min-width: 1.5ch; }
+.drill-opt.current .maths-opt-letter { color: var(--accent-ink); }
+.maths-opt-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Paused: the question goes away with the clock, so a pause is never thinking time. The bands
+   keep their reserved heights, so nothing under them moves. */
+.maths-paused-word {
+  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+  font-size: var(--fs-ui);
+}
+
+/* ----------------------------------------------------------- the result */
+
+/* The score is the verdict's figure now, in the lib's own `.drill-verdict` under the control
+   band — one component for "here is how you did" in both modules (Q1). This module's own
+   `.maths-score` face is gone with it. */
+.maths-note { color: var(--fg-3); margin: var(--sp-5) 0 0; }
+.maths-table { margin: var(--sp-4) 0 0; }
+.maths-table td { font-variant-numeric: tabular-nums; }
+
+/* A miss: air between them and nothing else. Fifty-seven of these used to be fifty-seven
+   bordered boxes in an eleven-thousand-pixel ladder. */
+.maths-miss { margin-bottom: var(--sp-5); }
+.maths-miss-head { color: var(--fg-3); }
+.maths-miss-n { font-variant-numeric: tabular-nums; }
+.maths-miss-statement { font-size: var(--fs-ui); margin: var(--sp-2) 0; }
+.maths-miss-statement p { margin: 0 0 var(--sp-1); }
+.maths-miss-statement p:last-child { margin-bottom: 0; }
+
+/* One grid for both lines, so `chosen` and `expected` line up on a column the words measure
+   for themselves instead of on a width somebody picked. */
+.maths-miss-lines {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: var(--sp-1) var(--sp-3); align-items: baseline;
+  font-size: var(--fs-ui);
+}
+.maths-miss-label { color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em; }
+.maths-chosen { color: var(--err-ink); }
+.maths-expected { color: var(--ok-ink); }
+.maths-regle { font-size: var(--fs-ui); color: var(--fg-2); margin: var(--sp-2) 0 0; }
+
+/* ---------------------------------------------------------------- errors */
+
+/* A file that does not parse: every error with its line, inside the lib's error block. */
+.maths-error-list { margin: 0; padding-left: var(--sp-5); font-size: var(--fs-ui); }
+.maths-error-list li { margin-bottom: var(--sp-1); }
+.maths-error-line { color: var(--err-ink); }
+
+/* ----------------------------------------------------------------- Temml */
+
+/* Temml's own stylesheet does the MathML; these lines are the module's, and only about where
+   the maths sits in a line of text. No font is shipped: `math` falls to Cambria Math on Windows
+   and to the platform's maths font elsewhere, which is what Temml-Local.css asks for, and the
+   prose around it is the serif of the page title, so the two agree. */
+.maths-tex { display: inline-block; }
+.maths-tex.display { display: block; margin: var(--sp-3) 0; }
+/* LaTeX Temml refused: the source stays on screen rather than a blank, marked as unread. */
+.maths-tex.bad {
+  font-family: var(--font-mono); font-size: var(--fs-chrome);
+  color: var(--err-ink); background: var(--err-soft);
+  padding: 0 var(--sp-1); border-radius: var(--radius);
+}
