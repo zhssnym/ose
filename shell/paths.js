@@ -19,5 +19,9 @@ export const isHiddenName = (name) => !name || name.startsWith('.') || HIDDEN.ha
 
 // Files the page editor can show as text (the kernel's own list, which the shell is free to
 // widen): everything else a row opens goes to the platform's default application.
-export const TEXT_EXTS = new Set(['txt', 'csv', 'jsonl', 'py', 'log', 'tex', 'json', 'yaml', 'toml']);
+export const TEXT_EXTS = new Set([
+  'txt', 'csv', 'tsv', 'jsonl', 'log', 'tex', 'json', 'yaml', 'yml', 'toml', 'ini', 'xml',
+  'py', 'js', 'mjs', 'ts', 'jsx', 'tsx', 'css', 'html', 'htm', 'sql', 'sh', 'ps1', 'bat', 'rs', 'c', 'h',
+  'cpp', 'java', 'go', 'php', 'rb', 'lua',
+]);
 export const isTextFile = (p) => TEXT_EXTS.has(extOf(p));

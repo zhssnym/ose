@@ -378,22 +378,47 @@ codeEditor(el, { path | text, language, readOnly, grow, gutter, indent, placehol
     inside it, which is right when the caller owns the height and wrong when it does not.
     `gutter: false` takes the line numbers away. `indent` is what Tab inserts: four spaces
     for Python, two for everything else, unless it is given.
-    It behaves like an editor for programs and not like a note: brackets close as they are
-    typed and Backspace between an empty pair takes both, the line re-indents when the
-    language says the word that ends a block has been typed, the line under the caret carries
-    a faint stripe while the editor holds the caret, the bracket under the caret is marked,
-    and Tab and Shift+Tab indent and dedent: Tab with nothing selected inserts one indent at
-    the caret, Tab over a selection indents the block. Source mode inside a page gains the
-    Tab behaviour, which is a fix and not a comfort, and none of the rest; a page is prose.
+    It is a very small IDE and nothing more. Line numbers; the line under the caret carries a
+    faint stripe while the editor holds the caret; the bracket under the caret is marked and so
+    is its partner; every other occurrence of what is selected is marked faintly; brackets close
+    as they are typed and Backspace between an empty pair takes both; the line re-indents when
+    the language says the word that ends a block has been typed; Tab and Shift+Tab indent and
+    dedent (Tab with nothing selected inserts one indent at the caret, Tab over a selection
+    indents the block); Ctrl+/ comments and uncomments the lines the selection touches, in the
+    language's own syntax; Ctrl+F is find and replace; Ctrl+Z and Ctrl+Y undo and redo; there
+    can be more than one cursor (Ctrl+Alt+Up and Down, Ctrl+D for the next occurrence,
+    Ctrl+click). No completion popup, no lint, no fold gutter, no minimap.
+    Escape leaves the text and puts the keyboard on the page around it, so Tab from there
+    carries on through the app and the editor is never a trap; Ctrl+M is CodeMirror's own
+    toggle for making Tab move the focus without leaving.
+    Source mode inside a page is exactly this editor for a file the pack knows by its name. A
+    `.md` page in source mode gains the Tab behaviour, which is a fix and not a comfort, and
+    none of the rest, and a `.txt` or a `.log` stays the plain text it is.
     Ctrl+S saves from anywhere inside the editor, its own Find panel included: the key engine
     stands down for `mod+s` and `mod+f` inside `.ed-code` (a page's fenced block is not
     `.ed-code`, so there Ctrl+S still saves the page).
     Colours are the `--code-*` tokens, the same palette a fenced code block in a page is
     drawn with, in both themes.
-render(markdown, { basePath })  -> HTMLElement   read-only, links resolved, images through vault.localhost
+render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
+    read-only, links resolved, images through vault.localhost, and fenced code coloured with
+    the same grammars and the same `--code-*` tokens the editor uses. `codeLanguage` is the
+    language assumed for a fence that names none; a fence that names one always wins, and a
+    block with neither, or with a name the pack does not have, stays plain text.
+    `render` is synchronous and stays synchronous: the element it answers is complete before
+    any grammar is asked for, and a block is repainted where it stands once its grammar lands.
+    A grammar that will not load colours nothing and throws nothing.
+    A Python transcript keeps its shape rather than being read as a program: the `>>>` and
+    `...` prompts are drawn in the comment ink, only what follows a prompt is parsed, and the
+    interpreter's answer keeps the body colour.
 ```
 
 The stylesheet is `editor.css` on the kernel origin. Tokens come from `ui.css`.
+
+Every language in CodeMirror's pack is there, loaded from a chunk of its own the first time
+something asks for it, and the same table answers all three surfaces: a fence's name in a page,
+a file's name in the column, and `codeLanguage` in `render`. So `python`, a `.py` file and a
+statement's examples are coloured by one set of rules. A file whose extension the pack does not
+know opens as plain text, which is what it is.
 
 ## `ose:ui`
 

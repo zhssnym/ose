@@ -9,42 +9,20 @@
 //
 // A plugin uses this for a script beside its data, the shell for a `.json` or a `.css` of its
 // own; source mode inside a page stays where it is, in page.js, because it shares the page's
-// title strip, baseline and conflict dialog.
+// title strip, baseline and conflict dialog. Both ask `createSourceView` for `code: true` and
+// get exactly the same editor, so a `.py` file looks and behaves the same in either.
 //
-// `grow` makes the editor as tall as its text, so the column scrolls, and with it come the
-// comforts a program deserves and a page does not: close brackets, indent on input, and a
-// stripe under the caret's line. Both are described where they are built, below.
+// `grow` makes the editor as tall as its text, so the column scrolls; it is described where
+// it is built, below.
 
-import { Compartment, Prec, StateEffect } from '@codemirror/state';
-import { highlightActiveLine, keymap } from '@codemirror/view';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { LanguageDescription, indentOnInput, syntaxHighlighting } from '@codemirror/language';
-import { languages as LANGUAGE_PACK } from '@codemirror/language-data';
+import { Prec, StateEffect } from '@codemirror/state';
+import { keymap } from '@codemirror/view';
 import { bridge } from './host.js';
 import { choose, toast } from './deps.js';
-import { HIGHLIGHT } from './code.js';
+import { describe, indentFor, loadLanguage } from './highlight.js';
 import { createSourceView } from './source.js';
 import { keepVersion, keepDiskVersion } from './versions.js';
 import * as P from './paths.js';
-
-/** The pack entry for a language name, an alias, or a file name. */
-function describe(language, path) {
-  const name = String(language || '').trim();
-  if (name) {
-    return LanguageDescription.matchLanguageName(LANGUAGE_PACK, name, true)
-      || LANGUAGE_PACK.find((l) => l.alias.includes(name.toLowerCase()))
-      || null;
-  }
-  if (path) return LanguageDescription.matchFilename(LANGUAGE_PACK, P.basename(path));
-  return null;
-}
-
-/**
- * What Tab inserts. Two spaces is the app's own and is right for markdown and for most of the
- * pack; Python is four, because that is Python's convention, it is what a seeded stub is
- * written with, and a file that mixes the two is a `TabError` waiting to happen (K3).
- */
-const INDENT = { python: '    ' };
 
 /**
  * CodeMirror normalises every line ending to `\n` when it builds a document, so the text in
@@ -75,7 +53,6 @@ function endingOf(raw) {
  */
 export function codeEditor(el, opts = {}) {
   const path = opts.path ? String(opts.path) : null;
-  const language = new Compartment();
   const listeners = new Map();
 
   let baseline = path ? null : normalize(opts.text);
@@ -158,11 +135,12 @@ export function codeEditor(el, opts = {}) {
   // is already in the bundle, and `createSourceView` installs it.
   const isMarkdown = !!path && P.extname(path) === 'md' && !opts.language;
   const named = describe(opts.language, path);
-  const indent = opts.indent || INDENT[String(named && named.name || '').toLowerCase()] || '  ';
+  const indent = opts.indent || indentFor(named);
   const view = createSourceView({
     host,
     text: baseline ?? '',
     markdown: isMarkdown,
+    code: !isMarkdown,
     gutter: opts.gutter !== false,
     placeholder: opts.placeholder,
     indent,
@@ -174,53 +152,29 @@ export function codeEditor(el, opts = {}) {
     onEscape: leaveEditor,
   });
 
-  // Grown onto the view rather than passed to `createSourceView`: the language slot and the
-  // code palette belong to this editor, and source mode inside a page must not gain either.
+  // The grammar, the token colours and the comforts of a program are `code: true` above: they
+  // are the same in a code file open as a page and here, and they live in one place so they
+  // cannot differ (`ide()` in source.js). What is only this editor's is Ctrl+S.
+  //
   // Ctrl+S here as well as in the shell: a code editor inside a dialog or a plugin's panel is
   // not always under a chord the shell bound (docs/KERNEL.md, keyboard reachable every time).
   // `keys.js` binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would
   // otherwise take it first and nothing inside CodeMirror could outrank a listener that runs
   // before the event ever descends. The exemption belongs in the key engine rather than here,
   // and that is where it is: `OWN_EDITOR_KEYS` stands down for `mod+s` and `mod+f` inside
-  // `.ed-code`.
-  //
-  // The comforts are here for the same reason: writing a program is not writing a page.
-  // `closeBrackets` types the closing half, `indentOnInput` re-indents the line when the
-  // language says the word that ends a block has just been typed, and `highlightActiveLine`
-  // says where the caret is in a screen of code with no prose to hold the eye. Tab is bound
-  // inside `createSourceView` — the indent unit at the caret, a whole block when a range is
-  // selected, Shift+Tab to dedent — through `indentUnit`, which is four spaces for Python and
-  // two elsewhere (INDENT above).
-  //
-  // `Prec.high` on the keymap, not just its place in this array: `appendConfig` puts these
-  // *after* source mode's own keymap, so at equal precedence `closeBracketsKeymap`'s Backspace
-  // (delete an empty pair as one) would lose to the default keymap's, and the closing bracket
-  // would be left behind. Precedence is global in CodeMirror, so raising this one keymap puts
-  // it in front of a keymap that was configured before it.
-  const extras = [
-    Prec.high(keymap.of([
+  // `.ed-code`. `Prec.high` because `appendConfig` puts this *after* the view's own keymap.
+  view.view.dispatch({
+    effects: StateEffect.appendConfig.of(Prec.high(keymap.of([
       { key: 'Mod-s', run: () => { void save({ explicit: true }); return true; }, preventDefault: true },
-      ...closeBracketsKeymap,
-    ])),
-    closeBrackets(),
-    indentOnInput(),
-    highlightActiveLine(),
-    syntaxHighlighting(HIGHLIGHT),
-    language.of([]),
-  ];
-  view.view.dispatch({ effects: StateEffect.appendConfig.of(extras) });
+    ]))),
+  });
 
   const getText = () => view.getText();
 
-  /** The language pack entry, loaded once, after the editor is already on screen. */
-  const loaded = (async () => {
-    const desc = named;
-    if (!desc) return;
-    try {
-      const support = await desc.load();
-      if (!closed) view.view.dispatch({ effects: language.reconfigure(support) });
-    } catch (e) { console.warn('[editor] language', desc.name, e && e.message ? e.message : e); }
-  })();
+  /** The grammar, fetched once, after the editor is already on screen. */
+  const loaded = loadLanguage(named).then((support) => {
+    if (support && !closed) view.setLanguage(support);
+  });
 
   const ready = (async () => {
     if (!path) { await loaded; return; }

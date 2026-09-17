@@ -37,6 +37,7 @@ import { keepVersion, keepDiskVersion } from './versions.js';
 import { backlinkCount } from './backlinks.js';
 import { followHref } from './linkstate.js';
 import { createSourceView, rememberSource, renameRemembered, wasInSource } from './source.js';
+import { describe, indentFor, loadLanguage } from './highlight.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
@@ -205,15 +206,34 @@ export function markdownPage(el, path, opts = {}) {
       // The title line is inside the text now; a strip that could also edit it would be a second
       // source of truth for the same bytes. It stays as a label until the mode goes back.
       if (p.titleEl) p.titleEl.contentEditable = 'false';
+      // A file the language pack knows by its name is a file of code, and opens as the small
+      // editor for one: the grammar, the token colours and the comforts of a program, exactly
+      // the set a standalone `codeEditor` gets (`ide()` in source.js). This is the whole of
+      // what "a .py file was white text" was: the page mounted `createSourceView` directly and
+      // nothing ever put a language in it, so no token was ever named and no class was ever
+      // written. A markdown page keeps its own prose palette, and a `.txt` or a `.log` stays
+      // the plain text it is: neither gains a bracket that closes itself.
+      const named = p.plain ? describe(null, p.path) : null;
       p.source = createSourceView({
         host: p.bodyEl,
         text,
         markdown: !p.plain,
+        code: !!named,
+        indent: named ? indentFor(named) : undefined,
         gutter: p.plain,
         readOnly: p.readOnly,
         onChange: () => { p.touched = true; markDirty(p); },
         onEscape: () => { try { p.source.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
       });
+      // The pack fetches a grammar in a chunk of its own, so the file is on screen first and
+      // gains its colours a moment later. Never awaited and never able to reject: a language
+      // that will not load is a page without colour, not a page that will not open.
+      if (named) {
+        const mine = p.source;
+        void loadLanguage(named).then((support) => {
+          if (support && p.source === mine) mine.setLanguage(support);
+        });
+      }
       // The same three methods `createFind` gives the block editor, over CodeMirror's own panel:
       // the options go through, so a seeded query highlights and Ctrl+H reaches replace (QA F5).
       p.find = {

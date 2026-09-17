@@ -90,6 +90,36 @@
   color: inherit;
 }
 
+/* ------------------------------------------------- a code file open as a page
+
+   Source mode over a file that is not markdown is the same small editor as `.ed-code`, so it
+   is drawn the same way: the stripe under the caret's line, the bracket under the caret, and
+   the other occurrences of whatever is selected. A markdown page never shows any of them,
+   because `createSourceView` only installs them for `code: true` and a page is prose.
+
+   `.cm-selectionMatch` is `--bg-3` and not a colour: what it says is "the same word, there
+   too", and a ground is enough to say it without a second ink competing with the token's. */
+.ed-source .cm-editor .cm-activeLine { background-color: transparent; }
+.ed-source .cm-editor.cm-focused .cm-activeLine { background-color: var(--bg-3); }
+
+.ed-source .cm-editor .cm-matchingBracket,
+.ed-source .cm-editor.cm-focused .cm-matchingBracket {
+  background-color: var(--bg-4);
+  color: inherit;
+}
+
+.ed-source .cm-editor .cm-nonmatchingBracket,
+.ed-source .cm-editor.cm-focused .cm-nonmatchingBracket {
+  background-color: var(--err-soft);
+  color: inherit;
+}
+
+.ed-code .cm-editor .cm-selectionMatch,
+.ed-source .cm-editor .cm-selectionMatch {
+  background-color: var(--bg-3);
+  color: inherit;
+}
+
 /* ---------------------------------------------------------------- source mode */
 
 .ed-source {

@@ -4,13 +4,16 @@
 // to boot Milkdown: this is marked with GFM on, through DOMPurify, into one detached element.
 // Nothing here is editable, no plugin runs, no command is registered and no file is read.
 //
-// The two things the caller cannot do for itself are the two the editor knows: a link in a
-// vault file is relative to the file it is written in, and an image in a vault file is a path
-// the web view cannot load without the vault protocol (`ose.files.assetUrl`).
+// The three things the caller cannot do for itself are the three the editor knows: a link in a
+// vault file is relative to the file it is written in, an image in a vault file is a path the
+// web view cannot load without the vault protocol (`ose.files.assetUrl`), and a fenced code
+// block is coloured by the same grammars and the same `--code-*` tokens a code block in the
+// editor is, so a drill's statement and the file the answer is typed into look like one app.
 
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { bridge } from './host.js';
+import { describe, highlightInto, loadLanguage } from './highlight.js';
 import * as P from './paths.js';
 import './render.css';
 
@@ -21,7 +24,7 @@ const OPTIONS = { gfm: true, breaks: false, pedantic: false };
 
 /**
  * @param {string} markdown
- * @param {object} [opts]  { basePath, onLink(path, heading) }
+ * @param {object} [opts]  { basePath, onLink(path, heading), codeLanguage }
  * @returns {HTMLElement}  a `<div class="md-render">`, not attached to anything
  */
 export function render(markdown, opts = {}) {
@@ -43,9 +46,39 @@ export function render(markdown, opts = {}) {
   for (const img of box.querySelectorAll('img[src]')) resolveImage(img, basePath);
   // A task list is a picture of the file's state, not a control: it is shown and not offered.
   for (const input of box.querySelectorAll('input')) { input.disabled = true; input.tabIndex = -1; }
+  colourCode(box, opts.codeLanguage);
 
   if (typeof opts.onLink === 'function') wireLinks(box, opts.onLink);
   return box;
+}
+
+/**
+ * Colour every fenced block, in place, once its grammar has arrived.
+ *
+ * `render` is synchronous and stays synchronous: the element it answers is complete and
+ * readable before any grammar is asked for, and every block that gets one is repainted where
+ * it already stands. A caller that measures the box, mounts it, or throws it away in the same
+ * turn is unaffected either way.
+ *
+ * `fallback` is `codeLanguage`: the language a fence that names none is assumed to be. A fence
+ * that names one always wins, a block with neither stays plain text, and a name the pack does
+ * not have stays plain text as well. That is the whole rule.
+ */
+function colourCode(box, fallback) {
+  const assumed = String(fallback || '').trim();
+  for (const el of box.querySelectorAll('pre > code')) {
+    const named = [...el.classList].find((c) => c.startsWith('language-'));
+    const name = named ? named.slice('language-'.length) : assumed;
+    const desc = describe(name, null);
+    if (!desc) continue;
+    const code = el.textContent;
+    const paint = (support) => {
+      // The caller owns this DOM and may have replaced the text while the chunk was in the
+      // air. Repaint what was read, or nothing.
+      if (support && el.textContent === code) highlightInto(el, code, support);
+    };
+    loadLanguage(desc).then(paint, () => {});
+  }
 }
 
 /**

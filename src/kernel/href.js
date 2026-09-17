@@ -102,7 +102,11 @@ export const headingSlug = (s) =>
  * Files that are text but not markdown: the editor opens them in source mode rather than
  * handing them to the platform (N25). Everything else non-markdown is `bridge.openPath`.
  */
-export const TEXT_EXTS = new Set(['txt', 'csv', 'jsonl', 'py', 'log', 'tex', 'json', 'yaml', 'toml']);
+export const TEXT_EXTS = new Set([
+  'txt', 'csv', 'tsv', 'jsonl', 'log', 'tex', 'json', 'yaml', 'yml', 'toml', 'ini', 'xml',
+  'py', 'js', 'mjs', 'ts', 'jsx', 'tsx', 'css', 'html', 'htm', 'sql', 'sh', 'ps1', 'bat', 'rs', 'c', 'h',
+  'cpp', 'java', 'go', 'php', 'rb', 'lua',
+]);
 
 export const isMarkdown = (p) => extname(p) === 'md';
 export const isTextFile = (p) => TEXT_EXTS.has(extname(p));

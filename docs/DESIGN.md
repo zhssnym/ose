@@ -65,7 +65,10 @@ Key tokens (see the file for the full list):
 --radius (2px)  --titlebar-h (36px)  --statusbar-h (24px)  --sidebar-w (260px)
 --page-w (720px)  --page-pad-top (80px)
 --code-key --code-str --code-num --code-fn --code-type --code-var --code-punc --code-com
-              code-block highlighting, each measured >= 4.5:1 on --bg-2 in both themes
+--code-ins --code-del
+              code highlighting, each measured >= 4.5:1 on --bg and on --bg-2 in both themes.
+              --code-ins and --code-del are a diff inside a fence, and --code-del also carries
+              a token no grammar could read, under a wavy underline
 --zoom        the root font size factor (90 to 150 %); every size token is written in rem so
               the whole window scales, and at 100 % each is the pixel value it names
 ```
@@ -136,6 +139,23 @@ width, square corners, 1px border. Code blocks in `--font-mono` 13px on `--bg-2`
 1px borders and mono header cells. Links, and any accent-coloured text, are `--accent-ink`
 (`--accent` itself is 2.96:1 on the page and is for surfaces, borders and the hover underline),
 underline on hover only.
+
+## Code
+
+One palette, one set of token colours, everywhere code is shown: a fenced block inside a page, a
+file of code open as a page, a `codeEditor` in a plugin's panel, and a fenced block in read-only
+rendered markdown. The colours are the `--code-*` tokens and nothing else, from the same
+families as the rest of the palette rather than a borrowed theme: keyword in the terracotta
+line, string in the olive, type in the amber, function in the blue, number in the one purple the
+week grid uses. An identifier with no role keeps the body colour, which is what a calm block of
+code looks like; a decorator, a shebang or a doctype takes the keyword ink, because that is what
+it is.
+
+A file of code is a small editor and says so: line numbers, a `--bg-3` stripe under the caret's
+line while it holds the caret, the bracket under the caret in `--bg-4`, the other occurrences of
+whatever is selected on `--bg-3`. A page of prose has none of them. In rendered markdown a
+Python transcript keeps its shape: the `>>>` prompt in the comment ink, the code after it
+coloured, the interpreter's answer in the body colour, because output is not code.
 
 ## Views (day, week, month, journal, drills)
 

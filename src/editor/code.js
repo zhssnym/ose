@@ -22,52 +22,12 @@ import { CrepeFeature } from '@milkdown/crepe';
 import { languages as LANGUAGE_PACK } from '@codemirror/language-data';
 import { EditorView as CodeMirror, keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { syntaxHighlighting } from '@codemirror/language';
 import { autocompletion } from '@codemirror/autocomplete';
-import { tags as t } from '@lezer/highlight';
 import { NodeSelection, Plugin, TextSelection } from '@milkdown/kit/prose/state';
+import { HIGHLIGHT } from './highlight.js';
 import { commands, toast } from './host.js';
 import './code.css';
-
-// ---------------------------------------------------------------------------
-// colours
-
-/**
- * Every token becomes a class; code.css gives the class a token colour. Tags not listed here
- * (a plain identifier) keep the body colour, which is what a calm code block looks like.
- */
-export const HIGHLIGHT = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword,
-    t.modifier, t.self, t.bool, t.null, t.atom], class: 'os-t-key' },
-  { tag: [t.string, t.special(t.string), t.regexp, t.character, t.docString], class: 'os-t-str' },
-  { tag: [t.number, t.integer, t.float, t.unit, t.escape, t.literal, t.constant(t.name)],
-    class: 'os-t-num' },
-  { tag: [t.definition(t.variableName), t.local(t.variableName), t.special(t.variableName)],
-    class: 'os-t-var' },
-  { tag: t.inserted, class: 'os-t-ins' },
-  { tag: t.deleted, class: 'os-t-del' },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: 'os-t-com' },
-  // `meta` is not a comment: in Python it is the `@` of a decorator, in a shell script the
-  // shebang, in HTML the doctype — the line that says "this changes what follows", which was
-  // being painted the colour of the one thing that changes nothing (ADV-N). Its own class,
-  // drawn in the keyword ink. `processingInstruction` keeps the comment colour it had.
-  { tag: t.meta, class: 'os-t-meta' },
-  { tag: t.processingInstruction, class: 'os-t-com' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)),
-    t.macroName, t.labelName, t.propertyName, t.definition(t.propertyName), t.className,
-    t.tagName], class: 'os-t-fn' },
-  { tag: [t.typeName, t.standard(t.typeName), t.namespace, t.annotation, t.attributeName],
-    class: 'os-t-type' },
-  { tag: [t.operator, t.derefOperator, t.punctuation, t.separator, t.bracket, t.paren,
-    t.brace, t.squareBracket, t.angleBracket, t.contentSeparator], class: 'os-t-punc' },
-  { tag: [t.link, t.url], class: 'os-t-link' },
-  { tag: t.strong, class: 'os-t-strong' },
-  { tag: t.emphasis, class: 'os-t-em' },
-  { tag: t.strikethrough, class: 'os-t-strike' },
-  { tag: t.heading, class: 'os-t-head' },
-  { tag: t.quote, class: 'os-t-quote' },
-  { tag: t.invalid, class: 'os-t-invalid' },
-]);
 
 // ---------------------------------------------------------------------------
 // the CodeMirror side

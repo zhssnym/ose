@@ -54,61 +54,104 @@
 
 /* ------------------------------------------------------------------ tokens
 
-   Two grounds, one palette. `code.js`'s HIGHLIGHT names the classes, and it is installed in
-   two places: Crepe's code block inside a page (`.ed .milkdown .milkdown-code-block`) and the
-   standalone `codeEditor` (`.ed-code`, source.css). Until round five only the first was
-   written down here, so a `codeEditor` outside a page drew every token in `--fg` — the classes
-   were on the spans and nothing coloured them (round five, defect E1). The selectors are
-   grouped rather than copied so the two can never drift apart, and the page's own side of each
-   pair is untouched.
+   Four grounds, one palette. `highlight.js`'s HIGHLIGHT names the classes, and the same names
+   are written by all four places code is shown:
+
+     .ed .milkdown .milkdown-code-block   a fenced block inside the block editor
+     .ed-code                             the standalone `codeEditor` (source.css)
+     .ed-source                           a code file open as a page, in source mode
+     .md-render                           a fenced block in read-only rendered markdown
+
+   The selectors are grouped rather than copied so the four can never drift apart. Adding the
+   last two is half of what ended the oldest defect in the editor: a `.py` file opened as a
+   page was white text, and a drill's statement showed its Python examples in the body colour.
 
    `.ed-code .os-t-*` is 0-2-0, which is what it has to be: `syntaxHighlighting` is a
-   StyleModule and its generated `.ͼ…` classes are 0-1-0 in a stylesheet whose place in the
+   StyleModule and its generated `.ϼ…` classes are 0-1-0 in a stylesheet whose place in the
    head is CodeMirror's business, not ours. Source mode's own markdown HighlightStyle is
    registered `{ fallback: true }` and therefore stands down entirely while HIGHLIGHT is
-   present, so nothing is fighting for the colour of a token — only for the colour of the
+   present, so nothing is fighting for the colour of a token, only for the colour of the
    ground, and `source.js`'s theme paints `.cm-content` by inheritance, which a class on the
    span outranks whatever its specificity. */
 
 .ed .milkdown .milkdown-code-block .os-t-key,
-.ed-code .os-t-key { color: var(--code-key); }
+.ed-code .os-t-key,
+.ed-source .os-t-key,
+.md-render .os-t-key { color: var(--code-key); }
 .ed .milkdown .milkdown-code-block .os-t-str,
-.ed-code .os-t-str { color: var(--code-str); }
+.ed-code .os-t-str,
+.ed-source .os-t-str,
+.md-render .os-t-str { color: var(--code-str); }
 .ed .milkdown .milkdown-code-block .os-t-num,
-.ed-code .os-t-num { color: var(--code-num); }
+.ed-code .os-t-num,
+.ed-source .os-t-num,
+.md-render .os-t-num { color: var(--code-num); }
 .ed .milkdown .milkdown-code-block .os-t-com,
-.ed-code .os-t-com { color: var(--code-com); }
+.ed-code .os-t-com,
+.ed-source .os-t-com,
+.md-render .os-t-com { color: var(--code-com); }
 /* A decorator, a shebang, a doctype: the keyword ink, because it is one (ADV-N). */
 .ed .milkdown .milkdown-code-block .os-t-meta,
-.ed-code .os-t-meta { color: var(--code-key); }
+.ed-code .os-t-meta,
+.ed-source .os-t-meta,
+.md-render .os-t-meta { color: var(--code-key); }
 .ed .milkdown .milkdown-code-block .os-t-fn,
-.ed-code .os-t-fn { color: var(--code-fn); }
+.ed-code .os-t-fn,
+.ed-source .os-t-fn,
+.md-render .os-t-fn { color: var(--code-fn); }
 .ed .milkdown .milkdown-code-block .os-t-type,
-.ed-code .os-t-type { color: var(--code-type); }
+.ed-code .os-t-type,
+.ed-source .os-t-type,
+.md-render .os-t-type { color: var(--code-type); }
 .ed .milkdown .milkdown-code-block .os-t-punc,
-.ed-code .os-t-punc { color: var(--code-punc); }
+.ed-code .os-t-punc,
+.ed-source .os-t-punc,
+.md-render .os-t-punc { color: var(--code-punc); }
 .ed .milkdown .milkdown-code-block .os-t-var,
-.ed-code .os-t-var { color: var(--code-var); }
+.ed-code .os-t-var,
+.ed-source .os-t-var,
+.md-render .os-t-var { color: var(--code-var); }
+/* A diff inside a fence, and a token no grammar could read: the inks tokens.css keeps for them
+   rather than --err, which is a chrome signal and reads 4.40:1 on the dark code ground, under
+   the 4.5 a colour carrying text has to clear. */
 .ed .milkdown .milkdown-code-block .os-t-ins,
-.ed-code .os-t-ins { color: var(--code-str); }
+.ed-code .os-t-ins,
+.ed-source .os-t-ins,
+.md-render .os-t-ins { color: var(--code-ins); }
 .ed .milkdown .milkdown-code-block .os-t-del,
-.ed-code .os-t-del { color: var(--err); }
+.ed-code .os-t-del,
+.ed-source .os-t-del,
+.md-render .os-t-del { color: var(--code-del); }
 .ed .milkdown .milkdown-code-block .os-t-invalid,
-.ed-code .os-t-invalid { color: var(--err); text-decoration: underline wavy; }
+.ed-code .os-t-invalid,
+.ed-source .os-t-invalid,
+.md-render .os-t-invalid { color: var(--code-del); text-decoration: underline wavy; }
 
 /* Markdown, YAML and the other prose-ish grammars, drawn the way the page itself is. */
 .ed .milkdown .milkdown-code-block .os-t-link,
-.ed-code .os-t-link { color: var(--accent); }
+.ed-code .os-t-link,
+.ed-source .os-t-link,
+.md-render .os-t-link { color: var(--accent); }
 .ed .milkdown .milkdown-code-block .os-t-strong,
-.ed-code .os-t-strong { font-weight: 600; }
+.ed-code .os-t-strong,
+.ed-source .os-t-strong,
+.md-render .os-t-strong { font-weight: 600; }
 .ed .milkdown .milkdown-code-block .os-t-em,
-.ed-code .os-t-em { font-style: italic; }
+.ed-code .os-t-em,
+.ed-source .os-t-em,
+.md-render .os-t-em { font-style: italic; }
 .ed .milkdown .milkdown-code-block .os-t-strike,
-.ed-code .os-t-strike { text-decoration: line-through; }
+.ed-code .os-t-strike,
+.ed-source .os-t-strike,
+.md-render .os-t-strike { text-decoration: line-through; }
 .ed .milkdown .milkdown-code-block .os-t-head,
-.ed-code .os-t-head { color: var(--code-fn); font-weight: 600; }
+.ed-code .os-t-head,
+.ed-source .os-t-head,
+.md-render .os-t-head { color: var(--code-fn); font-weight: 600; }
 .ed .milkdown .milkdown-code-block .os-t-quote,
-.ed-code .os-t-quote { color: var(--code-com); }
+.ed-code .os-t-quote,
+.ed-source .os-t-quote,
+.md-render .os-t-quote { color: var(--code-com); }
 
 /* ------------------------------------------------------------------ the language picker */
 

@@ -13,14 +13,16 @@
 // package imported below. No dependency was added.
 
 import { Compartment, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, drawSelection, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore, isolateHistory } from '@codemirror/commands';
-import { SearchQuery, closeSearchPanel, openSearchPanel, search, searchKeymap, searchPanelOpen, setSearchQuery } from '@codemirror/search';
-import { HighlightStyle, bracketMatching, indentUnit, syntaxHighlighting } from '@codemirror/language';
+import { SearchQuery, closeSearchPanel, highlightSelectionMatches, openSearchPanel, search, searchKeymap, searchPanelOpen, setSearchQuery } from '@codemirror/search';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { HighlightStyle, bracketMatching, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
 import { tags } from '@lezer/highlight';
 import { Plugin, Selection } from '@milkdown/kit/prose/state';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
+import { HIGHLIGHT } from './highlight.js';
 import { commands } from './host.js';
 import { patchState, readState } from './deps.js';
 import './source.css';
@@ -186,12 +188,45 @@ const indentAtCaret = ({ state, dispatch }) => {
 };
 
 /**
+ * The very small IDE. What a file of code gets and a page of prose does not.
+ *
+ * Nothing here is invented: every extension is already in the bundle and is the stock
+ * CodeMirror one. What it adds, in the order it is written:
+ *
+ *   - a language slot, empty until `setLanguage` fills it. The grammar is what makes every
+ *     other line of this list mean anything: `syntaxHighlighting` has tokens to colour,
+ *     `indentOnInput` knows the word that closes a block, `Mod-/` knows what a comment looks
+ *     like, and bracket matching stops guessing.
+ *   - HIGHLIGHT, the app's own token classes, not a fallback: it stands in front of the
+ *     markdown style below, which a code file never uses anyway.
+ *   - brackets that close as they are typed, a line that re-indents itself, a stripe under the
+ *     caret's line, and the other occurrences of whatever is selected marked faintly.
+ *   - more than one cursor: the facet has to say so, and with it Ctrl+Alt+Up and Down
+ *     (`defaultKeymap`), Ctrl+D (`searchKeymap`) and Ctrl+click all work.
+ *
+ * Deliberately not here: completion, lint, a fold gutter, a minimap. A small editor for
+ * reading and fixing a file, not a workbench.
+ */
+function ide(lang) {
+  return [
+    lang.of([]),
+    syntaxHighlighting(HIGHLIGHT),
+    closeBrackets(),
+    indentOnInput(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    EditorState.allowMultipleSelections.of(true),
+  ];
+}
+
+/**
  * Mount CodeMirror into `host`.
  *
  * @param {object} o
  * @param {HTMLElement} o.host
  * @param {string} o.text            the whole file
  * @param {boolean} [o.markdown]     highlight as markdown (a `.md` page); plain text otherwise
+ * @param {boolean} [o.code]         a file of code: the small IDE above, and `setLanguage`
  * @param {boolean} [o.gutter]       line numbers (on for non-markdown files)
  * @param {boolean} [o.readOnly]
  * @param {string} [o.placeholder]   the line shown while the buffer is empty
@@ -201,6 +236,7 @@ const indentAtCaret = ({ state, dispatch }) => {
  */
 export function createSourceView(o) {
   const editable = new Compartment();
+  const lang = new Compartment();
   // The history lives in a compartment so `setText` can empty it. Reconfiguring an extension
   // rebuilds the state fields it provides from their `init`, and that is the only way to throw
   // CodeMirror's undo stack away — which loading a file into a view that mounted empty has to
@@ -222,9 +258,14 @@ export function createSourceView(o) {
         search({ top: false }),
         o.gutter ? lineNumbers() : [],
         o.markdown === false ? [] : markdown(),
+        o.code ? ide(lang) : [],
         syntaxHighlighting(highlight, { fallback: true }),
         placeholder(o.placeholder || 'Empty file'),
         theme,
+        // One keymap, in order, because within one `keymap.of` the first binding that answers
+        // wins. `closeBracketsKeymap` has to stand before `defaultKeymap` so that Backspace
+        // between an empty pair takes both halves instead of one; ordering them here is what
+        // the standalone editor used to do from the outside with `Prec.high`.
         keymap.of([
           {
             key: 'Escape',
@@ -234,6 +275,7 @@ export function createSourceView(o) {
               return false;
             },
           },
+          ...(o.code ? closeBracketsKeymap : []),
           ...searchKeymap,
           ...historyKeymap,
           ...defaultKeymap,
@@ -296,6 +338,17 @@ export function createSourceView(o) {
      * the user would want back (A, finding 1).
      */
     clearHistory,
+    /**
+     * Put a grammar in, or take it out with `null`. The pack loads a language over the network
+     * of chunks, long after the file is already on screen, so this is always a second step and
+     * never a reason to wait: the text is readable from the first frame and gains its colours
+     * when the grammar lands. Does nothing when the view was not built with `code: true`.
+     */
+    setLanguage(support) {
+      if (!o.code) return false;
+      view.dispatch({ effects: lang.reconfigure(support || []) });
+      return true;
+    },
     setReadOnly(on) {
       view.dispatch({
         effects: editable.reconfigure([EditorState.readOnly.of(!!on), EditorView.editable.of(!on)]),
