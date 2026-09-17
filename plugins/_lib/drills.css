@@ -1,4 +1,5 @@
-/* The shared drills lib's stylesheet. Contract: `work/contracts/drills-lib.md`.
+/* The shared drills lib's stylesheet: the furniture of a drill page, and the fold that takes
+   the shell away while one is on screen. The index tables are `table.css` beside this file.
 
    Every colour, size and space is a token from the kernel's `ui.css`: no hex, no bare pixel
    beyond the 1px and 2px borders the design system already writes as the numbers they are.
@@ -8,126 +9,6 @@
 
    It defines the pieces and nothing else — no page width, no module layout. A module still
    owns its own `.page-col` and whatever it draws that is its own. */
-
-/* =========================================================================== list */
-
-.drill-rows { display: flex; flex-direction: column; }
-
-/* The row is `--row-h`, borderless, and its whole state is its ground. The 2px transparent
-   left border is the `again` bar's seat, held open on every row so nothing shifts when a row
-   changes state; the left padding is what puts the number at `--sp-3` from the edge once that
-   border is counted, which is the number `.row` in base.css uses and the sidebar leans on. */
-.drill-row {
-  height: var(--row-h);
-  padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
-  display: flex; align-items: center; gap: var(--sp-2);
-  color: var(--fg); font-size: var(--fs-ui);
-  border-left: 2px solid transparent;
-  white-space: nowrap; overflow: hidden;
-  cursor: pointer;
-  transition: background var(--t-fast);
-}
-
-.drill-row:hover { background: var(--bg-3); }
-
-/* The app's ring, drawn inside the row: a row is flush with its neighbours, so an outset ring
-   would be clipped by the one above it. */
-.drill-row:focus-visible {
-  outline: 1px solid var(--accent); outline-offset: -1px;
-  background: var(--bg-3);
-}
-
-/* Done is an OPAQUE ground, not a translucent wash: `--ok-soft` is a 16 % green in dark, and
-   a chip's own translucent ground stacked on top of it fell to 3.65:1 (S measured; the table
-   is in work/reports/S.md). One layer of `--ok-soft` painted over `--bg` by a gradient is the
-   mix done once, and the result is a solid colour every ink above it can be measured against.
-   `color-mix()` cannot do this — mixing a translucent colour with an opaque one keeps the
-   alpha — and a hex would be the same number written twice, one per theme. */
-.drill-row.done {
-  background-color: var(--bg);
-  background-image: linear-gradient(var(--ok-soft), var(--ok-soft));
-}
-.drill-row.done .drill-name { color: var(--ok-ink); }
-/* Hover still wins, as it does on every row in the app, so the pointer never loses feedback. */
-.drill-row.done:hover { background-color: var(--bg-3); background-image: none; }
-
-/* `again` is the one state that is asking for something, so it is the warm edge and nothing
-   else: no ground, so it can be true of a done row and of a plain one at the same time. */
-.drill-row.again { border-left-color: var(--accent); }
-
-/* The number is the folder's own, right-aligned in a column two figures wide so 9 and 12 line
-   up. Tabular figures everywhere a number can change under the eye. */
-.drill-num {
-  color: var(--fg-3); flex: none; min-width: 2ch; text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.drill-row.done .drill-num { color: var(--ok-ink); }
-
-/* The name is the only thing that ever gives way. It keeps a floor so it never disappears
-   entirely, and the chips and the figure at the right keep their own width: a chip sliced down
-   the middle reads as a rendering fault. */
-.drill-name {
-  flex: 1; min-width: 6rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.drill-fig {
-  color: var(--fg-3); flex: none; margin-left: var(--sp-2);
-  font-variant-numeric: tabular-nums;
-}
-.drill-fig:empty { margin-left: 0; }
-.drill-row.done .drill-fig { color: var(--ok-ink); }
-
-/* The empty list, and the loading line a module draws in the same slot. */
-.drill-rows .empty { color: var(--fg-3); font-size: var(--fs-ui); margin: var(--sp-3) 0 0; }
-
-/* ========================================================================== chips */
-
-.drill-chips {
-  display: inline-flex; align-items: center; gap: var(--sp-1);
-  flex: none; min-width: 0;
-}
-.drill-chips:empty { display: none; }
-
-/* One chip. The kernel's `.chip` shape — 20px, mono 11, radius 2 — written here rather than
-   borrowed, because this one carries a count and an opaque ground of its own.
-
-   The ground: the tone's `-soft` painted over `--bg` once, so the chip is the same colour on a
-   plain row, on a done row and on a hovered row. Left translucent it was not: five of the
-   eight tones fell under 4.5:1 in dark on the done ground. See the table in work/reports/S.md. */
-.drill-chip {
-  --drill-tone: var(--bg-3);
-  --drill-ink: var(--fg-2);
-  height: 1.25rem; padding: 0 var(--sp-2);
-  display: inline-flex; align-items: center; gap: var(--sp-1);
-  background-color: var(--bg);
-  background-image: linear-gradient(var(--drill-tone), var(--drill-tone));
-  border: 1px solid transparent; border-radius: var(--radius);
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  color: var(--drill-ink);
-  white-space: nowrap; flex: none;
-}
-
-/* Eight tones, assigned by sorted position (drills.js `tones`), so a list of up to eight names
-   gets eight different colours instead of the hash's three-of-five pink smear. The order
-   spreads the families: the two reds are four apart and the two yellows two apart, so
-   neighbouring chips never read as one. */
-.drill-chip.t0 { --drill-tone: var(--accent-soft); --drill-ink: var(--accent-ink); }
-.drill-chip.t1 { --drill-tone: var(--ok-soft);     --drill-ink: var(--ok-ink); }
-.drill-chip.t2 { --drill-tone: var(--info-soft);   --drill-ink: var(--info-ink); }
-.drill-chip.t3 { --drill-tone: var(--warn-soft);   --drill-ink: var(--warn-ink); }
-.drill-chip.t4 { --drill-tone: var(--err-soft);    --drill-ink: var(--err-ink); }
-/* `--amber` on `--amber-soft` is 1.84:1 in light, so the amber chip wears the warn ink: the
-   same family of colour, and 5.36:1 there. */
-.drill-chip.t5 { --drill-tone: var(--amber-soft);  --drill-ink: var(--warn-ink); }
-.drill-chip.t6 { --drill-tone: var(--bg-3);        --drill-ink: var(--fg-2); }
-.drill-chip.t7 { --drill-tone: var(--bg-4);        --drill-ink: var(--fg); }
-
-/* The count is the chip's own ink, at full strength. It was `opacity: .7` for one draft and
-   measured 2.85–3.40:1 on every tone in light: fading an ink that is already at 4.8 is fading
-   it under the line. The gap the chip already has is what separates the two, and the figures
-   are tabular so a column of chips does not jitter. */
-.drill-chip-n { color: inherit; font-variant-numeric: tabular-nums; }
 
 /* ==================================================================== the item page */
 
@@ -161,10 +42,6 @@
   margin-top: 0; margin-bottom: var(--sp-6);
   align-items: center; gap: var(--sp-2);
 }
-/* In a meta line there is no name to give way, and five family slugs are wider than the column
-   at 900 px; here the group shrinks and wraps instead of pushing its last chip off the page (M).
-   The row's `flex: none` above is untouched: there the name yields and a chip is never cut. */
-.drill-meta .drill-chips { flex: 0 1 auto; flex-wrap: wrap; row-gap: var(--sp-1); }
 .drill-sep { color: var(--fg-3); }
 .drill-fact { font-variant-numeric: tabular-nums; }
 
@@ -177,41 +54,6 @@
   color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em;
   margin: var(--sp-6) 0 var(--sp-3);
 }
-
-/* The statement band. One size for every statement in both modules, and a floor of about six
-   lines held open whether the text is one line or six, so the band never resizes under the
-   reader and the control band under it never moves. */
-.drill-band-statement {
-  font-family: var(--font-title); font-size: var(--fs-content);
-  line-height: var(--lh-body); color: var(--fg);
-  min-height: calc(var(--fs-content) * var(--lh-body) * 6);
-}
-.drill-band-statement p { margin: 0 0 var(--sp-3); }
-.drill-band-statement p:last-child { margin-bottom: 0; }
-
-/* The work band: the options in one module, the editor in the other, at the same y and with
-   the same top and bottom. Its height is reserved whether or not it has content yet. */
-.drill-band-work {
-  display: flex; flex-direction: column; gap: var(--sp-1);
-  min-height: calc(var(--row-h) * 4 + var(--sp-1) * 3);
-}
-
-/* An option is a list row, the same 28px borderless row as every other list in the app: the
-   ground and the 2px bar say which one is current, and there is no box. */
-.drill-opt {
-  height: var(--row-h); padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
-  display: flex; align-items: center; gap: var(--sp-3);
-  width: 100%; text-align: left;
-  background: none; color: var(--fg); font-size: var(--fs-ui);
-  border: none; border-left: 2px solid transparent; border-radius: 0;
-  cursor: pointer;
-  transition: background var(--t-fast);
-}
-.drill-opt:hover { background: var(--bg-3); }
-.drill-opt:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.drill-opt.current { background: var(--accent-soft); border-left-color: var(--accent); }
-/* The one the user settled on, once the answer is out: the ground stays, the bar goes. */
-.drill-opt.chosen { background: var(--accent-soft); }
 
 /* The control band. Left-aligned, primary first, and it never moves: one margin above it, no
    height that depends on what is in it, and a button that becomes unavailable is disabled
@@ -254,11 +96,7 @@
   white-space: pre-wrap; user-select: text; cursor: auto;
 }
 
-/* The quiet last line: where the thing is on disk, and a way to take the path with you. */
-.drill-path {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-3);
-  color: var(--fg-3); margin-top: var(--sp-6);
-}
+/* A link that reads as the text around it: the one way out of an error block. */
 .drill-link {
   background: none; border: none; padding: 0;
   color: var(--fg-3); cursor: pointer;

@@ -1,135 +1,106 @@
 # Maths
 
-Calculation drills as files: one series a day, seventy questions, twenty-five minutes, four
-options behind one control. The measure that counts is not the score but the median thinking
-time per question, between the question appearing and the key that reveals the options (the
-README beside the series, Hassan's design note).
+Calculation drills as files. An AI writes one markdown file per series into the vault; this
+plugin is the viewer. It lists the series, shows one question at a time, takes the answer, and
+appends one line to a log. That log is the only state it keeps: the status on the list, the
+score and the question to come back to are all computed from it, every time.
 
-The plugin runs the series, times them, logs every answer the moment it is given, and writes
-the three files the next generation reads. It starts no process, ever, and it writes nothing
-outside the series folder.
-
-Its furniture — the list row, the chips, the clock, the three bands, the control band, the
-error block, the path line — is the shared `../_lib/drills.js` and `../_lib/drills.css`, which
-the nsi plugin draws from too. What is here is what is this plugin's own: the grammar of a
-series file, the maths, the session and the reports.
+Its furniture is shared with the nsi plugin: the table is `../_lib/table.js` and
+`../_lib/table.css`, the error block and the fold that takes the shell away during a run are
+`../_lib/drills.js` and `../_lib/drills.css`. What is here is this plugin's own: the grammar of
+a series file, the maths, and the run.
 
 ## What it registers
 
 | kind | id | what |
 | --- | --- | --- |
 | command | `maths.index` | Maths: open the series |
-| command | `maths.start` | Maths: start the next series — `Ctrl+Shift+S`. Never ends a session: inside a live one it focuses it, and on a page that is not the series in progress it draws that door and stops |
+| command | `maths.next` | Maths: open the next series the log does not call done — `Ctrl+Shift+S` |
 | view | `maths` | the list, order 50, icon `tasks` |
-| route | `maths/*` | one series page per file (`maths/serie-02`) |
-| quick open | `maths/*` | `Série 2`, one row per series |
+| route | `maths/*` | one series per file (`maths/serie-02`), and the page is the session |
+| quick open | `maths/*` | one row per series, by its title |
 | path | `series` | `{ folder: 'math' }`: one markdown file per series, named `serie-NN.md`. Nothing else is ever spelled |
 | style | `style.css` | linked by the loader while the plugin is active; it imports Temml's own sheet |
 | run | — | none |
 
-Space, Enter, Escape and 1–4 / A–D are the session's own keys, bound on the session's element
-and not on the window: they mean nothing anywhere else in the app, so they are not commands.
+The folder is resolved when the list or a series mounts, never at load. While the vault says
+nothing about where the series are, the page draws the kernel's box — what is missing, the hint,
+**Choose…** — and stops there.
 
-The folder is resolved when the list or a series page mounts, never at load. While the vault
-says nothing about where the series are, the page draws the kernel's box — what is missing, the
-hint, **Choose…** — and stops there.
+## What it shows
 
-## The interface
+**The list.** The title, one line of counts (`3 series · 1 done`), and a table: `#`, `Title`,
+`Date`, `Status`. The title is the series' `titre:` when it has one and its H1's text otherwise.
+Up, Down, Home and End walk the rows; Enter or a click opens one. The status is the log's
+answer, in three shapes:
 
-**The list.** One row per series in name order: the number, `Série N`, and at the right one
-mono figure of one kind — how long the series took once it is done, the date it is for until
-then. The score is not on the row; it is the verdict's figure on the series page. A done row is
-the green ground; the series in progress carries the accent left edge. A file that does not
-parse says `malformed` where its name would be. The counts line reads `3 series · 1 done`.
-Nothing on this list creates a series. The row menu is Open · Open `serie-NN.md` · Show in the
-file manager · Open the result (when there is one) · Delete… in the danger ink, which asks,
-then trashes the series file; the log and the result file stay.
+| status | when |
+| --- | --- |
+| `not done` | the log holds no line for this series |
+| `12 / 70` | twelve of its question numbers have a line |
+| `done 61 / 70` | every question number has a line; 61 of them are right |
+| `does not parse` | the file deviates from the grammar; opening it names the lines |
 
-**The series page.** `Série N` with the clock at its right, running only while a session is;
-one meta line of the family chips with their counts and then the facts; then the door, the
-session or the result; and the file's path at the foot. The page is one skeleton and it never
-changes shape.
+A series is done when every question number has a line, and its score counts the **first** line
+of each question. Nothing else is stored anywhere.
 
-- **The door** is one button — `start`, `resume` or `redo` — with `Ctrl+Shift+S` printed
-  beside it and the hint after. When another series is half finished the door says so and
-  offers `resume Série 2` (the chord) and a plain `start this one instead`, which asks before
-  it gives the other one up.
-- **The session** fills the same bands: the statement at one size for every question, the four
-  options as list rows in a band whose height is held open before the reveal, and one control
-  at a fixed y. Space reveals, Enter confirms, 1–4 or A–D choose, Escape pauses. One key, one
-  job; an autorepeat is not a key, and a reveal under 250 ms after the statement was drawn is
-  not one either; Tab is trapped inside the session; `12 / 70` is in the meta line. `confirm`
-  is disabled until an option is chosen: it is in the band either way and at the same place.
-- **The result** is the control band (`redo`, the chord, `back to the series`), the shared
-  lib's verdict under it — `done · 58/70 · 24 min 50` — then the per-family table and the
-  misses separated by air: number, family, what was chosen, what was expected, the rule. A
-  finished series shows the same three things on its door.
+**A series.** Opening it shows the first question with no line in the log, immediately: no door,
+no resume button, no summary. The shell folds away, the question stands large in the middle of
+the column, and the only other thing on screen is the corner readout — which question this is,
+and how long it has been there. You answer on paper.
 
-Everything is reachable from the keyboard and nothing needs the mouse. Both themes.
+| key | what |
+| --- | --- |
+| `Space` or the one button | opens the four options under the question |
+| `1`–`4`, `A`–`D`, or a click | picks and locks at once; there is no confirm step |
+| `Enter`, `Space` or `next` | the next question. A correct answer goes on by itself after a beat |
+| `Esc` | back to the list, from anywhere. Nothing is lost: every pick is already in the log |
+
+Once a pick is locked, the expected option is marked in the ok ink and a wrong pick in the error
+ink. After the last question one quiet line gives the score and the way back. Nothing on the
+page moves between the three states of a question: the options grow into air that was already
+there.
 
 ## The data
 
-Everything inside the folder `ose.paths` answers for `series`, the format of
-`work/briefs/FORMAT-drills.md`. One series is one file, and everything the plugin writes is in
-the dotfolder beside them:
+Everything is inside the folder `ose.paths` answers for `series`:
 
 ```
 <series>/
-  README.md               Hassan's design note. The plugin never writes here.
-  erreurs.md              his post-mortem. Never written either, and never listed as a series.
-  serie-02.md             one series: the grammar below. The id is the stem, `serie-02`.
-  .math/log.jsonl         append only, one JSON object per line
-  .math/state.json        rewritten whole
-  .math/bilan.md          rewritten after every session; what the generator reads
-  .math/serie-02-resultat.md   written once, when the first attempt completes
+  README.md  erreurs.md    the owner's. Never listed as a series, never written to.
+  serie-02.md              one series. The id is the stem, `serie-02`.
+  .math/log.jsonl          append only, one JSON object per line. The only file this plugin writes.
 ```
 
-A series is a file matching `serie-NN.md` and nothing else is listed, so the two files above
-and anything else the owner keeps there are left alone.
+A series is a file matching `serie-NN.md`; nothing else in the folder is listed.
 
-`serie-NN.md` is `# Série N`, a header of `date` / `duree` / `familles`, then
-`## <n> · <famille>`, the statement, exactly four options `- A.` to `- D.`,
-`<!-- reponse: X -->` and an optional `<!-- regle: … -->`. The parser is strict: a file that
-deviates is refused with the number of the line it went wrong on, has no start button, and is
-never rewritten.
+**The grammar.** `# Série N`, then a header of `key: value` lines, then the questions. `date`
+(`YYYY-MM-DD`) and `familles` (slugs, comma separated) are required; `titre` (the name the list
+shows) and `duree` (which nothing reads, and which the older series carry) are optional. A
+question is `## <n> · <famille>`, the statement, exactly four options `- A.` to `- D.`,
+`<!-- reponse: X -->` and an optional `<!-- regle: … -->`. The numbers run from 1 with no gaps
+and every family is one the header names. `$…$` is inline maths and `$$…$$` display maths, drawn
+by Temml; everything else is text. The parser is strict: a file that deviates is refused with
+the number of the line it went wrong on, and is never rewritten.
 
-`log.jsonl` takes one line per answered question (`reflexion_ms`, `reponse_ms`, `choix`,
-`attendu`, `juste`) and one line per session. `state.json` holds the per-series row — the
-**first** attempt's numbers, which a redo never moves — and `en_cours`, which is the place to
-come back to, rewritten every ten seconds while a session runs so a reload costs ten seconds
-and not the visit. `en_cours` carries two fields beyond FORMAT-drills.md's sketch, both
-additive: `pause_s`, so a resumed run can write a true `pause_s` on its session line, and `vu`,
-the last moment the session was on the page — the run that picks the series back up counts the
-wall time since as pause, so leaving the page is a pause and not a hole in the arithmetic.
-`bilan.md` counts only complete attempts and counts each question once, so an abandoned run and
-a redo do not double it.
+**The log line**, one per pick, written the moment it is true:
 
-## The generator
-
-The series are not written by hand. `gen/generate.py` builds them from thirty-three templates
-over the five families, and it is a desk tool: **the plugin never runs it** and does not know
-it exists. Hassan, or an agent working on the vault from outside, runs it every few days, once
-per series:
-
-```
-python gen/generate.py --out <the series folder> --serie 5 \
-  --date 2026-09-19 --count 70 --seed 5 \
-  --weights puissances=16,suites=18,signes-inegalites=14,developpement-factorisation=12,fractions=10
+```json
+{"t":"2026-09-17T18:04:12","serie":"serie-03","n":12,"famille":"suites",
+ "reflexion_ms":8420,"reponse_ms":1980,"choix":"B","attendu":"B","juste":true}
 ```
 
-Every answer is computed, never typed, and the three wrong options are the real error patterns
-of `erreurs.md` rather than random values. The same seed gives byte for byte the same file.
-`python gen/generate.py --check <serie-NN.md>` parses the same grammar this plugin does and
-names the line of any deviation, so a series is checked where it is written rather than argued
-about here. After five series `.math/bilan.md` says where the median thinking time is still
-high, and the next five are generated with the weights moved there; `gen/README.md` holds the
-rule and the exact command.
+`reflexion_ms` is the question appearing to the options opening, `reponse_ms` the options
+opening to the pick. Both are passive: there is no countdown, no session clock and nothing to
+start or stop. Leaving a question before the pick writes nothing, so it is simply timed again
+from the top when it comes back. A line from an older version that is not an answer is ignored
+where it lies; the log is append only and is never rewritten.
 
 ## Rules this plugin keeps
 
 - It spells no vault path: it asks `ose.paths` for `series` and derives everything from it. It
-  writes only inside that folder and its `.math/`, and it starts no process.
+  writes one line at a time to one file inside that folder, and it starts no process.
 - It never rewrites a file it did not write. `erreurs.md` and `README.md` are Hassan's.
 - French is the content's, not the chrome's: `Série 2` is the file's own heading, and every
-  label around it — family, questions, correct, median, missed, chosen, expected — is English.
+  label around it is English.
 - Every colour, size and space is a token. No hex, no bare pixel beyond a 1px or 2px border.

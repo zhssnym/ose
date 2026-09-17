@@ -1,33 +1,25 @@
 /* Maths — an Ose plugin (docs/PLUGINS.md).
  *
- * Daily calculation drills. One series a day, one markdown file per series in the folder
- * `ose.paths` answers for `series`, seventy questions, twenty-five minutes, four options hidden
- * behind one control. The generator writes the series; this plugin runs them, times them, logs
- * every answer as it is given and writes the three reports the next generation reads. It starts
- * no process, ever.
+ * Calculation drills. One markdown file per series in the folder `ose.paths` answers for
+ * `series`, each question four options behind one control. An AI writes the series files; this
+ * plugin is the viewer: it lists them with the status the log gives them, runs one question at
+ * a time, and appends one line per answer. It writes nothing else and starts no process, ever.
  *
- * Two commands, because two things happen here: open the list, and start the day's series.
- * `maths.reveal`, `maths.pause` and `maths.bilan` are gone — the first two duplicated Space and
- * Escape, which the session binds on its own element, and the third opened a file the row menu
- * and the path line already reach (ADV-B).
- *
- * The furniture — the list row, the chips, the clock, the bands, the verdict, the error box,
- * the path line — is `../_lib/drills.js`, shared with the nsi plugin. This one draws what is its
- * own: the grammar, the maths, the session and the reports.
+ * Two commands, because two things happen here: open the list, and open the one to do next.
  */
 
 import { toast } from 'ose:ui'
 import { ensureStylesheet } from '../_lib/drills.js'
 
-import { ctx, requireRoot } from './lib/ctx.js'
-import { readAll, readState, sweepTemp } from './lib/store.js'
+import { ctx, requireRoot, LOG } from './lib/ctx.js'
+import { readAll, progressOf } from './lib/store.js'
 import { mountIndex, refreshIndex } from './lib/index-view.js'
-import { mountSerie, openSerie, requestStart, activePage } from './lib/serie.js'
+import { mountSerie, openSerie } from './lib/serie.js'
 
 export const name = 'Maths'
-export const description = 'Calculation drills: one series a day, timed, with a thinking-time curve.'
+export const description = 'Calculation drills: one series at a time, four options, one log line per answer.'
 
-/* Where the series are. The plugin writes nothing outside this folder and its `.math/`. */
+/* Where the series are. The plugin writes nothing outside this folder's `.math/log.jsonl`. */
 export const paths = {
   series: { folder: 'math', hint: 'One markdown file per series, named serie-NN.md.' },
 }
@@ -37,19 +29,17 @@ let offPaths = null
 
 export async function activate(ose) {
   ctx.ose = ose
-  const info = await ose.vault.info()
-  ctx.vaultRoot = (info && info.root) || ''
   ensureStylesheet()
 
-  const command = (id, title, run, shortcut) => {
-    ose.commands.register({ id, title, group: 'Maths', shortcut, run })
-  }
+  ose.commands.register({
+    id: 'maths.index', title: 'Maths: open the series', group: 'Maths',
+    run: () => ose.route.navigate({ type: 'view', name: 'maths' }),
+  })
 
-  command('maths.index', 'Maths: open the series',
-    () => ose.route.navigate({ type: 'view', name: 'maths' }))
-
-  command('maths.start', 'Maths: start the next series',
-    () => void startNext(), 'Mod+Shift+S')
+  ose.commands.register({
+    id: 'maths.next', title: 'Maths: open the next series', group: 'Maths',
+    shortcut: 'Mod+Shift+S', run: () => void openNext(),
+  })
 
   ose.views.register('maths', { title: 'Maths', order: 50, icon: 'tasks', mount: mountIndex })
 
@@ -57,15 +47,17 @@ export async function activate(ose) {
   ose.route.own('maths/*', mountSerie)
   ose.route.index('maths/*', () => cache.map(s => ({
     path: 'maths/' + s.id,
-    title: s.n ? `Série ${s.n}` : s.id,
+    title: s.titre || s.id,
   })))
 
   // The folder is not known here: a view or a route resolves it, the owner can point the plugin
   // at another one, and until there is one the folder itself is what we are waiting for. So the
-  // watch is the vault's and the filter is the folder of the moment.
+  // watch is the vault's and the filter is the folder of the moment. The log is left out of it:
+  // every answer writes to it, and nothing on screen is redrawn by its own writing.
   ose.watch(({ changes }) => {
     const root = ctx.dataRoot
-    if (root && !changes.some(c => under(root, c.path) || under(root, c.to))) return
+    const mine = (c) => (under(root, c.path) || under(root, c.to)) && !isLog(c.path) && !isLog(c.to)
+    if (root && !changes.some(mine)) return
     clearTimeout(pending)
     pending = setTimeout(() => { void warm(); refreshIndex() }, 300)
   })
@@ -85,26 +77,26 @@ export function deactivate() {
   // The watch is taken back with the plugin's other registrations; this subscription is not one
   // of them (PLUGINS.md), so it is undone here.
   if (offPaths) { offPaths(); offPaths = null }
-  // `drills.css` stays: the lib is shared, and the last plugin to deactivate cannot know whether
-  // the other one is still on screen. `style.css` is the loader's to unlink, not ours.
+  // `drills.css` and `table.css` stay: the lib is shared, and the last plugin to deactivate
+  // cannot know whether the other one is still on screen. `style.css` is the loader's to
+  // unlink, not ours.
   ctx.ose = null
 }
 
 /* ------------------------------------------------------------------ parts */
 
 const under = (root, path) => !!path && (path === root || String(path).startsWith(root + '/'))
+const isLog = (path) => !!path && String(path).endsWith('/' + LOG)
 
 /* Quick open asks synchronously, so it is answered from the last listing. The folder is asked
    for again every time: this runs at boot, when the vault changes and after a Choose, and any
    of those can be the moment the folder appears. */
 let cache = []
-let swept = null
 let warming = null
 function warm() {
   if (warming) return warming
   warming = (async () => {
     const root = await requireRoot()
-    if (root && root !== swept) { swept = root; void sweepTemp() }
     cache = root ? (await readAll()).series : []
   })()
     .catch(() => null)
@@ -113,60 +105,21 @@ function warm() {
 }
 
 /**
- * `maths.start`: whatever is half done, else the first series that is not. It navigates and the
- * series page starts itself the moment it mounts, so the command is the same whether the page
- * is already open or not.
- *
- * **It never ends a session and never starts one over another.** Three cases, in order:
- *
- *   1. a live session on the open page — the command focuses it and changes nothing. It used to
- *      redraw the page under the running session: the session object was dropped but its clock
- *      kept ticking, `drill-focus` stayed on `<html>`, the sidebar stayed folded and `resume`
- *      did nothing for ever. Twenty seconds of work nobody did were banked to `state.json` in
- *      twenty-two seconds, and the only cure was to guess that leaving was the cure (Q1);
- *   2. a series page open while a *different* series is the one in progress — that page's own
- *      door already says so and offers both ways out (`resume Série N` / `start this one
- *      instead`, which asks). The command draws that door and steps back: choosing between the
- *      two is the one thing this door exists to refuse. The chord is printed beside its primary
- *      button, so what the command does from there is written on the screen;
- *   3. anywhere else — go to the series in progress, or to the first that is not done, and
- *      start it. That is the command's whole job.
- *
- * With no folder resolved there is nothing to start: the list is where the box that says so is
- * drawn, so the command goes there.
- *
- * The read takes a moment, and the user is allowed to go elsewhere in that moment: the route is
- * compared before and after, and a route that moved is left alone. It used to yank the user off
- * the page he had moved to, three seconds later (ADV-T).
+ * `maths.next`: the first series the log does not call done. Opening it is starting it, because
+ * the page is the session, so there is nothing else for this command to do and nothing it can
+ * interrupt: every answer already given is already in the log.
  */
-async function startNext() {
-  if (activePage && activePage.live) { activePage.focusSession(); return }   // 1
-  const before = routeKey(ctx.ose.route.current())
+async function openNext() {
   try {
     if (!await requireRoot()) {
       ctx.ose.route.navigate({ type: 'view', name: 'maths' })
       return
     }
-    const state = await readState()
-    const going = state.en_cours && state.en_cours.serie ? state.en_cours.serie : null
-    let id = going
-    if (!id) {
-      const { series } = await readAll()
-      const next = series.find(s => s.ok && ((state.series || {})[s.id] || {}).statut !== 'fait')
-      if (!next) { toast('Maths: every series is done'); return }
-      id = next.id
-    }
-    if (routeKey(ctx.ose.route.current()) !== before) return
-    const page = activePage
-    if (page && page.live) { page.focusSession(); return }                   // 1, after the read
-    if (going && page && page.name !== going && page.focusDoor()) return      // 2
-    requestStart(id)
-    if (page && page.name === id) await page.load()                          // 3
-    else await openSerie(id)
+    const { series, answers } = await readAll()
+    const next = series.find(s => s.ok && !progressOf(answers, s.id, s.questions.length).done)
+    if (!next) { toast('Maths: every series is done'); return }
+    await openSerie(next.id)
   } catch (err) {
     toast('Maths: ' + ((err && err.message) || err), 'err')
   }
 }
-
-const routeKey = (route) =>
-  !route ? '' : `${route.type || ''}:${route.path || route.name || ''}`

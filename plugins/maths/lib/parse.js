@@ -1,13 +1,17 @@
-/* A series file, the grammar of work/briefs/FORMAT-drills.md, parsed strictly.
+/* A series file, parsed strictly.
  *
  * Strict means: the plugin refuses a file that deviates and names the line. It never rewrites
- * the file and never guesses what was meant — a series that does not parse has no start
- * button and a list of errors with line numbers, which is the fastest way for the generator
- * to be told what it got wrong.
+ * the file and never guesses what was meant — a series that does not parse cannot be run, and
+ * shows every error with its line number, which is the fastest way for the AI that wrote the
+ * file to be told what it got wrong.
  *
  * The parser is a plain line walk with a cursor. Every error carries the 1-based number of
- * the line it was found on, so the page can print `line 14: …` and the generator can go
- * straight there.
+ * the line it was found on, so the page can print `line 14: …` and the AI can go straight there.
+ *
+ * The header is `date` and `familles`, plus two optional keys: `titre`, the name the list shows
+ * instead of the H1's own text, and `duree`, which nothing reads any more and which the older
+ * series carry. Both are optional rather than gone, so `serie-02.md` to `serie-04.md` parse
+ * exactly as they did.
  */
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -23,7 +27,7 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /**
  * @returns {{ ok: boolean, errors: {line:number, message:string}[],
- *             n:number|null, date:string, duree:number, familles:string[],
+ *             n:number|null, titre:string, date:string, familles:string[],
  *             questions: {n:number, famille:string, statement:string,
  *                         options:{letter:string, text:string}[],
  *                         reponse:string, regle:string, line:number}[] }}
@@ -33,11 +37,11 @@ export function parseSerie(text) {
   const fail = (line, message) => { errors.push({ line, message }) }
   // The file's endings are its own business: the parser reads either and writes nothing.
   const lines = String(text ?? '').split(/\r\n|\r|\n/)
-  const out = { ok: false, errors, n: null, date: '', duree: 0, familles: [], questions: [] }
+  const out = { ok: false, errors, n: null, titre: '', date: '', familles: [], questions: [] }
 
   const title = TITLE.exec(lines[0] || '')
   if (!title) fail(1, 'the first line must be `# Série N`')
-  else out.n = Number(title[1])
+  else { out.n = Number(title[1]); out.titre = `Série ${title[1]}` }
 
   /* ------------------------------------------------------------ the header */
 
@@ -54,12 +58,12 @@ export function parseSerie(text) {
     seen.set(key, { value: value.trim(), line: i + 1 })
   }
 
-  for (const key of ['date', 'duree', 'familles']) {
+  for (const key of ['date', 'familles']) {
     if (!seen.has(key)) fail(1, `the header has no \`${key}\``)
   }
   for (const [key, at] of seen) {
-    if (!['date', 'duree', 'familles'].includes(key)) {
-      fail(at.line, `\`${key}\` is not a header key (date, duree, familles)`)
+    if (!['date', 'familles', 'titre', 'duree'].includes(key)) {
+      fail(at.line, `\`${key}\` is not a header key (date, familles, titre, duree)`)
     }
   }
 
@@ -69,10 +73,14 @@ export function parseSerie(text) {
     else fail(date.line, '`date` must be YYYY-MM-DD')
   }
 
+  // The name of the series, when it has one of its own. Empty falls back to the H1's text.
+  const titre = seen.get('titre')
+  if (titre && titre.value) out.titre = titre.value
+
+  // Nothing reads it. It is accepted so the series already written still parse.
   const duree = seen.get('duree')
-  if (duree) {
-    if (/^\d+$/.test(duree.value)) out.duree = Number(duree.value)
-    else fail(duree.line, '`duree` must be a whole number of minutes')
+  if (duree && !/^\d+$/.test(duree.value)) {
+    fail(duree.line, '`duree` must be a whole number of minutes')
   }
 
   const familles = seen.get('familles')
@@ -194,12 +202,4 @@ function ordinal(n) {
   const rest = n % 100
   if (rest >= 11 && rest <= 13) return 'th'
   return ['th', 'st', 'nd', 'rd'][n % 10] || 'th'
-}
-
-/** How many questions each family holds, in the order the header names them. */
-export function familyCounts(serie) {
-  const counts = new Map()
-  for (const famille of serie.familles) counts.set(famille, 0)
-  for (const q of serie.questions) counts.set(q.famille, (counts.get(q.famille) || 0) + 1)
-  return [...counts.entries()].map(([famille, count]) => ({ famille, count }))
 }

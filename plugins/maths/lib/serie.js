@@ -1,142 +1,108 @@
-/* One series, one owned route (`maths/serie-NN`).
+/* One series, one owned route (`maths/serie-NN`), and the page IS the session.
  *
- * The page is one skeleton and it never changes shape. Title line with the clock at the right,
- * one meta line, a statement band, a work band, one control band at a fixed y, a hint, and the
- * quiet path line at the foot. The door, the session and the result all fill those same bands,
- * so pressing `start` does not move the page and neither does question fourteen. Before this
- * the only button on screen sat at a different height on all seventy questions and leapt 240 px
- * on every reveal (ADV-V).
+ * There is no door, no resume button and no summary page: opening a series shows the first
+ * question the log has no line for, immediately. The shell folds away, the question is large
+ * and centred in the column, and the only other thing on screen is the corner readout: which
+ * question this is, and how long it has been on screen.
+ *
+ * One question is three states. `statement`: the question alone, the one button says
+ * `open options`. `options`: the four options under it, and a key or a click picks and locks
+ * at once — there is no confirm step, because confirming was a second press that measured
+ * nothing and once wrote a 16 ms thinking time into the log. `locked`: the pick and the
+ * expected answer are marked, and `next` goes on; a correct answer goes on by itself after a
+ * short beat, because there is nothing on screen to read.
+ *
+ * Time is passive. Two marks, `Date.now()` apart: the question appearing and the options
+ * opening give `reflexion_ms`, the options opening and the pick give `reponse_ms`. Nothing
+ * accumulates across questions, nothing banks, nothing pauses. Leaving before the pick simply
+ * means that question is timed again from the top when it comes back — the log holds no line
+ * for it, so there is nothing to disagree with.
  */
 
-import { confirm, toast } from 'ose:ui'
-import {
-  h, clear, append, duration, plural, tones, chips, ymd,
-  titleLine, metaLine, controls, verdict, errorBlock, pathLine, focusMode,
-  createClock, mountClock,
-} from '../../_lib/drills.js'
+import { toast } from 'ose:ui'
+import { h, clear, clockText, stamp, errorBlock, focusMode } from '../../_lib/drills.js'
+import { ctx, requireRoot, serieFile, seriePath } from './ctx.js'
+import { readSerie, readLog, appendLog, progressOf } from './store.js'
+import { statementNode, inlineNode } from './math.js'
 
-import { ctx, requireRoot, serieFile, seriePath, absPath } from './ctx.js'
-import { readSerie, readState, readLog, lastMisses, record } from './store.js'
-import { Session, priorAnswers, PAUSE_CAP_MS } from './session.js'
-import { resultBlock } from './summary.js'
-import { familyCounts } from './parse.js'
+const LETTERS = ['A', 'B', 'C', 'D']
 
-/** The page on screen. `maths.start` uses it to start a series already open. */
-export let activePage = null
+/** A step cannot follow the one before it sooner than this. A held Enter autorepeats its own
+    clicks and a double tap on `next` would skip a question nobody saw; before the options are
+    open it is the same floor the reveal always had — nobody read the statement in 250 ms. */
+const MIN_STEP_MS = 250
 
-/* `maths.start` navigates and the page starts itself when it arrives. One name, consumed by
-   the first mount that sees it, so a later visit to the same route is an ordinary visit. */
-let pending = null
-export function requestStart(name) { pending = name }
+/** A correct answer goes on by itself after this. A wrong one waits for a key: the expected
+    option is on screen and looking at it is the whole point of the exercise. */
+const NEXT_MS = 700
 
-export function openSerie(name) {
-  return ctx.ose.route.navigate({ type: 'own', path: 'maths/' + name })
+export function openSerie(id) {
+  return ctx.ose.route.navigate({ type: 'own', path: 'maths/' + id })
 }
 
 export function mountSerie(el, route) {
-  const name = String(route.path || '').replace(/^maths\//, '')
-  const page = new SeriePage(el, name)
-  void page.load()
-  return {
-    title: name,
-    unmount: () => page.unmount(),
-  }
+  const id = String(route.path || '').replace(/^maths\//, '')
+  const run = new Run(el, id)
+  void run.load()
+  return { title: id, unmount: () => run.unmount() }
 }
 
-class SeriePage {
-  constructor(el, name) {
+class Run {
+  constructor(el, id) {
     this.el = el
-    this.name = name
+    this.id = id
     this.gone = false
-    this.session = null
     this.serie = null
-    this.state = null
-    this.summary = null
-    this.misses = []
-
-    this.root = h('div', { class: 'page-col maths-serie' })
-    const title = titleLine(name)
-    this.titleEl = title.el
-    this.clockEl = title.clockEl
-    this.metaHost = h('div', { class: 'maths-meta-host' })
-    this.body = h('div', { class: 'maths-body' })
-    this.pathHost = h('div', { class: 'maths-path-host' })
-    append(this.root, [this.titleEl, this.metaHost, this.body, this.pathHost])
-    clear(el).appendChild(this.root)
-
-    // Ctrl+R and a closed window: K's kernel change awaits `unmount` and calls it on reload.
-    // Until it lands this is the same exit, and it costs nothing to keep afterwards.
-    this.onPageHide = () => { void this.leaveSession() }
-    window.addEventListener('pagehide', this.onPageHide)
-    activePage = this
+    this.at = 0                 // the question being answered, 0-based
+    this.phase = 'none'
+    this.choice = null
+    this.shownAt = 0
+    this.revealedAt = 0
+    this.stepAt = 0
+    this.timer = null           // the beat after a correct answer
+    this.ticker = null          // the corner's second hand
+    this.writing = Promise.resolve()
   }
 
   unmount() {
     this.gone = true
-    if (activePage === this) activePage = null
-    window.removeEventListener('pagehide', this.onPageHide)
-    const done = this.leaveSession()
-    focusMode(false)                 // every exit path, whether a session ran or not
+    this.stopTick()
+    if (this.timer) { clearTimeout(this.timer); this.timer = null }
+    focusMode(false)            // every exit path, whether a question was on screen or not
+    this.el.classList.remove('maths-host')
     clear(this.el)
-    return done
   }
 
-  /** A session that is on this page and has not finished. `maths.start` never ends one. */
-  get live() { return !!this.session && !this.session.ended }
-
-  /** Where the keys are: the session's own root, which is the only thing that listens. */
-  focusSession() {
-    const root = this.body.querySelector('.maths-session')
-    if (root) root.focus()
-    return !!root
-  }
-
-  /** The door's primary button, when there is a door. Answers false when there is not. */
-  focusDoor() {
-    const button = this.body.querySelector('.drill-controls .btn')
-    if (!button) return false
-    button.focus()
-    return true
-  }
-
-  /** The one way a session stops. Answers a promise so `unmount` can be awaited. */
-  leaveSession() {
-    const session = this.session
-    this.session = null
-    if (this.unbindClock) { this.unbindClock(); this.unbindClock = null }
-    if (!session) {
-      if (this.clock) { this.clock.dispose(); this.clock = null }
-      return Promise.resolve()
-    }
-    session.gone = true
-    const done = session.leave().catch(err => console.error('[maths]', err))
-    if (this.clock) { this.clock.dispose(); this.clock = null }
-    return done
-  }
+  get question() { return this.serie.questions[this.at] }
+  get total() { return this.serie.questions.length }
 
   /* ------------------------------------------------------------- reading */
 
   async load() {
-    this.metaHost.textContent = ''
-    // The folder first, into a body with nothing in it: `null` is the kernel's box, and the page
-    // stops there. Nothing else on the page can be drawn without it.
-    clear(this.body)
-    const root = await requireRoot(this.body)
-    if (this.gone) return
-    if (!root) { clear(this.pathHost); return }
-    this.body.appendChild(h('p', { class: 'empty', text: 'reading the series…' }))
+    // A retry comes back through here, so the run's own shape is given up first.
+    this.stopTick()
+    focusMode(false)
+    this.el.classList.remove('maths-host')
+    clear(this.el)
+    const page = h('div', { class: 'page-col' })
+    const boxHost = h('div')
+    page.appendChild(boxHost)
+    this.el.appendChild(page)
+
+    // The folder first, into an element with nothing in it: `null` is the kernel's box, and the
+    // page stops there. Nothing else can be drawn without it.
+    const root = await requireRoot(boxHost)
+    if (this.gone || !root) return
+
     let serie = null
-    let state = null
-    let misses = []
+    let answers = []
     try {
-      serie = await readSerie(this.name)
+      serie = await readSerie(this.id)
       if (this.gone) return
-      state = await readState()
-      if (this.gone) return
-      misses = await lastMisses(serie)
+      answers = (await readLog()).answers
     } catch (err) {
       if (this.gone) return
-      clear(this.body).appendChild(errorBlock({
+      clear(page).appendChild(errorBlock({
         head: 'the series could not be read',
         detail: String((err && err.message) || err),
         onRetry: () => void this.load(),
@@ -145,158 +111,21 @@ class SeriePage {
     }
     if (this.gone) return
     this.serie = serie
-    this.state = state
-    this.misses = misses
-    this.summary = null
-    this.draw()
-    if (pending === this.name) {
-      pending = null
-      if (this.serie.ok && !this.otherGoing) await this.start()
-    }
+    // The tab strip and the title bar, which are the shell's and not this page's.
+    ctx.ose.route.title(serie.titre || this.id)
+    if (!serie.ok) { this.drawErrors(page); return }
+
+    const { correct, resumeAt } = progressOf(answers, this.id, this.total)
+    this.build()
+    if (resumeAt == null) this.end(correct)
+    else { this.at = resumeAt - 1; this.show() }
   }
 
-  get row() { return (this.state.series || {})[this.name] || null }
-  get isDone() { return !!this.row && this.row.statut === 'fait' }
-  get going() { return this.state.en_cours && this.state.en_cours.serie ? this.state.en_cours : null }
-  get resumable() { return !!this.going && this.going.serie === this.name }
-  get otherGoing() { return this.going && this.going.serie !== this.name ? this.going : null }
-
-  /* ---------------------------------------------------------- the skeleton */
-
-  /** The title and the meta line, which every mode shares. */
-  head({ progress } = {}) {
-    const s = this.serie
-    const title = s.n ? `Série ${s.n}` : this.name
-    ctx.ose.route.title(title)
-    this.titleEl.querySelector('.page-title').textContent = title
-
-    const facts = []
-    if (progress) facts.push(progress)
-    if (s.ok) {
-      facts.push(`${s.duree} min`)
-      if (!progress) facts.push(plural(s.questions.length, 'question'))
-      if (s.date) facts.push(s.date)
-    }
-    const counts = s.ok ? familyCounts(s) : []
-    const names = counts.map(c => c.famille)
-    const chipsEl = counts.length
-      ? chips(names, {
-          tones: tones(names),
-          counts: new Map(counts.map(c => [c.famille, c.count])),
-        })
-      : null
-    clear(this.metaHost).appendChild(metaLine(chipsEl, facts))
-  }
-
-  foot() {
-    clear(this.pathHost).appendChild(pathLine(absPath(serieFile(this.name)), {
-      onOpen: () => void this.reveal(),
-    }))
-  }
-
-  /** The series file where it lives, selected in the file manager. */
-  async reveal() {
-    const target = seriePath(this.name)
-    try {
-      const files = ctx.ose.files
-      if (files.reveal) await files.reveal(target)
-      else await files.open(target)
-    } catch (err) {
-      toast('Maths: ' + ((err && err.message) || err), 'err')
-    }
-  }
-
-  /* ------------------------------------------------------------- the door */
-
-  draw() {
-    const s = this.serie
-    this.head()
-    const body = clear(this.body)
-    this.clockEl.textContent = ''
-
-    if (!s.ok) {
-      body.appendChild(this.errorPane())
-      this.foot()
-      return
-    }
-
-    // The control band first and the verdict directly under it, then the numbers: ADV-V's
-    // wireframe puts the verdict below the band with nothing above it moving, and fifty-two
-    // misses above the only button on the page left it nowhere to live (Q1).
-    body.appendChild(this.doorControls())
-
-    if (this.isDone && !this.resumable) {
-      const row = this.row
-      const medians = row.mediane_reflexion_ms || {}
-      body.appendChild(this.verdictLine(row))
-      body.appendChild(resultBlock({
-        familles: Object.keys(medians).map(famille => ({ famille, mediane: medians[famille] })),
-        misses: this.misses,
-        note: `${plural(row.tentatives || 1, 'attempt')} · done ${row.date || '—'}`,
-      }))
-    }
-
-    this.foot()
-    const first = body.querySelector('.drill-controls .btn')
-    if (first) first.focus()
-  }
-
-  /**
-   * How it went, in the shared lib's one component, the same object Informatique draws. A
-   * series has no pass and no fail — it is never finished on a threshold — so the state is
-   * always `ok` and the word is what is true: it is done. The figure carries the score, which
-   * is why the list's right-hand column no longer does (Q1).
-   */
-  verdictLine({ justes, total, duree_s }) {
-    return verdict({
-      state: 'ok',
-      word: 'done',
-      figure: `${justes}/${total} · ${duration(duree_s)}`,
-    })
-  }
-
-  /**
-   * One button, and the hint beside it. When another series is half done the door says so and
-   * offers both ways out: starting this one used to overwrite `en_cours` in silence and leave
-   * the other one's answers in the log as orphans (ADV-M).
-   */
-  doorControls() {
-    const other = this.otherGoing
-    if (other) {
-      const n = String(other.serie).replace(/^serie-0*/, '')
-      // The chord goes beside `resume Série N` because that is exactly what it does from here:
-      // `maths.start` on a page that is not the series in progress draws this door and stops.
-      return controls([
-        { label: `resume Série ${n}`, primary: true, chord: this.chord(), onClick: () => void openSerie(other.serie) },
-        { label: 'start this one instead', onClick: () => void this.startInstead(other) },
-      ], `Série ${n} is in progress`)
-    }
-    const label = this.resumable ? 'resume' : this.isDone ? 'redo' : 'start'
-    const hint = this.resumable
-      ? `question ${this.going.n} of ${this.serie.questions.length}, ${duration((this.going.ecoule_ms || 0) / 1000)} on the clock`
-      : this.isDone ? 'a new attempt; the row keeps the first one'
-      : 'never pass: choose the most plausible and move on'
-    return controls(
-      [{ label, primary: true, onClick: () => void this.start(), chord: this.chord() }],
-      hint)
-  }
-
-  async startInstead(other) {
-    const n = String(other.serie).replace(/^serie-0*/, '')
-    const yes = await confirm({
-      title: 'Start this series?',
-      body: `Série ${n} is in progress at question ${other.n}. Starting this one gives it up: its answers stay in the log and it goes back to the beginning.`,
-      ok: 'Start this one',
-    })
-    if (!yes || this.gone) return
-    await this.start()
-  }
-
-  /** A file that does not parse: every error with its line, and no way to start. */
-  errorPane() {
+  /** A file that does not parse: every error with its line, and the way to open the file. */
+  drawErrors(page) {
     const box = errorBlock({
       head: 'this series does not parse',
-      detail: `${serieFile(this.name)} does not follow the grammar, so it cannot be run. Nothing has been changed in the file.`,
+      detail: `${serieFile(this.id)} does not follow the grammar, so it cannot be run. Nothing has been changed in the file.`,
       onRetry: () => void this.load(),
     })
     const list = h('ul', { class: 'maths-error-list' })
@@ -307,116 +136,211 @@ class SeriePage {
     box.insertBefore(list, box.querySelector('.btn'))
     box.insertBefore(h('button', {
       class: 'drill-link mono-sm', type: 'button',
-      onclick: () => ctx.ose.route.navigate({ type: 'page', path: seriePath(this.name) }),
-    }, `open ${serieFile(this.name)}`), box.querySelector('.btn'))
-    return box
+      onclick: () => ctx.ose.route.navigate({ type: 'page', path: seriePath(this.id) }),
+    }, `open ${serieFile(this.id)}`), box.querySelector('.btn'))
+    clear(page).appendChild(box)
   }
 
-  /* ---------------------------------------------------------- the session */
+  /* -------------------------------------------------------------- the run */
 
-  async start() {
-    if (!this.serie || !this.serie.ok || this.session || this.gone) return
+  /** The skeleton, built once. The stage is three grid rows, so the question sits on the exact
+      middle of the column and the options grow into the air under it without moving it. */
+  build() {
+    clear(this.el)
+    this.el.classList.add('maths-host')
+    this.posEl = h('span', { class: 'maths-pos' })
+    this.timeEl = h('span', { class: 'maths-time' })
+    this.readout = h('div', { class: 'maths-readout mono-sm' }, this.posEl, this.timeEl)
+    this.questionEl = h('div', { class: 'maths-question' })
+    this.optionsEl = h('div', { class: 'maths-options' })
+    this.act = h('button', {
+      class: 'btn primary maths-act', type: 'button', onclick: () => this.step(),
+    })
+    this.below = h('div', { class: 'maths-below' },
+      this.optionsEl, h('div', { class: 'maths-act-row' }, this.act))
+    this.root = h('div', { class: 'maths-run', tabindex: '-1' },
+      this.readout, h('div', { class: 'maths-stage' }, this.questionEl, this.below))
+    this.root.addEventListener('keydown', (event) => this.onKey(event))
+    this.el.appendChild(this.root)
+    focusMode(true)
+  }
 
-    const state = await readState()
-    if (this.gone) return
-    this.state = state
-    const row = this.row
-    const tentative = (row && Number(row.tentatives) ? Number(row.tentatives) : 0) + 1
+  show() {
+    this.phase = 'statement'
+    this.choice = null
+    this.shownAt = Date.now()
+    this.revealedAt = 0
+    this.stepAt = this.shownAt
+    clear(this.questionEl).appendChild(statementNode(this.question.statement, 'maths-statement'))
+    clear(this.optionsEl)
+    this.act.hidden = false
+    this.act.textContent = 'open options'
+    this.posEl.textContent = `${this.at + 1} / ${this.total}`
+    this.paintTime()
+    this.startTick()
+    this.act.focus({ preventScroll: true })
+  }
 
-    let startAt = 0, bankedMs = 0, pauseMs = 0, debut = null, prior = []
-    if (this.resumable) {
-      const going = this.going
-      const at = Math.max(0, (Number(going.n) || 1) - 1)
-      startAt = at >= this.serie.questions.length ? 0 : at
-      bankedMs = Number(going.ecoule_ms) || 0
-      pauseMs = (Number(going.pause_s) || 0) * 1000 + awayMs(going.vu)
-      debut = going.debut || null
+  reveal() {
+    if (this.phase !== 'statement') return
+    this.phase = 'options'
+    this.revealedAt = Date.now()
+    this.stepAt = this.revealedAt
+    clear(this.optionsEl)
+    for (const option of this.question.options) {
+      this.optionsEl.appendChild(h('button', {
+        class: 'maths-opt', type: 'button', tabindex: '-1',
+        dataset: { letter: option.letter },
+        'aria-label': `${option.letter}. ${option.text}`,
+        onclick: () => this.pick(option.letter),
+      },
+        h('span', { class: 'maths-opt-letter mono-sm' }, option.letter),
+        inlineNode(option.text, 'maths-opt-text')))
+    }
+    // The button has nothing left to do until there is a pick, and a hidden button cannot hold
+    // the focus: the keys live on the root, so that is where the focus goes.
+    this.act.hidden = true
+    this.root.focus({ preventScroll: true })
+  }
+
+  /**
+   * The pick, and the lock: one press, one line in the log. The line is written before anything
+   * else happens, and its two durations are the only times this plugin measures.
+   */
+  pick(letter) {
+    if (this.phase !== 'options' || !LETTERS.includes(letter)) return
+    const q = this.question
+    const now = Date.now()
+    this.phase = 'locked'
+    this.choice = letter
+    this.stepAt = now
+    this.stopTick()
+
+    const entry = {
+      t: stamp(),
+      serie: this.id,
+      n: q.n,
+      famille: q.famille,
+      reflexion_ms: Math.max(0, this.revealedAt - this.shownAt),
+      reponse_ms: Math.max(0, now - this.revealedAt),
+      choix: letter,
+      attendu: q.reponse,
+      juste: letter === q.reponse,
+    }
+    this.writing = appendLog(entry).catch(err => {
+      console.error('[maths]', err)
+      toast('Maths: ' + ((err && err.message) || err), 'err')
+    })
+
+    for (const row of this.optionsEl.querySelectorAll('.maths-opt')) {
+      const letterOf = row.dataset.letter
+      row.disabled = true
+      if (letterOf === q.reponse) row.classList.add('ok')
+      else if (letterOf === letter) row.classList.add('err')
+    }
+    this.act.hidden = false
+    this.act.textContent = this.at + 1 >= this.total ? 'finish' : 'next'
+    this.act.focus({ preventScroll: true })
+    if (entry.juste) this.timer = setTimeout(() => { this.timer = null; this.step() }, NEXT_MS)
+  }
+
+  /** The one button, and the keys that stand in for it. What it does is the phase. */
+  step() {
+    if (Date.now() - this.stepAt < MIN_STEP_MS) return
+    if (this.phase === 'statement') { this.reveal(); return }
+    if (this.phase === 'done') { this.leave(); return }
+    if (this.phase !== 'locked') return
+    if (this.timer) { clearTimeout(this.timer); this.timer = null }
+    this.at += 1
+    if (this.at >= this.total) void this.finish()
+    else this.show()
+  }
+
+  /** The last question is answered. The score comes back out of the log, like every other
+      number in this plugin, so what the page says is what was written. */
+  async finish() {
+    this.phase = 'ending'
+    this.stopTick()
+    try {
+      await this.writing
       const { answers } = await readLog()
       if (this.gone) return
-      prior = priorAnswers(answers, this.name, startAt + 1)
-    }
-    if (this.gone) return
-
-    const bands = this.sessionBands()
-    this.clock = createClock({
-      onBank: () => { if (this.session) void this.session.persist() },
-    })
-    this.clock.setBanked(bankedMs / 1000)
-    this.unbindClock = mountClock(this.clock, this.clockEl, { budgetS: (this.serie.duree || 0) * 60 })
-
-    this.session = new Session({
-      serie: this.serie, bands, clock: this.clock,
-      startAt, pauseMs, debut, tentative, prior,
-      warn: (err) => {
-        console.error('[maths] session write', err)
-        toast('Maths: ' + ((err && err.message) || err), 'err')
-      },
-      onProgress: (at, total) => this.head({ progress: `${at} / ${total}` }),
-      onEnd: (summary) => void this.finished(summary),
-    })
-    bands.root.addEventListener('keydown', e => this.session && this.session.onKey(e))
-    this.session.begin()
-  }
-
-  /** The three bands the session draws into. They are built once and never rebuilt. */
-  sessionBands() {
-    const statement = h('div', { class: 'drill-band-statement' })
-    const work = h('div', { class: 'drill-band-work' })
-    const band = h('div', { class: 'drill-controls' })
-    const hint = h('span', { class: 'drill-hint mono-sm' })
-    const root = h('div', { class: 'maths-session', tabindex: '-1' }, statement, work, band)
-    clear(this.body).appendChild(root)
-    this.foot()
-    root.focus()
-    return { root, statement, work, controls: band, hint }
-  }
-
-  async finished(summary) {
-    this.session = null
-    if (this.unbindClock) { this.unbindClock(); this.unbindClock = null }
-    if (this.clock) { this.clock.dispose(); this.clock = null }
-    this.summary = summary
-    try {
-      await record(this.name, summary, ymd())
+      this.end(progressOf(answers, this.id, this.total).correct)
     } catch (err) {
-      toast('Maths: ' + ((err && err.message) || err), 'err')
+      if (this.gone) return
+      clear(this.questionEl).appendChild(errorBlock({
+        head: 'the log could not be read back',
+        detail: String((err && err.message) || err),
+        onRetry: () => void this.finish(),
+      }))
     }
-    if (this.gone) return
-    this.state = await readState()
-    if (this.gone) return
-    this.misses = summary.misses
-    this.drawSummary()
   }
 
-  drawSummary() {
-    this.head()
-    this.clockEl.textContent = ''
-    const body = clear(this.body)
-    body.appendChild(controls([
-      { label: 'redo', primary: true, onClick: () => void this.start(), chord: this.chord() },
-      { label: 'back to the series', onClick: () => void this.load() },
-    ]))
-    body.appendChild(this.verdictLine(this.summary))
-    body.appendChild(resultBlock(this.summary))
-    this.foot()
-    const first = body.querySelector('.drill-controls .btn')
-    if (first) first.focus()
+  /** One quiet line: the score, and the way back. */
+  end(correct) {
+    this.phase = 'done'
+    this.posEl.textContent = ''
+    this.timeEl.textContent = ''
+    clear(this.optionsEl)
+    clear(this.questionEl).appendChild(
+      h('div', { class: 'maths-end mono' }, `${correct} / ${this.total}`))
+    this.act.hidden = false
+    this.act.textContent = 'back to the list'
+    // The same floor as any other step: the Enter that answered the last question must not carry
+    // straight through this line and take the score off the screen before it is read.
+    this.stepAt = Date.now()
+    this.act.focus({ preventScroll: true })
   }
 
-  /** The chord beside the primary button, printed on every band this page draws. */
-  chord() { return ctx.ose.keys.shortcutFor('maths.start') }
-}
+  leave() { ctx.ose.route.navigate({ type: 'view', name: 'maths' }) }
 
-/**
- * Time away from the page, in milliseconds. The session stamps `en_cours.vu` every time it
- * writes, and this counts from that stamp to now, so the minutes between pressing Back and
- * pressing resume land in `pause_s` instead of nowhere — and so do the minutes after a window
- * that was closed without its last write landing. One stretch is capped like any other pause:
- * a series left open for a week did not pause for a week.
- */
-function awayMs(vu) {
-  if (!vu) return 0
-  const seen = Date.parse(String(vu))
-  if (!Number.isFinite(seen)) return 0
-  return Math.min(Math.max(0, Date.now() - seen), PAUSE_CAP_MS)
+  /* --------------------------------------------------------- the readout */
+
+  startTick() {
+    this.stopTick()
+    this.ticker = setInterval(() => this.paintTime(), 1000)
+  }
+
+  stopTick() {
+    if (this.ticker) { clearInterval(this.ticker); this.ticker = null }
+  }
+
+  paintTime() {
+    if (!this.shownAt) return
+    this.timeEl.textContent = clockText((Date.now() - this.shownAt) / 1000)
+  }
+
+  /* ------------------------------------------------------------- the keys */
+
+  onKey(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    // An autorepeat is the keyboard talking, not the person: a key held through a redraw used
+    // to answer the next question on its own. Nothing here is a key you hold.
+    if (event.repeat) return
+    const key = event.key
+
+    if (key === 'Escape') { event.preventDefault(); this.leave(); return }
+    // Tab is trapped: nothing inside the run is a tab stop, so there is one place for the focus
+    // to be, and it is where the phase put it.
+    if (key === 'Tab') { event.preventDefault(); this.keepFocus(); return }
+
+    if (this.phase === 'options') {
+      const upper = key.length === 1 ? key.toUpperCase() : ''
+      if (LETTERS.includes(upper)) { event.preventDefault(); this.pick(upper); return }
+      if (upper >= '1' && upper <= '4') { event.preventDefault(); this.pick(LETTERS[Number(upper) - 1]); return }
+      return
+    }
+
+    // The button answers its own Space and Enter; this is the same key arriving from anywhere
+    // else in the run, so one press is never counted twice.
+    if ((key === ' ' || key === 'Spacebar' || key === 'Enter') && event.target !== this.act) {
+      event.preventDefault()
+      this.step()
+    }
+  }
+
+  keepFocus() {
+    const where = this.act.hidden ? this.root : this.act
+    if (document.activeElement !== where) where.focus({ preventScroll: true })
+  }
 }

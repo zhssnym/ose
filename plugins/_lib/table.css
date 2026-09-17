@@ -1,0 +1,64 @@
+/* The shared drills table's stylesheet, linked once by `table.js` with
+   `data-shared="drill-table"`. Every selector starts with `dt-`, because a stylesheet is global
+   while it is linked.
+
+   Every colour, size and space is a token from the kernel's `ui.css`: no hex, no bare pixel
+   beyond the 1px and 2px borders the design system already writes as the numbers they are. Both
+   themes follow the tokens, so there is nothing theme-specific in this file. */
+
+/* A real table: 1px lines around every cell, square corners, and it says so at a glance. */
+.dt-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-ui);
+  color: var(--fg);
+}
+
+.dt-head, .dt-cell {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* The header is chrome: the control-room voice on the chrome surface. */
+.dt-head {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); font-weight: 400;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--fg-3); background: var(--bg-2);
+}
+
+.dt-row { cursor: pointer; transition: background var(--t-fast); }
+.dt-row:hover { background: var(--bg-2); }
+
+/* The row the keyboard is on is marked the way the sidebar marks the row it is on: the accent
+   ground and a 2px bar down the left edge. The bar is an inset shadow on the first cell, not a
+   border, so the 1px grid keeps its widths and no column moves as the focus walks the table.
+   The mark is a class, so it does not go out with the window's focus, and the app's own ring is
+   turned off under it: two marks for one row would be one too many. */
+.dt-row.dt-current { background: var(--accent-soft); }
+.dt-row.dt-current > .dt-cell:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.dt-row:focus { outline: none; }
+
+/* One column takes the slack; it is also the only one allowed to wrap, so a long title widens
+   nothing and the table never scrolls sideways. */
+.dt-grow { width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+.dt-mono {
+  font-family: var(--font-mono); font-size: var(--fs-chrome);
+  font-variant-numeric: tabular-nums;
+}
+.dt-right { text-align: right; }
+.dt-center { text-align: center; }
+
+/* Three tones and no chip: the ink is the whole signal. */
+.dt-ok { color: var(--ok-ink); }
+.dt-warn { color: var(--warn-ink); }
+.dt-muted { color: var(--fg-3); }
+
+/* Nothing to list: one short sentence, mono, centred, inside the table it would have filled. */
+.dt-empty {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  color: var(--fg-3); text-align: center;
+}
