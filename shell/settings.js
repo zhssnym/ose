@@ -11,7 +11,7 @@ const { bus, commands, store } = ose;
 // dialog's, because they are what this dialog draws. The kernel validates against its own
 // copy, so a shell that offers a step the kernel does not know simply gets 100 %.
 const FONT_SIZES = [14, 15, 16, 17];
-const LINE_HEIGHTS = [1.5, 1.65, 1.8];
+const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
 const settings = () => ose.settings.get();

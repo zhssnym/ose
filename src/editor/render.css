@@ -1,62 +1,105 @@
-/* `render(markdown)` — read-only prose. The page editor's column has its own typography in
-   editor.css; this is the same note shown anywhere else: a tile, a plugin's panel, a preview.
-   Every value is a token, and the box takes the size it is given. */
+/* `render(markdown)` — read-only prose: a drill's statement, a journal entry, a tile, a
+   preview. The page editor's column has the same look drawn on Crepe's DOM (editor.css); this
+   is the plain one, on marked's. Both are DOCUMENTS (DESIGN.md, "A page as a document"): one
+   serif face, compact, justified, square, with frames and bars instead of air. Every value is
+   a token and the box takes the size it is given. */
 
 .md-render {
-  font-family: var(--font-ui);
+  font-family: var(--font-doc);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
   color: var(--fg);
+  text-align: justify;
+  hyphens: none;
   overflow-wrap: break-word;
 }
 
 .md-render > :first-child { margin-top: 0; }
 .md-render > :last-child { margin-bottom: 0; }
 
+/* Headings are the body face made bold: h1 1.2 times the body, h2 1.1, h3 the body size, h4
+   and below bold italic. No second family, no 2x banner. */
 .md-render h1,
 .md-render h2,
 .md-render h3,
 .md-render h4,
 .md-render h5,
 .md-render h6 {
-  font-family: var(--font-title);
-  font-weight: 600;
+  font-family: var(--font-doc);
+  font-weight: 700;
+  font-style: normal;
   line-height: 1.25;
-  margin: var(--sp-5) 0 var(--sp-2);
+  letter-spacing: normal;
+  text-align: left;
+  margin: var(--doc-gap-head) 0 var(--doc-gap);
 }
 
-.md-render h1 { font-size: var(--fs-title); }
-.md-render h2 { font-size: 1.5rem; }
-.md-render h3 { font-size: 1.25rem; }
+.md-render h1 { font-size: var(--fs-doc-h1); }
+.md-render h2 { font-size: var(--fs-doc-h2); }
+.md-render h3 { font-size: var(--fs-body); }
 .md-render h4,
 .md-render h5,
-.md-render h6 { font-size: var(--fs-body); }
+.md-render h6 { font-size: var(--fs-body); font-style: italic; }
 
 .md-render p,
 .md-render ul,
 .md-render ol,
 .md-render blockquote,
 .md-render pre,
-.md-render table { margin: 0 0 var(--sp-4); }
+.md-render table { margin: var(--doc-gap) 0; }
 
+/* the gap a person leaves by hand before a bold run-in label ("Démonstration.") */
+.md-render p:has(> strong:first-child) { margin-top: var(--doc-gap-label); }
+/* A gap between blocks belongs between them, never against the inside of what holds them.
+   Written with :is() so it outranks the run-in rule above, which the first paragraph of a
+   frame also matches. */
+.md-render :is(blockquote, li, th, td) > :first-child { margin-top: 0; }
+.md-render :is(blockquote, li, th, td) > :last-child { margin-bottom: 0; }
+
+/* Lists: items touching, the marker hanging in --doc-indent, a small dot in the text colour
+   and a hollow ring one level in. `list-style-position: outside` is the browser's own hanging
+   indent, so nothing here places a marker by hand. */
 .md-render ul,
-.md-render ol { padding-left: var(--sp-5); }
-.md-render li { margin: var(--sp-1) 0; }
+.md-render ol { padding-left: var(--doc-indent); }
+.md-render ul { list-style: disc; }
+.md-render ul ul { list-style: circle; }
+.md-render ol { list-style: decimal; }
+.md-render li { margin: 0; text-align: left; }
+.md-render li::marker { color: var(--fg); font-family: var(--font-doc); }
+.md-render ul > li::marker { font-size: .8em; }
 .md-render li > ul,
-.md-render li > ol { margin: var(--sp-1) 0; }
+.md-render li > ol { margin: 0; }
+.md-render li > p { margin: 0; }
+.md-render li > p + p { margin-top: var(--doc-gap); }
 
+/* `>` is a bar, `>>` a frame, and the outer quote of a `>>` draws nothing (DESIGN.md). */
 .md-render blockquote {
-  padding-left: var(--sp-4);
-  border-left: 2px solid var(--border-strong);
-  color: var(--fg-2);
+  margin: var(--doc-gap-label) 0;
+  padding: 0 0 0 var(--doc-gap-label);
+  border-left: var(--doc-bar) solid var(--fg);
+  color: var(--fg);
+  background: none;
+  font-style: italic;
+}
+.md-render blockquote:has(> blockquote:only-child) {
+  border-left: 0;
+  padding: 0;
+  font-style: normal;
+}
+.md-render blockquote > blockquote {
+  margin: 0;
+  padding: var(--doc-pad-frame);
+  border: var(--doc-frame) solid var(--fg);
+  border-radius: 0;
+  font-style: normal;
 }
 
 .md-render code {
   font-family: var(--font-mono);
   font-size: var(--fs-ui);
   background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--doc-rule) solid var(--border);
+  border-radius: 0;
   padding: 0 var(--sp-1);
 }
 
@@ -64,9 +107,11 @@
   font-family: var(--font-mono);
   font-size: var(--fs-ui);
   background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--doc-rule) solid var(--border-strong);
+  border-radius: 0;
   padding: var(--sp-3);
+  margin: var(--doc-gap-label) 0;
+  text-align: left;
   overflow-x: auto;
 }
 
@@ -76,35 +121,41 @@
   padding: 0;
 }
 
+/* a rule the reader is meant to see, not a chrome hairline */
 .md-render hr {
   border: 0;
-  border-top: 1px solid var(--border);
-  margin: var(--sp-5) 0;
+  border-top: var(--doc-rule) solid var(--fg);
+  margin: var(--doc-gap-label) 0;
 }
 
 .md-render table {
   border-collapse: collapse;
   width: 100%;
-  font-size: var(--fs-ui);
+  font-family: var(--font-doc);
+  font-size: var(--fs-body);
+  margin: var(--doc-gap-label) 0;
 }
 
 .md-render th,
 .md-render td {
-  border: 1px solid var(--border);
-  padding: var(--sp-1) var(--sp-2);
+  border: var(--doc-rule) solid var(--fg);
+  border-radius: 0;
+  padding: var(--doc-pad-cell);
   text-align: left;
+  vertical-align: top;
 }
 
-.md-render th { background: var(--bg-2); font-weight: 600; }
+.md-render th { background: none; font-weight: 700; }
 
 .md-render img {
   max-width: 100%;
   height: auto;
-  border-radius: var(--radius);
+  border-radius: 0;
 }
 
 /* A link into the vault carries `data-path` and is followed by whoever mounted the box; an
-   external one keeps its href. They look the same, because to the reader they are the same. */
+   external one keeps its href. They look the same, because to the reader they are the same:
+   underlined, the way a link is on paper, with the accent as the screen's extra. */
 .md-render a,
 .md-render .md-link,
 .md-render .md-anchor {
@@ -126,3 +177,17 @@
 }
 
 .md-render li:has(> input[type="checkbox"]) { list-style: none; }
+
+/* ------------------------------------------------------------------- paper
+
+   The sheet and its palette are base.css and tokens.css; these are the breaks. Nothing drawn
+   as one object is cut in half by the edge of a sheet, a heading never ends one, and a
+   paragraph never leaves a single line behind. */
+@media print {
+  .md-render { orphans: 2; widows: 2; }
+  .md-render :is(h1, h2, h3, h4, h5, h6),
+  .md-render p:has(> strong:first-child) { break-after: avoid; }
+  .md-render :is(blockquote, table, pre, img, figure, .ose-math-display),
+  .md-render math[display="block"] { break-inside: avoid; }
+  .md-render a { color: var(--fg); }
+}

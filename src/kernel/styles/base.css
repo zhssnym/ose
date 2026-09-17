@@ -226,6 +226,48 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   margin: calc(-1 * var(--sp-4)) 0 var(--sp-5); display: flex; gap: var(--sp-3); flex-wrap: wrap;
 }
 
+/* ------------------------------------------------------------ a page as a document
+
+   A page the user wrote is a document, not a web page: one serif face, compact, justified,
+   with a title in a double-ruled box the way a teacher's handout has it. The look is the
+   editor's column (`.ed`, editor.css) and every read-only render (`.md-render`, render.css);
+   the chrome around them, the views and home keep the app's own face and their 34px title.
+   What is here is the part the two share: the column's air and the title strip, which the
+   editor draws from `page.js` into `.page-col.ed` and nothing else does. */
+
+/* Paper starts 2cm from the top, not 80px: a document that begins a third of the way down the
+   window is a web page. The bottom air stays, it is scroll room and not design. */
+.page-col.ed { padding-top: var(--doc-pad-top); }
+
+/* The title box. It hugs its text (`width: fit-content`) so a short title is a small box and a
+   long one wraps inside a box the width of the column, and it is centred either way. The rule
+   is CSS's own `double`, which needs 3px to draw the two 1px lines and the gap between them. */
+.page-col.ed > .page-title {
+  font-family: var(--font-doc);
+  font-size: var(--fs-doc-title);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+  text-align: center;
+  text-wrap: balance;
+  border: var(--doc-title-rule) double var(--fg);
+  border-radius: 0;
+  padding: var(--doc-pad-title);
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto var(--doc-gap);
+}
+/* An untitled page draws a flex row (the placeholder and an `add title` button) inside the
+   same box, so the box has to be one too rather than a block of text. */
+.page-col.ed > .page-title.untitled { display: flex; justify-content: center; }
+
+/* The meta line stays in the chrome voice, and stays out of the way: centred under the box,
+   one --sp-2 of air, and no negative margin pulling the first paragraph onto it. */
+.page-col.ed > .page-meta {
+  justify-content: center;
+  margin: 0 0 var(--sp-2);
+}
+
 /* generic data table */
 .table { border-collapse: collapse; width: 100%; font-size: var(--fs-ui); }
 .table th, .table td { border: 1px solid var(--border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
@@ -353,4 +395,45 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
    its top air in the shell's own stylesheet. */
 @media (max-height: 720px) {
   .ov-box { max-height: 82vh; }
+}
+
+/* ==================================================================== paper
+
+   The sheet, and what is on it. A4 with a 2cm margin on every side, which is what the owner's
+   teacher hands out and what Word gives a new document in France; 11.5pt of --font-doc at 1.2
+   fits about 52 lines on the page, which is the density of the handout this look was measured
+   against. The palette is black on white in tokens.css, so nothing here writes a colour.
+
+   `page.print` (src/editor/page.js) is the app's way in, on Ctrl+Shift+P: Ctrl+P is the
+   palette. The browser's own print, and a PDF taken through the debugger, land here too. */
+@page { size: A4; margin: var(--print-margin); }
+
+@media print {
+  /* The zoom is a screen setting: a sheet of paper does not zoom. */
+  :root { font-size: 100%; }
+  html, body { background: var(--bg); color: var(--fg); }
+  /* the chrome: none of it is on the page */
+  .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading {
+    display: none !important;
+  }
+  html, body, .shell, .body, .main, .main-scroll, .page-host {
+    display: block; height: auto; min-height: 0; max-height: none; overflow: visible;
+  }
+  /* The margin is the sheet's, so the column gives up its own padding and takes the full
+     measure. `max-width` is that measure written down: on an A4 sheet it is exactly the width
+     @page leaves and changes nothing, and in a browser's print emulation, where @page is not
+     applied, it is what makes the preview the width of the real thing. */
+  .page-col {
+    max-width: var(--print-measure); margin: 0 auto; padding: 0;
+    orphans: 2; widows: 2;
+  }
+  /* The document's own size and leading, set here rather than on :root because the body size
+     is an inline style on <html> (settings-core) and an inline style beats a stylesheet. Every
+     size in the document is a ratio of these two, so overriding them moves all of it. */
+  .page-col.ed, .md-render {
+    --fs-body: var(--print-fs);
+    --lh-body: var(--print-lh);
+    font-size: var(--print-fs);
+    line-height: var(--print-lh);
+  }
 }

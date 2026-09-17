@@ -14,8 +14,9 @@ Claude's colours. Think of a 1990s plant-control panel redrawn by Anthropic's de
 
 ## Personality
 
-- **Space.** Content breathes. The page column is 720px wide, centred, with 80px of air above the
-  title. Nothing is cramped, ever. Every padding, margin and gap is a step of the spacing scale
+- **Space.** The chrome breathes. The page column is 720px wide, centred, with 80px of air above
+  a view's title (a page of the user's own writing is a document and takes 48px; see "A page as
+  a document"). Nothing is cramped, ever. Every padding, margin and gap is a step of the spacing scale
   in `tokens.css` (`--sp-1` 4, `--sp-2` 8, `--sp-3` 12, `--sp-4` 16, `--sp-5` 24, `--sp-6` 32,
   `--sp-7` 48; `--sp-half` for a deliberate 2px optical nudge, with a comment saying why). A
   bare pixel value in a plugin stylesheet is a bug. Panels sit at `--sp-3` to `--sp-4`.
@@ -28,13 +29,13 @@ Claude's colours. Think of a 1990s plant-control panel redrawn by Anthropic's de
   anywhere (menus, buttons, inputs, cards, chips). No drop shadows except on floating menus and
   the command palette, and those use a hard 1px border plus a flat offset shadow
   (`0 8px 24px rgba(0,0,0,.18)`), never a soft blur glow.
-- **Two typefaces, strict roles.**
+- **Four typefaces, strict roles.**
   - Chrome (title bar, status bar, sidebar section labels, palette hints, chips, table headers,
     metadata): `var(--font-mono)` at 11px to 12px, often uppercase with `letter-spacing: .06em`.
     This is the control-room voice.
-  - Content (editor, views, chat text, dialogs): `var(--font-ui)` at 15px, line-height 1.6.
-  - Page titles and H1 only: `var(--font-title)` (a serif, Claude's brand voice). Never use the
-    serif for anything else.
+  - A view's own content, and every dialog: `var(--font-ui)` at 15px, line-height 1.6.
+  - A view's title: `var(--font-title)` (a serif, Claude's brand voice). Never use it elsewhere.
+  - Page content, and only page content: `var(--font-doc)`, Cambria. See "A page as a document".
 - **Claude's colours, exactly.** Terracotta accent `#D97757` is the only saturated colour in the
   chrome. Kraft `#D4A27F` for secondary warmth. Ivory/paper surfaces in light mode, near-black
   warm surfaces in dark mode. Colour means something: accent = interactive or current, olive =
@@ -61,9 +62,15 @@ Key tokens (see the file for the full list):
 --accent      terracotta              --accent-fg  text on accent
 --accent-soft tinted accent surface   --sel     text selection
 --ok --warn --err --amber             semantic
---font-ui --font-mono --font-title
+--font-ui --font-mono --font-title --font-doc
 --radius (2px)  --titlebar-h (36px)  --statusbar-h (24px)  --sidebar-w (260px)
---page-w (720px)  --page-pad-top (80px)
+--page-w (720px)  --page-pad-top (80px)  --doc-pad-top (48px)
+--fs-doc-title (1.4x body)  --fs-doc-h1 (1.2x)  --fs-doc-h2 (1.1x)
+--doc-gap (.3em)  --doc-gap-head (1.1em)  --doc-gap-label (.7em)  --doc-indent (1.4em)
+--doc-pad-frame  --doc-pad-cell  --doc-pad-title
+--doc-bar (2px)  --doc-frame (1.5px)  --doc-rule (1px)  --doc-title-rule (3px)
+              the document scale and rhythm; the em ones follow the body size and the leading
+--print-margin (2cm)  --print-measure (17cm)  --print-fs (11.5pt)  --print-lh (1.2)
 --code-key --code-str --code-num --code-fn --code-type --code-var --code-punc --code-com
 --code-ins --code-del
               code highlighting, each measured >= 4.5:1 on --bg and on --bg-2 in both themes.
@@ -128,17 +135,61 @@ The window has no native frame. The title bar is ours and must feel like part of
 surface as the sidebar (`--bg-2`), bottom border, app mark in mono, window buttons 46px wide and
 full height, glyphs drawn as 10px stroked SVG, close button hover `--err` with white glyph.
 
-## Editor page
+## A page as a document
 
-Notion, not a text editor. Title is an editable H1 in `--font-title` 34px. Body `--font-ui`
-16px, line-height 1.65, paragraphs separated by 4px of margin (Notion style), not blank space.
-Block handle and slash menu on the left gutter, visible on hover only. Headings H2 22px, H3 18px
-in `--font-ui` semibold. Task checkboxes are 16px squares with 1px `--border-strong`, filled
-`--accent` with a white check when done, text struck through in `--fg-3`. Images are full column
-width, square corners, 1px border. Code blocks in `--font-mono` 13px on `--bg-2`. Tables have
-1px borders and mono header cells. Links, and any accent-coloured text, are `--accent-ink`
-(`--accent` itself is 2.96:1 on the page and is for surfaces, borders and the hover underline),
-underline on hover only.
+A page the user wrote is a document, not a web page. The reference is a maths handout typed in
+Word: one serif face, compact, justified, rigid, square. It applies to page CONTENT and nothing
+else: the block editor's column (`.ed .milkdown`), the page title strip, everything drawn
+through `render()` (`.md-render`: a drill's statement, a journal entry, a tile), and paper. The
+chrome around it keeps `--font-ui` and `--font-mono`, and so do a view's own controls.
+
+- **Face.** `--font-doc` (Cambria on Windows, Iowan Old Style on a Mac) for the body, the
+  headings and the title. Code keeps `--font-mono` everywhere.
+- **Size and leading.** The body is Settings' `Body text` (16px by default) at `--lh-body`,
+  which Settings offers as 1.25, 1.35 or 1.5, the default 1.35. Everything else is a ratio of
+  the body, so one setting moves the whole page.
+- **Scale.** Title `--fs-doc-title`, bold, centred, in a box with a double rule
+  (`3px double var(--fg)`, square, `width: fit-content` so it hugs a short title and wraps a
+  long one). H1 `--fs-doc-h1` bold, H2 `--fs-doc-h2` bold, H3 bold at the body size, H4 and
+  below bold italic. No second family, no grey heading, no letter-spacing.
+- **Rhythm.** `--doc-gap` between paragraphs, `--doc-gap-head` above a heading, and
+  `--doc-gap-label` above a paragraph that opens with a bold run-in label
+  (`p:has(> strong:first-child)`), which is the gap a person leaves by hand before writing
+  "Démonstration.". A gap never sits against the inside of a frame, a cell or a list item.
+- **Alignment.** Justified, `hyphens: none`, as Word sets a page. List items and table cells
+  read left: they are short measures and would open rivers.
+- **Lists.** Items touch. The marker hangs in `--doc-indent`: a `.3em` dot in the text colour at
+  the first level, a hollow `.4em` ring inside one, `1.` in the text face for an ordered list,
+  right-aligned so 1. and 10. end together. A task row takes `.35em` more indent, because a
+  checkbox is a wider mark than a dot. A list row is exactly as tall as its text line.
+- **Frames and bars, not air.** `>` is a BAR: `--doc-bar` solid `--fg` down the left, italic, no
+  tint and no box. `>>` is a FRAME: a square `--doc-frame` box, upright, `--doc-pad-frame`
+  inside; markdown has no second quote mark, so a frame arrives as a blockquote nested in a
+  blockquote and the outer one draws nothing. `---` is a solid `--doc-rule` in the text colour.
+  A table is a real grid: `--doc-rule` solid `--fg` around every cell, `--doc-pad-cell` inside,
+  header cells bold at the body size on no background.
+- **Corners.** `border-radius: 0` on everything in page content: code blocks, inline code,
+  tables, images, frames, the title box. `--radius` is the chrome's, and a task checkbox keeps
+  it because a checkbox is a control.
+- **Links** underlined, `--accent-ink` on screen, the text colour on paper.
+- Both themes. Tokens only, no hex outside `tokens.css`.
+
+Task checkboxes are 16px squares with 1px `--border-strong`, filled `--accent` with a white
+check when done, text struck through in `--fg-3`. Images are full column width with a 1px
+border. The block handle and the slash menu stay in the left gutter, on hover only, in the
+chrome's face: they are not part of the document.
+
+## Print and PDF
+
+`page.print` (Ctrl+Shift+P; Ctrl+P is the palette) switches to the light tokens and calls
+`window.print()`, and the Windows dialog offers Microsoft Print to PDF. `@page` is A4 with
+`--print-margin` on every side; the body is `--print-fs` of `--font-doc` at `--print-lh`, which
+puts about 52 lines on the sheet. `tokens.css` overrides the whole palette to black on white
+under `@media print`, from either theme, so no rule downstream writes a print colour: syntax
+colour is a screen affordance and a listing prints black. Only the page content goes on paper:
+no chrome, no meta line, no handles, no placeholders, no caret. A heading and a run-in label
+carry `break-after: avoid`; a frame, a bar, a table, a code block, a display formula and an
+image carry `break-inside: avoid`; text carries `orphans: 2; widows: 2`.
 
 ## Code
 
@@ -159,9 +210,11 @@ coloured, the interpreter's answer in the body colour, because output is not cod
 
 ## Views (day, week, month, journal, drills)
 
-Same page column and title treatment as an editor page so switching between a page and a view
-does not feel like changing app. Dense data (the week grid, the habit matrix) uses mono 11px
-labels and 1px grid lines in `--border`. Colour blocks in the week grid use the semantic tokens
+The same page column as an editor page, and the chrome's own title: a view is the app talking,
+not the user's writing, so it keeps `--font-title` at `--fs-title` and `--font-ui` for its text.
+A note a view shows rather than draws goes through `render()` and is a document like any other.
+Dense data (the week grid, the habit matrix) uses mono 11px labels and 1px grid lines in
+`--border`. Colour blocks in the week grid use the semantic tokens
 at low opacity with a 2px left bar in the full colour.
 
 ## Language

@@ -7,7 +7,11 @@ import { bus } from './registry.js';
 import { patchState, stateCache } from './state.js';
 
 export const FONT_SIZES = [14, 15, 16, 17];
-export const LINE_HEIGHTS = [1.5, 1.65, 1.8];
+// A document's leading, not a web page's. 1.35 is what Word gives a 12pt Cambria body at
+// "1.15 line spacing", which is the teacher's page; 1.25 is tighter still and 1.5 is the
+// loosest a page of prose stays a page. A value saved before this list (1.65, 1.8) is not in
+// it and falls back to the default, below.
+export const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
@@ -15,7 +19,7 @@ export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 // plugins need, and the read-only block.
 export const DEFAULTS = {
   fontSize: 16,
-  lineHeight: 1.65,
+  lineHeight: 1.35,
   readableWidth: true,
   zoom: 100,
   newPages: 'focus',

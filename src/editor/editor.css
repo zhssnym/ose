@@ -1,9 +1,15 @@
 /* The editor page. Tokens only, no literal colours, and no bare pixel padding: every gap is
-   a step of the spacing scale (DESIGN.md, E1). The pixels that remain are sizes — icons,
-   line boxes, column widths — not space.
+   a step of the spacing scale (DESIGN.md, E1), or, inside the document itself, a step of the
+   document rhythm (--doc-gap and its family, which are em: a fraction of a line). The pixels
+   that remain are sizes - icons, line boxes, column widths, rules - not space.
    Crepe ships its structural CSS keyed to --crepe-* variables; the first block maps those onto
    os tokens so the parts we do not restyle by hand still land in the right palette, and the
-   rest overrides Crepe's own look (12px radii, 24px icons, soft shadows) with DESIGN.md. */
+   rest overrides Crepe's own look (12px radii, 24px icons, soft shadows) with DESIGN.md.
+
+   Everything under `.ed .milkdown .ProseMirror` is a DOCUMENT, not a web page: --font-doc,
+   justified, compact, square, with frames and bars instead of air (DESIGN.md, "A page as a
+   document"). Everything outside it - the find bar, the slash menu, the toolbar, the table
+   handles, the properties strip - is chrome and keeps --font-ui and --font-mono. */
 
 .ed .milkdown {
   --crepe-color-background: var(--bg);
@@ -25,8 +31,8 @@
   --crepe-color-inline-area: var(--bg-3);
 
   --crepe-base-font-size: var(--fs-body);
-  --crepe-font-title: var(--font-title);
-  --crepe-font-default: var(--font-ui);
+  --crepe-font-title: var(--font-doc);
+  --crepe-font-default: var(--font-doc);
   --crepe-font-code: var(--font-mono);
 
   --crepe-shadow-1: var(--shadow-menu);
@@ -147,63 +153,111 @@
 
 .ed-body { margin: 0 calc(-1 * var(--sp-2)); }
 .ed .milkdown { background: transparent; }
+/* Justified with no hyphenation, which is what Word does by default and what the teacher's
+   page shows. Chrome justifies on the word spaces alone; `text-wrap: pretty` is left off on
+   purpose, because it is a last-line ragged-right rule and there is no ragged right here. */
 .ed .milkdown .ProseMirror {
   padding: 0 var(--sp-2) var(--sp-7);
-  font-family: var(--font-ui);
+  font-family: var(--font-doc);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
   color: var(--fg);
+  text-align: justify;
+  hyphens: none;
   outline: none;
   user-select: text;
   cursor: auto;
   min-height: 40vh;
 }
+/* A list item and a table cell are short measures: justifying them would open rivers in a
+   three-word line. They read left, as they do on the handout. */
+.ed .milkdown .ProseMirror :is(li, .content-dom, th, td) { text-align: left; }
+
+/* Crepe pads every paragraph 4px top and bottom and every heading 2px, and sets a paragraph's
+   leading to 1.5 whatever the body is set to: that is 8px of air per paragraph nobody asked
+   for and a page that ignores the Line height setting. The gaps in a document are its margins
+   (--doc-gap and its family); a block has no padding of its own, and the body's leading is the
+   one in the setting. Written with .ProseMirror so it outranks Crepe's own rules. */
+.ed .milkdown .ProseMirror :is(p, h1, h2, h3, h4, h5, h6) { padding: 0; }
+.ed .milkdown .ProseMirror p { line-height: var(--lh-body); }
 .ed .milkdown .ProseMirror ::selection { background: var(--sel); }
 
-.ed .milkdown p { margin: var(--sp-1) 0; }
+.ed .milkdown p { margin: var(--doc-gap) 0; }
+/* A paragraph that opens with a bold run-in label ("Demonstration.", "Somme des termes.") is
+   the start of something, so it takes the gap a person leaves by hand before writing one.
+   A label alone on its line with the text after a soft break is one paragraph and one gap,
+   which is the point: the break does not make a second block. */
+.ed .milkdown p:has(> strong:first-child) { margin-top: var(--doc-gap-label); }
+/* A gap between blocks belongs between them, never against the inside of what holds them: a
+   frame, a bar, a list item and a cell all start flush. Written with :is() so it outranks the
+   run-in rule above, which a "Theoreme 1." paragraph inside a frame also matches. */
+.ed .milkdown :is(blockquote, .content-dom, th, td) > :first-child { margin-top: 0; }
+.ed .milkdown :is(blockquote, .content-dom, th, td) > :last-child { margin-bottom: 0; }
+
+/* Headings are the body face made bold, never a second family and never twice the size: the
+   owner writes his sections as H1, and a section title on a handout is a bold line, not a
+   banner. Ratios of --fs-body, so the `Body text` setting moves the whole hierarchy. At the
+   default 16px: h1 19.2, h2 17.6, h3 16, h4 and below 16 italic. */
 .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3,
 .ed .milkdown h4, .ed .milkdown h5, .ed .milkdown h6 {
-  font-family: var(--font-ui); font-weight: 600; line-height: 1.3;
-  margin: var(--sp-6) 0 var(--sp-2); color: var(--fg); letter-spacing: -.005em;
+  font-family: var(--font-doc); font-weight: 700; font-style: normal; line-height: 1.25;
+  margin: var(--doc-gap-head) 0 var(--doc-gap); color: var(--fg);
+  letter-spacing: normal; text-transform: none; text-align: left;
 }
-/* Heading sizes are ratios of the body size, so the "body text" setting (--fs-body, 14 to
-   17px) moves the whole hierarchy and not just the paragraphs (batch 9, B10). At the default
-   16px: h1 27, h2 22, h3 18, h4 16, h5 14; h6 stays a mono section label. */
-.ed .milkdown h1 { font-family: var(--font-title); font-weight: 400; font-size: calc(var(--fs-body) * 1.7); margin-top: var(--sp-6); }
-.ed .milkdown h2 { font-size: calc(var(--fs-body) * 1.375); }
-.ed .milkdown h3 { font-size: calc(var(--fs-body) * 1.125); }
-.ed .milkdown h4 { font-size: var(--fs-body); }
-.ed .milkdown h5 { font-size: calc(var(--fs-body) * .875); color: var(--fg-2); }
-.ed .milkdown h6 {
-  font-size: var(--fs-chrome); font-family: var(--font-mono); font-weight: 400;
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
-}
+.ed .milkdown h1 { font-size: var(--fs-doc-h1); }
+.ed .milkdown h2 { font-size: var(--fs-doc-h2); }
+.ed .milkdown h3 { font-size: var(--fs-body); }
+.ed .milkdown :is(h4, h5, h6) { font-size: var(--fs-body); font-style: italic; }
 .ed .milkdown .ProseMirror > :first-child { margin-top: 0; }
 
-.ed .milkdown a { color: var(--accent-ink); text-decoration: none; cursor: pointer; }
-.ed .milkdown a:hover { text-decoration: underline; }
+/* A link in a document is underlined, the way it is on paper and in Word: the underline is
+   what says it is one, and the accent is the screen's extra. On paper both go to the ink. */
+.ed .milkdown a {
+  color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ed .milkdown a:hover { color: var(--accent); }
 
-.ed .milkdown strong { font-weight: 600; }
+.ed .milkdown strong { font-weight: 700; }
 .ed .milkdown em { font-style: italic; }
 .ed .milkdown del, .ed .milkdown s { color: var(--fg-3); }
 
 .ed .milkdown code, .ed .milkdown .code-inline {
   font-family: var(--font-mono); font-size: var(--fs-ui);
-  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-3); border: var(--doc-rule) solid var(--border); border-radius: 0;
   padding: 0 var(--sp-1); color: var(--fg);
 }
 
+/* Two marks, two blocks, and the markdown says which (DESIGN.md, "Frames and bars").
+   `>` is a BAR: a solid rule in the text colour down the left, the text italic, no tint and no
+   box. It is the teacher's "Definition." paragraph.
+   `>>` is a FRAME: a square 1.5px box, upright text, the teacher's "Theoreme 1." Markdown has
+   no second quote mark, so a frame arrives as a blockquote nested in a blockquote; the outer
+   one is punctuation and draws nothing at all. */
 .ed .milkdown blockquote {
-  margin: var(--sp-2) 0; padding: var(--sp-half) 0 var(--sp-half) var(--sp-4); /* --sp-half: the bar overshoots the text by a hair */
-  border-left: 2px solid var(--border-strong); color: var(--fg-2);
+  margin: var(--doc-gap-label) 0; padding: 0 0 0 var(--doc-gap-label);
+  border-left: var(--doc-bar) solid var(--fg); color: var(--fg); background: none;
+  font-style: italic;
+}
+/* Crepe draws the bar itself, as a rounded 4px accent slab in `blockquote::before`. The bar is
+   a border here: one rule, square, in the ink, and it prints. */
+.ed .milkdown blockquote::before { display: none; }
+/* the outer quote of a `>>`: no bar, no indent, no italic, nothing */
+.ed .milkdown blockquote:has(> blockquote:only-child) {
+  border-left: 0; padding: 0; font-style: normal;
+}
+.ed .milkdown blockquote > blockquote {
+  margin: 0; padding: var(--doc-pad-frame);
+  border: var(--doc-frame) solid var(--fg); border-radius: 0;
+  font-style: normal; color: var(--fg);
 }
 /* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.js, nothing in the
-   file changes: a box (DESIGN.md: boxes, not rules) with the marker set in mono. No colour per
-   kind — colour means something here, and a note is not a state. */
+   file changes. A callout carries a title of its own, so it is a frame rather than a bar, and
+   it is upright: the italic belongs to the bar. No colour per kind — colour means something
+   here, and a note is not a state. */
 .ed .milkdown blockquote.callout {
-  border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
-  border-radius: var(--radius); background: var(--bg-2);
-  padding: var(--sp-2) var(--sp-4); color: var(--fg);
+  border: var(--doc-rule) solid var(--fg); border-radius: 0; background: none;
+  padding: var(--doc-pad-frame); color: var(--fg); font-style: normal;
 }
 .ed .milkdown .callout-marker {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
@@ -228,34 +282,77 @@
 .ed .milkdown dl[data-type="footnote_definition"] dt::after { content: "]"; }
 .ed .milkdown dl[data-type="footnote_definition"] dd { margin: 0; }
 .ed .milkdown dl[data-type="footnote_definition"] dd p { margin: 0; }
-.ed .milkdown hr {
-  border: 0; border-top: 1px solid var(--border); margin: var(--sp-5) 0; height: 0;
+/* `---` is a rule the reader is meant to see: solid, in the text colour, not the grey
+   hairline the chrome draws between two boxes. Crepe draws it as a tinted background on a
+   padded box, so the background is turned off as well as the border replaced. */
+.ed .milkdown .ProseMirror hr {
+  border: 0; border-top: var(--doc-rule) solid var(--fg);
+  background: none; padding: 0; height: 0;
+  margin: var(--doc-gap-label) 0;
 }
 .ed .milkdown hr.ProseMirror-selectednode { border-top-color: var(--accent); }
 
-.ed .milkdown ul, .ed .milkdown ol { margin: var(--sp-1) 0; padding-left: 0; }
+/* ---------------------------------------------------------------- lists
+
+   The owner's first complaint: "the spacing between the bullet points is so large". Crepe
+   draws a list item as a flex row of a 20px-wide, 32px-tall label box and the content, and
+   gives the item's paragraph its own line-height and 4px of padding, so a one-line item is a
+   40px row around a 21px line. Here a row is exactly as tall as its text: the label box is one
+   line box (--lh-body em), the paragraph keeps the body's leading and no padding at all, and
+   consecutive items touch. The marker hangs in the --doc-indent the text starts after. */
+.ed .milkdown ul, .ed .milkdown ol { margin: var(--doc-gap) 0; padding-left: 0; }
 .ed .milkdown li { margin: 0; }
 .ed .milkdown .milkdown-list-item-block { margin: 0; }
-/* Crepe gives a list item's paragraph line-height 24px plus 4px of padding, so the marker box
-   is 32px tall with --sp-2 of top padding: that puts the icon on the first line's centre. */
+/* the row: label box, then content, nothing between them — the indent is the label's width */
+.ed .milkdown .milkdown-list-item-block li.list-item { gap: 0; align-items: flex-start; }
 .ed .milkdown .milkdown-list-item-block li .label-wrapper {
-  height: 32px; width: 20px; color: var(--fg-3);
-  font-family: var(--font-ui); font-size: var(--fs-body);
+  width: var(--doc-indent); flex: none;
+  height: calc(var(--lh-body) * 1em);
+  font-family: var(--font-doc); font-size: var(--fs-body); color: var(--fg);
 }
 .ed .milkdown .milkdown-list-item-block li .label-wrapper .label {
-  height: 32px; width: 20px; padding: var(--sp-2) 0 0; line-height: 24px;
-  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
-  display: grid; place-items: center;
+  width: 100%; height: 100%; padding: 0; margin: 0;
+  line-height: inherit;
+  font-family: var(--font-doc); font-size: var(--fs-body); color: var(--fg);
+  display: flex; align-items: center; justify-content: center;
 }
-.ed .milkdown .milkdown-list-item-block li { gap: var(--sp-2); }
-/* the bullet ships as a 24px circle icon; DESIGN.md wants it small and quiet */
-.ed .milkdown .milkdown-list-item-block .label.bullet svg {
-  width: 16px; height: 16px; fill: var(--fg-3);
+/* the item's own text: the document's leading, no padding, and nothing between two paragraphs
+   of the same item but the paragraph gap */
+.ed .milkdown .milkdown-list-item-block .content-dom > p {
+  margin: 0; padding: 0; line-height: var(--lh-body);
+}
+.ed .milkdown .milkdown-list-item-block .content-dom > p + p { margin-top: var(--doc-gap); }
+/* a nested list is inside the item, so it must not add the gap a list gets between paragraphs */
+.ed .milkdown .milkdown-list-item-block .children > :is(ul, ol) { margin: 0; padding-left: var(--doc-indent); }
+
+/* The marker. Crepe ships a 24px circle icon; a document wants a dot the size of a full stop,
+   drawn in the text colour and centred in the hanging indent, which is where Word puts one.
+   A nested level takes the hollow ring, the second mark every printed list has. */
+.ed .milkdown .milkdown-list-item-block .label.bullet svg { display: none; }
+.ed .milkdown .milkdown-list-item-block .label.bullet::before {
+  content: ""; width: .3em; height: .3em; border-radius: 50%;
+  background: currentColor; display: block;
+}
+/* One list item inside another: the ring. The selector repeats the block class so that it
+   outranks the rule above, which is one class longer than a plain `ul ul` would be. */
+.ed .milkdown .milkdown-list-item-block .milkdown-list-item-block .label.bullet::before {
+  width: .4em; height: .4em; background: none;
+  box-shadow: inset 0 0 0 1px currentColor;   /* 1px: a hairline ring at any body size */
+}
+/* `1.` in the text face, right-aligned so that 1. and 10. end at the same place */
+.ed .milkdown .milkdown-list-item-block .label.ordered {
+  justify-content: flex-end; padding-right: .35em;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* task checkbox: a 16px square, DESIGN.md */
+/* task checkbox: a 16px square, DESIGN.md, on the one line the row is tall. A square is a
+   wider mark than a dot, so a task row takes a little more indent than a bullet row: at the
+   bullet's 1.4em the box would sit against the first letter. */
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked) {
-  width: 20px; height: 32px; padding: var(--sp-2) 0 0; display: grid; place-items: center;
+  width: 100%; height: 100%; padding: 0; display: grid; place-items: center;
+}
+.ed .milkdown .milkdown-list-item-block li:has(> .label-wrapper > :is(.checked, .unchecked)) > .label-wrapper {
+  width: calc(var(--doc-indent) + .35em);
 }
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked) svg { display: none; }
 .ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked)::before {
@@ -268,6 +365,10 @@
 .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::before {
   background: var(--accent); border-color: var(--accent);
   background-image: linear-gradient(var(--accent), var(--accent));
+}
+/* the square is a control, not a rule: it keeps the chrome's hairline radius */
+.ed .milkdown .milkdown-list-item-block .label-wrapper :is(.checked, .unchecked)::before {
+  border-radius: var(--radius);
 }
 /* the check mark: an 8x4 corner turned 45 degrees, lifted 1px onto the box's optical centre */
 .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::after {
@@ -283,9 +384,11 @@
 
 /* ---------------------------------------------------------------- code blocks */
 
+/* A listing is a framed block of monospace, square like everything else on the page. The
+   frame is --border-strong, not the chrome's hairline: in a document it is an object. */
 .ed .milkdown .milkdown-code-block {
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
-  margin: var(--sp-2) 0; padding: 0; overflow: hidden;
+  background: var(--bg-2); border: var(--doc-rule) solid var(--border-strong); border-radius: 0;
+  margin: var(--doc-gap-label) 0; padding: 0; overflow: hidden;
 }
 .ed .milkdown .milkdown-code-block .cm-editor { background: transparent; }
 .ed .milkdown .milkdown-code-block .cm-content,
@@ -311,26 +414,31 @@
   background: var(--bg); color: var(--fg-2); padding: var(--sp-half) var(--sp-2); /* --sp-half: a chip's vertical air */
 }
 .ed .milkdown .milkdown-code-block button:hover { background: var(--bg-3); }
-.ed .milkdown pre {
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+.ed .milkdown .ProseMirror pre {
+  background: var(--bg-2); border: var(--doc-rule) solid var(--border-strong); border-radius: 0;
   font-family: var(--font-mono); font-size: var(--fs-ui); padding: var(--sp-3); overflow-x: auto;
+  text-align: left;
 }
 .ed .milkdown pre code { background: none; border: 0; padding: 0; }
 
 /* ---------------------------------------------------------------- tables */
 
-.ed .milkdown .milkdown-table-block { margin: var(--sp-3) 0; }
+/* A real grid at the body size, the way a table is set in a handout: one solid rule around
+   every cell, square, tight, and a header row that is bold rather than a mono chrome label. */
+.ed .milkdown .milkdown-table-block { margin: var(--doc-gap-label) 0; }
 .ed .milkdown .milkdown-table-block .table-wrapper { overflow-x: auto; }
 .ed .milkdown .milkdown-table-block table {
-  border-collapse: collapse; width: 100%; font-size: var(--fs-ui);
+  border-collapse: collapse; width: 100%;
+  font-family: var(--font-doc); font-size: var(--fs-body);
 }
 .ed .milkdown .milkdown-table-block :is(th, td) {
-  border: 1px solid var(--border); padding: var(--sp-1) var(--sp-3); vertical-align: top;
+  border: var(--doc-rule) solid var(--fg); border-radius: 0;
+  padding: var(--doc-pad-cell); vertical-align: top;
 }
 .ed .milkdown .milkdown-table-block th {
-  background: var(--bg-2); font-weight: 400; text-align: left;
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+  background: none; font-weight: 700; text-align: left;
+  font-family: var(--font-doc); font-size: var(--fs-body);
+  text-transform: none; letter-spacing: normal; color: var(--fg);
 }
 .ed .milkdown .milkdown-table-block :is(th, td) p { margin: 0; }
 /* The popover — .handle, .cell-handle, .line-handle, .button-group, .add-button — is P2's and
@@ -339,10 +447,10 @@
 /* ---------------------------------------------------------------- images */
 
 .ed .milkdown .milkdown-image-block {
-  margin: var(--sp-3) 0;
+  margin: var(--doc-gap-label) 0;
 }
 .ed .milkdown .milkdown-image-block img {
-  width: 100%; display: block; border: 1px solid var(--border); border-radius: 0;
+  width: 100%; display: block; border: var(--doc-rule) solid var(--border-strong); border-radius: 0;
 }
 .ed .milkdown .milkdown-image-block .image-wrapper { width: 100%; }
 .ed .milkdown .milkdown-image-block .caption-input,
@@ -361,13 +469,13 @@
 .ed .milkdown :is(.milkdown-image-block, .milkdown-image-inline) .placeholder input {
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg); background: transparent;
 }
-.ed .milkdown .milkdown-image-inline img { display: inline-block; border: 1px solid var(--border); }
+.ed .milkdown .milkdown-image-inline img { display: inline-block; border: var(--doc-rule) solid var(--border-strong); border-radius: 0; }
 
 /* ---------------------------------------------------------------- placeholder */
 
 .ed .milkdown .crepe-placeholder::before {
   color: var(--fg-3);
-  font-family: var(--font-ui);
+  font-family: var(--font-doc);
   font-size: var(--fs-body);
 }
 
@@ -479,25 +587,52 @@
   .ed .milkdown * { transition-duration: 0ms !important; }
 }
 
-/* ---------------------------------------------------------------- print (batch 9, C14) */
+/* ---------------------------------------------------------------- paper
 
-/* `page.print` switches the theme to light for the duration, so --fg is dark on the paper.
-   Chrome is hidden (shell class names; the shell owns them, this only turns them off on
-   paper), the scroll boxes become plain flow, and the page column takes the sheet's width. */
+   The sheet (A4, 2cm), the black-on-white palette and the document's 11.5pt/1.2 body are in
+   base.css and tokens.css, which every surface gets. What is here is what is particular to the
+   editor: turning the editing machinery off, and the breaks.
+
+   `page.print` switches the theme to light for the duration and calls window.print(); the
+   Windows dialog offers Microsoft Print to PDF and Save as PDF. Ctrl+P is the palette, so the
+   chord is Ctrl+Shift+P (shell/keys.json). */
+
 @media print {
+  /* Nothing that belongs to editing goes on paper: the chrome, the meta line, the find bar,
+     the handles, the menus, the placeholders, the caret helpers, the properties strip's
+     twisty. `.ed-props` itself stays: frontmatter is part of the document. */
   .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .os-slash, .ed-find,
   .ed .page-meta, .ed-add-title, .ed-props-head svg,
   .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview, .ed .milkdown .milkdown-link-edit,
-  .ed .milkdown .milkdown-block-handle, .ed .milkdown .crepe-placeholder::before { display: none !important; }
+  .ed .milkdown .milkdown-block-handle, .ed .milkdown .milkdown-table-block .handle,
+  .ed .milkdown .milkdown-table-block .line-handle,
+  .ed .milkdown .milkdown-code-block .tools, .ed .milkdown .milkdown-code-block .language-picker,
+  .ed .milkdown .prosemirror-virtual-cursor,
+  .ed .milkdown .crepe-placeholder::before { display: none !important; }
   html, body, .shell, .body, .main, .main-scroll, .page-host {
     display: block; height: auto; min-height: 0; max-height: none; overflow: visible; background: transparent;
   }
-  .ed.page-col { max-width: none; margin: 0; padding: 0; color: var(--fg); }
-  .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); }
+  /* The measure is base.css's, repeated on the editor's own column because `.ed.page-col`
+     outranks `.page-col` and the two must not disagree. */
+  .ed.page-col { max-width: var(--print-measure); margin: 0 auto; padding: 0; color: var(--fg); }
+  /* The body is pulled --sp-2 into the gutter on screen so a block handle has room; on paper
+     there are no handles and that pull would hang the text over the edge of the margin. */
+  .ed-body { margin: 0; }
+  .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); orphans: 2; widows: 2; }
   .ed .milkdown .ProseMirror ::selection { background: transparent; }
   .ed .milkdown .ProseMirror .os-block-sel, .ed .milkdown .ProseMirror .find-hit,
   .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; outline: none; }
-  .ed .milkdown .milkdown-code-block, .ed .milkdown pre, .ed .milkdown blockquote,
-  .ed .milkdown .milkdown-image-block, .ed .milkdown .milkdown-table-block { break-inside: avoid; }
-  .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3 { break-after: avoid; }
+  .ed .milkdown a { color: var(--fg); }
+  /* The title keeps its box on paper: the double rule is the document's, not the app's. */
+  .ed .milkdown .milkdown-code-block .cm-activeLine,
+  .ed .milkdown .milkdown-code-block .cm-activeLineGutter { background: transparent; }
+
+  /* One object is never cut in half by the edge of a sheet. */
+  .ed .milkdown :is(.milkdown-code-block, pre, blockquote, .milkdown-image-block,
+    .milkdown-table-block, .ose-math-display),
+  .ed .milkdown math[display="block"] { break-inside: avoid; }
+  /* A heading, and a paragraph that opens with a run-in label, never end a sheet. */
+  .page-col.ed > .page-title,
+  .ed .milkdown :is(h1, h2, h3, h4, h5, h6),
+  .ed .milkdown p:has(> strong:first-child) { break-after: avoid; }
 }

@@ -1,4 +1,5 @@
 {
   "mod+r": "app.reload",
-  "mod+shift+j": "journal.new"
+  "mod+shift+j": "journal.new",
+  "mod+shift+p": "page.print"
 }

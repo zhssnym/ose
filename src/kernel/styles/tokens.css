@@ -109,6 +109,12 @@
   --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
+  /* The document face. Page CONTENT wears it and nothing else does: the block editor's column,
+     the page title strip, anything drawn through `render()`, and paper. The chrome (sidebar,
+     tabs, palette, status bar, settings, a plugin's own controls) keeps --font-ui, and code
+     keeps --font-mono everywhere. Cambria is the face the owner's maths teacher writes his
+     handouts in; it ships with Windows and with Office. */
+  --font-doc: Cambria, "Times New Roman", Georgia, serif;
 
   /* rem, so the zoom factor above carries them. The px each one is at 100 % is in the comment. */
   --fs-chrome: 0.75rem;         /* 12 */
@@ -116,8 +122,30 @@
   --fs-ui: 0.8125rem;           /* 13 */
   --fs-content: 0.9375rem;      /* 15 — content-sized inputs: the palette query, a dialog title */
   --fs-body: 1rem;              /* 16 — settings' `Body text` overrides this, also in rem */
-  --fs-title: 2.125rem;         /* 34 */
-  --lh-body: 1.65;              /* settings' `Line height`: 1.5 / 1.65 / 1.8 */
+  --fs-title: 2.125rem;         /* 34 — the chrome's page title: home, a view's heading */
+  --lh-body: 1.35;              /* settings' `Line height`: 1.25 / 1.35 / 1.5 */
+
+  /* The document scale. A typed handout has no 2x headings: the title is barely larger than
+     the body and a section heading is the body size made bold, so the page reads as one
+     column of text and not as a stack of banners. Ratios, so the `Body text` setting moves
+     the whole hierarchy. At the default 16px: title 22.4, h1 19.2, h2 17.6, h3 and below 16. */
+  --fs-doc-title: calc(var(--fs-body) * 1.4);
+  --fs-doc-h1: calc(var(--fs-body) * 1.2);
+  --fs-doc-h2: calc(var(--fs-body) * 1.1);
+
+  /* The document rhythm, in em: a gap in a document is a fraction of a line, not a step of the
+     chrome's pixel scale, so it follows the body size and the line height together. */
+  --doc-gap: 0.3em;             /* between paragraphs, and under a heading */
+  --doc-gap-head: 1.1em;        /* above a heading */
+  --doc-gap-label: 0.7em;       /* above a paragraph that opens with a bold run-in label */
+  --doc-indent: 1.4em;          /* a list's hanging indent: marker in it, text after it */
+  --doc-pad-frame: 0.4em 0.7em; /* inside a framed block */
+  --doc-pad-cell: 0.15em 0.5em; /* inside a table cell */
+  --doc-pad-title: 0.2em 0.8em; /* inside the title's double rule */
+  --doc-bar: 2px;               /* the solid bar down the left of a quoted block */
+  --doc-frame: 1.5px;           /* the square frame around a theorem */
+  --doc-rule: 1px;              /* a horizontal rule, and a table's grid */
+  --doc-title-rule: 3px;        /* the title's double rule: 1px, 1px gap, 1px */
 
   /* space. The only paddings, margins and gaps a plugin stylesheet may use. Optical nudges
      (a 1px baseline shift, a 2px inset) are the one exception and say so in a comment. */
@@ -145,8 +173,15 @@
   --sidebar-min: 200px;
   --sidebar-max: 420px;
   --page-w: 45rem;          /* 720 */
-  --page-pad-top: 5rem;     /* 80 */
+  --page-pad-top: 5rem;     /* 80 — home and the views: the chrome's air above a title */
+  --doc-pad-top: 3rem;      /* 48 — a document starts nearer the top: paper has a 2cm margin */
   --page-pad-x: 3rem;       /* 48 */
+
+  /* paper */
+  --print-margin: 2cm;
+  --print-measure: 17cm;    /* A4 less the two margins: the measure a line is set to */
+  --print-fs: 11.5pt;
+  --print-lh: 1.2;
 
   /* effects */
   --shadow-menu: 0 8px 24px rgba(0, 0, 0, .18);
@@ -162,6 +197,9 @@
   --font-ui: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --font-title: "New York", Georgia, "Times New Roman", serif;
+  /* No Cambria on a Mac. Iowan Old Style is the book face macOS ships, Palatino the one every
+     Mac has had since 1984; both are old-style serifs of Cambria's colour and width. */
+  --font-doc: "Iowan Old Style", Palatino, Georgia, serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -244,4 +282,43 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root { --t-fast: 0ms; }
+}
+
+/* Paper. A printed page is black ink on white paper whatever the window was showing, so the
+   palette is overridden here rather than in twenty rules downstream: every border, every tint
+   and every ink resolves to black or to nothing, and the surfaces go white. Syntax colour is a
+   screen affordance and does not survive the trip: a listing prints black, as a typed handout
+   would. `page.print` also switches the theme to light before it calls window.print(), so a
+   sheet is already right before this block is read; this is what makes the browser's own
+   Ctrl+P, and a PDF taken from the dark theme, come out the same. */
+@media print {
+  :root, :root[data-theme="dark"] {
+    color-scheme: light;
+    --bg: #FFFFFF;
+    --bg-2: #FFFFFF;
+    --bg-3: #FFFFFF;
+    --bg-4: #FFFFFF;
+    --fg: #000000;
+    --fg-2: #000000;
+    --fg-3: #000000;
+    --border: #000000;
+    --border-strong: #000000;
+    --accent: #000000;
+    --accent-ink: #000000;
+    --accent-hover: #000000;
+    --accent-fg: #FFFFFF;
+    --accent-soft: transparent;
+    --sel: transparent;
+    --code-key: #000000;
+    --code-str: #000000;
+    --code-num: #000000;
+    --code-fn: #000000;
+    --code-type: #000000;
+    --code-var: #000000;
+    --code-punc: #000000;
+    --code-com: #000000;
+    --code-ins: #000000;
+    --code-del: #000000;
+    --shadow-menu: none;
+  }
 }
