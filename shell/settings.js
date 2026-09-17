@@ -57,18 +57,35 @@ function seg(name, options, value) {
 // the thing must contain, where it resolved, and the two controls. The value is mono because
 // it is a path; `missing` and `ambiguous` are the danger colour, because a path that did not
 // resolve is a view that cannot draw until someone points at the right folder.
+//
+// A row's `candidates` (the near misses, which the kernel offers but never adopts) are not
+// drawn here: `ose.paths.of(owner)` has no call that saves a path it is handed, so a button
+// here could not do what it says. The box inside the view offers them, one click each.
 function pathRow(row) {
+  // `sharedFrom`: the row is answered by another owner's choice. The calendar is one file and
+  // Day and Week both ask for it, so there is one answer and one place it was given. Nothing is
+  // saved under this owner, so a Reset here would have nothing to undo: the line says who chose
+  // it, and releasing it there releases this row too.
+  const shared = row.sharedFrom ? `chosen in ${ownerName(row.sharedFrom)} · reset it there` : '';
   return `<div class="set-path" data-owner="${esc(row.owner)}" data-key="${esc(row.key)}">
       <div class="set-path-name">${esc(row.label || row.key)}</div>
       <div class="set-path-act">
         <button class="btn" data-act="choose">Choose…</button>
-        <button class="btn" data-act="reset"${row.saved ? '' : ' hidden'}>Reset</button>
+        <button class="btn" data-act="reset"${row.saved && !row.sharedFrom ? '' : ' hidden'}>Reset</button>
       </div>
       <div class="set-path-note">${esc(row.hint || '')}</div>
       <div class="set-path-value mono-sm">${row.status === 'ok'
         ? `<span class="text-select" title="${esc(row.path)}">${esc(row.path)}</span>`
-        : `<i class="set-path-bad">${esc(row.status)}</i>`}</div>
+        : `<i class="set-path-bad">${esc(row.status)}</i>`
+      }${shared ? `<i class="set-path-shared">${esc(shared)}</i>` : ''}</div>
     </div>`;
+}
+
+/** The name a person knows an owner by: the plugin's, or the section the shell's own sits in. */
+function ownerName(owner) {
+  if (owner === 'app') return 'Files';
+  const p = ose.plugins.list().find((x) => x.id === owner);
+  return (p && p.name) || owner;
 }
 
 /** Every declared path of one owner, in the order it was declared. */

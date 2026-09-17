@@ -508,6 +508,9 @@ html.maximized .edge { display: none; }
 .set-path-value span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* `missing` or `ambiguous`: nothing will draw until someone points at the right thing */
 .set-path-bad { font-style: normal; color: var(--err); letter-spacing: .06em; }
+/* the row is answered by another owner's choice: who gave it, and where to release it */
+.set-path-shared { flex: none; font-style: normal; color: var(--fg-3); }
+.set-path-shared::before { content: "· "; }
 
 .set-info {
   margin-top: var(--sp-4); padding: var(--sp-2) var(--sp-3);
