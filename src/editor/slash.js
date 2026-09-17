@@ -75,6 +75,8 @@ const I = {
   day: icon('day'),
   journal: icon('journal'),
   journalNew: svg16('<path d="M3 4.5h6M3 8h4M3 11.5h4"/><path d="M11.5 8v5M9 10.5h5"/>'),
+  // A radical over its bar: the one sign that says maths without naming an operation.
+  math: svg16('<path d="m2.5 8.2 1.7-.3 1.9 4.6 2.6-9h4.8"/>'),
 };
 
 // ---------------------------------------------------------------------------
@@ -189,6 +191,8 @@ const GROUPS = [
       { key: 'image', label: 'Image', icon: I.image, aliases: ['img', 'image', 'picture'], onRun: (c) => putBlock(c, (x) => imageBlockSchema.type(x).createAndFill()) },
       { key: 'code', label: 'Code', icon: I.code, aliases: ['code', 'pre'], onRun: (c) => putBlock(c, (x) => codeBlockSchema.type(x).createAndFill()) },
       { key: 'table', label: 'Table', icon: I.table, aliases: ['table'], onRun: (c) => putBlock(c, (x) => createTable(x, 3, 3)) },
+      // `inline`: the formula takes the caret's place in the sentence, and its source opens.
+      { key: 'math', label: 'Formula', icon: I.math, aliases: ['math', 'formula', 'latex', 'tex', 'equation'], inline: true, cmd: 'page.math' },
       { key: 'date', label: 'Date', icon: I.date, aliases: ['date', 'today'], inline: true, onRun: (c) => insertText(c, today()) },
       // No `inline`: the space in front of the `/` is removed with it and comes back only
       // when a page is actually chosen, so cancelling the picker leaves no trailing space.

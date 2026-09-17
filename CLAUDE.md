@@ -92,7 +92,7 @@ The two workflows: **a plugin change** is an edit in `<vault>/.ose/plugins` and 
   emphasis, H1 and body text, no runs of blank lines, LF endings, UTF-8 without BOM.
 - Never write to a real vault file while testing. Use a throwaway copy and clean up.
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
-  Crepe and kit, marked, DOMPurify and CodeMirror's language pack; the host has two plugins
+  Crepe and kit, marked, DOMPurify, Temml and CodeMirror's language pack; the host has two plugins
   beyond Tauri's own, single-instance and dialog.
 - Colours, fonts and sizes come from the tokens in `ui.css` only. No hex values elsewhere.
   Spacing from the scale; no bare pixel paddings.
@@ -122,5 +122,7 @@ The two workflows: **a plugin change** is an edit in `<vault>/.ose/plugins` and 
   open routes over that one route, not editors kept alive, and it is not restored on restart.
 - No startup route. The app opens on the home page (one card per plugin) and the sidebar; the
   user picks. Nothing the user last looked at is restored.
-- No drag-to-reorder in the tree: order comes from names. No math: a bare `$` stays a `$`.
+- No drag-to-reorder in the tree: order comes from names. Maths is `$...$` and `$$...$$` by the
+  pandoc rule, rendered with Temml to MathML in the platform's maths face; a `$` that opens
+  nothing, as in `5 $ puis 10 $`, stays a `$`.
 - No installer and no code signing: a portable binary that is copied where it is wanted.

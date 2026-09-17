@@ -1,0 +1,107 @@
+/* Formulas, on all three surfaces: the block editor, `render()` and print.
+
+   Temml writes MathML and the browser lays it out, so almost nothing here is about the maths
+   itself: `Temml-Local.css` (the vendor's, imported beside this file) already carries the
+   engine's own rules. What is here is where a formula sits in a document, and what it looks
+   like while it is being edited.
+
+   The face is the platform's maths face, which on Windows is Cambria Math: the face Word's
+   equation editor uses, so a formula and the Cambria text around it are one document and not
+   two. `--font-math` is not a token yet; when tokens.css grows one it wins without a change
+   here. */
+
+.ose-math math {
+  font-family: var(--font-math, "Cambria Math", "STIX Two Math", "Latin Modern Math", math);
+}
+
+/* Inline: on the text baseline, no box, no padding. A formula in a sentence is a word. */
+span.ose-math {
+  display: inline;
+  font-size: 1em;
+}
+
+/* Display: a block of its own, centered, with the rhythm of a paragraph around it and no page
+   break through the middle of it. */
+/* No `overflow` of any kind: a scroller on one axis makes the other one `auto` too, and the
+   rounding of a formula's own height is enough to put a scrollbar down the side of it. A long
+   formula breaks at its binary operators instead (`wrap: tex`, math.js), which is what Word
+   does on the teacher's page. */
+.ose-math-display {
+  display: block;
+  margin: var(--doc-gap-head) 0;
+  text-align: center;
+  break-inside: avoid;
+}
+
+.ose-math-display math {
+  display: block math;
+  margin-inline: auto;
+}
+
+/* A formula Temml refuses keeps its source, in the error colour, in the code face, with the
+   message on the title. Nothing is ever hidden and nothing is ever lost. */
+.ose-math-bad {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: var(--err);
+  white-space: pre-wrap;
+  cursor: help;
+}
+
+/* ---------------------------------------------------------------------------
+   The editor: a formula shows rendered, and shows its TeX when the caret is in it. */
+
+.ed .milkdown .ose-math {
+  cursor: text;
+}
+
+/* The caret is in it: the source, in the code face, on a faint ground. The rendered picture is
+   gone while this is on screen, so nothing jumps except the one formula being edited. */
+.ose-math-src {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.4;
+  color: var(--fg);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 var(--sp-half);
+  white-space: pre-wrap;
+  outline: none;
+  caret-color: var(--accent);
+  min-width: 1ch;
+}
+
+.ose-math-src:focus {
+  border-color: var(--accent);
+}
+
+span.ose-math > .ose-math-src {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.ose-math-display > .ose-math-src {
+  display: block;
+  text-align: left;
+  padding: var(--sp-1) var(--sp-2);
+}
+
+/* Selected as a block by Ctrl+A or a click, before the source opens. */
+.ed .milkdown .ose-math.ProseMirror-selectednode {
+  background: var(--sel);
+}
+
+/* An empty display formula is still a place to put the caret. */
+.ose-math-display:empty::before {
+  content: "$$";
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
+
+/* Print: the ink is the page's own (the light tokens are put on before the dialog opens), the
+   source box is never on paper, and a formula is never split across two pages. */
+@media print {
+  .ose-math-src { display: none; }
+  .ose-math-display { break-inside: avoid; }
+}

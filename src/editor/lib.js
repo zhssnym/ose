@@ -2,10 +2,11 @@
 //
 //   markdownPage(el, path, opts)  the block editor: title strip, properties, autosave,
 //                                 changed-on-disk, versions, source mode, find and replace,
-//                                 drop, links, backlinks, tables, code blocks, images, and
-//                                 every command and chord the editor has.
+//                                 drop, links, backlinks, tables, code blocks, images, maths,
+//                                 and every command and chord the editor has.
 //   codeEditor(el, opts)          CodeMirror over a file or a string.
 //   render(markdown, opts)        the same markdown, read-only, as DOM.
+//   renderMath(tex, opts)         one formula, rendered with Temml to MathML.
 //
 // Everything the bundle needs from outside comes through `host.js` (the kernel: `ose:kernel`,
 // `ose:ui`, `ose:md`) and nothing else. The stylesheet is `editor.css` on the kernel origin:
@@ -17,6 +18,7 @@
 export { markdownPage } from './page.js';
 export { codeEditor } from './code-editor.js';
 export { render } from './render.js';
+export { renderMath } from './math.js';
 
 /**
  * The page-level commands (`page.new`, `page.save`, `page.rename`…) without a page mounted, so

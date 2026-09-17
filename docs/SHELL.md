@@ -60,7 +60,7 @@ A plugin is not here. It is a folder in `<vault>/.ose/plugins`, loaded at boot a
 
 `keys.json` is an override layer, not the keymap: the window map is the kernel's
 (`ose.keys.defaults()`, with its macOS alternates and in-body rules that JSON cannot say). The
-stock file adds `mod+r` to `app.reload` and `mod+shift+j` to `journal.new`. A chord here wins over
+stock file adds `mod+r` to `app.reload` and `mod+shift+j` to `journal.new` and `mod+shift+p` to `page.print`. A chord here wins over
 a kernel default and over a plugin's own `shortcut`.
 
 `theme.css` is the one place the look is changed: token overrides only, never a rule and never a

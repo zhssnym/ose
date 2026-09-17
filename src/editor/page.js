@@ -1722,7 +1722,7 @@ function registerCommands() {
     when: hasPage, run: () => void editorApi.copyMarkdown(),
   });
   commands.register({
-    id: 'page.print', title: 'Print page', group: 'page',
+    id: 'page.print', title: 'Print or save as PDF', group: 'page',
     when: hasPage, run: () => printPage(),
   });
   // The chords are the kernel's (keys.js): Ctrl+F for find, the outline's is its choice.

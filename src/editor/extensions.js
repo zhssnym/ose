@@ -14,6 +14,8 @@
 // anything else sees them, so `table` is first.
 
 import * as table from './table.js';
+import * as math from './math-node.js';
+import * as blanks from './blanks.js';
 import * as code from './code.js';
 import * as commandsMod from './commands.js';
 import * as menu from './menu.js';
@@ -24,7 +26,7 @@ import * as backlinks from './backlinks.js';
 import * as linkstate from './linkstate.js';
 import * as wikitrigger from './wikitrigger.js';
 
-const MODULES = [table, code, commandsMod, menu, image, source, versions, backlinks, linkstate, wikitrigger];
+const MODULES = [table, math, blanks, code, commandsMod, menu, image, source, versions, backlinks, linkstate, wikitrigger];
 
 /** @returns {import('@milkdown/kit/prose/state').Plugin[]} */
 export function extensionPlugins(ctx, o) {

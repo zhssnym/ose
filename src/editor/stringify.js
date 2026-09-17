@@ -10,6 +10,7 @@
 
 import { remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { remarkGFMPlugin } from '@milkdown/kit/preset/gfm';
+import { lineRuns, opensDisplay } from './math.js';
 
 /** The exact options. Every one of these is answerable to a real file in the vault. */
 export const STRINGIFY_OPTIONS = {
@@ -131,22 +132,78 @@ function widenDelimiters(lines) {
   }
 }
 
-/** Stateful fence detector: true for a fence marker line and for every line inside a fence. */
+/** A `$$` on a line of its own: the fence a multi-line display formula opens and closes with. */
+const BARE_DISPLAY = /^ {0,3}\$\$[ \t]*$/;
+/** `$$ ... $$` on one line: a display formula that opens and closes where it stands. */
+const ONE_LINE_DISPLAY = /^ {0,3}\$\$[\s\S]*\$\$[ \t]*$/;
+
+/**
+ * Stateful fence detector: true for a fence marker line and for every line inside a fence.
+ *
+ * A display formula is a fence like any other. Its lines are TeX and not markdown, so nothing
+ * in this file may unescape inside one, restyle one, or cut a block at a blank line in one.
+ */
 function fenceTracker() {
   let inFence = false;
   let mark = '';
   return (line) => {
-    const m = line.match(/^\s{0,3}(`{3,}|~{3,})/);
-    if (m) {
-      if (!inFence) { inFence = true; mark = m[1][0]; return true; }
-      if (m[1][0] === mark) { inFence = false; mark = ''; return true; }
+    if (inFence) {
+      if (mark === '$') { if (/\$\$[ \t]*$/.test(line)) { inFence = false; mark = ''; } return true; }
+      const m = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (m && m[1][0] === mark) { inFence = false; mark = ''; }
+      return true;
     }
-    return inFence;
+    const m = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (m) { inFence = true; mark = m[1][0]; return true; }
+    if (!opensDisplay(line)) return false;
+    if (ONE_LINE_DISPLAY.test(line)) return true;          // opens and closes where it stands
+    // Only a bare `$$` opens a formula that runs on: a line that merely starts with `$$` and
+    // never closes would otherwise swallow the rest of the file.
+    if (!BARE_DISPLAY.test(line)) return false;
+    inFence = true;
+    mark = '$';
+    return true;
   };
 }
 
 /**
- * Walk one line outside code spans and undo the over-escapes.
+ * The formulas and the code spans of one line, by their start index: everything in them is
+ * kept byte for byte, because none of it is markdown. A `\&` or a `\_` inside `$...$` is TeX
+ * the user wrote and the serializer never put it there.
+ */
+function verbatimRuns(runs) {
+  const skip = new Map();
+  for (const r of runs) if (r.kind !== 'text') skip.set(r.start, r.end);
+  return skip;
+}
+
+/**
+ * May every `\$` on this line lose its backslash?
+ *
+ * The serializer escapes every `$` in running text, without exception, because deciding one at
+ * a time needs to know what the `$` three words further on will do. Here the whole line is in
+ * hand, so the question can be asked properly: build the line with the backslashes taken off,
+ * and keep them only if that would make, unmake or change a formula. `Un prix de 5 $ puis de
+ * 10 $` gets its dollars back; `\$x\$` keeps them, because `$x$` is a formula and the file
+ * said it was text.
+ */
+function dollarsSafe(line, runs) {
+  if (!line.includes('\\$')) return true;
+  let candidate = '';
+  for (const r of runs) {
+    const text = line.slice(r.start, r.end);
+    candidate += r.kind === 'text' ? text.replace(/\\\$/g, '$') : text;
+  }
+  return mathShape(candidate) === mathShape(line);
+}
+
+/** What the maths of a line is: the display fence, then every formula, in order. */
+const mathShape = (line) =>
+  (opensDisplay(line) ? 'D ' : '')
+  + lineRuns(line).filter((r) => r.kind === 'math').map((r) => line.slice(r.start, r.end)).join(' ');
+
+/**
+ * Walk one line outside code spans and formulas and undo the over-escapes.
  * `opensTable` says the next line is a delimiter row, which is the one place where an
  * unescaped `|` would turn this line into a table header.
  */
@@ -160,23 +217,18 @@ function unescapeLine(line, opensTable) {
   // `[` only opens a link when `](` or `][` follows it on the line. CommonMark allows no
   // space between the two, so `[cours] (Q1)` is plain text, not a link.
   const bracketSafe = !/\][([]/.test(line);
+  const runs = lineRuns(line);
+  const skip = verbatimRuns(runs);
+  const dollarSafe = dollarsSafe(line, runs);
 
   let out = '';
   let i = 0;
-  let inCode = false;
-  let codeTicks = 0;
   while (i < line.length) {
     const ch = line[i];
-    if (ch === '`') {
-      let n = 0;
-      while (line[i + n] === '`') n++;
-      if (!inCode) { inCode = true; codeTicks = n; }
-      else if (n === codeTicks) { inCode = false; codeTicks = 0; }
-      out += line.slice(i, i + n);
-      i += n;
-      continue;
-    }
-    if (!inCode && ch === '\\' && i + 1 < line.length) {
+    const jump = skip.get(i);
+    // A code span or a formula: its bytes are its own.
+    if (jump !== undefined) { out += line.slice(i, jump); i = jump; continue; }
+    if (ch === '\\' && i + 1 < line.length) {
       const next = line[i + 1];
       // A `*` with whitespace on both sides is neither left- nor right-flanking, so it can
       // never open or close emphasis: `100,000 * 100,000` needs no backslash.
@@ -206,6 +258,7 @@ function unescapeLine(line, opensTable) {
         hashTag = !!after && !/\s/.test(after);
       }
       if ((next === '~' && tildeSafe) || (next === '[' && bracketSafe) || (next === '|' && pipeSafe)
+        || (next === '$' && dollarSafe)
         || loneStar || linkParen || wordUnderscore || hashTag || ampersand) out += next;
       else out += ch + next;
       i += 2;
@@ -213,7 +266,7 @@ function unescapeLine(line, opensTable) {
     }
     // A leading space inside a block is written as a character reference. Hassan's files
     // contain real double spaces (`- [ ]  Home Rent: 500`); keep them literal.
-    if (!inCode && ch === '&' && line.startsWith('&#x20;', i) && i + 6 < line.length) {
+    if (ch === '&' && line.startsWith('&#x20;', i) && i + 6 < line.length) {
       out += ' ';
       i += 6;
       continue;
@@ -724,28 +777,22 @@ function stripEscapes(text, prev, only = -1) {
   }
   let n = 0;
   return mapLines(text, (line) => {
+    const skip = verbatimRuns(lineRuns(line));
     let out = '';
     let i = 0;
-    let ticks = 0;
     while (i < line.length) {
       const ch = line[i];
-      if (ch === '`') {
-        let c = 0;
-        while (line[i + c] === '`') c++;
-        if (!ticks) ticks = c; else if (c === ticks) ticks = 0;
-        out += line.slice(i, i + c);
-        i += c;
-        continue;
-      }
+      const jump = skip.get(i);
+      if (jump !== undefined) { out += line.slice(i, jump); i = jump; continue; }
       const nx = line[i + 1];
-      if (!ticks && ch === '\\' && nx && nx !== '\\' && ESCAPABLE.test(nx) && !had.has(nx)) {
+      if (ch === '\\' && nx && nx !== '\\' && ESCAPABLE.test(nx) && !had.has(nx)) {
         const drop = only < 0 || only === n;
         n++;
         out += drop ? nx : ch + nx;
         i += 2;
         continue;
       }
-      if (!ticks && ch === '\\' && nx === '\\') { out += '\\\\'; i += 2; continue; }
+      if (ch === '\\' && nx === '\\') { out += '\\\\'; i += 2; continue; }
       out += ch;
       i++;
     }
@@ -763,7 +810,10 @@ function stripEscapes(text, prev, only = -1) {
 // block the user edited is the one that would come back in the house style. So an edited
 // block is put back in the style of the file it lives in, and verified like everything else.
 
-const DEFAULT_STYLE = { bullet: '-', ordered: '.', rule: '---', fence: '`', indent: 2 };
+const DEFAULT_STYLE = { bullet: '-', ordered: '.', rule: '---', fence: '`', indent: 2, quote: '> >' };
+
+/** The marker run of a quoted line: the indent, then the `>`s and the spaces between them. */
+const QUOTE_RUN = /^( {0,3})((?:>[ \t]?)+)/;
 
 /** What this file is written with. Only what the serialiser would otherwise override. */
 export function detectStyle(text) {
@@ -772,11 +822,18 @@ export function detectStyle(text) {
   const fence = fenceTracker();
   let seenBullet = false;
   let seenIndent = false;
+  let seenQuote = false;
   for (const line of lines) {
     const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     const inFence = fence(line);
     if (f) { style.fence = f[1][0]; continue; }
     if (inFence) continue;
+    // A frame is `>>` in this vault and `> >` in remark's output (M25). The file decides.
+    const quote = QUOTE_RUN.exec(line);
+    if (quote && !seenQuote && (quote[2].match(/>/g) || []).length > 1) {
+      style.quote = /^>>/.test(quote[2]) ? '>>' : '> >';
+      seenQuote = true;
+    }
     const rule = /^\s{0,3}((?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.exec(line);
     if (rule) { style.rule = rule[1].trimEnd(); continue; }
     const item = /^([ \t]*)([-*+]|\d+[.)])[ \t]/.exec(line);
@@ -789,7 +846,8 @@ export function detectStyle(text) {
 }
 
 const isDefaultStyle = (s) =>
-  s.bullet === '-' && s.ordered === '.' && s.rule === '---' && s.fence === '`' && s.indent === 2;
+  s.bullet === '-' && s.ordered === '.' && s.rule === '---' && s.fence === '`' && s.indent === 2
+  && s.quote === '> >';
 
 /** One block rewritten in `style`. Idempotent on lines that are already in it. */
 function applyStyle(text, style) {
@@ -802,6 +860,14 @@ function applyStyle(text, style) {
     if (inFence) return line;
     if (/^\s{0,3}-{3,}\s*$/.test(line)) return style.rule;
     let out = line;
+    // `>>` is one construct written two ways, and remark writes the other one. A file that
+    // frames a theorem with `>>` keeps `>>` on the line the user edited as well (M25).
+    if (style.quote === '>>') {
+      out = out.replace(QUOTE_RUN, (m, ind, marks) => {
+        const n = (marks.match(/>/g) || []).length;
+        return n > 1 ? ind + '>'.repeat(n) + (/[ \t]$/.test(marks) ? ' ' : '') : m;
+      });
+    }
     // Only remark's own two-space nesting is rescaled, and only in a block with no original to
     // read the indent off (`restoreLinesIn` does that better). Three spaces is what an ordered
     // list's continuation gets, and scaling it would land between two levels.

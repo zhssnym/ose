@@ -2,7 +2,24 @@
 // use it, so what the harness proves is what the editor actually does.
 
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
-import '@milkdown/crepe/theme/common/style.css';
+// Crepe's theme, one file at a time instead of its `theme/common/style.css`, which is nothing
+// but these `@import`s plus `latex.css`. That one line pulls in `katex/dist/katex.min.css` and
+// with it sixty KaTeX font files, 1.0 MB of the built kernel, for a feature that is switched off
+// below and a renderer the app does not use: maths is Temml and MathML (math.js).
+import '@milkdown/crepe/theme/common/prosemirror.css';
+import '@milkdown/crepe/theme/common/reset.css';
+import '@milkdown/crepe/theme/common/block-edit.css';
+import '@milkdown/crepe/theme/common/code-mirror.css';
+import '@milkdown/crepe/theme/common/cursor.css';
+import '@milkdown/crepe/theme/common/image-block.css';
+import '@milkdown/crepe/theme/common/link-tooltip.css';
+import '@milkdown/crepe/theme/common/list-item.css';
+import '@milkdown/crepe/theme/common/placeholder.css';
+import '@milkdown/crepe/theme/common/toolbar.css';
+import '@milkdown/crepe/theme/common/table.css';
+import '@milkdown/crepe/theme/common/top-bar.css';
+import '@milkdown/crepe/theme/common/diff.css';
+import '@milkdown/crepe/theme/common/ai.css';
 import { editorViewCtx, parserCtx, prosePluginsCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
@@ -15,6 +32,7 @@ import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './
 import { dropPlugin } from './drop.js';
 import { extensionPlugins, extensionFeatureConfigs } from './extensions.js';
 import { extendCodeBlock, extendLink, definitionSchema, remarkResolveReferences } from './fidelity.js';
+import { mathSchemas } from './math-node.js';
 
 // A token read at construction time, for the one Crepe option that takes a colour string and
 // not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
@@ -49,7 +67,9 @@ export async function makeCrepe(o) {
       [CrepeFeature.LinkTooltip]: true,
       [CrepeFeature.ListItem]: true,
       [CrepeFeature.Cursor]: true,
-      // off: Latex (no maths in the vault, and it would rewrite `$` in prose),
+      // off: Latex (KaTeX, its Computer Modern and its sixty font files, and a `$` rule read
+      //      like a code span, so a price in a journal entry becomes a formula; maths is
+      //      math.js and math-node.js instead, on the pandoc rule and Temml),
       //      TopBar (a fixed formatting ribbon; the selection toolbar and the slash menu do
       //      that job), AI (no AI surface in the app), BlockEdit (it is only the gutter
       //      handle, removed in batch 2, plus a slash menu that cannot be retriggered or
@@ -127,6 +147,10 @@ async function installExtras(editor, o) {
   await editor.remove(remarkInlineLinkPlugin);
   editor.use(definitionSchema);
   editor.use(remarkResolveReferences);
+  // Maths: the remark plugin that carries the pandoc `$` rule both ways, and the two nodes the
+  // formulas become. The node views, the input rules and the keys are ProseMirror plugins and
+  // come through extensions.js with the rest.
+  for (const plugin of mathSchemas) editor.use(plugin);
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */

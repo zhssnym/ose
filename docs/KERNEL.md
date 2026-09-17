@@ -345,7 +345,7 @@ kernel promises exactly three things about it:
 ## `ose:editor`
 
 ```js
-import { markdownPage, codeEditor, render } from 'ose:editor'
+import { markdownPage, codeEditor, render, renderMath } from 'ose:editor'
 
 markdownPage(el, path, opts)  -> { close(), save(), path, dirty, focus(), find(query), on(event, fn) }
     the block editor as it exists: title strip, properties, autosave, changed-on-disk dialog,
@@ -399,6 +399,14 @@ codeEditor(el, { path | text, language, readOnly, grow, gutter, indent, placehol
     `.ed-code`, so there Ctrl+S still saves the page).
     Colours are the `--code-*` tokens, the same palette a fenced code block in a page is
     drawn with, in both themes.
+renderMath(tex, { display })  -> HTMLElement
+    one formula, rendered with Temml to MathML: a `<span class="ose-math">` or, with
+    `display: true`, a `<div class="ose-math ose-math-display">`. The browser lays MathML out in
+    the platform's maths face (`Cambria Math` on Windows), which is the face Word's equation
+    editor uses, so a formula and the page's serif text are one document. It never throws and
+    never loses the text: TeX Temml refuses comes back as its own source in the error colour,
+    with Temml's message on the element's `title`. A plugin that draws a statement of its own
+    calls this; `render()` and the page editor already do.
 render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
     read-only, links resolved, images through vault.localhost, and fenced code coloured with
     the same grammars and the same `--code-*` tokens the editor uses. `codeLanguage` is the
@@ -410,9 +418,39 @@ render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
     A Python transcript keeps its shape rather than being read as a program: the `>>>` and
     `...` prompts are drawn in the comment ink, only what follows a prompt is parsed, and the
     interpreter's answer keeps the body colour.
+    Maths is read by the same rule the page editor reads, so a `$` means one thing in the app.
 ```
 
 The stylesheet is `editor.css` on the kernel origin. Tokens come from `ui.css`.
+
+### Maths
+
+`$...$` is a formula and `$$...$$` is a display formula, by pandoc's rule: an opening `$` is
+followed by a character that is not a space, a closing `$` is preceded by one and is not followed
+by a digit. So `$u_n$` is maths, `Un prix de 5 $ puis de 10 $` is text and so is
+`$20,000 and $30,000`; `\$` is a literal dollar, `$$` inside a paragraph is two of them, and
+nothing inside a code span or a fenced block is ever maths. A display formula is `$$` at the
+start of a block closed by the first `$$` with nothing but whitespace after it on its line, so
+`$$x$$` and a `$$` fence over several lines are both display formulas and each writes itself back
+as it was written; a `$$` that never closes, or one on the line under a sentence, stays text.
+One rule, read by all three surfaces: the block editor (`math.js` as a micromark extension
+through remark, `math-node.js` for the nodes), `render()` (the same rule as a marked extension),
+and `renderMath` for a plugin.
+
+In the block editor a formula is an atom holding its TeX in one attribute, `math_inline` or
+`math_block`, and nothing holds a second copy. It shows rendered; a click or the caret arriving
+on it shows the TeX in place in the code face; Enter in an inline formula, Escape, an arrow key
+out of either end, or the caret going anywhere else commits it and renders it again. In a
+display formula Enter is a new line and Escape commits, because `\begin{aligned}` needs one. The
+commit is one transaction, so undo takes a formula back in one step. Typing `$x^2$` and closing
+the dollar makes a formula, `$$` on an empty line opens a display one, copying one copies its TeX
+with its dollars, and an empty one is deleted rather than written. A file opened and saved
+without touching a formula keeps every byte: the serializer escapes every `$` in running text and
+`postProcess` takes the backslashes off again wherever the whole line proves that changes no
+formula (`stringify.js`, `dollarsSafe`), and a display formula is a fence to that clean-up
+exactly as a code block is.
+
+### Code
 
 Every language in CodeMirror's pack is there, loaded from a chunk of its own the first time
 something asks for it, and the same table answers all three surfaces: a fence's name in a page,

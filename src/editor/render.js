@@ -10,10 +10,11 @@
 // block is coloured by the same grammars and the same `--code-*` tokens a code block in the
 // editor is, so a drill's statement and the file the answer is typed into look like one app.
 
-import { marked } from 'marked';
+import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { bridge } from './host.js';
 import { describe, highlightInto, loadLanguage } from './highlight.js';
+import { markedMath, paintMath } from './math.js';
 import * as P from './paths.js';
 import './render.css';
 
@@ -21,6 +22,12 @@ import './render.css';
 // harmless ones, but a note that draws its own layout stops being a note), and a single
 // newline is a newline, exactly as the block editor treats it.
 const OPTIONS = { gfm: true, breaks: false, pedantic: false };
+
+// An instance of marked of our own, never the module-level one: `use` is global on that one and
+// a note is not the only thing in this bundle that parses markdown. The maths extension is the
+// same pandoc rule the block editor reads (math.js), so a `$` means the same thing on both.
+const md = new Marked(OPTIONS);
+md.use(markedMath);
 
 /**
  * @param {string} markdown
@@ -34,13 +41,16 @@ export function render(markdown, opts = {}) {
 
   let html = '';
   try {
-    html = marked.parse(String(markdown ?? ''), OPTIONS);
+    html = md.parse(String(markdown ?? ''), OPTIONS);
   } catch (e) {
     console.error('[editor] render', e);
     box.textContent = String(markdown ?? '');
     return box;
   }
   box.innerHTML = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  // After the sanitiser, never before: its html profile does not know MathML and would take a
+  // `<math>` element apart. What marked wrote is a placeholder holding the TeX as text.
+  paintMath(box);
 
   for (const a of box.querySelectorAll('a[href]')) resolveLink(a, basePath);
   for (const img of box.querySelectorAll('img[src]')) resolveImage(img, basePath);

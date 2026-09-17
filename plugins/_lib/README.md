@@ -13,7 +13,8 @@ clocks ticking at two rates.
 
 | file | what | imported by |
 | --- | --- | --- |
-| `drills.js` | the drill page: DOM helpers (`h`, `clear`), words (`plural`, `duration`), `tones` and `chips`, `list`, `errorBlock`, `createClock` and `mountClock`, `titleLine`, `metaLine`, `paneLabel`, `controls`, `verdict`, `pathLine`, `focusMode`, `ensureStylesheet` | maths, nsi |
+| `table.js`, `table.css` | `drillTable(el, { columns, rows, onOpen, empty })`: the bordered, square table both drill indexes are, one tab stop, the keyboard starting on the row marked `here` | maths, nsi |
+| `drills.js` | the drill page: DOM helpers (`h`, `append`, `clear`), words (`plural`, `duration`, `clockText`, `stamp`), `errorBlock`, `createClock` and `mountClock`, `titleLine`, `metaLine`, `paneLabel`, `controls`, `verdict`, `focusMode`, `ensureStylesheet` | maths, nsi |
 | `drills.css` | every rule those pieces need, all prefixed `drill-`; linked by `ensureStylesheet()`, never by a plugin | maths, nsi |
 | `timetable.js` | `TIMETABLE` (the grid constants) and `parseTimetable`: one H1 per weekday, one line per block | day, week |
 | `plans.js` | the monthly plan and the systems log: `planDir`, `planPath`, `resolvePlanPath`, `isGoalLabel`, `isGapLine`, `parseMonthlyPlan`, `parseHabits`, `applies`, `parseSystemsLog` (alias `parseSystems`), `logKey`, `systemsFor` | day, month |

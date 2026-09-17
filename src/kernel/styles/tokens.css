@@ -115,6 +115,7 @@
      keeps --font-mono everywhere. Cambria is the face the owner's maths teacher writes his
      handouts in; it ships with Windows and with Office. */
   --font-doc: Cambria, "Times New Roman", Georgia, serif;
+  --font-math: "Cambria Math", "STIX Two Math", "Latin Modern Math", math;   /* the face Word sets equations in */
 
   /* rem, so the zoom factor above carries them. The px each one is at 100 % is in the comment. */
   --fs-chrome: 0.75rem;         /* 12 */
@@ -200,6 +201,7 @@
   /* No Cambria on a Mac. Iowan Old Style is the book face macOS ships, Palatino the one every
      Mac has had since 1984; both are old-style serifs of Cambria's colour and width. */
   --font-doc: "Iowan Old Style", Palatino, Georgia, serif;
+  --font-math: "STIX Two Math", "Cambria Math", "Latin Modern Math", math;
   -webkit-font-smoothing: antialiased;
 }
 

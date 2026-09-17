@@ -20,6 +20,7 @@
 // pure parsers and stands alone. So every `ose:*` specifier is **external** in every bundle,
 // and nothing is bundled twice.
 
+import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -54,9 +55,13 @@ if (existsSync(here('src/editor/lib.js'))) ENTRIES.editor = here('src/editor/lib
 const s = stamp();
 
 /** The shell into `dist-kernel/shell/`, after the bundles, so one build makes the whole exe. */
-function shellIntoTheBuild(outDir) {
+function shellIntoTheBuild() {
+  let outDir = here('dist-kernel');
   return {
     name: 'ose-embed-shell',
+    // The directory this build really writes (`--outDir` on the command line included), so a
+    // check build somewhere else never rewrites dist-kernel/shell.
+    configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
     closeBundle() {
       embedShell(outDir);
     },
@@ -76,7 +81,9 @@ export default defineConfig({
     __VUE_PROD_DEVTOOLS__: 'false',
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
   },
-  plugins: [shellIntoTheBuild(here('dist-kernel'))],
+  plugins: [shellIntoTheBuild()],
+  // See src/editor/katex-absent.js: Crepe's unused Latex feature would drag KaTeX in.
+  resolve: { alias: { katex: here('src/editor/katex-absent.js') } },
   build: {
     outDir: 'dist-kernel',
     emptyOutDir: true,

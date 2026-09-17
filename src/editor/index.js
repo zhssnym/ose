@@ -11,6 +11,7 @@ import { acquireCommands, markdownPage } from './page.js';
 export { markdownPage } from './page.js';
 export { codeEditor } from './code-editor.js';
 export { render } from './render.js';
+export { renderMath } from './math.js';
 
 /** @type {null | ReturnType<typeof markdownPage>} */
 let page = null;

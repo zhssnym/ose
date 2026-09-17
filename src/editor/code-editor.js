@@ -340,7 +340,7 @@ export function codeEditor(el, opts = {}) {
      * A `setText` from outside is an edit: the caller means the buffer to hold this and, for a
      * path editor, the next `save()` to write it. It used to go in without marking the editor
      * dirty, so `save()` short-circuited on `if (!dirty)` and answered true having written
-     * nothing — and the Informatique plugin seeds a student's empty answer file exactly this
+     * nothing — and the Code plugin seeds a student's empty answer file exactly this
      * way, then submits it to the judge.
      */
     setText(text) { if (view.setText(String(text ?? ''))) markDirty(); },
