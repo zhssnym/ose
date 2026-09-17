@@ -8,7 +8,7 @@
 // event, and the recent-files list the quick-open palette reads.
 import { bus, store, status, views, commands, debounce, esc } from './registry.js';
 import { bridge } from './bridge/index.js';
-// The editor is a separate bundle (`ose:editor`) and the kernel never imports it: the rice
+// The editor is a separate bundle (`ose:editor`) and the kernel never imports it: the shell
 // registers whoever draws a page through `setPageHost` (./pagehost.js).
 import { pageHost, headingLineIn } from './pagehost.js';
 import { patchState, stateCache, flushState } from './state.js';
@@ -68,8 +68,8 @@ function normalize(route) {
     return r;
   }
   if (route.type === 'view' && route.name) return { type: 'view', name: String(route.name) };
-  // An owned route (docs/KERNEL.md `ose.route.own`): a path in a pattern a module claimed.
-  // The kernel keeps no other field; whatever else the caller passed is the module's business
+  // An owned route (docs/KERNEL.md `ose.route.own`): a path in a pattern a plugin claimed.
+  // The kernel keeps no other field; whatever else the caller passed is the plugin's business
   // and is handed to `mount` unchanged.
   if (route.type === 'own' && route.path) {
     const r = { type: 'own', path: clean(route.path) };
@@ -79,10 +79,10 @@ function normalize(route) {
   return null;
 }
 
-/* ------------------------------------------------------- routes a module owns (ose.route.own) */
+/* ------------------------------------------------------- routes a plugin owns (ose.route.own) */
 
 // pattern -> { match(path), mount, owner }. A pattern is a plain glob over vault-ish paths.
-// First registration wins a collision, so a module cannot silently steal another's pages.
+// First registration wins a collision, so a plugin cannot silently steal another's pages.
 const owners = [];
 const indexers = [];
 
@@ -93,7 +93,7 @@ const quoteGlob = (s) => s.replace(RE_SPECIAL, '\\$&');
 //
 // - a trailing `/*` is greedy: `nsi/*` owns everything under `nsi/`, at any depth, so
 //   `nsi/chapitre-1/03-arbres` is its page. This is the normal case, not an edge: an id with a
-//   slash in it (`chapitre-N/NN-slug`) is a format a module picks, and a manifest that says
+//   slash in it (`chapitre-N/NN-slug`) is a format a plugin picks, and a pattern that says
 //   `routes: ["nsi/*"]` means the section, not one level of it.
 // - a `*` anywhere else is one segment: `nsi/*/notes` matches `nsi/chapitre-1/notes` and not
 //   `nsi/chapitre-1/03-x/notes`.
@@ -194,12 +194,12 @@ function pushRecent(path) {
 }
 
 /**
- * `ose.route.init(el, { start })` — the rice mounts the router into its page column, once.
+ * `ose.route.init(el, { start })` — the shell mounts the router into its page column, once.
  *
- * `start: false` skips the empty surface the mount otherwise draws. A rice that opens on a
- * surface of its own (the stock cockpit's dashboard) would otherwise show the kernel's empty
+ * `start: false` skips the empty surface the mount otherwise draws. A shell that opens on a
+ * surface of its own (the shell's home page) would otherwise show the kernel's empty
  * surface for as long as its own boot takes, and the user would watch it flash away. The
- * column is simply left blank until the rice navigates. Nothing else changes: `route.close()`
+ * column is simply left blank until the shell navigates. Nothing else changes: `route.close()`
  * still draws the empty surface, which stays what it always was.
  */
 export function initRouter(el, { start = true } = {}) {
@@ -214,7 +214,7 @@ export function initRouter(el, { start = true } = {}) {
   // what lets the adapter await it rather than trusting a timer.
   //
   // The unmount is the third guarantee (docs/KERNEL.md, ADV-T): a page's `unmount` runs on a
-  // navigation, on the unload of its module, and when the window closes or reloads — a module
+  // navigation, on the unload of its plugin, and when the window closes or reloads — a plugin
   // that banks its clock there does not lose the visit to Ctrl+Q. The state file is flushed
   // after it, so whatever the unmount patched is in the write.
   bridge.on('window', (d) => {
@@ -223,7 +223,7 @@ export function initRouter(el, { start = true } = {}) {
   });
 
   // Ctrl+R (`app.reload`) and the update loop never raise `closing`: the host navigates the web
-  // view back to the rice's index.html and a browser reloads the document, and both of those
+  // view back to the app's index.html and a browser reloads the document, and both of those
   // are `pagehide` — the same event `state.js` and `kernel.js` already hang their own teardown
   // on. Nothing here can be awaited (the document is going), so the unmount's synchronous half
   // is what banks; `flushState` then writes what it patched, exactly as on the closing path.
@@ -262,7 +262,7 @@ export function initRouter(el, { start = true } = {}) {
 
   // No startup route (CONTRACT.md batch 2), but not a bare rectangle either: the empty
   // surface is drawn now, without taking focus from the sidebar the user is about to use.
-  // A rice with a home of its own asks for `start: false` and draws that instead.
+  // A shell with a home of its own asks for `start: false` and draws that instead.
   if (start) void show(null, { focus: false });
 }
 
@@ -356,8 +356,8 @@ async function teardown() {
  * they would be on a navigation. The editor is left alone — it has a `closing` subscriber of
  * its own that saves and may veto (batch 9), and running its close twice would ask the
  * changed-on-disk question against its own write. Everything is best effort: on `pagehide` only
- * the synchronous half of an `unmount` can still run, which is why a module banks on a timer as
- * well (docs/MODULES.md).
+ * the synchronous half of an `unmount` can still run, which is why a plugin banks on a timer as
+ * well (docs/PLUGINS.md).
  */
 async function unmountOnUnload() {
   if (!current || current.type === 'page') return;
@@ -368,16 +368,16 @@ async function unmountOnUnload() {
 }
 
 /**
- * `ose.modules.unload(id)` asks for this when the module it is taking apart owns what is on
+ * `ose.plugins.unload(id)` asks for this when the plugin it is taking apart owns what is on
  * screen: the page is unmounted through the router's own teardown — its clock banked, its
  * editor closed, its processes stopped — before `deactivate` pulls the facade out from under
- * it, and the column is left on nothing. The rice decides what nothing means (the stock
- * cockpit's tab strip puts the dashboard there); the kernel knows no view by name.
+ * it, and the column is left on nothing. The shell decides what nothing means (its tab strip
+ * puts the home page there); the kernel knows no view by name.
  */
 export async function dropCurrent() {
   if (!current) return;
   // `show(null)` is the ordinary teardown-and-draw-nothing path, so the unmount is the same one
-  // a navigation runs and is awaited with it. Not `clearRoute`: what a module is taking with it
+  // a navigation runs and is awaited with it. Not `clearRoute`: what a plugin is taking with it
   // is not something Ctrl+Shift+T should offer to reopen.
   await show(null, { focus: false });
 }
@@ -489,8 +489,8 @@ function renderOwned(scroll, route) {
   el.className = 'page-host owned';
   scroll.appendChild(el);
   try {
-    // The return value is the module's handle: `title` names the window, `unmount` is called
-    // on the way out exactly like a view's. A module that returns nothing is fine.
+    // The return value is the plugin's handle: `title` names the window, `unmount` is called
+    // on the way out exactly like a view's. A plugin that returns nothing is fine.
     const handle = o.mount(el, route) || {};
     mountedView = handle;
     if (handle.title) { ownTitles.set(routeKey(route), String(handle.title)); setWindowTitle(route); bus.emit('route:title', { route, title: String(handle.title) }); }
@@ -576,15 +576,15 @@ async function renderStart(scroll, my, opts) {
  */
 /**
  * `ose.route.title(text)`: the window title of the **owned** route on screen, set after the
- * mount (a module that fetches its detail knows the real title a beat later). The router adds
- * ` · <vault>` the way it does for a page, which is what a module calling `ose.window.title`
+ * mount (a plugin that fetches its detail knows the real title a beat later). The router adds
+ * ` · <vault>` the way it does for a page, which is what a plugin calling `ose.window.title`
  * itself could not do (QA-K defect 8).
  */
 export function setOwnTitle(text) {
   if (!current || current.type !== 'own') return;
   ownTitles.set(routeKey(current), String(text ?? ''));
   setWindowTitle(current);
-  // The rice may draw the title elsewhere (a tab strip): one event, no new hose.
+  // The shell may draw the title elsewhere (a tab strip): one event, no new hose.
   bus.emit('route:title', { route: current, title: String(text ?? '') });
 }
 
@@ -726,7 +726,12 @@ export function reopenClosed() {
 
 export function canReopenClosed() { return closed.length > 0; }
 
-/** Used by the sidebar after a rename/trash of the page currently open. */
+/**
+ * The route on screen, mounted again. Used by the sidebar after a rename or a trash of the open
+ * page, and by `ose.paths` once a path a view was missing has been chosen. It is the ordinary
+ * teardown-and-draw path, so the unmount is awaited exactly as a navigation awaits it; the
+ * promise is answered so a caller can wait for the new mount.
+ */
 export function reopenCurrent() {
-  if (current) show(current);
+  return current ? show(current) : Promise.resolve();
 }

@@ -1,7 +1,7 @@
-/* os editor: reset, scrollbars, and the canonical components from DESIGN.md.
-   Modules use these classes; they do not redefine them. Every padding, margin and gap is a
-   step of the spacing scale in tokens.css (DESIGN.md "Space"); the geometry that is not
-   spacing (a 16px icon, a 12px scrollbar, a 2px bar) is written as the number it is. */
+/* Ose: reset, scrollbars, and the canonical components from DESIGN.md.
+   The shell and the plugins use these classes; they do not redefine them. Every padding, margin
+   and gap is a step of the spacing scale in tokens.css (DESIGN.md "Space"); the geometry that is
+   not spacing (a 16px icon, a 12px scrollbar, a 2px bar) is written as the number it is. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -187,6 +187,26 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   text-align: center; padding: var(--sp-7) var(--sp-4);
 }
 
+/* `ose.paths`: the box a view is given when the file or folder it asked for is not there, or
+   when several things match the name (docs/PLUGINS.md). The kernel draws it, into the element
+   the view handed to `get(key, { el })`, so every plugin asks the same question the same way.
+   Everything in it is a real button and focus lands on Choose…. */
+.path-box {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  width: 100%; max-width: 34rem; padding: var(--sp-4);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+  /* The view hands the box whatever element it was drawing into, which may be one cell of a
+     grid it laid out for something else. Spanning every column is ignored anywhere else and
+     keeps the box from collapsing to the width of its longest word where it is not. */
+  grid-column: 1 / -1;
+}
+.path-box-title { font-size: var(--fs-ui); color: var(--fg); }
+.path-box-hint, .path-box-what, .path-box-near { font-size: var(--fs-ui); color: var(--fg-2); }
+.path-box-what code { font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg); }
+.path-box-picks { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
+.path-box-pick { max-width: 100%; overflow: hidden; }
+.path-box-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+
 /* page column shared by editor and views. The bottom air is twice the top air: room to
    scroll the last line up into the middle of the window. */
 .page-col {
@@ -213,7 +233,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 
 /* `choose` (ose:ui): one question, a short list of answers. Rows, like every other picker in
    the app, so Up and Down walk them and Enter takes the focused one. The dialog frame itself
-   (.dlg-head, .dlg-body, .dlg-foot) is drawn by the rice's stylesheet. */
+   (.dlg-head, .dlg-body, .dlg-foot) is drawn by the shell's stylesheet. */
 .dlg-choices { display: flex; flex-direction: column; gap: var(--sp-1); }
 .choice { width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
 .choice:focus-visible { outline: none; background: var(--bg-4); }
@@ -222,9 +242,9 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 /* =================================================================== `ose:ui`
    Everything `ose:ui` draws: the overlay stack, the palette and the pickers built on it, the
    dialogs, the context menu and the toasts. These were in the shell's own stylesheet until
-   round four, which meant a rice that linked `ui.css` and called `toast()` got an unstyled
+   round four, which meant anything that linked `ui.css` and called `toast()` got an unstyled
    toast. They belong here, with the components they dress, so `ui.css` is the whole visual
-   system and a rice adds only what is its own. */
+   system and the shell adds only what is its own. */
 
 /* ------------------------------------------------------------------ overlays */
 
@@ -330,7 +350,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .toast.warn { color: var(--warn); border-color: var(--warn); }
 
 /* A short window gives the overlay a little more of it; the page column gives up some of
-   its top air in the rice's own stylesheet. */
+   its top air in the shell's own stylesheet. */
 @media (max-height: 720px) {
   .ov-box { max-height: 82vh; }
 }

@@ -2,7 +2,7 @@
 // .NET host, the HTTP adapter in a browser.
 // Adapters implement `call(cmd, args) -> Promise` and `subscribe(fn({event, data}))`, and may
 // add `win`, `platform` and `assetUrl` when the host does not route those through the RPC.
-// This file is the contract surface; see CONTRACT.md. Modules never import adapters directly.
+// This file is the contract surface; see CONTRACT.md. Nothing else imports an adapter.
 
 import { bus } from '../registry.js';
 
@@ -141,29 +141,18 @@ export const bridge = {
   // A vault file in the platform's default application (batch 12, N10/N24). Vault-relative, so
   // the host resolves it inside the root; `openExternal` keeps refusing every unknown scheme.
   openPath: (path) => call('openPath', path),
-  // Self-update (CONTRACT.md "Self-update"): the check never throws and answers
-  // {current, latest, behind, commits, asset, error}; the download streams the asset beside
-  // the executable and emits `update` events {phase:'download', received, total}; apply swaps,
-  // relaunches and exits, so on success it never resolves.
-  updateCheck: () => call('updateCheck'),
-  updateDownload: () => call('updateDownload'),
-  updateApply: () => call('updateApply'),
   getState: () => call('getState'),
   setState: (obj) => call('setState', obj),
   log: (text) => call('log', text),
-  // Round four, K1a. Spawn a program (never a shell): `opts` is {cwd, timeout, env, input,
-  // allow}, stdout and stderr arrive as the bridge event `run` — {id, stream, line} per line,
-  // then {id, done:true, code, timedOut}. `allow` is the program names the caller may run
-  // (a module's module.json `run`); the host also honours settings.run.allow.
+  // Round four, K1a. Spawn a program (never a shell): `opts` is {cwd, timeout, env, input},
+  // stdout and stderr arrive as the bridge event `run` — {id, stream, line} per line, then
+  // {id, done:true, code, timedOut}.
   run: (id, cmd, args = [], opts = {}) => call('run', id, cmd, args, opts),
   runKill: (id) => call('runKill', id),
-  // The rice (docs/RICE.md): where it is, whether the host decided to load it, and a reload of
-  // whatever page the window is on. `riceReady` cancels the host's five-second fallback timer;
-  // the kernel calls it when `ose.ready` resolves, and the fallback page calls it too.
-  riceInfo: () => call('riceInfo'),
+  // The page the window is on, reloaded (Ctrl+R): only the host knows where the app's own
+  // files are. `riceReady` tells it the kernel booted; the host keeps both names.
   reloadRice: () => call('reloadRice'),
   riceReady: () => call('riceReady'),
-  riceFailed: (reason) => call('riceFailed', String(reason ?? '')),
 };
 
 if (typeof window !== 'undefined') window.__bridge = bridge; // debugging only

@@ -64,7 +64,6 @@ export async function create() {
     listen(name, (e) => fanout({ event: name, data: e.payload }))
       .catch((err) => console.error(`[bridge] listen(${name}) failed`, err));
   forward('fs');
-  forward('update');
   // A second launch that named another folder: the host has adopted it and the page reloads
   // into it (S14). One window per vault, so this is how the other vault arrives.
   forward('vault');

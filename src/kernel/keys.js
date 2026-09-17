@@ -3,7 +3,7 @@
 // claims Ctrl+P/N/K/F/A/E/H (the Emacs caret bindings) and never claims Option+Left/Right
 // (word motion) — back and forward move to Cmd+[ and Cmd+] there.
 //
-// Shell chords are bound on `window` in the capture phase so no module can shadow them. Esc is
+// Shell chords are bound on `window` in the capture phase so nothing on the page can shadow them. Esc is
 // deliberately not captured unless an overlay is open: the editor's block selection uses it.
 //
 // Body chords (BODY_KEYS) are *not* bound here. They live in this file so that `shortcutFor`
@@ -161,9 +161,9 @@ let builtMac = null;
 let builtRev = -1;
 
 /**
- * `ose.keys.bind(combo, commandId, { scope })` (docs/KERNEL.md): the rice's `keys.json` and a
- * module's `shortcut` come through here. Bindings are applied after the defaults, so a rice
- * that binds `mod+shift+j` takes that chord over whatever the shell had on it; removing the
+ * `ose.keys.bind(combo, commandId, { scope })` (docs/KERNEL.md): the shell's `keys.json` and a
+ * plugin's `shortcut` come through here. Bindings are applied after the defaults, so a binding
+ * of `mod+shift+j` takes that chord over whatever the shell had on it; removing the
  * binding gives the default back. `scope: 'body'` means the chord only fires with the caret in
  * a page editor, which is what `inBody` has always meant in BODY_KEYS.
  *
@@ -188,7 +188,7 @@ export function bindingFor(combo) {
 }
 
 /**
- * `commands.register({ shortcut })` is a binding, not a printed hint (docs/MODULES.md rule 4):
+ * `commands.register({ shortcut })` is a binding, not a printed hint (docs/PLUGINS.md rule 4):
  * the chord fires the command and `shortcutFor` answers it. It is read off the registry here
  * rather than bound inside `commands.register`, so `registry.js` keeps importing nothing and
  * the chord goes with the command — the unsubscribe removes the command, the next index leaves
@@ -201,18 +201,18 @@ function commandShortcuts() {
     if (!c.shortcut) continue;
     const combo = normalizeCombo(c.shortcut);
     if (!combo) continue;
-    // A chord the kernel already owns is not a **module's** to take. Installing one used to
-    // move Ctrl+Shift+N from `tree.new-folder` to whatever the module asked for, app-wide and
+    // A chord the kernel already owns is not a **plugin's** to take. Installing one used to
+    // move Ctrl+Shift+N from `tree.new-folder` to whatever the plugin asked for, app-wide and
     // silently, and the sidebar then printed no chord at all for the command it had lost
-    // (ADV-B, first finding). The kernel keeps its binding, the module's command keeps none —
-    // it is still in the palette, and the rice may give it a chord in `keys.json` if the
+    // (ADV-B, first finding). The kernel keeps its binding, the plugin's command keeps none —
+    // it is still in the palette, and the shell may give it a chord in `keys.json` if the
     // vault's owner wants one. Said once per command per combo: `index()` runs on every
     // registration.
     //
-    // The rice is not a module: it owns the window, and a rice that replaces `page.close` with
-    // a `tab.close` of its own on Ctrl+W is doing what a rice is for (`cockpit/shell/tabs.js`).
-    // Only a command the module facade tagged is held to this.
-    const held = c.module ? kernelCombos().get(combo) : null;
+    // The shell is not a plugin: it owns the window, and a shell that replaces `page.close`
+    // with a `tab.close` of its own on Ctrl+W is doing what a shell is for. Only a command the
+    // plugin facade tagged is held to this.
+    const held = c.plugin ? kernelCombos().get(combo) : null;
     if (held) { warnOnce(combo, c.id, held); continue; }
     out.push({ combo, cmd: c.id, inBody: false });
   }
@@ -248,12 +248,12 @@ function index() {
   byCombo = new Map();
   const shortcuts = commandShortcuts();
   for (const k of KEYMAP) byCombo.set(normalizeCombo(comboFor(k)), k);
-  // Then a command's own `shortcut`, then the explicit bindings: a rice's keys.json wins over
-  // a module's shortcut, and both win over a default rather than fighting it.
+  // Then a command's own `shortcut`, then the explicit bindings: the shell's keys.json wins
+  // over a plugin's shortcut, and both win over a default rather than fighting it.
   for (const k of shortcuts) byCombo.set(k.combo, k);
   for (const [combo, entry] of bindings) byCombo.set(combo, entry);
-  // What a command prints is what its chord **does**. `byCombo` is the arbiter — a rice's
-  // keys.json over a module's `shortcut` over a shell default — so the printed hints are read
+  // What a command prints is what its chord **does**. `byCombo` is the arbiter — the shell's
+  // keys.json over a plugin's `shortcut` over a shell default — so the printed hints are read
   // back out of it rather than out of the three tables that fed it. A command whose chord was
   // taken by another command answers null and the palette prints nothing for it, instead of
   // printing a chord that runs something else (QA-K defect 4).

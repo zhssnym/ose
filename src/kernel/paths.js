@@ -6,14 +6,13 @@ export const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, 
  * be in before anyone may compare it with a folder.
  *
  * `clean` only straightens the separators, so `data/x/../../CLAUDE.md` still *starts with*
- * `data/x/` and walks straight through a `startsWith` guard — which is how a module escaped its
- * `data` sandbox and read and wrote the whole vault (QA-K defect 1). Every guard normalises
- * first now.
+ * `data/x/` and walks straight through a `startsWith` guard, which is how the old app's data
+ * sandbox was escaped (QA-K defect 1). Every comparison normalises first now.
  *
  * A `..` that would climb above the root is dropped rather than kept: the vault root is the top
  * of this world, `..` above it means nothing, and the host's own `vault::resolve` does the same.
- * `resolve('x/../../CLAUDE.md')` is therefore `CLAUDE.md` — a path outside every module's
- * `data`, which is exactly what the guard must see so it can refuse it.
+ * `resolve('x/../../CLAUDE.md')` is therefore `CLAUDE.md`, which is what a caller comparing two
+ * paths has to see.
  */
 export const resolve = (p) => {
   const out = [];

@@ -1,5 +1,5 @@
-// App/state.json, read once at boot and written back debounced. Every module goes through
-// patchState so nobody clobbers another module's keys (CONTRACT.md "Additions").
+// `.ose/state.json`, read once at boot and written back debounced. Everything goes through
+// patchState so nobody clobbers anybody else's keys.
 // Merge is shallow at the top level: pass the whole sub-object for a key you own.
 import { bridge } from './bridge/index.js';
 

@@ -1,6 +1,6 @@
 // `ose:kernel` (docs/KERNEL.md). One object, composed from the files beside this one, and
-// nothing else exported. The kernel never draws and knows no view, no module and no file name
-// of the rice: it serves and it answers.
+// nothing else exported. The kernel never draws and knows no view and no file of the shell: it
+// serves and it answers.
 //
 // Everything that touches the host is async and goes through `./bridge/index.js`. Everything
 // that is a registry (commands, views, tiles, status, settings sections) lives in
@@ -12,7 +12,7 @@ import { bridge } from './bridge/index.js';
 import * as router from './router.js';
 import * as linksLib from './links.js';
 import { linkTarget, relativeHref } from './href.js';
-import * as sourcesLib from './sources.js';
+import * as locate from './locate.js';
 import * as settingsCore from './settings-core.js';
 import { patchState, stateCache, loadState, flushState } from './state.js';
 import { themePref, setTheme, resolvedTheme, initTheme } from './theme.js';
@@ -20,7 +20,7 @@ import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from '.
 import { watch } from './watch.js';
 import { run, killAll } from './run.js';
 import { schedule, cancelAll as cancelSchedules } from './schedule.js';
-import * as modules from './modules.js';
+import * as plugins from './plugins.js';
 import { setPageHost, setPageList, pageList } from './pagehost.js';
 import * as focusLib from './focus.js';
 import { toast } from './dialog.js';
@@ -29,7 +29,7 @@ import { toast } from './dialog.js';
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
 export * from './ui-surface.js';
 
-export const API = 1;
+export const API = 2;
 
 /* ------------------------------------------------------------------------------- the stamp */
 
@@ -88,7 +88,7 @@ let vaultInfo = { root: null, name: null };
 const ready = (async () => {
   await bridge.ready;
   // The host's own description of itself, and the vault it resolved. Neither throws the boot:
-  // a kernel that cannot reach the host still answers, and the rice shows what it shows.
+  // a kernel that cannot reach the host still answers, and the shell shows what it shows.
   try {
     const info = await bridge.platformInfo();
     if (info) {
@@ -98,23 +98,19 @@ const ready = (async () => {
         app: String(info.appOrigin || '').replace(/\/+$/, ''),
         vault: String(info.vaultOrigin || '').replace(/\/+$/, ''),
       };
-      if (origins.app) modules.setRiceBase(origins.app);
+      if (origins.app) plugins.setBase(origins.app);
     }
   } catch (e) { console.warn('[kernel] platform', e); }
   try { await loadState(); } catch (e) { console.warn('[kernel] state', e); }
-  // Sources (which files the views read) and focus mode are kernel state, not rice state: a
-  // module asking `ose.sources.get('todo')` must get the user's answer whichever rice runs.
-  try { sourcesLib.loadSources(stateCache()); } catch (e) { console.warn('[kernel] sources', e); }
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[kernel] focus', e); }
   try {
     const info = await bridge.rootInfo();
     vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
     store.set('root', vaultInfo);
   } catch (e) { console.warn('[kernel] rootInfo', e); }
-  // The host arms a five second timer when it navigates the window to the rice (K1a): this is
-  // the call that cancels it. A kernel that never got this far is a rice that never booted,
-  // and the host shows its fallback page instead.
-  try { await bridge.riceReady(); } catch { /* an older host, or the browser dev server */ }
+  // The host arms a timer when it navigates the window to the page: this is the call that
+  // cancels it. A kernel that never got this far is an app that never booted.
+  try { await bridge.riceReady(); } catch { /* a host that does not answer it, or the dev server */ }
 })();
 
 /* ------------------------------------------------------------------------------- the object */
@@ -136,7 +132,7 @@ export const ose = {
       const [v, p] = await Promise.all([bridge.vaultInfo(), bridge.platformInfo().catch(() => null)]);
       return { ...(v || {}), exeDir: (p && p.exeDir) || null };
     },
-    /** A second launch named another folder and the host adopted it: the rice reloads. */
+    /** A second launch named another folder and the host adopted it: the page reloads. */
     onChange: (fn) => bridge.on('vault', (d) => (d && d.changed ? fn(d) : undefined)),
     pick: () => bridge.pickVault(),
     recent: () => bridge.recentVaults(),
@@ -189,14 +185,14 @@ export const ose = {
     own: (pattern, mount) => router.own(pattern, mount),
     index: (pattern, fn) => router.registerIndex(pattern, fn),
     // What every `route.index` registration answers right now: [{ path, title, pattern }].
-    // Quick open is rice, so the rice reads this and offers the rows beside its own pages
+    // Quick open is the shell's, so it reads this and offers the rows beside its own pages
     // (docs/KERNEL.md `route.index`; QA-K defect 2 was that nothing ever read them).
     indexed: () => router.ownedIndex(),
-    // The window title of the owned route on screen, once the module knows it.
+    // The window title of the owned route on screen, once the plugin knows it.
     title: (text) => router.setOwnTitle(text),
     on: (fn) => router.onRoute(fn),
-    // The rice mounts the router into its page column; nothing else may. `{ start: false }`
-    // skips the empty surface the mount draws, for a rice that opens on a home of its own.
+    // The shell mounts the router into its page column; nothing else may. `{ start: false }`
+    // skips the empty surface the mount draws, for a shell that opens on a home of its own.
     init: (el, opts) => router.initRouter(el, opts),
   },
 
@@ -225,9 +221,9 @@ export const ose = {
   },
 
   /**
-   * `ose.state(key)` — editor-only state in `.ose/state.json`, one key per module or rice
-   * concern, written debounced. A dotted key is a path into the object, so a module's
-   * `modules.<id>` subtree never collides with the rice's.
+   * `ose.state(key)` — editor-only state in `.ose/state.json`, one key per plugin or shell
+   * concern, written debounced. A dotted key is a path into the object, so a plugin's
+   * `plugins.<id>` subtree never collides with the shell's.
    */
   state(key) {
     const path = String(key).split('.').filter(Boolean);
@@ -259,12 +255,18 @@ export const ose = {
     rewriteMoved: (pairs) => linksLib.rewriteInboundMany(pairs),
   },
 
-  sources: {
-    get: (key) => sourcesLib.getSource(key),
-    set: (key, path) => sourcesLib.setSource(key, path),
-    info: (key) => ({ ...(sourcesLib.SOURCE_INFO[key] || {}), path: sourcesLib.getSource(key), isDefault: sourcesLib.isDefaultSource(key) }),
-    keys: () => [...sourcesLib.SOURCE_KEYS],
-    all: () => sourcesLib.allSources(),
+  /**
+   * `ose.paths` (docs/PLUGINS.md): nothing spells a vault path. An owner declares what it needs
+   * by name and asks for it by key; the kernel finds it in the tree, asks the user once when the
+   * name is not enough, and keeps the answer. A plugin is handed `of(<its id>)` and sees only
+   * its own keys; the shell declares its own under the owner `app`.
+   */
+  paths: {
+    declare: (owner, specs) => locate.declare(owner, specs),
+    of: (owner) => locate.of(owner),
+    all: () => locate.all(),
+    /** Every change, whoever owns it; the scoped `on` only hears its own owner's. */
+    on: (fn) => locate.onAny(fn),
   },
 
   theme: {
@@ -275,10 +277,10 @@ export const ose = {
   },
 
   /**
-   * The markdown pages the rice offers: quick open, the page picker and the editor's `[[`
-   * menu all ask here, so all three offer the same rows. The rice registers the list through
-   * `setPageList` (the stock sidebar narrows it to the focused folder); with nothing
-   * registered the vault is walked instead.
+   * The markdown pages the shell offers: quick open, the page picker and the editor's `[[`
+   * menu all ask here, so all three offer the same rows. The shell registers the list through
+   * `setPageList` (the sidebar narrows it to the focused folder); with nothing registered the
+   * vault is walked instead.
    */
   async pages({ owned = false } = {}) {
     const provider = pageList();
@@ -295,7 +297,7 @@ export const ose = {
       };
       walk(await bridge.tree());
     }
-    // A module's own pages are not files and are opened as `{ type:'own' }`, so they are off
+    // A plugin's own pages are not files and are opened as `{ type:'own' }`, so they are off
     // by default: the editor's `[[` menu and the link picker write a wikilink out of whatever
     // this answers, and a wikilink to a route is a broken link. A caller that draws rows
     // rather than links — quick open — asks for them (QA-K defect 2).
@@ -309,7 +311,7 @@ export const ose = {
   /**
    * The focused folder (CONTRACT.md batch 4): what narrows the tree, the page list and where a
    * new page is created. The kernel keeps it because `ose.pages()` and `page.new` both need
-   * it; the sidebar UI that sets it is rice.
+   * it; the sidebar UI that sets it is the shell's.
    */
   focus: {
     get: () => focusLib.getFocus(),
@@ -347,31 +349,26 @@ export const ose = {
     onClose: (fn) => bridge.on('window', (d) => (d && d.closing ? fn(d) : undefined)),
   },
 
-  update: {
-    check: () => bridge.updateCheck(),
-    download: () => bridge.updateDownload(),
-    // The relaunch exits the host from a worker thread and the web view may see no unload
-    // event, so the page on screen is taken down first (its clock banked, its editor closed),
-    // the same teardown a navigation runs.
-    apply: async () => { await router.dropCurrent(); return bridge.updateApply(); },
-    on: (fn) => bridge.on('update', fn),
-  },
-
-  modules: {
-    load: (ids) => modules.load(ose, ids),
-    list: () => modules.list(),
-    unload: (id) => modules.unload(id),
-    base: () => modules.riceBase(),
-    setBase: (url) => modules.setRiceBase(url),
+  /**
+   * `ose.plugins` (docs/PLUGINS.md): what is in `.ose/plugins` is what is loaded. The shell
+   * calls `load()` once at boot; `list()` is what the sidebar, the home page and Settings draw;
+   * `unload(id)` takes one down whole. Editing a plugin is: save the file, Ctrl+R.
+   */
+  plugins: {
+    load: () => plugins.load(ose),
+    list: () => plugins.list(),
+    unload: (id) => plugins.unload(id),
+    get: (id) => plugins.get(id),
+    folder: plugins.FOLDER,
   },
 
   log: (text) => bridge.log(text),
   /**
-   * `ose.reload()` (Ctrl+R, `app.reload`): the rice again, from disk. docs/RICE.md's whole
-   * loop — edit a file, press Ctrl+R, see the change — is this call.
+   * `ose.reload()` (Ctrl+R, `app.reload`): the page again, and therefore every plugin from
+   * disk. Editing a plugin is: save the file, press Ctrl+R, see the change.
    *
-   * In the host the window is navigated back to the rice's index.html, which is the host's job
-   * because only it knows where the rice is. In a browser there is no host to do it and
+   * In the host the window is navigated back to the app's index.html, which is the host's job
+   * because only it knows where that is. In a browser there is no host to do it and
    * `reloadRice` answers null; F5 is not an escape either, because the key engine binds
    * `mod+r` and swallows it. So a null answer, or no host at all, means the page reloads
    * itself (QA-K defect 5).
@@ -387,14 +384,14 @@ export const ose = {
     return null;
   },
 
-  /* The seams the rice fills: whoever draws a markdown page, and whoever knows the page list.
-     Both are documented in ./pagehost.js; neither is something a module may call. */
+  /* The seams the shell fills: whoever draws a markdown page, and whoever knows the page list.
+     Both are documented in ./pagehost.js; neither is something a plugin may call. */
   setPageHost,
   setPageList,
 
   /**
-   * What the rice calls once, after its shell exists: the key engine and the theme.
-   * `start: false` mounts the router without drawing the empty surface, for a rice that opens
+   * What the shell calls once, after its own surfaces exist: the key engine and the theme.
+   * `start: false` mounts the router without drawing the empty surface, for a shell that opens
    * on a surface of its own and would otherwise flash the kernel's on every boot.
    */
   init({ page, keys = true, theme = true, start = true } = {}) {
@@ -403,7 +400,7 @@ export const ose = {
     if (page) router.initRouter(page, { start });
   },
 
-  // Small shared helpers the rice would otherwise write again.
+  // Small shared helpers the shell would otherwise write again.
   uid,
   debounce,
   esc,
@@ -411,7 +408,7 @@ export const ose = {
 };
 
 // One kill switch for everything a page started, so a reload or a vault change leaves nothing
-// running (docs/MODULES.md: "processes a module started are killed").
+// running (docs/PLUGINS.md: the processes a plugin started are killed).
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => { cancelSchedules(); killAll(); });
   window.__ose = ose;   // debugging only, exactly as `window.__bridge` has always been

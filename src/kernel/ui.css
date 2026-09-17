@@ -1,7 +1,7 @@
 /* `ui.css` (docs/KERNEL.md): the whole visual system in one stylesheet on the kernel origin.
    `tokens.css` is every colour, font, size and the spacing scale, in both themes; `base.css`
-   is the shared components those tokens are spent on. A rice links this file through its
-   `<link data-ose="ui">` and overrides tokens in its own `theme.css`; a module imports its own
-   stylesheet from its own folder and writes no hex value anywhere. */
+   is the shared components those tokens are spent on. The shell links this file through its
+   `<link data-ose="ui">` and overrides tokens in its own `theme.css`; a plugin ships its own
+   stylesheet beside its entry and writes no hex value anywhere. */
 @import './styles/tokens.css';
 @import './styles/base.css';

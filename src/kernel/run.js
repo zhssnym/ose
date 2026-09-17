@@ -18,9 +18,8 @@
 //     otherwise; `timedOut` is true only for the timeout, never for a `runKill`.
 //
 // Never a shell: `cmd` is a program name and `args` an array. `cwd` is vault-relative and the
-// host refuses one outside the vault. A module's `module.json` `run` list is passed as
-// `allow`; the host rejects anything in neither that nor `settings.run.allow`, and the
-// rejection text is the one KERNEL.md promises.
+// host refuses one outside the vault. There is no allow list: a plugin is the vault owner's own
+// code and may run any program (docs/PLUGINS.md).
 
 import { bridge } from './bridge/index.js';
 import { uid } from './registry.js';
@@ -43,7 +42,7 @@ function subscribe() {
       proc.finish({
         // KERNEL.md: `code` is null when the process was killed, and the timeout is a kill.
         // The dev bridge already answers null; the Tauri host answers the exit code the OS
-        // gave the killed process (1 on Windows), so a module branching on `code === null`
+        // gave the killed process (1 on Windows), so a plugin branching on `code === null`
         // behaved differently in dev and in the window (QA-K defect 7). The kernel is what
         // turns the host's stream into this one promise, so it is where the two are made to
         // agree — and the host should stop reporting a code for a kill as well.
@@ -64,7 +63,6 @@ function subscribe() {
 /**
  * run(cmd, args, opts) -> Promise<{ code, stdout, stderr, timedOut }>, settled on `done`.
  * opts: { cwd, timeout, env, input, onLine(line, stream), onStart(id, pid) }
- * `allow` is added by the module facade and is not part of the documented surface.
  */
 export function run(cmd, args = [], opts = {}) {
   subscribe();
@@ -84,11 +82,10 @@ export function run(cmd, args = [], opts = {}) {
     env: opts.env,
     input: opts.input,
   };
-  if (opts.allow) hostOpts.allow = opts.allow;
   for (const k of Object.keys(hostOpts)) if (hostOpts[k] === undefined) delete hostOpts[k];
 
-  // The start is its own promise: a refusal (`not allowed: <cmd>`, a cwd outside the vault)
-  // rejects here and there will never be a `done` to wait for.
+  // The start is its own promise: a refusal (a cwd outside the vault, a program the host
+  // cannot spawn) rejects here and there will never be a `done` to wait for.
   bridge.run(id, String(cmd), (args || []).map(String), hostOpts)
     .then((started) => {
       if (typeof opts.onStart === 'function') {
@@ -108,5 +105,5 @@ export function killAll() {
   live.clear();
 }
 
-/** Whether this page is still waiting on a process with that id. The facade asks. */
+/** Whether this page is still waiting on a process with that id. */
 export function isLive(id) { return live.has(id); }

@@ -40,9 +40,10 @@ export const recentFiles = () => ose.route.recent();
 export const navigate = (route, opts) => ose.route.navigate(route, opts);
 export const clearRoute = (opts) => ose.route.close(opts);
 
-/** Where `page.new` writes: the focus folder, the `newPages` setting, the scratch source. */
+/** Where `page.new` writes: the focus folder, the `newPages` setting, the scratch folder. */
 export const defaultNewFolder = () => ose.focus.defaultNewFolder();
-export const scratchFolder = () => ose.sources.get('scratch');
+/** The shell's scratch folder (`ose.paths`, owner `app`), or '' for the vault root. */
+export const scratchFolder = () => ose.paths.of('app').peek('scratch') || '';
 
 export const findInbound = (path) => ose.links.inbound(path);
 export const rewriteInbound = (from, to) => ose.links.rewriteMoved([[from, to]]);

@@ -8,19 +8,28 @@ import { bus, store, commands } from './registry.js';
 import { patchState, stateCache } from './state.js';
 import { clean, baseName, dirName } from './paths.js';
 import { newPageMode } from './settings-core.js';
-import { getSource } from './sources.js';
+import { of as pathsOf } from './locate.js';
 
 let focus = null;
 
 /** The focused folder, or null. */
 export function getFocus() { return focus; }
 
+/** The shell's scratch folder as `ose.paths` resolved it, or '' for the vault root. */
+function scratchFolder() {
+  try { return pathsOf('app').peek('scratch') || ''; } catch { return ''; }
+}
+
 /**
  * Where a new page goes (S34). A focused folder always wins: focus mode means the app is
  * narrowed to that folder, and creating outside it would be a surprise. Otherwise the setting
  * decides: `focus` is what the app has always done (nothing here, so `page.new` falls through
- * to the open page's folder and then the scratch source), `scratch` names the scratch folder
+ * to the open page's folder and then the scratch folder), `scratch` names the scratch folder
  * outright, `page` names the folder of the page on screen.
+ *
+ * The scratch folder is the shell's own declared path (`ose.paths`, owner `app`). It answers
+ * null while the shell has not declared it yet and while nothing in the vault matches the name,
+ * and the vault root is the honest answer then.
  *
  * Always a vault-relative folder path or '' (the vault root), so `join(defaultNewFolder(),
  * name)` works whatever the answer is.
@@ -28,7 +37,7 @@ export function getFocus() { return focus; }
 export function defaultNewFolder() {
   if (focus) return focus;
   const mode = newPageMode();
-  if (mode === 'scratch') return clean(getSource('scratch')) || '';
+  if (mode === 'scratch') return clean(scratchFolder()) || '';
   if (mode === 'page') {
     const route = store.get('route');
     if (route && route.type === 'page' && route.path) return dirName(route.path);
@@ -57,7 +66,7 @@ export function setFocus(path) {
 
 export function exitFocus() { setFocus(null); }
 
-/** Called by initShell before any module reads the store. */
+/** Called at boot, before anything reads the store. */
 export function loadFocus(state) {
   const s = state === undefined ? stateCache() : state;
   const saved = s && typeof s === 'object' ? s.focus : null;

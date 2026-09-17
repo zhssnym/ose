@@ -1,8 +1,8 @@
 // The settings core (docs/KERNEL.md, `ose.settings`). Every value persists under
-// `.ose/state.json` `settings`. The dialog that draws them is rice, not kernel, and stays in
-// the shell; the kernel keeps the defaults, the read and the write, what the rest of the app
+// `.ose/state.json` `settings`. The dialog that draws them is the shell's, not the
+// kernel's; the kernel keeps the defaults, the read and the write, what the rest of the app
 // asks of a setting (zoom, spellcheck, trash, new pages, attachments), applying them to the
-// document, and the registry of the extra sections a module contributes.
+// document, and the registry of the extra sections a plugin contributes.
 import { bus } from './registry.js';
 import { patchState, stateCache } from './state.js';
 
@@ -11,8 +11,8 @@ export const LINE_HEIGHTS = [1.5, 1.65, 1.8];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
-// The dialog shows the theme, reading comfort, where new files go, the sources, updates and
-// the read-only block. `updates` is the switch on the app's one network call (update.js).
+// The dialog shows the theme, reading comfort, where new files go, the paths the app and its
+// plugins need, and the read-only block.
 export const DEFAULTS = {
   fontSize: 16,
   lineHeight: 1.65,
@@ -22,7 +22,6 @@ export const DEFAULTS = {
   attachments: 'beside',
   trash: 'system',
   spellcheck: true,
-  updates: true,
 };
 
 export function settings() { return { ...DEFAULTS, ...(stateCache().settings || {}) }; }
@@ -30,7 +29,7 @@ export function settings() { return { ...DEFAULTS, ...(stateCache().settings || 
 /* --------------------------------------------------------------- repaint and subscription */
 
 // A dialog that is open while a chord changes a value (Ctrl+= with settings up) has to redraw
-// itself. The kernel does not know that dialog, so it keeps a list of repainters the rice adds
+// itself. The kernel does not know that dialog, so it keeps a list of repainters the shell adds
 // and drops; nothing here ever reaches into anybody's DOM.
 const repainters = new Set();
 export function onRepaint(fn) { repainters.add(fn); return () => repainters.delete(fn); }
@@ -44,7 +43,7 @@ export function onSettings(fn) { return bus.on('settings', fn); }
 /**
  * `ose.settings.section({ id, title, render })` (docs/KERNEL.md): a section the settings
  * dialog draws under the stock rows. The kernel keeps the list in registration order and the
- * rice asks for it; a module's section goes with the rest of its registrations on unload.
+ * shell asks for it; a plugin's section goes with the rest of its registrations on unload.
  */
 const sectionMap = new Map();
 export const sections = {
@@ -61,13 +60,13 @@ export function save(partial) {
   const next = { ...settings(), ...partial };
   patchState({ settings: next });
   applySettings();
-  // Modules that read a setting instead of asking for it every keystroke (the editor's
-  // spellcheck attribute) re-read here; the payload is the whole settings object.
+  // Whoever reads a setting instead of asking for it every keystroke (the editor's spellcheck
+  // attribute) re-reads here; the payload is the whole settings object.
   bus.emit('settings', next);
   return next;
 }
 
-/* ------------------------------------------------------------------ what other modules ask */
+/* ------------------------------------------------------------------ what the rest of the app asks */
 
 /** The zoom in per cent, always one of ZOOM_STEPS. */
 export function zoom() {

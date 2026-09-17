@@ -1,5 +1,5 @@
 // Shared kernel: event bus, store, command registry, view registry, status bar fields.
-// Every module imports from here. Additive changes only; see CONTRACT.md.
+// Everything else in the kernel imports from here.
 
 function makeEmitter() {
   const map = new Map();
@@ -36,9 +36,9 @@ export const store = {
 const cmdMap = new Map();
 // Bumped on every register and unregister. `keys.js` reads it to know when to rebuild its
 // index, because a command's `shortcut` is a real binding (docs/KERNEL.md
-// `ose.commands.register`, docs/MODULES.md rule 4): registering the command arms the chord and
+// `ose.commands.register`, docs/PLUGINS.md rule 4): registering the command arms the chord and
 // the unsubscribe takes it back. The counter is how that happens without the registry — the
-// one module in the kernel that imports nothing — importing the key engine.
+// one file in the kernel that imports nothing — importing the key engine.
 let cmdRev = 0;
 export const commandsRevision = () => cmdRev;
 /** Every registered command, `when` guards ignored. `keys.js` only. */
@@ -65,7 +65,7 @@ export const commands = {
 
 const viewMap = new Map();
 export const views = {
-  // Answers an unsubscribe (docs/KERNEL.md), so a module's view goes with the rest of its
+  // Answers an unsubscribe (docs/KERNEL.md), so a plugin's view goes with the rest of its
   // registrations on unload. Registering the same name twice still replaces, as it always did.
   register(name, def) {
     viewMap.set(name, { name, ...def });
@@ -76,11 +76,11 @@ export const views = {
 };
 
 /**
- * Tiles (docs/KERNEL.md `ose.tiles`): a card a module contributes to whichever view asks for
+ * Tiles (docs/KERNEL.md `ose.tiles`): a card a plugin contributes to whichever view asks for
  * tiles; the stock Day view does. `render(el)` is called once when the view mounts and may
  * answer `{ refresh?, unmount? }`; `refresh(id)` calls one tile's refresh, `refresh()` calls
  * every mounted one. The kernel holds the list and the live handles, and nothing else: which
- * view draws them, and where, is the rice's business.
+ * view draws them, and where, is the shell's business.
  */
 const tileMap = new Map();
 const tileLive = new Map();   // id -> the handle render() answered, while it is on screen
@@ -123,7 +123,7 @@ export const status = {
   },
   clear(key) { status.set(key, null); },
   /**
-   * The bar's own order first, then every other field in the order it was first set. A module
+   * The bar's own order first, then every other field in the order it was first set. A plugin
    * that calls `ose.status.set('nsi', …)` gets a field in the bar (docs/KERNEL.md), instead of
    * one that is stored and never listed; the shell's five keep their fixed places on the left.
    */

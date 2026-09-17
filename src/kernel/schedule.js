@@ -1,4 +1,4 @@
-// `ose.schedule(id, spec, fn)` (docs/MODULES.md): run something while the app is open, and
+// `ose.schedule(id, spec, fn)` (docs/PLUGINS.md): run something while the app is open, and
 // catch up once at boot when a run was missed. Nothing runs when Ose is closed; this is a
 // reminder loop, not cron.
 //

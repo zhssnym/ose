@@ -1,11 +1,11 @@
 // The one thing the router needs that the kernel does not own: whoever draws a markdown page.
 //
-// docs/KERNEL.md: "Nothing in the kernel knows a view, a module or a file name of the rice."
-// The router is kernel (history, the window title, the mount cycle, the stack); the block
-// editor is `ose:editor`, a separate bundle. So the router never imports it: the rice hands
+// docs/KERNEL.md: nothing in the kernel knows a view or a file of the shell. The router is
+// kernel (history, the window title, the mount cycle, the stack); the block
+// editor is `ose:editor`, a separate bundle. So the router never imports it: the shell hands
 // the kernel a page host once, and the router calls through it. With no host registered the
 // router still works and falls back to showing the file as text, which is exactly what it did
-// before the editor module existed.
+// before the editor bundle existed.
 //
 //   setPageHost({ open, close, scrollToLine, selection?, headingLine? })
 //
@@ -32,9 +32,9 @@ export function hasPageHost() { return !!host; }
 
 /**
  * The other half of the same idea: which markdown pages quick open and the page picker should
- * offer. The list belongs to whatever draws the tree — the stock sidebar narrows it to the
- * focused folder — and the kernel must not import a sidebar. With nothing registered the
- * picker falls back to walking the vault itself, so it works in a rice that has no tree.
+ * offer. The list belongs to whatever draws the tree — the sidebar narrows it to the focused
+ * folder — and the kernel must not import a sidebar. With nothing registered the picker falls
+ * back to walking the vault itself, so it works wherever there is no tree.
  */
 let pages = null;
 export function setPageList(fn) {
