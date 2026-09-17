@@ -1,4 +1,4 @@
-/* The Informatique index: one table, one row per drill, in number order. The number, the
+/* The Code index: one table, one row per drill, in number order. The number, the
    title, the drill's dominant category, its date and where you stand with it — nothing else,
    and nothing that has to be explained.
 
@@ -65,7 +65,7 @@ class IndexView {
     this.root = h('div', { class: 'page-col nsi-index' })
     this.count = h('p', { class: 'page-meta' })
     this.body = h('div', {})
-    this.root.appendChild(h('h1', { class: 'page-title', text: 'Informatique' }))
+    this.root.appendChild(h('h1', { class: 'page-title', text: 'Code' }))
     this.root.appendChild(this.count)
     this.root.appendChild(this.body)
     clear(this.el).appendChild(this.root)

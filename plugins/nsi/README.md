@@ -1,4 +1,4 @@
-# Informatique
+# Code
 
 An Ose plugin (docs/PLUGINS.md): the vault's coding drills as a list and a page, with a Python
 judge it runs through `ose.run`. No server, no port, no browser tab.
@@ -9,7 +9,7 @@ and written into the folder as files. There is no scheduler here, no review date
 file.
 
 The id stays `nsi` — the folder, the route prefix `nsi/` and the command ids are all `nsi`, so
-state and links survive the rename. "Informatique" is what a person reads.
+state and links survive the rename. "Code" is what a person reads.
 
 ## What it registers
 

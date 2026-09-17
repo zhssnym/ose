@@ -295,7 +295,7 @@ function renderViews(frag) {
     .sort(byViewOrder);
   if (!list.length) return;
   // "plugins", not "views": the row is a plugin's way in, and the word a person knows for
-  // Day, Week, Informatique is the plugin, not the kind of surface it happens to register.
+  // Day, Week, Code is the plugin, not the kind of surface it happens to register.
   frag.appendChild(label('plugins'));
   const box = treeBox(frag, 'Plugins');
   const r = currentRoute();

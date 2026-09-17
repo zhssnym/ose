@@ -1,6 +1,6 @@
 /* The Maths view: every series in one table, in name order.
  *
- * The table is the shared lib's, so this one and Informatique's are the same object rather than
+ * The table is the shared lib's, so this one and Code's are the same object rather than
  * two lists drawn from memory: a real `<table>` with bordered cells and a header, four columns,
  * `#`, `Title`, `Date` and `Status`. The status is computed from the log every time it is
  * drawn, because the log is the only state there is.

@@ -1,5 +1,5 @@
 /* The shared drills table. One real `<table>` for both drill indexes, so the Maths list and the
-   Informatique list are the same object and not two lists drawn from memory.
+   Code list are the same object and not two lists drawn from memory.
 
      import { drillTable } from '../_lib/table.js'
      const t = drillTable(el, {

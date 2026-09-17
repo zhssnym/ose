@@ -1,4 +1,4 @@
-/* Informatique — an Ose plugin (docs/PLUGINS.md).
+/* Code — an Ose plugin (docs/PLUGINS.md).
 
    Coding drills, LeetCode-like: one folder per drill under the drills folder, a Python judge
    in `judge/`, a clock on every drill. One kind of drill: a function in `solution.py`, judged
@@ -19,7 +19,7 @@ import { cache, listDrills } from './lib/data.js'
 import { mountIndex, unmountIndex, refreshIndex } from './lib/index-view.js'
 import { mountDrill, active } from './lib/drill.js'
 
-export const name = 'Informatique'
+export const name = 'Code'
 export const description = 'Coding drills as folders, a judge, a clock, one log.'
 
 export const paths = {
@@ -40,21 +40,21 @@ export async function activate(ose) {
   // plugin's key works with no line in the shell's keys.json. Ctrl+Shift+N is the kernel's
   // "new folder" and this plugin used to take it away app-wide (ADV-B).
   const command = (id, title, run, shortcut, when) => {
-    ose.commands.register({ id, title, group: 'Informatique', shortcut, when, run })
+    ose.commands.register({ id, title, group: 'Code', shortcut, when, run })
   }
 
-  command('nsi.index', 'Informatique: open the drills',
+  command('nsi.index', 'Code: open the drills',
     () => ose.route.navigate({ type: 'view', name: 'nsi' }))
 
-  command('nsi.run', 'Informatique: run the solution',
+  command('nsi.run', 'Code: run the solution',
     () => active && active.run(), 'Mod+Shift+R', () => !!active)
 
-  command('nsi.submit', 'Informatique: submit this drill',
+  command('nsi.submit', 'Code: submit this drill',
     () => active && active.submit(), 'Mod+Shift+Enter',
     () => !!active && active.judgeable)
 
   ose.views.register('nsi', {
-    title: 'Informatique', order: 60, icon: 'command',
+    title: 'Code', order: 60, icon: 'command',
     mount: mountIndex, unmount: unmountIndex,
   })
   // A drill id is the folder's own name, one segment, so one pattern covers every route.

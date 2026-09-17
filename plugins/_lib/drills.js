@@ -1,4 +1,4 @@
-/* The shared drills lib. One file for the pieces the Maths and Informatique plugins both draw:
+/* The shared drills lib. One file for the pieces the Maths and Code plugins both draw:
    the DOM helpers, the words, the clock and the furniture of an item page. The index of each
    plugin is a real table now, and that is `table.js` beside this file.
 

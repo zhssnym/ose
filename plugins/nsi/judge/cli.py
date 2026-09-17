@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Informatique judge: the command line the Ose plugin drives.
+"""Code judge: the command line the Ose plugin drives.
 
     python -m judge.cli <command> --root <drills root>
 
@@ -181,7 +181,7 @@ COMMANDS = {
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="judge.cli",
-        description="Informatique: the judge over the drill folders. "
+        description="Code: the judge over the drill folders. "
                     "One JSON object per run.")
     parser.add_argument("--root", required=True, metavar="DIR",
                         help="the drills folder: a flat directory of N-slug/")

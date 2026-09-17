@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-test for the Informatique judge CLI. Stdlib only, no pytest.
+"""Self-test for the Code judge CLI. Stdlib only, no pytest.
 
     python -B -m judge.test_cli [-v]
 
@@ -483,7 +483,7 @@ def test_surface(cli, root):
                           env=dict(os.environ, PYTHONUTF8="1"))
     help_text = proc.stdout.decode("utf-8", "replace")
     eq("--help exits cleanly", proc.returncode, 0)
-    ok("the help says Informatique", "Informatique" in help_text, help_text[:200])
+    ok("the help says Code", "Code" in help_text, help_text[:200])
     ok("and no longer says NSI", "NSI" not in help_text,
        [l for l in help_text.splitlines() if "NSI" in l])
     ok("--data-dir is gone", "--data-dir" not in help_text, help_text[:400])
