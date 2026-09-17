@@ -16,7 +16,7 @@ export function closeTopOverlay() { stack[stack.length - 1]?.close(); }
  * The element that had focus before any overlay opened, or the active element when none is
  * open. Commands that act on "the focused tree row" ask here: the palette's `when` guards run
  * while the palette input itself holds focus, and the row they should see is the one focus
- * will be handed back to when the palette closes (CONTRACT.md batch 9, D3).
+ * will be handed back to when the palette closes.
  */
 export function focusOrigin() {
   return stack.length ? stack[0].prevFocus : document.activeElement;
@@ -449,7 +449,7 @@ async function quickOpenData() {
 /**
  * Pick a markdown page: the quick-open list, the quick-open matcher, Enter to confirm.
  * Resolves to the vault-relative path of the page, or `null` when cancelled.
- * Used by the editor's `Link` slash item and the `page.link` command (CONTRACT.md batch 5).
+ * Used by the editor's `Link` slash item and the `page.link` command.
  */
 export async function pickPage({ title = 'Link a page…', current = null } = {}) {
   const { paths, recent } = await quickOpenData();

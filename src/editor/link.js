@@ -1,9 +1,9 @@
 // Linking one page to another.
 //
-// CONTRACT.md batch 5, "Link a page": the slash item `Link` and the command `page.link` both
-// open `pickPage`, then insert a markdown link whose text is the target's title (its first H1,
-// else the file name without `.md`) and whose href is the target path relative to the folder of
-// the page being edited, with `%20` for spaces. Cancelling inserts nothing.
+// The slash item `Link` and the command `page.link` both open `pickPage`, then insert a
+// markdown link whose text is the target's title (its first H1, else the file name without
+// `.md`) and whose href is the target path relative to the folder of the page being edited,
+// with `%20` for spaces. Cancelling inserts nothing.
 //
 // The module knows nothing about which file is open: `index.js` binds a getter at init, so this
 // file never imports the editor back (slash.js -> link.js -> index.js would be a cycle, and the

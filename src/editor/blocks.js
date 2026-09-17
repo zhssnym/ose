@@ -1,7 +1,5 @@
 // Block keys: selecting, deleting and moving whole blocks with the keyboard.
 //
-// CONTRACT.md batch 5, "Block keys (editor)":
-//
 //   Esc                     select the block the caret is in (the list item inside a list)
 //   Esc again, or a click   back to a text caret
 //   Backspace / Delete      remove the selected block(s), caret into the neighbour

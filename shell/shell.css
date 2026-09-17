@@ -128,11 +128,11 @@ html.mac .tb-win { display: none; }
 
 
 /* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
-   optional mono tail. A folder and a page at the same depth put their text at the same x
-   (CONTRACT.md batch 3). The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 +
-   1rem + --sp-1 + 0.875rem + --sp-1 = 3rem at 100 %, and each depth steps in by one glyph
-   width. Those two widths are geometry, not spacing, and stay as numbers — in rem, so the
-   whole row follows the zoom; change one and --tree-inset in tokens.css moves with it. */
+   optional mono tail. A folder and a page at the same depth put their text at the same x.
+   The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 + 1rem + --sp-1 +
+   0.875rem + --sp-1 = 3rem at 100 %, and each depth steps in by one glyph width. Those two
+   widths are geometry, not spacing, and stay as numbers — in rem, so the whole row follows
+   the zoom; change one and --tree-inset in tokens.css moves with it. */
 .sb-row {
   width: 100%; text-align: left; cursor: default;
   display: grid;

@@ -1,12 +1,11 @@
-// The editor's context menu (batch 12, package P3, D8): right-click, Shift+F10 and the Menu
-// key in the body. Built on shell/dialog.js `contextMenu`, the same component the tree uses, so
-// arrows, Home/End, letter jumps, Enter and Esc are already right and the two menus cannot
-// drift apart. See docs/CONTRACT.md batch 12 "The editor's context menu".
+// The editor's context menu: right-click, Shift+F10 and the Menu key in the body. Built on
+// `contextMenu` from `ose:ui`, the same component the tree uses, so arrows, Home/End, letter
+// jumps, Enter and Esc are already right and the two menus cannot drift apart.
 //
 // Every row is a registered command, drawn from the registry with its own title and its own
-// chord: a command that is not registered yet (P2's tables, P5's images) simply has no row,
-// and one whose `when` is false is left out of the menu the same way it is left out of the
-// palette. Nothing here knows what a table op does.
+// chord: a command that is not registered yet simply has no row, and one whose `when` is false
+// is left out of the menu the same way it is left out of the palette. Nothing here knows what
+// a table op does.
 //
 // Exports read by extensions.js: plugins(ctx, o).
 

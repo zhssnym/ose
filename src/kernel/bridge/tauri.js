@@ -1,5 +1,5 @@
 // Tauri 2 adapter: one `rpc` command for everything the host owns, Tauri's own APIs for the
-// window. See TAURI.md ("The RPC", "Events", "Window") and CONTRACT.md for the shapes.
+// window. See docs/HOST.md "RPC".
 //
 // The facade (bridge/index.js) only needs `call` and `subscribe`; `win`, `platform` and
 // `assetUrl` are extras it delegates to when an adapter provides them, because window control
@@ -8,7 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-// CONTRACT.md edge names -> Tauri's ResizeDirection strings.
+// The edge names `ose.window.resize` takes -> Tauri's ResizeDirection strings.
 const RESIZE = {
   top: 'North',
   bottom: 'South',

@@ -78,9 +78,9 @@ export function firstH1(text) {
 }
 
 /**
- * The file that stands for a date prefix in a folder listing, per the tolerant-names rule of
- * CONTRACT.md batch 5: any `<prefix>*.md` is that date's file, the exact `<prefix>.md` wins
- * when several match, natural order breaks what is left. -> the file name, or null.
+ * The file that stands for a date prefix in a folder listing, tolerant of the words that
+ * follow it: any `<prefix>*.md` is that date's file, the exact `<prefix>.md` wins when several
+ * match, natural order breaks what is left. -> the file name, or null.
  *   pickDatedFile(['2026-09.md', '2026-09 Monthly Plan.md'], '2026-09') -> '2026-09.md'
  *   pickDatedFile(['2026-09 Monthly Plan.md'], '2026-09')               -> '2026-09 Monthly Plan.md'
  * What follows the prefix may not be a digit, with or without a separator in front of it, so

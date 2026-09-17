@@ -32,7 +32,7 @@ export const store = ose.store;
 export const status = ose.status;
 export const debounce = ose.debounce;
 
-/** Every `.md` in the vault, as the rice's tree and focus folder see it (`ose.pages()`). */
+/** Every `.md` in the vault, as the shell's tree and focus folder see it (`ose.pages()`). */
 export const allPages = () => ose.pages();
 /** The paths the user opened last, newest first: the `[[` menu ranks by it. */
 export const recentFiles = () => ose.route.recent();
@@ -61,7 +61,8 @@ export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
 // settings the editor reads
 //
 // Three readings of `ose.settings.get()`, which is the whole hose: the editor is told what the
-// user chose and decides what that means for a page. The keys and their defaults are RICE.md's.
+// user chose and decides what that means for a page. The keys are the ones the shell's settings
+// dialog writes (docs/SHELL.md); each default is beside its reading below.
 
 /** `spellcheck` on the body, on by default (S36). */
 export const spellcheckOn = () => ose.settings.get().spellcheck !== false;

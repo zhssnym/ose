@@ -108,8 +108,10 @@ const ready = (async () => {
     vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
     store.set('root', vaultInfo);
   } catch (e) { console.warn('[kernel] rootInfo', e); }
-  // The host arms a timer when it navigates the window to the page: this is the call that
-  // cancels it. A kernel that never got this far is an app that never booted.
+  // 0.5.0's boot handshake: the host armed a timer when it navigated the window to the page
+  // and this call cancelled it. The 1.0.0 host does not implement `riceReady` any more, so it
+  // answers null and nothing here depends on it. `riceReady` is that host command's
+  // historical name.
   try { await bridge.riceReady(); } catch { /* a host that does not answer it, or the dev server */ }
 })();
 
@@ -186,7 +188,7 @@ export const ose = {
     index: (pattern, fn) => router.registerIndex(pattern, fn),
     // What every `route.index` registration answers right now: [{ path, title, pattern }].
     // Quick open is the shell's, so it reads this and offers the rows beside its own pages
-    // (docs/KERNEL.md `route.index`; QA-K defect 2 was that nothing ever read them).
+    // (docs/KERNEL.md `route.index`).
     indexed: () => router.ownedIndex(),
     // The window title of the owned route on screen, once the plugin knows it.
     title: (text) => router.setOwnTitle(text),
@@ -300,7 +302,7 @@ export const ose = {
     // A plugin's own pages are not files and are opened as `{ type:'own' }`, so they are off
     // by default: the editor's `[[` menu and the link picker write a wikilink out of whatever
     // this answers, and a wikilink to a route is a broken link. A caller that draws rows
-    // rather than links — quick open — asks for them (QA-K defect 2).
+    // rather than links — quick open — asks for them.
     if (owned) {
       const seen = new Set(out);
       for (const row of router.ownedIndex()) if (!seen.has(row.path)) { seen.add(row.path); out.push(row.path); }
@@ -309,9 +311,9 @@ export const ose = {
   },
 
   /**
-   * The focused folder (CONTRACT.md batch 4): what narrows the tree, the page list and where a
-   * new page is created. The kernel keeps it because `ose.pages()` and `page.new` both need
-   * it; the sidebar UI that sets it is the shell's.
+   * The focused folder: what narrows the tree, the page list and where a new page is created.
+   * The kernel keeps it because `ose.pages()` and `page.new` both need it; the sidebar UI
+   * that sets it is the shell's.
    */
   focus: {
     get: () => focusLib.getFocus(),
@@ -340,11 +342,10 @@ export const ose = {
     /** The maximised half of the window event, for the button's glyph. */
     onMaximize: (fn) => bridge.on('window', (d) => (d && typeof d.maximized === 'boolean' ? fn(d.maximized) : undefined)),
     /**
-     * The window is closing (docs/CONTRACT.md batch 9, S16/B2). `fn()` may return a promise
-     * and the host **awaits it** before the window is destroyed, so the open page's last save
-     * finishes; resolving `false` keeps the window open, which is what the editor does when
-     * the save needs an answer from the user. A handler that throws is logged and counts as
-     * done: the close must never hang on a bug.
+     * The window is closing. `fn()` may return a promise and the host **awaits it** before the
+     * window is destroyed, so the open page's last save finishes; resolving `false` keeps the
+     * window open, which is what the editor does when the save needs an answer from the user.
+     * A handler that throws is logged and counts as done: the close must never hang on a bug.
      */
     onClose: (fn) => bridge.on('window', (d) => (d && d.closing ? fn(d) : undefined)),
   },
@@ -368,10 +369,11 @@ export const ose = {
    * disk. Editing a plugin is: save the file, press Ctrl+R, see the change.
    *
    * In the host the window is navigated back to the app's index.html, which is the host's job
-   * because only it knows where that is. In a browser there is no host to do it and
-   * `reloadRice` answers null; F5 is not an escape either, because the key engine binds
-   * `mod+r` and swallows it. So a null answer, or no host at all, means the page reloads
-   * itself (QA-K defect 5).
+   * because only it knows where that is. `reloadRice` is the host command's historical name,
+   * kept on both sides; the host answers `reloadShell` too (docs/HOST.md "RPC"). In a browser
+   * there is no host to do it and the call answers null; F5 is not an escape either, because
+   * the key engine binds `mod+r` and swallows it. So a null answer, or no host at all, means
+   * the page reloads itself.
    */
   async reload() {
     if (ose.host !== 'browser' && typeof bridge.reloadRice === 'function') {

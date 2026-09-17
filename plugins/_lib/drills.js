@@ -1,18 +1,18 @@
-/* The shared drills lib. One file for the pieces the Maths and Informatique modules both draw:
+/* The shared drills lib. One file for the pieces the Maths and Informatique plugins both draw:
    the DOM helpers, the words, the chips, the list row, the clock and the bands of an item page.
-   Contract: `work/contracts/drills-lib.md` — S implements it, M and N build against it. A name
-   here is added, never changed in meaning.
+   What is here and who imports it is the table in `README.md` beside this file. A name here is
+   added, never changed in meaning.
 
    It imports only from `ose:*` and its own folder, writes no hex and no bare pixel, and knows
-   nothing about either module: no file name, no route, no data shape beyond what the caller
+   nothing about either plugin: no file name, no route, no data shape beyond what the caller
    hands it. Everything it draws is styled by `drills.css`, which `ensureStylesheet()` links. */
 
 import { contextMenu, copyText, toast } from 'ose:ui'
 
 /* ============================================================================ DOM
-   The three helpers both modules already had, byte for byte the Maths spelling: there is no
+   The three helpers both plugins already had, byte for byte the Maths spelling: there is no
    `html:` key in this `h`, and that is the point — every string that reaches the screen goes
-   through a text node. A module that needs real markup builds nodes. */
+   through a text node. A plugin that needs real markup builds nodes. */
 
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag)
@@ -92,8 +92,8 @@ export function median(numbers) {
 
 /* ========================================================================== chips
 
-   Eight tones, assigned by sorted position and never by a hash. The hash both modules used
-   put three of five Maths families on the same pink (ADV-U measured it): a hash spreads bits,
+   Eight tones, assigned by sorted position and never by a hash. The hash both plugins used
+   put three of five Maths families on the same pink when it was measured: a hash spreads bits,
    not colours, and with eight buckets and five names a collision is the normal case. Sorted
    position gives a list of n ≤ 8 names n different tones, every time, and the same name the
    same tone for as long as the set of names is the same — which is what a person actually
@@ -123,7 +123,7 @@ const lookup = (bag, key) => {
 
 /**
  * One chip: the name, and a count beside it when there is one. With no tone it is the neutral
- * chip, which is a real state and not a fallback — a module with one kind of chip should use
+ * chip, which is a real state and not a fallback — a plugin with one kind of chip should use
  * it rather than paint everything `t0`.
  */
 export function chip(name, { tone, count } = {}) {
@@ -310,8 +310,8 @@ export function list(options) {
 /* ========================================================================== clock
 
    One object, one owner: the page that creates it stops it, and `stop()` is the only way it
-   stops. Everything ADV-T found was the same mistake twice — a clock started by code that is
-   not the code that can stop it — so the three numbers below are the whole of its state.
+   stops. Every leak the old clocks had was the same mistake twice — a clock started by code
+   that is not the code that can stop it — so the three numbers below are its whole state.
 
    `banked` is milliseconds already counted. `since` is a wall-clock stamp, null when stopped.
    `lastSeen` is the stamp the last tick wrote. Elapsed is always a `Date.now()` delta, never a
@@ -562,7 +562,7 @@ export function pathLine(absPath, { onOpen } = {}) {
 
 /**
  * Focus mode: one class on `<html>`, so the shell folds without anyone writing the user's
- * persisted sidebar preference (ADV-T found a session that folded it for good). A page that
+ * persisted sidebar preference, which a drill session once left folded for good. A page that
  * turns it on turns it off in `unmount`, on every path.
  *
  * The sidebar goes invisible and keeps its width (drills.css), so the page column does not
@@ -575,8 +575,8 @@ export function focusMode(on) {
 
 /**
  * Link `drills.css` once. `import.meta.url` is this file's own URL, so the href is right
- * whatever the document's is (a rice served whole, or `app://localhost/lib/drills.js` in the
- * host). It is never removed: the lib is shared, so the last module to deactivate cannot know
+ * whatever the document's is (the dev server, or `<app origin>/plugins/_lib/drills.js` in the
+ * exe). It is never removed: the lib is shared, so the last plugin to deactivate cannot know
  * whether the other one is still on screen.
  */
 export function ensureStylesheet() {

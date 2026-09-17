@@ -68,7 +68,7 @@ pub fn patch(root: &Path, key: &str, value: Value) -> Result<(), String> {
 
 /// The UI keeps its preference in localStorage and pushes the resolved value down with
 /// `winSetTheme`; the host mirrors it here so the very first paint of the next launch is
-/// already the right colour. Unset means dark, which is what `shell/theme.js` defaults to.
+/// already the right colour. Unset means dark, which is what the kernel's theme defaults to.
 pub fn theme(root: &Path) -> &'static str {
     match get(root).get("theme").and_then(Value::as_str) {
         Some("light") => "light",

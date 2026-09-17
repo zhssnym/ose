@@ -290,7 +290,7 @@ export function bridgePlugin() {
     }
   };
 
-  // ---------------------------------------------------------------- versions (batch 12, P5)
+  // ---------------------------------------------------------------- versions
   // The same rules as the host (src-tauri/src/versions.rs): `.ose/versions/<rel>/<id>.md`, the
   // page's own name used as a folder, ids in UTC so they sort, one version per file per five
   // minutes unless forced, 20 per file, 50 MB per vault, every write atomic (temp then rename).
@@ -479,9 +479,9 @@ export function bridgePlugin() {
     readBinary: async (p) => (await fs.readFile(abs(p))).toString('base64'),
     mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
     // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
-    // silently swallow it, and the UI relies on the refusal to report the collision (batch 9, B8).
-    // `Notes.md` -> `notes.md` is a real rename, not a collision (N17): on Windows and on a
-    // default macOS volume `existsSync` says the target is there because it *is* the source.
+    // silently swallow it, and the UI relies on the refusal to report the collision.
+    // `Notes.md` -> `notes.md` is a real rename, not a collision: on Windows and on a default
+    // macOS volume `existsSync` says the target is there because it *is* the source.
     // It goes through a temporary name, exactly as the host does (vault.rs `rename`).
     rename: async (a, b) => {
       const src = abs(a), dst = abs(b);

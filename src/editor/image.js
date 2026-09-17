@@ -1,6 +1,5 @@
-// Images (batch 12, package P5): alt text kept verbatim, size written as `![alt|300](src)`,
-// a missing image that names its file, web images downloaded on paste. See docs/CONTRACT.md
-// batch 12 "Images".
+// Images: alt text kept verbatim, size written as `![alt|300](src)`, a missing image that
+// names its file, web images downloaded on paste.
 //
 // Milkdown's image-block node keeps the aspect ratio in the markdown alt slot and has no
 // attribute for alt text at all, so a file whose line reads `![Wiring diagram](x.png)` used to

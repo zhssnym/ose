@@ -6,7 +6,7 @@
 //
 // The title bar is drawn here rather than by titlebar.js, whose imports (sidebar, router,
 // editor) all assume a vault. Same classes, so it is pixel for pixel the app's own bar.
-// See CONTRACT.md "Vault resolution".
+// See docs/HOST.md "The vault root".
 import { ose } from 'ose:kernel';
 import { esc, glyph, openOverlay } from 'ose:ui';
 import { isHost, dragWindow, onMaximize, exeDir } from './host.js';

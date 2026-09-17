@@ -1,4 +1,4 @@
-// The keyboard map (docs/CONTRACT.md "Keyboard map", batch 12). Obsidian's map, with one
+// The keyboard map (docs/KERNEL.md `ose.keys`). Obsidian's map, with one
 // platform switch: `Mod` is Cmd on macOS and Ctrl everywhere else, so on a Mac the app never
 // claims Ctrl+P/N/K/F/A/E/H (the Emacs caret bindings) and never claims Option+Left/Right
 // (word motion) — back and forward move to Cmd+[ and Cmd+] there.

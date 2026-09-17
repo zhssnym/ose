@@ -1,6 +1,6 @@
-// Tables (batch 12, package P2). Keymap inside a cell (Enter, Tab, Shift+Enter, Ctrl+Enter),
-// the row/column/alignment/delete commands, Esc escalation cell -> table, and a cell
-// selection that only ever empties cells. See docs/CONTRACT.md batch 12 "Tables".
+// Tables. Keymap inside a cell (Enter, Tab, Shift+Enter, Ctrl+Enter), the row, column,
+// alignment and delete commands, Esc escalation cell -> table, and a cell selection that only
+// ever empties cells.
 //
 // Exports read by extensions.js: plugins(ctx, o), registerCommands(api).
 //
@@ -499,8 +499,8 @@ function blockAtPos(view, pos) {
 /**
  * The handle is a toolbar, and it lives inside a `contenteditable`, where Tab does not walk into
  * nested controls — it leaves the editable region altogether. So the group navigates the way
- * every other menu in the app does (CONTRACT batch 9: Up/Down wrap, Enter/Space run, Esc
- * closes), with Left/Right for a horizontal strip:
+ * every other menu in the app does (Up/Down wrap, Enter/Space run, Esc closes), with
+ * Left/Right for a horizontal strip:
  *
  *   Enter / Space on the handle   focus its first button
  *   Left / Right / Home / End     move along the buttons

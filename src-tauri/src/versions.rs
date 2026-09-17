@@ -1,6 +1,6 @@
-//! Versions (batch 12, package P5): the previous content of a vault file, kept under
+//! Versions (docs/HOST.md "Versions"): the previous content of a vault file, kept under
 //! `.ose/versions/<rel path>/<timestamp>.md` before a save changes it, with a cap per file
-//! and per vault. See docs/CONTRACT.md batch 12 "Versions".
+//! and per vault.
 //!
 //! The file's own name is a folder, so `7-scratchpad/note.md` keeps its versions under
 //! `.ose/versions/7-scratchpad/note.md/2026-09-10-201500.md`. `.ose` is hidden from the tree

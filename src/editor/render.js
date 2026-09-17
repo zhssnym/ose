@@ -1,6 +1,6 @@
 // `render(markdown, opts)` (docs/KERNEL.md `ose:editor`): markdown as read-only DOM.
 //
-// A view, a tile or a module that wants to *show* a note rather than edit it should not have
+// A view, a tile or a plugin that wants to *show* a note rather than edit it should not have
 // to boot Milkdown: this is marked with GFM on, through DOMPurify, into one detached element.
 // Nothing here is editable, no plugin runs, no command is registered and no file is read.
 //

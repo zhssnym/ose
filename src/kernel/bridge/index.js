@@ -2,7 +2,7 @@
 // .NET host, the HTTP adapter in a browser.
 // Adapters implement `call(cmd, args) -> Promise` and `subscribe(fn({event, data}))`, and may
 // add `win`, `platform` and `assetUrl` when the host does not route those through the RPC.
-// This file is the contract surface; see CONTRACT.md. Nothing else imports an adapter.
+// This file is the surface every adapter answers to. Nothing else imports an adapter.
 
 import { bus } from '../registry.js';
 
@@ -21,8 +21,8 @@ function on(event, fn) {
  * matter for one event only: on `window {closing:true}` the Tauri adapter awaits whatever
  * promises come back (the editor's last save, the router's state flush) before it destroys
  * the window, and a handler that resolves `false` keeps the window open — the editor does
- * that when the save needs an answer from the user (CONTRACT.md batch 9, B1/B2). A handler
- * that throws is logged and counts as done; the close must never hang on a bug.
+ * that when the save needs an answer from the user. A handler that throws is logged and
+ * counts as done; the close must never hang on a bug.
  */
 function dispatch({ event, data }) {
   const results = [];
@@ -77,7 +77,7 @@ export const bridge = {
   on,
 
   rootInfo: () => call('rootInfo'),
-  // The vault itself (CONTRACT.md "Vault resolution"): `rootInfo` answers {root:null, name:null}
+  // The vault itself (docs/HOST.md "The vault root"): `rootInfo` answers {root:null, name:null}
   // while no vault is open; `pickVault` opens the native folder picker and adopts the choice;
   // `vaultInfo` adds where the root came from; `forgetVault` drops the remembered root.
   vaultInfo: () => call('vaultInfo'),
@@ -99,9 +99,8 @@ export const bridge = {
   writeText: (path, text) => call('writeText', path, text),
   appendText: (path, text) => call('appendText', path, text),
   writeBinary: (path, base64) => call('writeBinary', path, base64),
-  // Round four (docs/KERNEL.md `ose.files.readBinary`): the file's bytes as base64. K1a adds
-  // the host command; until it exists the call rejects, which is what `ose.files.readBinary`
-  // reports to whoever asked.
+  // The file's bytes as base64 (docs/KERNEL.md `ose.files.readBinary`). A host that does not
+  // implement it rejects, which is what `ose.files.readBinary` reports to whoever asked.
   readBinary: (path) => call('readBinary', path),
   mkdir: (path) => call('mkdir', path),
   rename: (from, to) => call('rename', from, to),
@@ -109,7 +108,7 @@ export const bridge = {
   // from settings (S37). A host that does not know the option ignores it and uses the bin.
   trash: (path, opts) => (opts === undefined ? call('trash', path) : call('trash', path, opts)),
   search: (query, opts = {}) => call('search', query, opts),
-  // Versions (CONTRACT.md batch 12): the text a save is about to replace, kept under
+  // Versions (docs/HOST.md "Versions"): the text a save is about to replace, kept under
   // `.ose/versions/<path>/<yyyy-mm-dd-hhmmss>.md`. `versionKeep` answers {kept, id} and keeps
   // nothing when the newest version of that file is younger than five minutes, unless `force`.
   versionKeep: (path, text, force = false) => call('versionKeep', path, text, force),
@@ -144,13 +143,14 @@ export const bridge = {
   getState: () => call('getState'),
   setState: (obj) => call('setState', obj),
   log: (text) => call('log', text),
-  // Round four, K1a. Spawn a program (never a shell): `opts` is {cwd, timeout, env, input},
+  // Spawn a program (never a shell, docs/HOST.md `run`): `opts` is {cwd, timeout, env, input},
   // stdout and stderr arrive as the bridge event `run` — {id, stream, line} per line, then
   // {id, done:true, code, timedOut}.
   run: (id, cmd, args = [], opts = {}) => call('run', id, cmd, args, opts),
   runKill: (id) => call('runKill', id),
   // The page the window is on, reloaded (Ctrl+R): only the host knows where the app's own
-  // files are. `riceReady` tells it the kernel booted; the host keeps both names.
+  // files are. `riceReady` tells it the kernel booted. Both names are the host command's
+  // historical spelling; it answers `reloadShell` as well (docs/HOST.md "RPC").
   reloadRice: () => call('reloadRice'),
   riceReady: () => call('riceReady'),
 };

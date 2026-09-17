@@ -7,8 +7,8 @@
 // icon set in a running Ose. Two copies would mean Esc closing an overlay that is not the
 // newest, which is the kind of bug a bundler makes in silence.
 //
-// Everything here already existed as `src/shell/dialog.js`, `icons.js` and `fuzzy.js`. The
-// stylesheet is `ui.css` (tokens.css + base.css); nothing here writes a colour.
+// Everything here was once the shell's own dialog, icon and fuzzy modules. The stylesheet is
+// `ui.css` (tokens.css + base.css); nothing here writes a colour.
 
 export {
   openOverlay, closeTopOverlay, overlayCount, overlayHasInputFocus,

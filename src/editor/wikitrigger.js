@@ -1,10 +1,10 @@
-// `[[` (batch 12, package P7, N1 and N13).
+// `[[`, the wiki-link trigger.
 //
 // Obsidian's most-used key. Typing `[[` opens a page picker where the caret is — anchored like
 // the slash menu, filtered by the quick-open matcher, so the same three characters find the
 // same page here, in Ctrl+P and in the Link command. Enter inserts a **markdown** link with
 // the page's title. Wiki-link syntax is never written to a file and never rendered: the vault
-// stays ordinary markdown that any tool can read (docs/CONTRACT.md, D3).
+// stays ordinary markdown that any tool can read.
 //
 // A name nothing matches offers `Create "<name>"`, which writes `<current folder>/<name>.md`
 // with an H1 and links it. `]]` or Esc closes the menu and leaves what was typed exactly as it
@@ -136,7 +136,7 @@ class WikiView {
 
   /**
    * The vault's pages, from `ose.pages()` — the rows quick open and the page picker offer,
-   * narrowed by the focused folder. The hose is async (a rice that registers no page list
+   * narrowed by the focused folder. The hose is async (a shell that registers no page list
    * makes the kernel walk the tree), and this menu draws on a keystroke, so the list is asked
    * for once per `[[` and kept: the rows appear on the frame after it resolves.
    */

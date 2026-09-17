@@ -1,13 +1,13 @@
-// Source mode (batch 12, package P5): the open page as raw markdown in CodeMirror, toggled
-// with Ctrl+E, sharing the title strip, the save path and the conflict dialog with the block
-// editor. Also the editor for non-markdown text files. See docs/CONTRACT.md batch 12 "Source".
+// Source mode: the open page as raw markdown in CodeMirror, toggled with Ctrl+E, sharing the
+// title strip, the save path and the conflict dialog with the block editor. Also the editor
+// for non-markdown text files.
 //
 // Two things live here, both of them about the edges of the page:
 //   - the CodeMirror host (`createSourceView`) and the per-page memory of the mode, and
-//   - `plugins(ctx, o)`, the ProseMirror keymap for the seam between the title and the body
-//     (L10, L19). It is in this file because extensions.js is the only way a module reaches
-//     the editor's plugin list, and because a caret leaving the top of the body is the same
-//     kind of question as a page leaving the block editor: where does the page begin.
+//   - `plugins(ctx, o)`, the ProseMirror keymap for the seam between the title and the body.
+//     It is in this file because extensions.js is the only way a module reaches the editor's
+//     plugin list, and because a caret leaving the top of the body is the same kind of
+//     question as a page leaving the block editor: where does the page begin.
 //
 // CodeMirror is already in the bundle: @milkdown/kit's code-mirror feature depends on every
 // package imported below. No dependency was added.

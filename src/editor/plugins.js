@@ -1,4 +1,4 @@
-// Small ProseMirror plugins the page editor adds on top of Crepe (CONTRACT.md batch 9).
+// Small ProseMirror plugins the page editor adds on top of Crepe.
 //
 //   urlPastePlugin      a URL pasted over selected text links the text instead of replacing it
 //   calloutPlugin       Obsidian's `> [!note] Title` gets a class; the text is left as typed

@@ -1,6 +1,6 @@
-/* `render(markdown)` — read-only prose (round four, K1c). The page editor's column has its own
-   typography in editor.css; this is the same note shown anywhere else: a tile, a module panel,
-   a preview. Every value is a token, and the box takes the size it is given. */
+/* `render(markdown)` — read-only prose. The page editor's column has its own typography in
+   editor.css; this is the same note shown anywhere else: a tile, a plugin's panel, a preview.
+   Every value is a token, and the box takes the size it is given. */
 
 .md-render {
   font-family: var(--font-ui);

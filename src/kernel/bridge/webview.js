@@ -1,4 +1,5 @@
-// WebView2 adapter: postMessage RPC to the .NET host. See CONTRACT.md "Host protocol".
+// WebView2 adapter: postMessage RPC to the .NET host. Same command names as the Tauri
+// adapter, over a different pipe.
 export async function create() {
   const wv = window.chrome.webview;
   const pending = new Map();

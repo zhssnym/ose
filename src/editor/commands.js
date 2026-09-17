@@ -1,10 +1,10 @@
-// Formatting commands (batch 12, package P3): every action inside the body as a registered
-// command with a chord, in the palette. Marks, blocks, lists, checkbox toggle, block movement,
-// wrap-selection-with-pair, link. See docs/CONTRACT.md batch 12 "Editor commands".
+// Formatting commands: every action inside the body as a registered command with a chord, in
+// the palette. Marks, blocks, lists, checkbox toggle, block movement, wrap-selection-with-pair,
+// link.
 //
 // Exports read by extensions.js: plugins(ctx, o), registerCommands(api).
 //
-// The chords are not written here: `shell/keys.js` BODY_KEYS is the one table, and the keymap
+// The chords are not written here: `keymap.js` BODY_KEYS is the one table, and the keymap
 // below is a loop over it that runs the registered command. A key and a palette entry can
 // therefore never mean two different things, and `shortcutFor` prints the same label in the
 // palette, the slash menu and the context menu.

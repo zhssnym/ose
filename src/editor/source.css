@@ -62,12 +62,12 @@
   min-height: calc(var(--fs-ui) * 1.7 * 5);
 }
 
-/* The comforts `codeEditor` adds over source mode (round five, defect E3). CodeMirror's own
-   base theme paints the active line `#cceeff44` in light and `#99eeff33` in dark — two hex
-   values from outside the palette — under `.<baseLightID> .cm-activeLine`, which is 0-2-0, so
+/* The comforts `codeEditor` adds over source mode. CodeMirror's own base theme paints the
+   active line `#cceeff44` in light and `#99eeff33` in dark — two hex values from outside the
+   palette — under `.<baseLightID> .cm-activeLine`, which is 0-2-0, so
    ours says `.cm-editor` in the middle to win at 0-3-0 rather than trust the order the
    StyleModule was mounted in. `--bg-3` and not `--bg-2`: the step has to read as a stripe on
-   a `--bg` ground *and* on the `--bg-2` of a module's panel, and in dark `--bg-2` is one point
+   a `--bg` ground *and* on the `--bg-2` of a plugin's panel, and in dark `--bg-2` is one point
    of luminance away from `--bg`. The same goes for the bracket under the caret, which
    `bracketMatching` would otherwise paint `#328c8252`.
 

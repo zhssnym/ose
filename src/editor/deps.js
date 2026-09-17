@@ -1,8 +1,8 @@
 // The dialogs the editor asks for, and the two state calls, over the kernel (`ose:ui`,
 // `ose.state`) through `host.js`.
 //
-// Round three loaded `shell/dialog.js` lazily and carried a fallback implementation of every
-// dialog, because the shell was another package's module and might not have been there. The
+// The editor once loaded the shell's dialogs lazily and carried a fallback implementation of
+// every one of them, because the shell shipped separately and might not have been there. The
 // dialogs are the kernel's now (docs/KERNEL.md `ose:ui`): they are part of what a page editor
 // is handed, like the file system, so they are imported statically and there is nothing to
 // fall back to. What is left here is `choose`, which `ose:ui` does not have in that shape, and
@@ -12,15 +12,15 @@ import { confirm, openOverlay, patchState as hostPatchState, pickPage as hostPic
 
 export { prompt, confirm, toast, openOverlay };
 
-/** CONTRACT: pickPage({title}) -> Promise<path|null> (the quick-open list, fuzzy, Enter). */
+/** pickPage({title}) -> Promise<path|null>: the quick-open list, fuzzy, Enter. */
 export function pickPage(opts) {
   return hostPickPage({ ...(opts || {}), title: (opts && opts.title) || 'Link to page…' });
 }
 
 /**
- * A choice between more than two actions (batch 9, B1). `confirm` is two-way and its cancel
- * button reads "Cancel", so a question like "reload the file or overwrite it" cannot be asked
- * honestly on it: whichever meaning went on Cancel would be a trap. This builds the same `.dlg`
+ * A choice between more than two actions. `confirm` is two-way and its cancel button reads
+ * "Cancel", so a question like "reload the file or overwrite it" cannot be asked honestly on
+ * it: whichever meaning went on Cancel would be a trap. This builds the same `.dlg`
  * shell on the overlay stack, so Esc, click-outside and focus return behave like every other
  * dialog.
  *
@@ -34,7 +34,7 @@ export function choose({ title = '', body = '', options = [], cancel = null } = 
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = openOverlay({
       // The head below says the same thing on screen; `title` is what a screen reader is told
-      // the dialog is called (CONTRACT "Access and look", the class of bug QA F19 lists).
+      // the dialog is called: without it a dialog is announced as just "dialog".
       width: 460, className: 'dlg-ov', title,
       onClose: () => { if (!done) { done = true; resolve(cancel); } },
     });
@@ -65,7 +65,7 @@ export function choose({ title = '', body = '', options = [], cancel = null } = 
   });
 }
 
-/** CONTRACT: patchState(partial) -> Promise<void>. Merged shallow at the top level. */
+/** patchState(partial) -> Promise<void>. Merged shallow at the top level. */
 export async function patchState(partial) {
   return hostPatchState(partial);
 }

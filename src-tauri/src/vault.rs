@@ -74,7 +74,7 @@ pub fn looks_like_vault(dir: &Path) -> bool {
     (dir.join(".ose").is_dir() || dir.join("CLAUDE.md").is_file()) && !dir.join("src-tauri").is_dir()
 }
 
-/// Steps 1 to 3 of the resolution order (CONTRACT.md "Vault resolution"): `--root` when it is
+/// Steps 1 to 3 of the resolution order (docs/HOST.md "The vault root"): `--root` when it is
 /// a folder, else the nearest ancestor of the executable that `looks_like_vault` (on macOS the
 /// walk climbs out of `Ose.app/Contents/MacOS`), else `OSE_ROOT`. Steps 4 and 5, the remembered
 /// root and the picker, need the app handle and happen in `setup`. `None` here no longer

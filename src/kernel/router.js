@@ -205,15 +205,15 @@ function pushRecent(path) {
 export function initRouter(el, { start = true } = {}) {
   mainEl = el;
 
-  // The app no longer opens at a route (CONTRACT.md batch 2): drop any route left in
-  // App/state.json by an older build so nothing resurrects it.
+  // The app no longer opens at a route: drop any route left in .ose/state.json by an older
+  // build so nothing resurrects it.
   if (stateCache().route !== undefined) patchState({ route: undefined });
 
   // On close the editor's own subscriber returns its final save (and may veto, batch 9); the
   // router unmounts what is on screen and then writes the state file. Returning the promise is
   // what lets the adapter await it rather than trusting a timer.
   //
-  // The unmount is the third guarantee (docs/KERNEL.md, ADV-T): a page's `unmount` runs on a
+  // The unmount is the third guarantee (docs/KERNEL.md): a page's `unmount` runs on a
   // navigation, on the unload of its plugin, and when the window closes or reloads — a plugin
   // that banks its clock there does not lose the visit to Ctrl+Q. The state file is flushed
   // after it, so whatever the unmount patched is in the write.
@@ -260,7 +260,7 @@ export function initRouter(el, { start = true } = {}) {
     run: () => void reopenClosed(),
   });
 
-  // No startup route (CONTRACT.md batch 2), but not a bare rectangle either: the empty
+  // No startup route (docs/SHELL.md), but not a bare rectangle either: the empty
   // surface is drawn now, without taking focus from the sidebar the user is about to use.
   // A shell with a home of its own asks for `start: false` and draws that instead.
   if (start) void show(null, { focus: false });
@@ -332,11 +332,11 @@ function restoreScroll(scroll, key) {
 /**
  * The page on screen goes away: the editor is closed, or a view's / an owned route's `unmount`
  * is called — and **awaited**, the way `host.close()` above it always was (docs/KERNEL.md, the
- * three guarantees; ADV-T finding 2). A page that banks a clock, saves a buffer or kills a
- * child on the way out needs its last write to finish before the next page mounts, and until
- * round five the router started that work and walked off. A throw is caught and logged rather
- * than left to reject, so the next mount always proceeds. A sync `unmount` still works: `await`
- * on a non-promise is one microtask.
+ * three guarantees). A page that banks a clock, saves a buffer or kills a child on the way out
+ * needs its last write to finish before the next page mounts, and until this was fixed the
+ * router started that work and walked off. A throw is caught and logged rather than left to
+ * reject, so the next mount always proceeds. A sync `unmount` still works: `await` on a
+ * non-promise is one microtask.
  */
 async function teardown() {
   if (!current) return;

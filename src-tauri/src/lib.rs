@@ -1,5 +1,5 @@
-//! The Ose host. One `rpc` command carries the whole bridge surface of CONTRACT.md; window
-//! control is done by the adapter through Tauri's own window API and never reaches here.
+//! The Ose host. One `rpc` command carries the whole bridge surface (docs/HOST.md "RPC");
+//! window control is done by the adapter through Tauri's own window API and never reaches here.
 //!
 //! Each file below exposes `handle(ctx, cmd, args) -> Option<Result<Value, String>>`, where
 //! `None` means "not mine", and `rpc` tries them in order. A name none of them claims is
@@ -72,8 +72,8 @@ pub type FolderPicker =
 
 /// Everything the host owns, managed by Tauri and reachable from any command or thread.
 ///
-/// The root is optional: the app starts without one and lets the shell ask (CONTRACT.md,
-/// vault resolution). It is read through `root()` / `require_root()` at call time, never
+/// The root is optional: the app starts without one and lets the shell ask (docs/HOST.md
+/// "The vault root"). It is read through `root()` / `require_root()` at call time, never
 /// cached by a caller, so `pickVault` changing it is seen by the next command and by the
 /// `vault` protocol alike.
 pub struct AppState {
@@ -197,7 +197,7 @@ pub mod commands {
     use super::*;
     use tauri::Manager as _;
 
-    /// The whole bridge. `cmd` is the CONTRACT.md method name in camelCase; errors are plain strings.
+    /// The whole bridge. `cmd` is the bridge method name in camelCase; errors are plain strings.
     #[tauri::command]
     pub async fn rpc(
         app: tauri::AppHandle,
@@ -297,12 +297,12 @@ pub mod commands {
         Ok(gone(st, &cmd))
     }
 
-    /// A command this host does not implement. 1.0.0 took several away at once (`riceInfo`,
-    /// `riceReady`, `riceFailed`, every `update*`), and the page calling one is a page that has
-    /// not caught up yet, not a page that is broken: it gets `null`, which every caller already
-    /// handles, instead of an error that would surface as a toast or a dead view. The name is
-    /// logged the first time it is asked for, so a call that should have gone is still visible
-    /// once in the log and never a thousand times.
+    /// A command this host does not implement. 1.0.0 took several away at once: `riceInfo`,
+    /// `riceReady` and `riceFailed`, which are 0.5.0 command names, and every `update*`. The
+    /// page calling one is a page that has not caught up yet, not a page that is broken: it
+    /// gets `null`, which every caller already handles, instead of an error that would surface
+    /// as a toast or a dead view. The name is logged the first time it is asked for, so a call
+    /// that should have gone is still visible once in the log and never a thousand times.
     fn gone(st: &AppState, cmd: &str) -> Value {
         static SAID: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
         let mut guard = SAID.lock().unwrap_or_else(|p| p.into_inner());

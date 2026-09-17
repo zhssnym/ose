@@ -3,14 +3,14 @@
 // Enter or a click scrolls the heading to the top and puts the caret at its start. There is
 // no panel: the picker is the whole feature (CLAUDE.md: minimal).
 //
-// Built on the shell's overlay stack (openOverlay) with the palette's `.pal` classes, exactly
-// as pickPage in shell/dialog.js is, so Esc, click-outside and focus return are the same
-// everywhere a list is chosen from.
+// Built on the kernel's overlay stack (openOverlay) with the palette's `.pal` classes, exactly
+// as `pickPage` in `ose:ui` is, so Esc, click-outside and focus return are the same everywhere
+// a list is chosen from.
 
 import { esc, openOverlay, fuzzy, highlight } from './host.js';
 import { caretAt } from './reveal.js';
 
-/** A heading glyph on the shell's 16-unit icon grid, for the picker's head. */
+/** A heading glyph on the app's 16-unit icon grid, for the picker's head. */
 const HEAD_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5v9M12.5 3.5v9M3.5 8h9"/></svg>';
 
 /** Every heading in document order: `{level, text, pos}` with `pos` before the node. */

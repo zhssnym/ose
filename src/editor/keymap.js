@@ -1,14 +1,14 @@
 // The chords that only mean anything with the caret in a page body — the editor's own.
 //
-// Round three this table lived in `shell/keys.js` beside the window chords, because the shell
-// owned every key in the app. The window chords are the rice's now (`keys.json`, docs/RICE.md)
-// and every command below is one `ose:editor` registers itself, so the table came with it:
-// commands.js binds them into the ProseMirror keymap, where they have to be answered before
-// Milkdown's own bindings see the key, and the menus print them.
+// This table once lived beside the window chords, because the shell owned every key in the
+// app. The window chords are the shell's now (`keys.json`, docs/SHELL.md) and every command
+// below is one `ose:editor` registers itself, so the table came with it: commands.js binds
+// them into the ProseMirror keymap, where they have to be answered before Milkdown's own
+// bindings see the key, and the menus print them.
 //
-// `ose.keys.bind(combo, id, { scope: 'body' })` is the other half: the rice binds a body chord
-// through the kernel, and `ose.keys.shortcutFor(id)` then prints it. This table is what the
-// editor answers by itself, in the editor, with no trip through the window listener.
+// `ose.keys.bind(combo, id, { scope: 'body' })` is the other half: the shell binds a body
+// chord through the kernel, and `ose.keys.shortcutFor(id)` then prints it. This table is what
+// the editor answers by itself, in the editor, with no trip through the window listener.
 
 /** True on a Mac, by what the host told the page, else by what the browser says. */
 export const isMac = () => {

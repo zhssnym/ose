@@ -59,6 +59,8 @@ mod tests {
 
     #[test]
     fn ignores_the_rest() {
+        // `--rice` was 0.5.0's flag for the interface folder in the vault. A shortcut that
+        // still passes it has to start the app, not stop it.
         let a = v(&["--dev", "http://127.0.0.1:5173", "--rice", "D:/ose/cockpit"]);
         assert!(a.root.is_none() && a.shell.is_none() && !a.version);
     }

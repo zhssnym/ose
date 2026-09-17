@@ -1,10 +1,10 @@
 // The editor's module-level entry points, over one `markdownPage` instance.
 //
 // `ose:editor` is `lib.js`: `markdownPage`, `codeEditor`, `render`, and nothing else. This file
-// is what the round-three shell still calls — `initEditor`, `openPage`, `closePage`, `saveNow`,
-// `scrollToLine`, `currentSelection`, `getOpenPath` — expressed as one page at a time, which is
-// the stock rice's rule and never was the library's. When K2's rice mounts `markdownPage`
-// itself (`setPageHost` in `cockpit/shell/main.js`), this file goes.
+// wraps that in one page at a time — `initEditor`, `openPage`, `closePage`, `saveNow`,
+// `scrollToLine`, `currentSelection`, `getOpenPath` — which was a shell's rule and never the
+// library's. The shell mounts `markdownPage` itself through `ose.setPageHost` now, so the only
+// caller left in the repository is `preview.js`.
 
 import { acquireCommands, markdownPage } from './page.js';
 
@@ -14,7 +14,7 @@ export { render } from './render.js';
 
 /** @type {null | ReturnType<typeof markdownPage>} */
 let page = null;
-/** The reference on the commands the rice holds: `page.new` works with no page open. */
+/** The reference on the commands the shell holds: `page.new` works with no page open. */
 let held = null;
 
 export function getOpenPath() {

@@ -1,9 +1,9 @@
-// Inbound links: which pages link to a file, and rewriting those links when the file moves
-// (CONTRACT.md batch 9, C13). A rename or a move in the tree used to leave every `](href)`
-// pointing at the old path; the page column then opened "page not found" from a link that
-// was right a minute ago. Finding them is a vault search on the file's name; each hit is
-// confirmed by parsing the linking file and resolving the href the way the editor does
-// (editor/paths.js resolveHref), so a page that merely mentions the name is left alone.
+// Inbound links: which pages link to a file, and rewriting those links when the file moves. A
+// rename or a move in the tree used to leave every `](href)` pointing at the old path; the
+// page column then opened "page not found" from a link that was right a minute ago. Finding
+// them is a vault search on the file's name; each hit is confirmed by parsing the linking file
+// and resolving the href the way the editor does (editor/paths.js resolveHref), so a page that
+// merely mentions the name is left alone.
 //
 // Fidelity: only the bytes of a confirmed href change. The rest of the file, its line endings
 // and its trailing newline are untouched, because the text is spliced in place, never split

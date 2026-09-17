@@ -1289,7 +1289,7 @@ function linkUrl(path, dir) {
   return (href || baseName(path)) + (dir ? '/' : '');
 }
 
-/** `copy path` and `copy link` (CONTRACT.md batch 5). A folder links as `[name](path/)`. */
+/** `copy path` and `copy link`. A folder links as `[name](path/)`. */
 async function copyPath(path) {
   const ok = await copyText(clean(path));
   toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
@@ -1392,9 +1392,9 @@ const TREE_COMMANDS = [
     applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
-  // Every row, folders included (CONTRACT "Files"): a folder handed to the platform opens in
-  // the file manager, which is a real thing to want and what `openPath` already does with one
-  // (QA defect 9). `Reveal in Explorer` stays what it is — the row selected in its parent.
+  // Every row, folders included: a folder handed to the platform opens in the file manager,
+  // which is a real thing to want and what `openPath` already does with one. `Reveal in
+  // Explorer` stays what it is — the row selected in its parent.
   { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
     applies: (t) => !!t.path, run: (t) => openWith(t.path) },
   { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',

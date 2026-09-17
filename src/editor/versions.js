@@ -1,7 +1,6 @@
-// Versions (batch 12, package P5): the previous content of a file kept under .ose/versions
-// before a save changes it; the Versions… dialog that lists and restores. Host side in
-// src-tauri/src/versions.rs, dev side in dev/bridge-plugin.mjs. See docs/CONTRACT.md batch 12
-// "Versions".
+// Versions: the previous content of a file kept under .ose/versions before a save changes it;
+// the Versions… dialog that lists and restores. Host side in src-tauri/src/versions.rs, dev
+// side in dev/bridge-plugin.mjs. See docs/HOST.md "Versions".
 //
 // Nothing here is on the critical path of a save except one rpc, and that rpc can fail without
 // the save noticing: a version is insurance, never a precondition. Every call is swallowed and
@@ -225,7 +224,7 @@ async function openVersions() {
   if (!rows.length) { toast('no versions of this page yet', 'info'); return; }
 
   // `title` is what `openOverlay` puts on the box as its aria-label: a dialog with no
-  // accessible name is announced as just "dialog" (CONTRACT "Access and look", QA F19).
+  // accessible name is announced as just "dialog".
   const ov = await openOverlay({ width: 520, className: 'dlg-ov', title: 'Versions' });
   const id = ov ? await versionsOverlay(ov, path, rows) : await versionsFallback(rows);
   if (id) await restore(path, id);

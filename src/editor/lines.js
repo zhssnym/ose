@@ -9,7 +9,7 @@
 // textblocks of its own (a list, a quote) the same walk refines the target to the item.
 //
 // A block whose first line cannot be found claims no lines: a target inside it lands on the
-// block before — early, never late (CONTRACT.md batch 9, C7).
+// block before — early, never late.
 
 import { blockMarkdown } from './crepe.js';
 import { lineKey } from './stringify.js';

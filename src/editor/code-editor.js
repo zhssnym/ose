@@ -4,14 +4,14 @@
 // language pack (the one the code-block feature uses, so a `python` block and a `.py` file are
 // highlighted by the same rules), and, when it is given a `path`, the page editor's save: the
 // file is read back before every write and must still be the text this editor was opened from,
-// or the user decides what happens (CONTRACT.md batch 9, B1). With `text` instead of `path`
-// nothing is read and nothing is written; `onSave` is handed the text and does what it likes.
+// or the user decides what happens. With `text` instead of `path` nothing is read and nothing
+// is written; `onSave` is handed the text and does what it likes.
 //
-// A module uses this for a script beside its data, the rice for a `.json` or a `.css` of its
+// A plugin uses this for a script beside its data, the shell for a `.json` or a `.css` of its
 // own; source mode inside a page stays where it is, in page.js, because it shares the page's
 // title strip, baseline and conflict dialog.
 //
-// Round five adds `grow` (the editor is as tall as its text; the column scrolls) and the
+// `grow` makes the editor as tall as its text, so the column scrolls, and with it come the
 // comforts a program deserves and a page does not: close brackets, indent on input, and a
 // stripe under the caret's line. Both are described where they are built, below.
 
@@ -141,9 +141,9 @@ export function codeEditor(el, opts = {}) {
   /**
    * Escape with no search panel open: leave the text and put the keyboard back on the page
    * around it. Tab inside CodeMirror is the indent unit and Escape used to do nothing here, so
-   * the only way out of a module's code editor was a command — a keyboard trap in an app whose
-   * rule is that nothing needs the mouse (ADV-N). The nearest page container takes the focus so
-   * the next Tab starts from the page, not from the top of the window; Escape with the search
+   * the only way out of a plugin's code editor was a command — a keyboard trap in an app whose
+   * rule is that nothing needs the mouse. The nearest page container takes the focus so the
+   * next Tab starts from the page, not from the top of the window; Escape with the search
    * panel open still closes the panel first (`source.js`).
    */
   function leaveEditor() {
@@ -176,21 +176,21 @@ export function codeEditor(el, opts = {}) {
 
   // Grown onto the view rather than passed to `createSourceView`: the language slot and the
   // code palette belong to this editor, and source mode inside a page must not gain either.
-  // Ctrl+S here as well as in the rice: a code editor inside a dialog or a module's panel is
-  // not always under a chord the rice bound (docs/KERNEL.md, keyboard reachable every time).
-  // It does not reach here yet in a running app: `keys.js` binds `mod+s` on `window` in the
-  // capture phase, so the shell's `page.save` takes it first and nothing inside CodeMirror can
-  // outrank a listener that runs before the event ever descends. The binding stays, because it
-  // is right and because the exemption belongs in the key engine, not here (round five, E to
-  // the orchestrator: `OWN_EDITOR_KEYS` standing down for `.ed-code`).
+  // Ctrl+S here as well as in the shell: a code editor inside a dialog or a plugin's panel is
+  // not always under a chord the shell bound (docs/KERNEL.md, keyboard reachable every time).
+  // `keys.js` binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would
+  // otherwise take it first and nothing inside CodeMirror could outrank a listener that runs
+  // before the event ever descends. The exemption belongs in the key engine rather than here,
+  // and that is where it is: `OWN_EDITOR_KEYS` stands down for `mod+s` and `mod+f` inside
+  // `.ed-code`.
   //
-  // The comforts (round five, defect E3) are here for the same reason: writing a program is
-  // not writing a page. `closeBrackets` types the closing half, `indentOnInput` re-indents the
-  // line when the language says the word that ends a block has just been typed, and
-  // `highlightActiveLine` says where the caret is in a screen of code with no prose to hold
-  // the eye. Tab is bound inside `createSourceView` — the indent unit at the caret, a whole
-  // block when a range is selected, Shift+Tab to dedent — through `indentUnit`, which is four
-  // spaces for Python and two elsewhere (INDENT above).
+  // The comforts are here for the same reason: writing a program is not writing a page.
+  // `closeBrackets` types the closing half, `indentOnInput` re-indents the line when the
+  // language says the word that ends a block has just been typed, and `highlightActiveLine`
+  // says where the caret is in a screen of code with no prose to hold the eye. Tab is bound
+  // inside `createSourceView` — the indent unit at the caret, a whole block when a range is
+  // selected, Shift+Tab to dedent — through `indentUnit`, which is four spaces for Python and
+  // two elsewhere (INDENT above).
   //
   // `Prec.high` on the keymap, not just its place in this array: `appendConfig` puts these
   // *after* source mode's own keymap, so at equal precedence `closeBracketsKeymap`'s Backspace
@@ -386,8 +386,8 @@ export function codeEditor(el, opts = {}) {
      * A `setText` from outside is an edit: the caller means the buffer to hold this and, for a
      * path editor, the next `save()` to write it. It used to go in without marking the editor
      * dirty, so `save()` short-circuited on `if (!dirty)` and answered true having written
-     * nothing — and the Informatique module seeds a student's empty answer file exactly this
-     * way, then submits it to the judge (A, finding 4).
+     * nothing — and the Informatique plugin seeds a student's empty answer file exactly this
+     * way, then submits it to the judge.
      */
     setText(text) { if (view.setText(String(text ?? ''))) markDirty(); },
     setReadOnly(on) {

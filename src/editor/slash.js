@@ -2,8 +2,8 @@
 //
 // Crepe's own BlockEdit menu only opens on an empty block and only filters by substring, so it
 // is switched off in crepe.js and this module replaces it: its own SlashProvider (positioning,
-// debounce, show/hide), its own DOM in the app's `.surface` / `.row` idiom, and its own item
-// list, which is exactly the list CONTRACT.md fixes.
+// debounce, show/hide), its own DOM in the app's `.surface` / `.row` idiom, and its own fixed
+// item list (GROUPS, below).
 //
 // Trigger: `/` at the start of a text block, or right after a space anywhere in one. Never in a
 // code block, never inside inline code.
@@ -34,12 +34,12 @@ const SLASH_KEY = new PluginKey('os-slash');
 const MAX_QUERY = 24;
 
 // Every menu that is currently on screen. The block keymap asks before it acts on a key, so
-// Esc and the arrows belong to the menu while it is open (CONTRACT.md batch 5).
+// Esc and the arrows belong to the menu while it is open.
 const openMenus = new Set();
 export const slashMenuOpen = () => openMenus.size > 0;
 
 // ---------------------------------------------------------------------------
-// icons. The shell's 16-unit grid (shell/icons.js), so a 16px slot draws the 1.5 stroke from
+// icons. The app's 16-unit grid (`ose:ui`), so a 16px slot draws the 1.5 stroke from
 // base.css `.row svg` at 1.5px — the same weight as every other glyph in the app. Square
 // corners throughout (DESIGN.md). What the shell already draws is taken from it; the rest is
 // drawn here on the same grid: an `H` with the level beside it, three lines for text, and so
@@ -136,7 +136,7 @@ function joinNeighbourLists(ctx) {
 
 /**
  * A whole block, not a conversion: it goes after the current block, or in its place when the
- * block is empty (CONTRACT.md). `make` returns a ProseMirror node.
+ * block is empty. `make` returns a ProseMirror node.
  */
 function putBlock(ctx, make) {
   const view = ctx.get(editorViewCtx);
@@ -168,8 +168,7 @@ function insertText(ctx, text) {
 }
 
 // ---------------------------------------------------------------------------
-// the menu, exactly as CONTRACT.md lists it (batch 3 order, plus the batch 9 additions:
-// Heading 3 to 6 after Heading 2, Duplicate after Rename)
+// the menu, in the order it is offered in
 
 const GROUPS = [
   {

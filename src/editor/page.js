@@ -9,15 +9,15 @@
 // Markdown is the source of truth. Nothing is written on open; a save happens only after the
 // user has actually typed, and only when the composed text differs from what is on disk.
 // Before every write the file is read again: if it no longer matches the text this page was
-// opened from (or last wrote), the user decides, never the editor (CONTRACT.md batch 9, B1).
+// opened from (or last wrote), the user decides, never the editor.
 //
-// Round four (K1c): everything above is per instance. `markdownPage(el, path, opts)` builds
-// one and hands back a handle; the state that used to be the module's `page` singleton is the
-// closure of that call, so two pages can stand side by side in one document. What stays at
-// module level is what is genuinely shared: the command registry (registered when the first
-// page mounts, removed when the last one closes), the watcher and window listeners, and the
-// pointer to the **active** page — the one holding the focus — which is the page the commands
-// and the extension modules act on.
+// Everything above is per instance. `markdownPage(el, path, opts)` builds one and hands back a
+// handle; the state that used to be this file's `page` singleton is the closure of that call,
+// so two pages can stand side by side in one document. What stays at module level is what is
+// genuinely shared: the command registry (registered when the first page mounts, removed when
+// the last one closes), the watcher and window listeners, and the pointer to the **active**
+// page — the one holding the focus — which is the page the commands and the extension modules
+// act on.
 
 import {
   bus, commands, status, store, bridge, navigate, clearRoute, defaultNewFolder, scratchFolder,
@@ -470,8 +470,8 @@ export function markdownPage(el, path, opts = {}) {
     col.append(body);
 
     host.append(col);
-    // Which page the commands act on: the one the caret is in (K1c). With one page mounted —
-    // the stock rice — this never changes anything.
+    // Which page the commands act on: the one the caret is in. With one page mounted — the
+    // stock shell — this never changes anything.
     col.addEventListener('focusin', take);
   }
 
@@ -1173,9 +1173,9 @@ export function markdownPage(el, path, opts = {}) {
   // external changes
 
   /**
-   * Something touched the open file from outside (the watcher, CONTRACT.md `fs`). Renames of
-   * our own making never arrive here: renamePage and the title rename move `p.path` to the new
-   * name before the event can, so the old path no longer matches (C18).
+   * Something touched the open file from outside (the watcher). Renames of our own making
+   * never arrive here: renamePage and the title rename move `p.path` to the new name before
+   * the event can, so the old path no longer matches.
    */
   function onFsChange(payload) {
     const p = page;
@@ -1269,8 +1269,8 @@ export function markdownPage(el, path, opts = {}) {
   }
 
   /**
-   * Insert a link to another page at the caret (CONTRACT.md batch 5). The palette has just
-   * closed, so the editor is focused first: the link goes where the caret was left.
+   * Insert a link to another page at the caret. The palette has just closed, so the editor is
+   * focused first: the link goes where the caret was left.
    */
   async function linkPage() {
     const p = page;
@@ -1628,7 +1628,7 @@ async function saveAll(opts) {
 // the commands
 //
 // Registered when the first page mounts and removed when the last one closes, plus one
-// reference `initEditor()` holds for the rice, so `page.new` is there with no page open.
+// reference `initEditor()` holds for the shell, so `page.new` is there with no page open.
 
 let cmdRefs = 0;
 let dropCommands = null;
@@ -1636,10 +1636,9 @@ let dropCommands = null;
 const hasPage = () => !!(active && active.api.hasPage());
 
 /**
- * What the batch-12 modules (extensions.js) get of the open page. Accessors, never the object
+ * What the extension modules (extensions.js) get of the open page. Accessors, never the object
  * itself, because the page is replaced on every open and the *instance* is replaced when the
- * focus moves. Modules go through this and do not import page.js, so the graph stays a tree
- * (docs/CONTRACT.md batch 12).
+ * focus moves. They go through this and do not import page.js, so the graph stays a tree.
  */
 const editorApi = {};
 for (const name of [
@@ -1721,7 +1720,7 @@ function registerCommands() {
 
 async function newPage() {
   // In focus mode a new page belongs to the focus folder; otherwise beside the open page, or
-  // in Scratchpad when a view is open (CONTRACT.md batch 4).
+  // in Scratchpad when a view is open.
   const focused = defaultNewFolder();
   const folder = focused || (hasPage() ? editorApi.folder() : scratchFolder());
   const path = await freePath(folder, 'Untitled');

@@ -1,4 +1,4 @@
-// Drops onto the page (CONTRACT.md "Drop onto the page"). Obsidian is the reference.
+// Drops onto the page. Obsidian is the reference.
 //
 //   files from outside     every file that is not an image is copied to the page's
 //                          `attachments/` folder under the name an image would get

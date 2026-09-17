@@ -1,4 +1,4 @@
-// The seam between the page editor and the batch-12 packages (docs/CONTRACT.md batch 12).
+// The seam between the page editor and the feature packages built on top of it.
 //
 // Each package owns exactly one module listed here and touches nothing else in this file:
 // crepe.js asks `extensionPlugins` for ProseMirror plugins and `extensionFeatureConfigs` for
