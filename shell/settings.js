@@ -14,6 +14,7 @@ const { bus, commands, store } = ose;
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const PAGE_FACES = [{ value: 'document', label: 'document' }, { value: 'plain', label: 'plain' }];
+const LAYOUTS = [{ value: 'scroll', label: 'scroll' }, { value: 'pages', label: 'pages' }];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
 const settings = () => ose.settings.get();
@@ -275,6 +276,9 @@ export async function openSettings() {
       ${row('Page face',
         seg('face', PAGE_FACES, s.pageFace === 'plain' ? 'plain' : 'document'),
         'The face a page is set in: the document serif, or the face the interface uses. Nothing else about a page changes, and printing follows it.')}
+      ${row('Layout',
+        seg('layout', LAYOUTS, s.layout === 'pages' ? 'pages' : 'scroll'),
+        'Scroll is one continuous column. Pages is the A4 sheet the page prints on, at the print size, so every line breaks where it will on paper, with a dashed rule where each sheet ends.')}
       ${row('Readable width',
         seg('width', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.readableWidth === false ? 'off' : 'on'),
         'On, a page is a column in the middle of the window. Off, it fills it.')}
@@ -362,6 +366,7 @@ export async function openSettings() {
     else if (group === 'font') save({ fontSize: +v });
     else if (group === 'lh') save({ lineHeight: +v });
     else if (group === 'face') save({ pageFace: v });
+    else if (group === 'layout') save({ layout: v });
     else if (group === 'zoom') setZoom(+v);
     else if (group === 'width') save({ readableWidth: v === 'on' });
     else if (group === 'newpages') save({ newPages: v });
@@ -422,6 +427,16 @@ export function initSettings() {
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: toggleSettings });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
+
+  // The page view is one command too, so switching between the scroll and the sheet is a
+  // palette away rather than a dialog away.
+  commands.register({
+    id: 'app.layout', title: 'Toggle page view', group: 'app', hint: 'scroll or A4 pages',
+    run: () => {
+      const pages = document.documentElement.dataset.layout === 'pages';
+      save({ layout: pages ? 'scroll' : 'pages' });
+    },
+  });
 
   // Zoom is three commands, so the palette has it and P3's chords (Ctrl+=, Ctrl+-, Ctrl+0)
   // have something to bind to. The percentage is remembered per vault under settings.zoom.

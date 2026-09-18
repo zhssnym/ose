@@ -1,0 +1,69 @@
+/* Page view: Settings › Reading › Layout, `pages`.
+
+   A page is drawn as the A4 sheet it prints on: the sheet's width, the sheet's 2cm margin, and
+   the print size and leading, so a line breaks on screen exactly where it breaks in the PDF.
+   Every spacing of the document look is in em, which follows that size, so the rhythm is the
+   paper's too. `sheets.js` measures the content and draws a rule where each sheet ends,
+   by the same rules print.css gives the printer. `scroll`, the default, is the page as it has
+   always been.
+
+   Screen only: paper is print.css's, and there the sheet is the paper itself. */
+
+@media screen {
+  /* The desk the sheet lies on. */
+  :root[data-layout="pages"] .main-scroll:has(.page-col.ed) { background: var(--bg-3); }
+
+  :root[data-layout="pages"] .page-col.ed {
+    position: relative;
+    box-sizing: border-box;
+    width: calc(var(--print-measure) + 2 * var(--print-margin));
+    max-width: none;
+    min-height: 29.7cm;
+    margin: var(--sp-6) auto;
+    padding: var(--print-margin);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    /* The window's zoom scales the sheet as one object, the way a word processor's zoom does:
+       the lines break where they did, only bigger. */
+    zoom: var(--zoom, 1);
+    --fs-body: var(--print-fs);
+    --lh-body: var(--print-lh);
+    font-size: var(--print-fs);
+    line-height: var(--print-lh);
+  }
+
+  /* The meta line is not on paper, so it leaves the flow and sits in the top margin: what is
+     below it is placed exactly as it will be printed. */
+  :root[data-layout="pages"] .page-col.ed > .page-meta {
+    position: absolute;
+    top: calc(var(--print-margin) / 3);
+    left: 0;
+    right: 0;
+    margin: 0;
+  }
+
+  /* The scroll room under the last line is the screen's; a sheet ends where it ends. */
+  :root[data-layout="pages"] .page-col.ed .ProseMirror { padding-bottom: 0; }
+
+  .sheet-breaks { position: absolute; inset: 0; pointer-events: none; }
+  :root:not([data-layout="pages"]) .sheet-breaks { display: none; }
+
+  /* Where one sheet ends and the next begins, across the sheet and its margins. The number is
+     the sheet that starts there, in the right margin, in the chrome's mono face. */
+  .sheet-break {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px dashed var(--fg-3);
+  }
+  .sheet-break::after {
+    content: attr(data-n);
+    position: absolute;
+    right: var(--sp-2);
+    top: var(--sp-1);
+    font-family: var(--font-mono);
+    font-size: var(--fs-chrome-sm);
+    color: var(--fg-3);
+    line-height: 1;
+  }
+}

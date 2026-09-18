@@ -45,6 +45,8 @@ import './editor.css';
 // The sheet: `@page` and every `@media print` rule of the app, in one file. It rides in with
 // the editor's stylesheet because that is the last one the kernel serves.
 import './print.css';
+import './sheets.css';
+import { attachSheets } from './sheets.js';
 // The print commands are the only thing in the editor that reaches past `host.js`: `ose.print`
 // is a hose of its own and the editor's `bridge` is a reading of `ose.files`. Two lines in
 // `host.js`'s bridge map would close this door again.
@@ -273,6 +275,8 @@ export function markdownPage(el, path, opts = {}) {
       // typed in would otherwise never be saved.
       p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null),
         () => { p.touched = true; markDirty(p); });
+      // Page view: the rules where each A4 sheet ends (sheets.js). Idle unless the layout is `pages`.
+      p.cleanups.push(attachSheets(p.el, () => p.bodyEl.querySelector('.ProseMirror')));
       // Anything the editor does to the document while it is settling (the trailing plugin adds
       // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
       // normal path; the timer is the fallback, because a hidden window fires no frames at all.

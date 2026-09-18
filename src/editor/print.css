@@ -101,7 +101,7 @@
      the drag bar under the picture, are handles like the rest and were printing on the figure. */
   .titlebar, .sidebar, .rs, .tabs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading,
   .os-slash, .ed-find, .ed-bl, .ed .page-meta, .ed-add-title, .ed-props-head svg,
-  .ose-math-src,
+  .ose-math-src, .sheet-breaks,
   .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview,
   .ed .milkdown .milkdown-link-edit, .ed .milkdown .milkdown-block-handle,
   .ed .milkdown .milkdown-table-block .handle, .ed .milkdown .milkdown-table-block .line-handle,

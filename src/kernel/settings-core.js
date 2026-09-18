@@ -17,6 +17,9 @@ export const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 // rather not have a serif. Only the family moves: the sizes, the leading, the rhythm and the
 // frames are the document's either way (tokens.css, `:root[data-face="plain"]`).
 export const PAGE_FACES = ['document', 'plain'];
+// How a page is laid out on screen. `scroll` is one continuous column; `pages` is the A4 sheet
+// it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.js).
+export const LAYOUTS = ['scroll', 'pages'];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
@@ -26,6 +29,7 @@ export const DEFAULTS = {
   fontSize: 16,
   lineHeight: 1.35,
   pageFace: 'document',
+  layout: 'scroll',
   readableWidth: true,
   zoom: 100,
   newPages: 'focus',
@@ -114,6 +118,12 @@ export function pageFace() {
   return PAGE_FACES.includes(f) ? f : DEFAULTS.pageFace;
 }
 
+/** `scroll` or `pages`: how a page is laid out on screen. */
+export function layout() {
+  const l = settings().layout;
+  return LAYOUTS.includes(l) ? l : DEFAULTS.layout;
+}
+
 /** Read by the editor: `spellcheck` on the body, on by default (S36). */
 export function spellcheckOn() { return settings().spellcheck !== false; }
 
@@ -162,6 +172,7 @@ export function applySettings() {
   // `plain`. Everything that wears the document face — the page column, the title strip,
   // `render()`, paper — follows it in the same frame, because they all read that token.
   root.dataset.face = pageFace();
+  root.dataset.layout = layout();
 
   root.style.setProperty('--zoom', String(zoom() / 100));
   root.classList.toggle('full-width', s.readableWidth === false);

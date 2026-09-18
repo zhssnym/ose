@@ -214,6 +214,15 @@ with no box around it, and code inside a block is set at a ratio of the body, at
 leading. The sheet number is in the bottom margin, mono at 9pt. Deliberate space (an empty
 paragraph) prints as the empty line it is.
 
+The page view (Settings › Reading › Layout, `pages`, or `Toggle page view` in the palette) shows
+the same sheet while writing. The page column becomes the A4 sheet on a `--bg-3` desk, with the
+print margin, the print size and the print leading, so a line breaks on screen where it breaks on
+paper; the meta line moves into the top margin, out of the flow, because paper does not carry it.
+`src/editor/sheets.js` walks the blocks with the break rules above and draws a dashed rule, with
+the number of the next sheet in the right margin, wherever a sheet ends. Nothing moves in the
+document: the rules are an overlay, so the file and the editing are the same in both layouts.
+The window's zoom scales the sheet as one object.
+
 ## Code
 
 One palette, one set of token colours, everywhere code is shown: a fenced block inside a page, a

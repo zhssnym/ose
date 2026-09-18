@@ -23,7 +23,7 @@ writes plugins against `docs/PLUGINS.md`.
 ## Layout
 
 ```
-README.md           one paragraph, Hassan's, not edited by the editor's tooling
+README.md           what Ose is, in Hassan's words: the editor, the plugins, the vault
 docs/
   PLUGINS.md        the plugin contract: where one lives, what it exports, ose.paths, the rules
   KERNEL.md         everything on `ose`, versioned as ose.api
