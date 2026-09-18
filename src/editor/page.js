@@ -42,6 +42,13 @@ import { TextSelection } from '@milkdown/kit/prose/state';
 import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
 import './editor.css';
+// The sheet: `@page` and every `@media print` rule of the app, in one file. It rides in with
+// the editor's stylesheet because that is the last one the kernel serves.
+import './print.css';
+// The print commands are the only thing in the editor that reaches past `host.js`: `ose.print`
+// is a hose of its own and the editor's `bridge` is a reading of `ose.files`. Two lines in
+// `host.js`'s bridge map would close this door again.
+import { ose } from 'ose:kernel';
 
 const SAVE_DEBOUNCE = 600;
 /** A file still carrying the name `newPage` gave it: the first real title renames it (C12). */
@@ -1722,8 +1729,12 @@ function registerCommands() {
     when: hasPage, run: () => void editorApi.copyMarkdown(),
   });
   commands.register({
-    id: 'page.print', title: 'Print or save as PDF', group: 'page',
-    when: hasPage, run: () => printPage(),
+    id: 'page.export-pdf', title: 'Export to PDF', group: 'page',
+    when: hasPage, run: () => void exportPdf(),
+  });
+  commands.register({
+    id: 'page.print', title: 'Print', group: 'page',
+    when: hasPage, run: () => void printPage(),
   });
   // The chords are the kernel's (keys.js): Ctrl+F for find, the outline's is its choice.
   commands.register({
@@ -1762,26 +1773,53 @@ async function newPage() {
   setTimeout(selectNewTitle, 40);
 }
 
-/**
- * Print the page column (C14). Paper is white, so the dark palette would print pale text on
- * it: the light tokens are borrowed for the dialog. `window.print()` blocks until the dialog
- * closes in Chromium; `afterprint` covers a host where it does not. The theme attribute is
- * put back exactly as it was (the shell owns it and is not told).
- */
-function printPage() {
+// ---------------------------------------------------------------------------
+// paper
+//
+// Two commands, both the host's: `Export to PDF` (Ctrl+Shift+P) writes the file through
+// WebView2's own PrintToPdf after a native save dialog, and `Print` opens the system print
+// dialog, which is also how "Microsoft Print to PDF" is reached.
+//
+// Neither touches the theme. The sheet is black on white from either theme because print.css
+// says so under `@media print`, and the swap that used to happen here is what left the app in
+// light mode: `window.print()` does not return in WebView2, so the restore never ran. Nothing
+// in the editor calls `window.print()` any more except the browser dev server's fallback, where
+// it is a real Chromium dialog and does return.
+
+/** `Export to PDF`: the save dialog, then the file, then a line saying where it went. */
+async function exportPdf() {
   if (!hasPage()) return;
-  const root = document.documentElement;
-  const was = root.dataset.theme;
-  let restored = false;
-  const restore = () => {
-    if (restored) return;
-    restored = true;
-    window.removeEventListener('afterprint', restore);
-    if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
-  };
-  window.addEventListener('afterprint', restore);
-  root.dataset.theme = 'light';
-  try { window.print(); } finally { setTimeout(restore, 0); }
+  const path = editorApi.getPath();
+  const inst = activeInst();
+  const titled = inst && inst.titleEl() ? inst.titleEl().textContent.trim() : '';
+  const name = titled || P.stem(path || '') || 'page';
+  let r;
+  try {
+    r = await ose.print.toPdf(null, { name, folder: editorApi.folder() || '' });
+  } catch (e) {
+    toast('could not export: ' + (e.message || e), 'err');
+    return;
+  }
+  if (!r) { toast('Export to PDF needs the app', 'warn'); return; }
+  if (r.browser) { toast('Export to PDF needs the app; in the browser, use Print', 'warn'); return; }
+  if (r.cancelled) return;
+  toast('saved ' + P.basename(String(r.path || '')));
+}
+
+/** `Print`: the system print dialog. In the browser there is none, so the page's own is used. */
+async function printPage() {
+  if (!hasPage()) return;
+  let r;
+  try {
+    r = await ose.print.dialog();
+  } catch (e) {
+    toast('could not print: ' + (e.message || e), 'err');
+    return;
+  }
+  if (!r) { toast('printing needs the app', 'warn'); return; }
+  // The dev server's bridge cannot show a native dialog and says so; in a real browser
+  // `window.print()` is a Chromium dialog that returns, which is what makes the dev loop work.
+  if (r.browser) window.print();
 }
 
 /** The page the commands act on, for whoever needs to ask (the compatibility layer). */

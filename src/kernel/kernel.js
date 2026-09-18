@@ -325,6 +325,21 @@ export const ose = {
     on: (fn) => bus.on('focus', fn),
   },
 
+  /**
+   * Paper. `toPdf()` writes the window's document to a PDF with the print stylesheet and
+   * resolves with `{path, bytes}`; with no argument the host asks where through the native save
+   * dialog, `opts` being `{name, folder}` for it, and answers `{cancelled:true}` if the user
+   * says no. `dialog()` opens the system print dialog, which is also the way to "Microsoft
+   * Print to PDF", and resolves `{shown:true}` as soon as it is up.
+   *
+   * Neither ever calls `window.print()`: in WebView2 that blocks the renderer. A host that
+   * cannot print answers `null` to both, which is how the caller knows to say so instead.
+   */
+  print: {
+    toPdf: (path, opts) => bridge.printToPdf(path, opts),
+    dialog: () => bridge.showPrintUI(),
+  },
+
   /** An http/https/mailto link inside a note. The host refuses every other scheme. */
   openExternal: (url) => bridge.openExternal(url),
 

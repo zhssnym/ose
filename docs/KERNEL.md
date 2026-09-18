@@ -161,7 +161,12 @@ ose.status.watch(fn)         -> unsubscribe            every change, with the wh
 ose.settings.get() / set(partial) / on(fn)     the shared settings object (docs/SHELL.md)
 ose.settings.section({ id, title, render(el) })  -> unsubscribe   a section in the settings dialog
 ose.settings.sections()      -> the registered sections, in order, for the dialog to draw
-ose.settings.apply()         put fontSize, lineHeight, zoom and readable width on the document
+ose.settings.apply()         put fontSize, lineHeight, pageFace, zoom and readable width on
+                             the document
+    `pageFace` is `document` (the serif, the default) or `plain` (the interface face). It lands
+    as `data-face` on <html> and tokens.css makes `--font-doc` resolve to `--font-ui` for
+    `plain`, so the page column, the title strip, `render()` and paper follow it in one frame.
+    Only the family moves: sizes, leading, rhythm, frames, rules and the maths face do not.
 ose.settings.zoom() / setZoom(pct)                          one of 90, 100, 110, 125, 150
 ose.settings.onRepaint(fn)   -> unsubscribe
     A settings dialog that is open while a chord changes a value redraws itself through this.
@@ -422,6 +427,27 @@ render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
 ```
 
 The stylesheet is `editor.css` on the kernel origin. Tokens come from `ui.css`.
+
+### Space
+
+A blank line separates two blocks, which is all markdown means by one. A second blank line means
+nothing to markdown, so here it means space the writer put there: **a run of N blank lines
+between two blocks is N minus 1 empty paragraphs**. In the editor each of them is a real block
+the caret goes into, Backspace takes away and typing fills, so pressing Enter twice at the end of
+a paragraph leaves one line of space, as in Word. Nothing is swept: what is on screen is in the
+file and what is in the file is on screen, at every keystroke.
+
+The rule is `space.js`, in three pieces. A remark transformer reads the blank lines back off the
+source positions after the file is parsed, at the top level and inside a blockquote, where a
+blank line is written `>` on a line of its own. A `join` rule in `stringify.js` makes an empty
+paragraph cost exactly one more blank line than none. And the landing pad — the empty paragraph
+the editor keeps after a table, a code block or a display formula, so there is somewhere to type
+— is remembered rather than guessed, and is never written.
+
+Inside a list item and inside a table cell a blank line keeps the meaning markdown gives it (it
+makes a list loose) and no empty paragraph is read there. `render()` reads the same rule from
+marked's `space` token, so a note shown read-only has the shape it has in the editor and on
+paper.
 
 ### Maths
 

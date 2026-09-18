@@ -89,7 +89,9 @@ The two workflows: **a plugin change** is an edit in `<vault>/.ose/plugins` and 
   imports only from `ose:*`, its own folder and `../_lib/`. It never spells a vault path.
 - Markdown fidelity is non-negotiable. The editor must never rewrite a file it did not edit, and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
-  emphasis, H1 and body text, no runs of blank lines, LF endings, UTF-8 without BOM.
+  emphasis, H1 and body text, LF endings, UTF-8 without BOM. One blank line separates two blocks
+  and a second one is deliberate space that stays: a run of N blank lines is N minus 1 empty
+  lines, which is what the editor shows and what Enter twice leaves.
 - Never write to a real vault file while testing. Use a throwaway copy and clean up.
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
   Crepe and kit, marked, DOMPurify, Temml and CodeMirror's language pack; the host has two plugins

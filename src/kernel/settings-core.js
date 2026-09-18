@@ -12,6 +12,11 @@ export const FONT_SIZES = [14, 15, 16, 17];
 // loosest a page of prose stays a page. A value saved before this list (1.65, 1.8) is not in
 // it and falls back to the default, below.
 export const LINE_HEIGHTS = [1.25, 1.35, 1.5];
+// The face a page's own text is set in. `document` is the serif of a printed handout, which is
+// what a page has always been here; `plain` is the interface face, for a reader who would
+// rather not have a serif. Only the family moves: the sizes, the leading, the rhythm and the
+// frames are the document's either way (tokens.css, `:root[data-face="plain"]`).
+export const PAGE_FACES = ['document', 'plain'];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
@@ -20,6 +25,7 @@ export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 export const DEFAULTS = {
   fontSize: 16,
   lineHeight: 1.35,
+  pageFace: 'document',
   readableWidth: true,
   zoom: 100,
   newPages: 'focus',
@@ -98,6 +104,12 @@ export function stepZoom(dir) {
   setZoom(ZOOM_STEPS[next]);
 }
 
+/** `document` or `plain`: the face a page's own text is set in. */
+export function pageFace() {
+  const f = settings().pageFace;
+  return PAGE_FACES.includes(f) ? f : DEFAULTS.pageFace;
+}
+
 /** Read by the editor: `spellcheck` on the body, on by default (S36). */
 export function spellcheckOn() { return settings().spellcheck !== false; }
 
@@ -141,6 +153,11 @@ export function applySettings() {
 
   const lh = LINE_HEIGHTS.includes(+s.lineHeight) ? +s.lineHeight : DEFAULTS.lineHeight;
   root.style.setProperty('--lh-body', String(lh));
+
+  // One attribute, read by one rule in tokens.css: `--font-doc` becomes `--font-ui` for
+  // `plain`. Everything that wears the document face — the page column, the title strip,
+  // `render()`, paper — follows it in the same frame, because they all read that token.
+  root.dataset.face = pageFace();
 
   root.style.setProperty('--zoom', String(zoom() / 100));
   root.classList.toggle('full-width', s.readableWidth === false);

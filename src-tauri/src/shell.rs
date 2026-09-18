@@ -529,6 +529,7 @@ mod tests {
             root.map(|p| crate::Root { path: p.to_path_buf(), source: crate::Source::Arg }),
             None,
             None,
+            None,
         );
         st.set_shell_options(Options { dir: shell.map(Path::to_path_buf) });
         st

@@ -36,6 +36,7 @@ fn main() {
         root.clone(),
         opts.log.as_deref().and_then(open_log),
         Some(pick_folder),
+        Some(save_file),
     );
     app_state.set_shell_options(shell::Options { dir: opts.shell.clone() });
     match &root {
@@ -353,6 +354,32 @@ fn pick_folder(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnO
     }
     dialog.pick_folder(move |picked| {
         done(picked.and_then(|fp| fp.as_path().map(Path::to_path_buf)));
+    });
+}
+
+/// The `ose::FileSaver` for this binary: the dialog plugin's native save dialog, behind
+/// `Export to PDF` (print.rs). Same shape as the folder picker above, and the same reason for
+/// living here: the plugin is the binary's.
+fn save_file(
+    app: &tauri::AppHandle,
+    start: Option<PathBuf>,
+    name: String,
+    done: Box<dyn FnOnce(Option<PathBuf>) + Send>,
+) {
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title("Export to PDF")
+        .set_file_name(name)
+        .add_filter("PDF", &["pdf"]);
+    if let Some(dir) = start {
+        dialog = dialog.set_directory(dir);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    dialog.save_file(move |chosen| {
+        done(chosen.and_then(|fp| fp.as_path().map(Path::to_path_buf)));
     });
 }
 

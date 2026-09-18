@@ -109,10 +109,6 @@
   .ed-bl-head, .ed-bl-head::before { transition: none; }
 }
 
-@media print {
-  .ed-bl { display: none; }
-}
-
 /* --------------------------------------------------------------- the [[ menu */
 
 /* The last row of the `[[` picker when nothing carries the typed name (N13). It is an action,

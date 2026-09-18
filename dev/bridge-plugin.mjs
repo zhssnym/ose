@@ -551,6 +551,16 @@ export function bridgePlugin() {
     setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
     openExternal, reveal, openPath,
 
+    // Paper. Both are WebView2's own (src-tauri/src/print.rs) and a Node host has neither: no
+    // save dialog, no print engine, no window of its own. `{ browser: true }` is deliberately
+    // not `null`, because `null` means "this host has no such command" and would make the page
+    // say printing needs the app. `browser` means "you are in a browser, do it from the page
+    // side": `Print` falls back to `window.print()`, which here is a real Chromium dialog that
+    // returns, and `Export to PDF` says it is host-only, because a page cannot write a file
+    // where the user chose.
+    printToPdf: async () => ({ browser: true }),
+    showPrintUI: async () => ({ browser: true }),
+
     winMinimize: async () => { }, winMaximize: async () => { }, winClose: async () => { }, winIsMaximized: async () => false,
     winStartDrag: async () => { }, winStartResize: async () => { }, winSetTheme: async () => { },
     winSetTitle: async () => { },

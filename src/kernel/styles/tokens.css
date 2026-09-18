@@ -205,6 +205,14 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Settings › Reading, `Page face`. `document` is the serif above and is the default; `plain`
+   sets a page in the interface face, for a reader who would rather not have a serif. One family
+   moves and nothing else does: the sizes, the leading, the rhythm, the frames and the rules are
+   the document's either way, formulas keep the maths face, and paper reads this same token, so a
+   printed page follows the choice. Written after the mac block, which has the same specificity,
+   so it wins on both platforms. */
+:root[data-face="plain"] { --font-doc: var(--font-ui); }
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   /* Notion's dark greys (2026-09-16, Hassan): neutral near-black surfaces instead of the warm
@@ -286,41 +294,5 @@
   :root { --t-fast: 0ms; }
 }
 
-/* Paper. A printed page is black ink on white paper whatever the window was showing, so the
-   palette is overridden here rather than in twenty rules downstream: every border, every tint
-   and every ink resolves to black or to nothing, and the surfaces go white. Syntax colour is a
-   screen affordance and does not survive the trip: a listing prints black, as a typed handout
-   would. `page.print` also switches the theme to light before it calls window.print(), so a
-   sheet is already right before this block is read; this is what makes the browser's own
-   Ctrl+P, and a PDF taken from the dark theme, come out the same. */
-@media print {
-  :root, :root[data-theme="dark"] {
-    color-scheme: light;
-    --bg: #FFFFFF;
-    --bg-2: #FFFFFF;
-    --bg-3: #FFFFFF;
-    --bg-4: #FFFFFF;
-    --fg: #000000;
-    --fg-2: #000000;
-    --fg-3: #000000;
-    --border: #000000;
-    --border-strong: #000000;
-    --accent: #000000;
-    --accent-ink: #000000;
-    --accent-hover: #000000;
-    --accent-fg: #FFFFFF;
-    --accent-soft: transparent;
-    --sel: transparent;
-    --code-key: #000000;
-    --code-str: #000000;
-    --code-num: #000000;
-    --code-fn: #000000;
-    --code-type: #000000;
-    --code-var: #000000;
-    --code-punc: #000000;
-    --code-com: #000000;
-    --code-ins: #000000;
-    --code-del: #000000;
-    --shadow-menu: none;
-  }
-}
+/* The paper palette is not here: `@page` and every `@media print` rule of the app live in
+   src/editor/print.css, one stylesheet for the whole sheet. */

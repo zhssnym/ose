@@ -28,6 +28,19 @@ const OPTIONS = { gfm: true, breaks: false, pedantic: false };
 // same pandoc rule the block editor reads (math.js), so a `$` means the same thing on both.
 const md = new Marked(OPTIONS);
 md.use(markedMath);
+// A run of blank lines is space the writer put there: N blank lines between two blocks are N
+// minus 1 empty paragraphs (space.js, and the block editor reads the same file the same way).
+// marked hands the whole run over as one `space` token and writes nothing for it; here each
+// line of space past the separator becomes the empty paragraph it is, so a note read through
+// `render()` has the shape it has in the editor and on paper.
+md.use({
+  renderer: {
+    space(token) {
+      const lines = (String(token.raw || '').match(/\n/g) || []).length - 2;
+      return lines > 0 ? '<p class="md-space"></p>'.repeat(lines) : '';
+    },
+  },
+});
 
 /**
  * @param {string} markdown

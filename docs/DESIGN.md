@@ -144,7 +144,16 @@ through `render()` (`.md-render`: a drill's statement, a journal entry, a tile),
 chrome around it keeps `--font-ui` and `--font-mono`, and so do a view's own controls.
 
 - **Face.** `--font-doc` (Cambria on Windows, Iowan Old Style on a Mac) for the body, the
-  headings and the title. Code keeps `--font-mono` everywhere.
+  headings and the title. Code keeps `--font-mono` everywhere. Settings' `Page face` chooses
+  between `document`, which is that serif, and `plain`, which makes `--font-doc` resolve to
+  `--font-ui`: one attribute on `<html>` (`data-face`) and one rule in `tokens.css`, so
+  everything wearing the face moves at once, paper included. Only the family moves; the sizes,
+  the rhythm, the frames, the rules and the maths face are the document's either way.
+- **Space.** A blank line separates two blocks, and a run of N blank lines between two blocks is
+  N minus 1 empty paragraphs of space: each is a real block the caret goes into, Backspace takes
+  away and typing fills. Enter twice at the end of a paragraph leaves one line of space, as in
+  Word, and nothing takes it back afterwards. An empty paragraph is one line tall and carries no
+  marker, no rule and no padding of its own.
 - **Size and leading.** The body is Settings' `Body text` (16px by default) at `--lh-body`,
   which Settings offers as 1.25, 1.35 or 1.5, the default 1.35. Everything else is a ratio of
   the body, so one setting moves the whole page.
@@ -181,15 +190,20 @@ chrome's face: they are not part of the document.
 
 ## Print and PDF
 
-`page.print` (Ctrl+Shift+P; Ctrl+P is the palette) switches to the light tokens and calls
-`window.print()`, and the Windows dialog offers Microsoft Print to PDF. `@page` is A4 with
-`--print-margin` on every side; the body is `--print-fs` of `--font-doc` at `--print-lh`, which
-puts about 52 lines on the sheet. `tokens.css` overrides the whole palette to black on white
-under `@media print`, from either theme, so no rule downstream writes a print colour: syntax
-colour is a screen affordance and a listing prints black. Only the page content goes on paper:
-no chrome, no meta line, no handles, no placeholders, no caret. A heading and a run-in label
-carry `break-after: avoid`; a frame, a bar, a table, a code block, a display formula and an
-image carry `break-inside: avoid`; text carries `orphans: 2; widows: 2`.
+Two commands, both on the host and neither through the browser's print dialog, which never
+returns in WebView2. `page.export-pdf` (Ctrl+Shift+P; Ctrl+P is the palette) asks for a file
+with the native save dialog and writes the PDF through WebView2's own engine; `page.print`
+opens the Windows print dialog, where Microsoft Print to PDF also lives. Neither changes the
+theme: `src/editor/print.css` holds every `@page` and `@media print` rule of the app, and it
+turns the palette black on white from either theme, so no rule elsewhere writes a print colour
+and syntax colour prints black. `@page` is A4 with `--print-margin` on every side; the body is
+`--print-fs` of `--font-doc` at `--print-lh`, which puts about 52 lines on the sheet and follows
+Settings' `Page face`. Backgrounds are off (the host would otherwise paint the sheet in the
+theme's own ground), so a done task prints as a ticked outline. Only the page content goes on
+paper: the scrolling containers are flattened, no chrome, no meta line, no handles, no
+placeholders, no caret. A heading and a run-in label carry `break-after: avoid`; a frame, a bar,
+a table, a code block, a display formula and an image carry `break-inside: avoid`; text carries
+`orphans: 2; widows: 2`. Deliberate space (an empty paragraph) prints as the empty line it is.
 
 ## Code
 

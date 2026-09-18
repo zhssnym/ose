@@ -25,7 +25,9 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
 import { remarkInlineLinkPlugin, remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark';
 import { indentPlugin } from '@milkdown/kit/plugin/indent';
+import { trailingPlugin } from '@milkdown/kit/plugin/trailing';
 import { configureStringify, postProcess, reconcile } from './stringify.js';
+import { docWithoutPad, remarkSpace } from './space.js';
 import { slashPlugin } from './slash.js';
 import { blockKeysPlugin } from './blocks.js';
 import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
@@ -141,6 +143,11 @@ async function installExtras(editor, o) {
   // a round trip. Without it an empty paragraph is simply not written, which is what Obsidian
   // does and what the vault contains, and `<br>` is an ordinary inline html node again.
   await editor.remove(remarkPreserveEmptyLinePlugin);
+  // The landing pad after a table or a code block is kept, but by space.js instead, because it
+  // has to be told from an empty paragraph the file itself contains and no plugin state of
+  // Milkdown's says which is which. Only the prose plugin goes; `trailingConfig` is a ctx slice
+  // Crepe's builder reads at create time and taking it away would throw there.
+  await editor.remove(trailingPlugin);
   // M11: `remark-inline-links` rewrites `[text][ref]` into `[text](url)` and deletes the
   // definition, at parse time, before anything downstream can see either. Out it goes, and
   // `definition` becomes a node of its own (fidelity.js) so the block has somewhere to live.
@@ -151,6 +158,10 @@ async function installExtras(editor, o) {
   // formulas become. The node views, the input rules and the keys are ProseMirror plugins and
   // come through extensions.js with the rest.
   for (const plugin of mathSchemas) editor.use(plugin);
+  // Space: the blank lines of the file, read back as the empty paragraphs they are (space.js).
+  // It runs on the parsed tree, so it is the last remark plugin and reads the positions the
+  // ones before it left alone.
+  editor.use(remarkSpace);
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */
@@ -205,7 +216,22 @@ function watchDoc(editor, onChange) {
  * That verification is what makes the reconciliation safe rather than merely plausible.
  */
 export function readMarkdown(crepe, original) {
-  return verify(crepe, postProcess(crepe.getMarkdown()), original);
+  return verify(crepe, postProcess(currentMarkdown(crepe)), original);
+}
+
+/**
+ * The open document as markdown, without the landing pad.
+ *
+ * The pad is the empty paragraph space.js keeps after a block one cannot type after, and it is
+ * the editor's furniture rather than the file's: writing it would add a blank line to the end
+ * of every page that finishes with a table. Every other empty paragraph is written, because
+ * every other one is space the user put there.
+ */
+function currentMarkdown(crepe) {
+  const view = editorView(crepe);
+  const doc = view ? docWithoutPad(view.state) : null;
+  if (!doc) return crepe.getMarkdown();
+  return crepe.editor.action((ctx) => ctx.get(serializerCtx)(doc));
 }
 
 /**

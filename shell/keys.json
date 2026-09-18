@@ -1,5 +1,5 @@
 {
   "mod+r": "app.reload",
   "mod+shift+j": "journal.new",
-  "mod+shift+p": "page.print"
+  "mod+shift+p": "page.export-pdf"
 }

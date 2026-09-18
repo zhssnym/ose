@@ -135,6 +135,14 @@ export const bridge = {
   // the window's close button is pressed (S16). No-op in the browser.
   quit: () => call('quit'),
 
+  // Paper (docs/HOST.md "Print"). `printToPdf` writes the file and resolves with {path, bytes}
+  // once it is on disk, or with null when the save dialog was cancelled; with no `path` the
+  // host asks where, `opts` being {name, folder} for that dialog. `showPrintUI` opens the
+  // system print dialog and returns at once. Both are WebView2's own: a host without them
+  // answers null, which is what tells the caller to say so.
+  printToPdf: (path, opts = {}) => call('printToPdf', path ?? null, opts),
+  showPrintUI: () => call('showPrintUI'),
+
   openExternal: (url) => call('openExternal', url),
   reveal: (path) => call('reveal', path),
   // A vault file in the platform's default application (batch 12, N10/N24). Vault-relative, so

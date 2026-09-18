@@ -63,9 +63,9 @@ function isMarkerLine(l) {
 //   raw + edit.line       append `edit.append` to that 1-based line of the *body*; every other
 //                         line of the body must come back byte for byte. `expect` (the whole
 //                         expected body) defaults to exactly that.
-//   raw + compose.body    the body the *editor* holds, composed back into the file. The one
-//                         shape a markdown source cannot spell: an empty paragraph at the top
-//                         of the body is a blank line that no file wrote (D5).
+//   raw + compose.body    the body the *editor* holds, composed back into the file: the title,
+//                         the gap under it and the body's own leading blank lines, which are
+//                         the space the user put at the top of the page (space.js).
 //   raw + canonical       the body written with no file underneath — a page the editor made,
 //                         where there is nothing to reconcile against and the canonical text
 //                         is what lands on disk.
@@ -280,12 +280,14 @@ const FIXTURES = [
     edit: { line: 3, append: 'X' },
   },
   {
-    path: 'M10 an empty paragraph at the top of the body writes no run of blank lines',
+    path: 'M10 an empty paragraph at the top of the body is space, and is written',
     raw: '# QA blank\n\nonly paragraph\n',
-    // what the editor holds after pressing Enter at the very start of the page: a blank line in
-    // front of the body, which meets the blank line the gap after the title already has (QA D5)
+    // what the editor holds after pressing Enter at the very start of the page. A run of N
+    // blank lines is N minus 1 lines of space (space.js): the blank line the gap after the
+    // title already leaves, plus this one, is one empty paragraph, and it stays where it was
+    // put. Batch 12 wrote the opposite here, which is what took deliberate space away.
     compose: { body: '\nonly paragraph' },
-    expect: '# QA blank\n\nonly paragraph\n',
+    expect: '# QA blank\n\n\nonly paragraph\n',
   },
 
   // ---- L: the live editor -------------------------------------------------

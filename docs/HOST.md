@@ -16,6 +16,7 @@ src-tauri/src/
   watcher.rs    notify on the root, debounced into one `fs` event
   versions.rs   .ose/versions
   run.rs        starting a program, streamed line by line
+  print.rs      the PDF and the system print dialog, both WebView2's own
   state.rs  vaults.rs  platform.rs      state.json, the recent vaults, open/reveal and the stamp
 ```
 
@@ -112,6 +113,46 @@ be inside the vault. Every child gets `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`, 
 process starts and streams everything else as `run` events, ending with
 `{ id, done, code, timedOut }`; it buffers nothing. A process is killed at its timeout and when
 the app exits.
+
+## Print
+
+Two RPCs, `printToPdf` and `showPrintUI`, both WebView2's own and therefore Windows only. Nothing
+in the app calls `window.print()`: in WebView2 that call does not return, the renderer stops
+answering and whatever the page changed before it stays changed. That is what made `Export to PDF`
+render a tenth of a sheet and leave the app in the light theme.
+
+- **`printToPdf(path, { name, folder })`** → `{ path, bytes }`. `ICoreWebView2_7::PrintToPdf`
+  writes the file and the command returns when it is on disk. With no `path` the host opens the
+  native save dialog first (the dialog plugin, as `pickVault` uses it): `folder` is a vault-relative
+  folder to open in, `name` the file name to offer, and a page title is cleaned into one. A
+  cancelled dialog answers `{ cancelled: true }`, which is not `null`, because `null` is what a
+  host that has no such command answers and the page has to tell the two apart.
+- **`showPrintUI()`** → `{ shown: true }`. `ICoreWebView2_16::ShowPrintUI` with
+  `COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM`: the Windows print dialog, which is also how "Microsoft
+  Print to PDF" is reached. The dialog is modal and runs its own message loop, so the window is
+  unresponsive while it is up and the call resolves when it closes.
+
+The settings come from `ICoreWebView2Environment6::CreatePrintSettings`: A4 portrait
+(8.27 × 11.69 inches), scale 1, no header or footer, **margins of zero** and **backgrounds off**.
+
+The margins are zero here because the sheet is described in one place, `src/editor/print.css`, whose
+`@page` is A4 with a 2cm margin, and the CSS is what governs: measured on the acceptance page, a
+`--print-margin` of 0cm gives one page and 2cm gives two, with the settings unchanged. Custom
+properties inside `@page` work in WebView2.
+
+Backgrounds are off for a reason that is not obvious. With them on, WebView2 paints the whole page
+box — the margins included — with the webview's own default background colour, and the host sets
+that from the theme (`winSetTheme`), so a sheet exported from the dark theme came out as a dark grey
+page with a white text block inside it. No stylesheet can reach that fill: `html { background: red }`
+under `@media print` colours the text block and leaves the page box alone. With backgrounds off the
+fill is gone and the paper is paper. Nothing is lost by it, because under `@media print` every
+background in the palette is already white; the one exception, the black fill of a done task's
+checkbox, print.css draws as a ticked outline instead. Rules, frames and borders are not backgrounds
+and print either way.
+
+`webview2-com` and `windows-core` are named in `Cargo.toml` for this, under
+`[target.'cfg(windows)'.dependencies]`. Neither is a new download: Tauri's own webview already
+depends on both.
 
 ## RPC
 

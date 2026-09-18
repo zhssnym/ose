@@ -48,6 +48,10 @@
 .md-render pre,
 .md-render table { margin: var(--doc-gap) 0; }
 
+/* A line of space the file holds (space.js): an empty paragraph has no line box of its own, so
+   it is given the height of one. In the block editor ProseMirror's own trailing <br> does it. */
+.md-render p.md-space { min-height: calc(var(--lh-body) * 1em); }
+
 /* the gap a person leaves by hand before a bold run-in label ("Démonstration.") */
 .md-render p:has(> strong:first-child) { margin-top: var(--doc-gap-label); }
 /* A gap between blocks belongs between them, never against the inside of what holds them.
@@ -178,16 +182,4 @@
 
 .md-render li:has(> input[type="checkbox"]) { list-style: none; }
 
-/* ------------------------------------------------------------------- paper
-
-   The sheet and its palette are base.css and tokens.css; these are the breaks. Nothing drawn
-   as one object is cut in half by the edge of a sheet, a heading never ends one, and a
-   paragraph never leaves a single line behind. */
-@media print {
-  .md-render { orphans: 2; widows: 2; }
-  .md-render :is(h1, h2, h3, h4, h5, h6),
-  .md-render p:has(> strong:first-child) { break-after: avoid; }
-  .md-render :is(blockquote, table, pre, img, figure, .ose-math-display),
-  .md-render math[display="block"] { break-inside: avoid; }
-  .md-render a { color: var(--fg); }
-}
+/* The sheet is not here: `@page` and every `@media print` rule of the app live in print.css. */

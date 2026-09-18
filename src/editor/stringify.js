@@ -11,6 +11,7 @@
 import { remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { remarkGFMPlugin } from '@milkdown/kit/preset/gfm';
 import { lineRuns, opensDisplay } from './math.js';
+import { spaceJoin } from './space.js';
 
 /** The exact options. Every one of these is answerable to a real file in the vault. */
 export const STRINGIFY_OPTIONS = {
@@ -31,6 +32,9 @@ export const STRINGIFY_OPTIONS = {
   setext: false,          // ATX headings only
   tightDefinitions: true,
   handlers: HANDLERS(),
+  // What an empty paragraph costs in blank lines (space.js). mdast reads `join` back to front,
+  // so this one is asked before its own rules and nothing below it can widen a gap again.
+  join: [spaceJoin],
 };
 
 /**
@@ -65,12 +69,14 @@ export const GFM_OPTIONS = {
 /** Apply both option sets to a Milkdown editor. Must be called before `create()`. */
 export function configureStringify(editor) {
   editor.config((ctx) => {
-    // `handlers` is merged, not replaced: Milkdown installs its own for emphasis, strong and
-    // text, and those are what keep the vault's mix of `_x_` and `*x*` as it was written.
+    // `handlers` and `join` are merged, not replaced: mdast keeps a map of handlers and a list
+    // of join rules and Milkdown puts its own in each. Milkdown's handlers for emphasis, strong
+    // and text are what keep the vault's mix of `_x_` and `*x*` as it was written.
     ctx.update(remarkStringifyOptionsCtx, (prev) => ({
       ...prev,
       ...STRINGIFY_OPTIONS,
       handlers: { ...(prev?.handlers || {}), ...STRINGIFY_OPTIONS.handlers },
+      join: [...(prev?.join || []), ...STRINGIFY_OPTIONS.join],
     }));
     ctx.update(remarkGFMPlugin.options.key, (prev) => ({ ...(prev || {}), ...GFM_OPTIONS }));
   });
@@ -108,10 +114,11 @@ export function postProcess(md) {
   const fence = fenceTracker();
   for (let i = 0; i < src.length; i++) {
     if (fence(src[i])) { lines.push(src[i]); continue; }
-    const line = unescapeLine(src[i], isDelimiterRow(src[i + 1] || ''));
-    // Never two blank lines in a row: remark does not write them and Hassan does not either.
-    if (!line.trim() && lines.length && !lines[lines.length - 1].trim()) continue;
-    lines.push(line);
+    // A run of blank lines is left exactly as the serializer wrote it: the second one and every
+    // one after it is an empty paragraph the document holds, not noise to be squeezed out
+    // (space.js). The rule that used to stand here collapsed them, which is why a gap made with
+    // Enter came back a second later without one.
+    lines.push(unescapeLine(src[i], isDelimiterRow(src[i + 1] || '')));
   }
 
   // 4. mdast writes the shortest legal delimiter row, `| - |`. Every table in the vault is
@@ -563,13 +570,12 @@ function reconcileBlocks(out, original, rawCanon) {
   let result = '';
   let prev = -1;      // the original block the last piece of output came from
   let first = true;
-  let lastFrom = -1;
   for (let j = 0; j < B.list.length; j += span[j] + 1) {
     const p = from[j];
     // The original's blank lines describe this boundary only when both sides of it survived
     // and were adjacent in the original; anywhere the user inserted something, keep remark's.
     const keepsBoundary = p >= 0 && (first ? p === 0 : prev === p - 1);
-    const gap = keepsBoundary ? A.gaps[p] : B.gaps[j];
+    const gap = keepsGap(keepsBoundary, A.gaps[p], B.gaps[j], first) ? A.gaps[p] : B.gaps[j];
     result += '\n'.repeat(first ? gap : gap + 1);
     if (p >= 0 && unchanged[j]) result += A.list[p].text;
     else {
@@ -577,12 +583,32 @@ function reconcileBlocks(out, original, rawCanon) {
       result += editedBlock(next, p >= 0 ? A.list[p].text : null, canon, style);
     }
     prev = p;
-    lastFrom = p;
     first = false;
   }
-  const tail = lastFrom === A.list.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1];
-  return result + '\n'.repeat(tail);
+  const aTail = A.gaps[A.gaps.length - 1];
+  const bTail = B.gaps[B.gaps.length - 1];
+  return result + '\n'.repeat(keepsGap(true, aTail, bTail, false) ? aTail : bTail);
 }
+
+/**
+ * How many empty paragraphs a run of blank lines holds (space.js): the first one is the
+ * separator markdown needs and the rest is space. At the top of the file there is nothing to
+ * separate, so every one of them is space.
+ */
+const spaceIn = (gap, first) => Math.max(0, first ? gap : gap - 1);
+
+/**
+ * Does this boundary keep the file's own blank lines?
+ *
+ * Two things live in the same run of newlines. How the boundary is SPELLED is the file's: two
+ * blocks the file wrote with no blank line between them — a heading and its table, a `---` and
+ * the paragraph under it — stay touching, although remark would put a line in. How much SPACE
+ * is in it is the document's: an empty paragraph the user added or deleted is content and has
+ * to be written. So the file's bytes are kept exactly while the two agree on the space, and the
+ * document wins the moment they do not.
+ */
+const keepsGap = (keeps, a, b, first) =>
+  keeps && a !== undefined && spaceIn(a, first) === spaceIn(b, first);
 
 /**
  * The one block the user changed, written from the canonical text but keeping everything of

@@ -60,8 +60,8 @@ A plugin is not here. It is a folder in `<vault>/.ose/plugins`, loaded at boot a
 
 `keys.json` is an override layer, not the keymap: the window map is the kernel's
 (`ose.keys.defaults()`, with its macOS alternates and in-body rules that JSON cannot say). The
-stock file adds `mod+r` to `app.reload` and `mod+shift+j` to `journal.new` and `mod+shift+p` to `page.print`. A chord here wins over
-a kernel default and over a plugin's own `shortcut`.
+stock file adds `mod+r` to `app.reload`, `mod+shift+j` to `journal.new` and `mod+shift+p` to
+`page.export-pdf`. A chord here wins over a kernel default and over a plugin's own `shortcut`.
 
 `theme.css` is the one place the look is changed: token overrides only, never a rule and never a
 hex value anywhere else.
@@ -167,6 +167,18 @@ read over the vault origin before the frame is pointed at anything (`%PDF-` must
 the content type must be `application/pdf`), and when it is not, the frame is never given a `src`:
 the page says `<name> could not be drawn here · try open externally` in its own voice and the
 status line ends `· could not be drawn`. An image says the same on its `error` event.
+
+**Paper.** Two commands put a page on a sheet, both the host's (docs/HOST.md "Print"). `Export to
+PDF` (`page.export-pdf`, Ctrl+Shift+P, because Ctrl+P is the palette) opens the native save dialog
+on the page's own folder in the vault with the page's title and `.pdf` as the name, writes the file
+through WebView2 and says where it went; it returns when the file is on disk. `Print`
+(`page.print`, no chord) opens the Windows print dialog, which is also the way to "Microsoft Print
+to PDF"; the app is unresponsive while that dialog is up, as it is behind any modal system dialog,
+and comes back when it closes. Neither switches the theme: the sheet is black on white from either
+theme because `src/editor/print.css` says so, and a PDF taken from the dark theme and one taken
+from the light theme draw the same marks. Nothing calls `window.print()` any more except the
+browser dev server's fallback, where `Print` uses the page's own dialog and `Export to PDF` says it
+needs the app.
 
 **A media file that is not there.** The kernel stats a page route before it asks anyone to draw it,
 and offers `Create it` when the file is missing, which is right for markdown and wrong for a

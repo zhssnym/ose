@@ -1,0 +1,172 @@
+/* Paper: the whole sheet, in one stylesheet.
+   Every `@page` and every `@media print` rule of the app is here and nowhere else, because a
+   printed page is one object and the rules that make it were spread over five files that each
+   saw a corner of it. What goes on paper is the page column and nothing else.
+
+   The sheet is A4 with a 2cm margin on every side, which is what the owner's teacher hands out
+   and what Word gives a new document in France; the text block is therefore 17cm wide, and
+   11.5pt of --font-doc at 1.2 fits about 52 lines on it. The margin is written here, in the
+   CSS, and the host asks WebView2 for margins of zero (docs/HOST.md): one place decides the
+   geometry, so `Export to PDF`, the system print dialog and the browser's own Ctrl+P give the
+   same sheet.
+
+   Why `!important` on the layout rules. The shell links `ui.css` and `editor.css` (which this
+   file is part of) before its own `shell.css`, so `.shell { display: grid }`,
+   `.body { overflow: hidden }` and `.main-scroll { overflow-y: auto }` beat anything here at
+   equal specificity, and `:root.full-width .page-col { max-width: none }` outranks it outright.
+   A scrolling ancestor prints one screenful and stops: before this file, a 1075px document
+   printed as 60px of title box and nothing else. Paper is a different medium, not a variant of
+   the screen, so these overrides are absolute on purpose. */
+
+@page { size: A4; margin: var(--print-margin); }
+
+@media print {
+  /* --------------------------------------------------------------- the palette
+
+     Black ink on white paper whatever the window was showing. The palette is overridden once,
+     here, rather than in twenty rules downstream: every border, every tint and every ink
+     resolves to black or to nothing, and the surfaces go white. Syntax colour is a screen
+     affordance and does not survive the trip: a listing prints black, as a typed handout
+     would. Both themes are named, so a sheet taken from the dark theme is the same sheet and
+     nothing has to switch the theme before printing. */
+  :root, :root[data-theme="dark"] {
+    color-scheme: light;
+    --bg: #FFFFFF;
+    --bg-2: #FFFFFF;
+    --bg-3: #FFFFFF;
+    --bg-4: #FFFFFF;
+    --fg: #000000;
+    --fg-2: #000000;
+    --fg-3: #000000;
+    --border: #000000;
+    --border-strong: #000000;
+    --accent: #000000;
+    --accent-ink: #000000;
+    --accent-hover: #000000;
+    --accent-fg: #FFFFFF;
+    --accent-soft: transparent;
+    --sel: transparent;
+    --code-key: #000000;
+    --code-str: #000000;
+    --code-num: #000000;
+    --code-fn: #000000;
+    --code-type: #000000;
+    --code-var: #000000;
+    --code-punc: #000000;
+    --code-com: #000000;
+    --code-ins: #000000;
+    --code-del: #000000;
+    --shadow-menu: none;
+  }
+
+  /* The zoom is a screen setting: a sheet of paper does not zoom. */
+  :root { font-size: 100% !important; }
+  html, body { background: var(--bg) !important; color: var(--fg); }
+
+  /* ------------------------------------------------------------- the ancestry
+
+     Every box between <html> and the page column gives up its height, its scrolling and its
+     layout mode, so the document is as tall as its own content and the printer paginates it.
+     One `overflow` that is not `visible` anywhere in this chain clips the page to the window,
+     which is the fault the owner hit. The list is the whole chain, measured in the running app:
+     html > body > #app > .shell > .body > .maincol > .main > .main-scroll > .page-host. */
+  html, body, #app, .shell, .body, .maincol, .main, .main-scroll, .page-host {
+    display: block !important;
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  /* --------------------------------------------------------------- the chrome
+
+     None of it is on the page: the title bar, the sidebar and its resizer, the tab strip, the
+     status bar, the window edges, toasts, overlays, menus, the loading line; and, in the
+     editor, the meta line, the find bar, the slash menu, the backlinks panel, the handles, the
+     placeholders and the caret helpers. `.ed-props` itself stays: frontmatter is part of the
+     document. */
+  .titlebar, .sidebar, .rs, .tabs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading,
+  .os-slash, .ed-find, .ed-bl, .ed .page-meta, .ed-add-title, .ed-props-head svg,
+  .ose-math-src,
+  .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview,
+  .ed .milkdown .milkdown-link-edit, .ed .milkdown .milkdown-block-handle,
+  .ed .milkdown .milkdown-table-block .handle, .ed .milkdown .milkdown-table-block .line-handle,
+  .ed .milkdown .milkdown-code-block .tools, .ed .milkdown .milkdown-code-block .language-picker,
+  .ed .milkdown .prosemirror-virtual-cursor,
+  .ed .milkdown .crepe-placeholder::before { display: none !important; }
+
+  /* --------------------------------------------------------------- the column
+
+     The margin is the sheet's, so the column gives up its own padding and takes the full
+     measure. `max-width` is that measure written down: on an A4 sheet it is exactly the width
+     @page leaves and changes nothing, and in a browser's print emulation, where @page is not
+     applied, it is what makes the preview the width of the real thing. It is `!important`
+     because Settings' `Readable width`, off, writes `max-width: none` from a stronger
+     selector, and a sheet has a measure whatever the window does.
+
+     The body is pulled --sp-2 into the gutter on screen so a block handle has room; on paper
+     there are no handles and that pull would hang the text over the edge of the margin. */
+  .page-col, .ed.page-col {
+    max-width: var(--print-measure) !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    orphans: 2; widows: 2;
+  }
+  .ed-body { margin: 0 !important; }
+
+  /* The document's own size and leading, set here rather than on :root because the body size
+     is an inline style on <html> (settings-core) and an inline style beats a stylesheet. Every
+     size in the document is a ratio of these two, so overriding them moves all of it. */
+  .page-col.ed, .md-render {
+    --fs-body: var(--print-fs);
+    --lh-body: var(--print-lh);
+    font-size: var(--print-fs);
+    line-height: var(--print-lh);
+  }
+
+  /* ------------------------------------------------------- the editing machinery
+
+     What is left of the editor on paper is the text. No selection tint, no find hit, no active
+     line in a code block, and a link is ink rather than accent. */
+  .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); orphans: 2; widows: 2; }
+  .ed .milkdown .ProseMirror ::selection { background: transparent; }
+  .ed .milkdown .ProseMirror .os-block-sel, .ed .milkdown .ProseMirror .find-hit,
+  .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; outline: none; }
+  .ed .milkdown .milkdown-code-block .cm-activeLine,
+  .ed .milkdown .milkdown-code-block .cm-activeLineGutter { background: transparent; }
+  .ed .milkdown a, .md-render a { color: var(--fg); }
+
+  /* A done task. The host asks WebView2 to print without backgrounds, because with them on it
+     paints the whole page box with the webview's own colour and a sheet taken from the dark
+     theme comes out grey (print.rs says the rest). So the black fill of a done box is not
+     there, and a white check mark on white paper would read as an empty box: the box keeps its
+     outline and the check is drawn in ink. Struck-through text says the same thing again. */
+  .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::before {
+    background: none;
+    border-color: var(--fg);
+  }
+  .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::after {
+    border-color: var(--fg);
+  }
+
+  /* ---------------------------------------------------------------- the breaks
+
+     Nothing drawn as one object is cut in half by the edge of a sheet, a heading and a run-in
+     label never end one, and a paragraph never leaves a single line behind. The same three
+     rules for the editor's DOM and for marked's. */
+  .ed .milkdown :is(.milkdown-code-block, pre, blockquote, .milkdown-image-block,
+    .milkdown-table-block, .ose-math-display),
+  .ed .milkdown math[display="block"],
+  .md-render :is(blockquote, table, pre, img, figure, .ose-math-display),
+  .md-render math[display="block"] { break-inside: avoid; }
+
+  .page-col.ed > .page-title,
+  .ed .milkdown :is(h1, h2, h3, h4, h5, h6),
+  .ed .milkdown p:has(> strong:first-child),
+  .md-render :is(h1, h2, h3, h4, h5, h6),
+  .md-render p:has(> strong:first-child) { break-after: avoid; }
+
+  .md-render { orphans: 2; widows: 2; }
+}

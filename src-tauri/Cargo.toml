@@ -42,6 +42,14 @@ base64 = "0.22"
 # tree as a transitive dependency of tauri, so it is no extra download.
 sha2 = "0.10"
 
+# Printing is WebView2's own (print.rs): `ICoreWebView2_7::PrintToPdf` writes the PDF and
+# `ICoreWebView2_16::ShowPrintUI` opens the system dialog. Both crates are already in the tree
+# under Tauri's own webview (wry depends on webview2-com 0.38, which depends on windows-core
+# 0.61), so naming them here is no extra download: it only says out loud what the host uses.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+
 [profile.release]
 lto = true
 strip = true

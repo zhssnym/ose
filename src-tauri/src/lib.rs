@@ -15,6 +15,7 @@ use serde_json::Value;
 
 pub mod args;
 pub mod platform;
+pub mod print;
 pub mod protocol;
 pub mod run;
 pub mod shell;
@@ -70,6 +71,16 @@ pub struct Root {
 pub type FolderPicker =
     fn(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnOnce(Option<PathBuf>) + Send>);
 
+/// The native save dialog behind `printToPdf`, supplied by the binary for the same reason as
+/// the folder picker above: `start` is the folder to open in, `name` the file name to offer,
+/// `done` receives the choice and `None` on cancel.
+pub type FileSaver = fn(
+    app: &tauri::AppHandle,
+    start: Option<PathBuf>,
+    name: String,
+    done: Box<dyn FnOnce(Option<PathBuf>) + Send>,
+);
+
 /// Everything the host owns, managed by Tauri and reachable from any command or thread.
 ///
 /// The root is optional: the app starts without one and lets the shell ask (docs/HOST.md
@@ -81,6 +92,7 @@ pub struct AppState {
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
+    pub saver: Option<FileSaver>,
     /// `--shell <dir>`, settled once at startup (shell.rs).
     shell: shell::Slot,
     /// Every program `run` started, so they can all be killed when the app goes (run.rs).
@@ -88,12 +100,18 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(root: Option<Root>, log: Option<File>, picker: Option<FolderPicker>) -> Self {
+    pub fn new(
+        root: Option<Root>,
+        log: Option<File>,
+        picker: Option<FolderPicker>,
+        saver: Option<FileSaver>,
+    ) -> Self {
         Self {
             root: RwLock::new(root),
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
             picker,
+            saver,
             shell: shell::slot(shell::Options::default()),
             processes: run::Processes::default(),
         }
@@ -238,6 +256,15 @@ pub mod commands {
             };
         }
 
+        // The two commands that wait: the save dialog waits on the user and `PrintToPdf` waits
+        // on the webview, so `printToPdf` is awaited here rather than dispatched through the
+        // synchronous module handlers. Its other half, `showPrintUI`, returns at once and goes
+        // through print.rs's `handle` below.
+        if cmd == "printToPdf" {
+            let r = print::to_pdf(&ctx, &args).await;
+            return log_err(st, &cmd, r);
+        }
+
         // The folder picker is the one command that waits on the user, so it is awaited here
         // rather than dispatched through the synchronous module handlers.
         if cmd == "pickVault" {
@@ -292,6 +319,9 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = platform::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = print::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         Ok(gone(st, &cmd))

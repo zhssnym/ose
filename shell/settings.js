@@ -12,6 +12,7 @@ const { bus, commands, store } = ose;
 // copy, so a shell that offers a step the kernel does not know simply gets 100 %.
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
+const PAGE_FACES = [{ value: 'document', label: 'document' }, { value: 'plain', label: 'plain' }];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
 const settings = () => ose.settings.get();
@@ -261,6 +262,9 @@ export async function openSettings() {
       ${row('Line height',
         seg('lh', LINE_HEIGHTS.map((n) => ({ value: n, label: String(n) })), s.lineHeight),
         'How much air there is between the lines of a page.')}
+      ${row('Page face',
+        seg('face', PAGE_FACES, s.pageFace === 'plain' ? 'plain' : 'document'),
+        'The face a page is set in: the document serif, or the face the interface uses. Nothing else about a page changes, and printing follows it.')}
       ${row('Readable width',
         seg('width', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.readableWidth === false ? 'off' : 'on'),
         'On, a page is a column in the middle of the window. Off, it fills it.')}
@@ -347,6 +351,7 @@ export async function openSettings() {
     if (group === 'theme') setTheme(v);
     else if (group === 'font') save({ fontSize: +v });
     else if (group === 'lh') save({ lineHeight: +v });
+    else if (group === 'face') save({ pageFace: v });
     else if (group === 'zoom') setZoom(+v);
     else if (group === 'width') save({ readableWidth: v === 'on' });
     else if (group === 'newpages') save({ newPages: v });

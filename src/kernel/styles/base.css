@@ -397,43 +397,5 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   .ov-box { max-height: 82vh; }
 }
 
-/* ==================================================================== paper
-
-   The sheet, and what is on it. A4 with a 2cm margin on every side, which is what the owner's
-   teacher hands out and what Word gives a new document in France; 11.5pt of --font-doc at 1.2
-   fits about 52 lines on the page, which is the density of the handout this look was measured
-   against. The palette is black on white in tokens.css, so nothing here writes a colour.
-
-   `page.print` (src/editor/page.js) is the app's way in, on Ctrl+Shift+P: Ctrl+P is the
-   palette. The browser's own print, and a PDF taken through the debugger, land here too. */
-@page { size: A4; margin: var(--print-margin); }
-
-@media print {
-  /* The zoom is a screen setting: a sheet of paper does not zoom. */
-  :root { font-size: 100%; }
-  html, body { background: var(--bg); color: var(--fg); }
-  /* the chrome: none of it is on the page */
-  .titlebar, .sidebar, .rs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading {
-    display: none !important;
-  }
-  html, body, .shell, .body, .main, .main-scroll, .page-host {
-    display: block; height: auto; min-height: 0; max-height: none; overflow: visible;
-  }
-  /* The margin is the sheet's, so the column gives up its own padding and takes the full
-     measure. `max-width` is that measure written down: on an A4 sheet it is exactly the width
-     @page leaves and changes nothing, and in a browser's print emulation, where @page is not
-     applied, it is what makes the preview the width of the real thing. */
-  .page-col {
-    max-width: var(--print-measure); margin: 0 auto; padding: 0;
-    orphans: 2; widows: 2;
-  }
-  /* The document's own size and leading, set here rather than on :root because the body size
-     is an inline style on <html> (settings-core) and an inline style beats a stylesheet. Every
-     size in the document is a ratio of these two, so overriding them moves all of it. */
-  .page-col.ed, .md-render {
-    --fs-body: var(--print-fs);
-    --lh-body: var(--print-lh);
-    font-size: var(--print-fs);
-    line-height: var(--print-lh);
-  }
-}
+/* The sheet is not here: `@page` and every `@media print` rule of the app live in
+   src/editor/print.css, one stylesheet for the whole sheet. */

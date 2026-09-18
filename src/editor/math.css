@@ -99,9 +99,4 @@ span.ose-math > .ose-math-src {
   font-family: var(--font-mono);
 }
 
-/* Print: the ink is the page's own (the light tokens are put on before the dialog opens), the
-   source box is never on paper, and a formula is never split across two pages. */
-@media print {
-  .ose-math-src { display: none; }
-  .ose-math-display { break-inside: avoid; }
-}
+/* The sheet is not here: `@page` and every `@media print` rule of the app live in print.css. */
