@@ -233,9 +233,12 @@ coloured, the interpreter's answer in the body colour, because output is not cod
 
 ## Views (day, week, month, journal, drills)
 
-The same page column as an editor page, and the chrome's own title: a view is the app talking,
-not the user's writing, so it keeps `--font-title` at `--fs-title` and `--font-ui` for its text.
-A note a view shows rather than draws goes through `render()` and is a document like any other.
+The same page column as an editor page. A view's title is the document face at `--fs-doc-title`,
+bold and left, with no box around it: the box belongs to a document's own title, and the view is
+the app talking rather than the user's writing, so its controls, labels, counts and tables keep
+the chrome faces (`--font-ui` at `--fs-ui`, `--font-mono` at `--fs-chrome`). One rule for all
+six, at the top of `plugins/_lib/view.css`; nothing in a plugin names a family or sets a size in
+px. A note a view shows rather than draws goes through `render()` and is a document like any other.
 Dense data (the week grid, the habit matrix) uses mono 11px labels and 1px grid lines in
 `--border`. Colour blocks in the week grid use the semantic tokens
 at low opacity with a 2px left bar in the full colour.
