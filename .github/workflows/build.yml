@@ -2,7 +2,7 @@
 #
 # Windows is MSVC: that toolchain links WebView2Loader statically, so the result is one
 # self-contained ose.exe with no DLL beside it. A local MinGW build is for development and is
-# not what anyone downloads. macOS is Apple silicon: Ose.app, zipped with ditto.
+# not what anyone downloads. macOS is Apple silicon: Ose.app, signed ad hoc and zipped with ditto.
 name: build
 
 on:
@@ -136,9 +136,22 @@ jobs:
           echo "ose --version: $line"
           case "$line" in ose\ 1.*) ;; *) echo "::error::unexpected --version line: $line"; exit 1 ;; esac
 
-      # ditto keeps the bundle's structure and attributes, which a plain zip drops.
+      # signingIdentity "-" in tauri.conf.json signs the bundle ad hoc. Without it only the
+      # binary carries the linker's signature, and a downloaded Ose.app is refused as "damaged"
+      # with no way past it. Signed ad hoc, macOS instead says it could not verify the app and
+      # offers Open Anyway in System Settings > Privacy & Security.
+      - name: Check the signature
+        run: codesign --verify --deep --strict --verbose=2 "${{ steps.app.outputs.path }}"
+
+      # ditto keeps the bundle's structure and attributes, which a plain zip drops. The zip is
+      # unpacked again and checked, since what matters is the signature a download arrives with.
       - name: Package the app
-        run: ditto -c -k --keepParent "${{ steps.app.outputs.path }}" "$GITHUB_WORKSPACE/ose-macos-arm64.zip"
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent "${{ steps.app.outputs.path }}" "$GITHUB_WORKSPACE/ose-macos-arm64.zip"
+          check=$(mktemp -d)
+          ditto -x -k "$GITHUB_WORKSPACE/ose-macos-arm64.zip" "$check"
+          codesign --verify --deep --strict --verbose=2 "$check/Ose.app"
 
       - uses: actions/upload-artifact@v4
         with:
