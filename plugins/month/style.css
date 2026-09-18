@@ -19,16 +19,19 @@
 /* inside a card the card's own padding is the air above the label, not a section gap */
 .mo-card .label { padding-top: 0; }
 .mo-card ul { margin: 0; padding-left: var(--sp-4); }
-.mo-card li { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); margin-bottom: var(--sp-1); }
+/* a goal is the plan's own words, so the bullets are prose like the paragraphs above them
+   (`.view-prose` on the list); the card and its label stay chrome */
+.mo-card li { color: var(--fg-2); margin-bottom: var(--sp-1); }
 .mo-card li:last-child { margin-bottom: 0; }
 
-/* GitHub-contributions matrix across the whole page column: a fixed name column, one square
-   per day sharing the rest, and a loss column at the end; one row per system, then the
-   summary line as the last row so it stays under the loss column even when the box scrolls.
-   The geometry lives in the three custom properties: at 720px a 31-day month gets 16px
-   squares, a 28-day one 18px. The squares are --sp-half apart: at this size --sp-1 would
-   open the grid into a scatter of dots. Under the floor the box scrolls sideways instead of
-   crushing the cells. The bottom padding is the few pixels a data-tip under the last row
+/* GitHub-contributions matrix across the whole page column: a names column wide enough to read,
+   one square per day sharing the rest, and a loss column at the end; one row per system, then
+   the summary line as the last row so it stays under the loss column even when the box scrolls.
+   The geometry lives in the three custom properties. The names column is in rem, so it grows
+   with the zoom exactly as the names in it do, and it holds ten system names of the length he
+   writes; the squares take what is left, which in a 720px column is the 12px floor for a 31-day
+   month. The squares are --sp-half apart: at this size --sp-1 would open the grid into a scatter
+   of dots. Under the floor the box scrolls sideways instead of crushing the cells. The bottom padding is the few pixels a data-tip under the last row
    reaches past the summary line: without them the scroll box grows a vertical scrollbar on
    hover. */
 .mo-matrix-wrap {
@@ -36,7 +39,7 @@
   padding-bottom: var(--sp-2);
 }
 .mo-matrix {
-  --mo-name: 120px;      /* the names column; a long name ends in an ellipsis */
+  --mo-name: 15rem;      /* the names column, wide enough for the longest system he writes */
   --mo-loss: 40px;       /* wide enough for −100% in mono */
   --mo-cell-min: 12px;   /* the square below which the box scrolls instead */
   display: grid;
@@ -60,7 +63,7 @@
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   white-space: nowrap; line-height: 1.2;
 }
-.mo-dh.today { color: var(--accent); }
+.mo-dh.today { color: var(--accent-ink); }
 /* a 2px underline hung just below the number, in the gap above the first row */
 .mo-dh.today::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--accent);

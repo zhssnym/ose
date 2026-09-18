@@ -139,17 +139,24 @@ ose.keys.bind(combo, commandId, { scope: 'window' | 'body' })  -> unsubscribe
     phase, so nothing on the page can shadow one; a binding here replaces the default on that
     chord, and dropping the binding gives the default back. A scope 'body' chord fires only
     with the caret in a page editor. The shell's keys.json is loaded through the same call.
+    Two owners may hold one chord: the last binding is the live one and dropping it uncovers the
+    one under it. A **plugin's** bind never takes a chord the kernel's own keymap holds, exactly
+    as a plugin's `shortcut` does not: the chord stays where it was and the console says so once.
 ose.keys.shortcutFor(commandId) -> 'Ctrl+K' | null
 ose.keys.defaults()          -> the shell keymap, for whoever wants to show it
 ose.keys.label(combo)        -> 'mod+shift+j' as 'Ctrl+Shift+J' ('Cmd+Shift+J' on a Mac)
 
 ose.views.register(name, { title, icon?, order?, mount(el), unmount? })  -> unsubscribe
-    `unmount` belongs on the registration: the router keeps the registered object and calls
-    `unmount` on it, not on whatever `mount` answered.
+    `unmount` belongs on the registration, and a handle `mount` answers (`{ unmount?, refresh? }`)
+    is merged over it: what the handle carries wins, what it leaves out the registration still
+    answers. An `async mount` is awaited before the caret is placed. The first registration of a
+    name wins, as for `route.own`: another owner asking for a name that is taken keeps nothing
+    and the console says so.
 ose.views.list() / get(name)
 ose.tiles.register({ id, title, order?, render(el) -> { refresh?, unmount? } })  -> unsubscribe
     a card on whichever view asks for tiles (the stock Day view does); render is called once
-    and refresh on `ose.tiles.refresh(id)` or any watch the tile subscribes to
+    and refresh on `ose.tiles.refresh(id)` or any watch the tile subscribes to; an id already
+    registered by another owner is refused the same way a view name is
 ose.tiles.list() / get(id) / refresh(id?) / mounted(id, handle) / forget(id)
     `mounted` is how the view that draws a tile hands the handle back, so a later `refresh`
     reaches it; `refresh()` with no id refreshes every tile currently on screen.
@@ -308,9 +315,10 @@ views = [{ name, title, order }]   read off the view registry by the plugin tag,
 
 `load()` lists `.ose/plugins`, imports each entry from the app origin (`/plugins/<id>/index.js`
 or `/plugins/<id>.js`), declares its `paths`, links its `style.css` when it has one, and calls
-`activate(facade)`. Plugins load independently and concurrently. One that throws is disabled for
-the session: whatever it registered is taken back, a toast names it, `list()` carries the error,
-and the rest of Ose is untouched. The whole contract is `docs/PLUGINS.md`.
+`activate(facade)`. Plugins load independently and concurrently. One that throws, or whose
+`activate` has not settled ten seconds later, is disabled for the session: whatever it registered
+is taken back, a toast names it, `list()` carries the error, and the rest of Ose is untouched.
+The whole contract is `docs/PLUGINS.md`.
 
 A plugin's `activate` receives a **facade** of `ose`: the same object with four things of its own
 and no guard anywhere else.
@@ -320,11 +328,14 @@ plugin   { id, name, folder }    the folder as a vault path, a legal `cwd` for `
 state    ose.state(key) mapped onto `plugins.<id>.<key>`; `paths` under it is the kernel's
 paths    ose.paths.of(<id>)
 tagging  commands.register, views.register, tiles.register, settings.section, keys.bind, bus.on,
-         route.own/index/on, watch and schedule all carry the plugin id
+         route.own/index/on, watch and schedule all carry the plugin id; every other `on` and
+         `watch` it can subscribe through (settings, theme, focus, paths, store, status, vault
+         and window) and every status field it set are taken back on unload the same way
 ```
 
 `ose.plugins.unload(id)` takes back every one of those, unmounts the page it has on screen, kills
-the processes it started, unlinks its stylesheet and calls `deactivate()`. It answers a promise:
+the processes it started, unlinks its stylesheet and calls `deactivate()` once, and only if the
+plugin was handed the facade; unloading an already unloaded plugin does nothing. It answers a promise:
 the unmount is awaited inside it, so the plugin's last write is finished first. The paths it
 declared are left standing, so Settings still lists what a disabled plugin needs. A plugin may not
 write anywhere outside the vault, because nothing can: `ose.files` is the vault and only the vault.
@@ -334,9 +345,12 @@ write anywhere outside the vault, because nothing can: `ose.files` is the vault 
 A view's or an owned route's `unmount` is the one place a plugin can stop what it started, so the
 kernel promises exactly three things about it:
 
-1. **It is awaited.** The router waits for the promise `unmount` answers before it mounts the
-   next page, the way it waits for the editor's `close()`. A throw is caught and logged and the
-   next mount still proceeds. A synchronous `unmount` is unchanged.
+1. **It is awaited, for up to five seconds.** The router waits for the promise `unmount` answers
+   before it mounts the next page, the way it waits for the editor's `close()`. A throw is caught
+   and logged and the next mount still proceeds. A synchronous `unmount` is unchanged. The wait is
+   bounded: an `unmount` that has not settled after five seconds is left running, a toast names
+   the page that would not close, and the next page is drawn, because a plugin that hangs must not
+   take the column, the close button and every later navigation with it.
 2. **It runs on the unload of its plugin.** `ose.plugins.unload(id)` unmounts the page before
    `deactivate`, and leaves the column on nothing; what nothing means is the shell's business
    (the stock shell puts its home there).

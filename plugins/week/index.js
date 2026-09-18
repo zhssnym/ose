@@ -1,11 +1,15 @@
 // Week: the timetable grid for the current week, a "now / next" box, and per-day totals.
 // The week comes from the `calendar` path and nowhere else; `ose.paths` finds it and the view
-// re-reads whenever that choice changes. The file no longer carries the (Q1)/(Q2) alternating
-// week markers, so there is no toggle and no stored state.
+// re-reads whenever that choice changes.
+//
+// The file carries (Q1) and (Q2) markers for blocks that are only there every other week, and
+// nothing in the vault says which calendar week is Q1. So both are drawn, side by side in the
+// day's column, each with its marker: the owner reads the pair and knows which one is his week.
+// Guessing the parity would be a lie half the time.
 
 import { esc, loadingLine } from 'ose:ui';
 import { pad, dayIdx, addDays, startOfWeek, hhmm, dur, until, DAY_SHORT } from 'ose:md';
-import { TIMETABLE, parseTimetable } from '../_lib/timetable.js';
+import { TIMETABLE, parseTimetable, lanes } from '../_lib/timetable.js';
 import { pathInto } from '../_lib/view.js';
 
 export const name = 'Week';
@@ -32,12 +36,18 @@ const { START, END, HOUR_H, WORK_KINDS } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
 const TIME_MIN = 2 * HOUR_H;     // a block needs two hour rows before it prints its times
 const SUB_MIN = 3 * HOUR_H;      // and three before the room or note fits under them
+// One line of a block's name is 11px at 1.3 of leading, so a block is never shorter than that,
+// and under one line plus --sp-1 above and below it drops that padding (`.tight`) rather than
+// cut the glyphs in half.
+const NAME_H = 15, PAD_MIN = 23;
 
 let el = null, events = [], tickTimer = null, dayTimer = null, lastDay = -1, loading = false;
 let path = '', offPaths = null, again = false;
 
 const nowMinutes = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
 const $ = (sel) => el && el.querySelector(sel);
+/** An alternating block says so wherever it is named, or the line claims a class he may not have. */
+const qLabel = (e) => (e.q ? `Q${e.q} · ` : '') + e.t;
 
 /* ------------------------------------------------------------------ chrome */
 
@@ -106,13 +116,16 @@ function build() {
     for (let h = Math.ceil(START) + 1; h <= Math.floor(END); h++) {
       col += `<div class="wk-line" style="top:${(h - START) * HOUR_H}px"></div>`;
     }
-    for (const e of events) {
-      if (e.d !== d) continue;
+    for (const { e, lane, lanes: n } of lanes(events.filter((x) => x.d === d))) {
       const top = (e.sm / 60 - START) * HOUR_H;
-      const h = Math.max(15, (e.em - e.sm) / 60 * HOUR_H - 2);
+      const h = Math.max(NAME_H, (e.em - e.sm) / 60 * HOUR_H - 2);
       const time = h >= TIME_MIN ? `<span class="wk-ev-t mono-sm">${hhmm(e.sm)} to ${hhmm(e.em)}</span>` : '';
       const sub = e.sub && h >= SUB_MIN ? `<span class="wk-ev-s mono-sm">${esc(e.sub)}</span>` : '';
-      col += `<div class="wk-ev t-${e.type}" data-s="${e.sm}" data-e="${e.em}" title="${esc(e.t)}${e.sub ? ' · ' + esc(e.sub) : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}" style="top:${top}px;height:${h}px"><span class="wk-ev-n">${esc(e.t)}</span>${time}${sub}</div>`;
+      // the marker leads the name so that it survives the ellipsis of a half-width block, which
+      // is exactly the block that has one
+      const q = e.q ? `<span class="wk-ev-q mono-sm">Q${e.q}</span>` : '';
+      const title = `${e.q ? `Q${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}`;
+      col += `<div class="wk-ev t-${e.type}${h < PAD_MIN ? ' tight' : ''}" data-s="${e.sm}" data-e="${e.em}" title="${esc(title)}" style="top:${top}px;height:${h}px;--lane:${lane};--lanes:${n}"><span class="wk-ev-n">${q}${esc(e.t)}</span>${time}${sub}</div>`;
     }
     if (d === ti) col += '<div class="wk-nowline" id="wkNowline"><span class="wk-nowdot"></span></div>';
     out.push(col + '</div>');
@@ -126,6 +139,18 @@ function build() {
   perDay.forEach((m, i) => out.push(`<div class="wk-ft mono-sm${i === ti ? ' today' : ''}${m ? '' : ' faint'}">${m ? dur(m) : '–'}</div>`));
 
   grid.innerHTML = out.join('');
+
+  // On a narrow window the grid is wider than its box and the box's scrollbar can sit below the
+  // fold, so today's column would be off screen with nothing saying so. Today is what the view
+  // is opened for: it is scrolled to the middle of the box whenever the grid overflows.
+  const scroll = $('.wk-scroll');
+  if (scroll && scroll.scrollWidth > scroll.clientWidth) {
+    const col = el.querySelector(`.wk-col[data-d="${ti}"]`);
+    if (col) {
+      const dx = col.getBoundingClientRect().left - scroll.getBoundingClientRect().left;
+      scroll.scrollLeft += dx - (scroll.clientWidth - col.offsetWidth) / 2;
+    }
+  }
 
   // totals line
   const sums = {};
@@ -152,10 +177,10 @@ function tick() {
   const now = $('#wkNow'), next = $('#wkNext');
   if (!events.length) { now.innerHTML = '&nbsp;'; next.innerHTML = '&nbsp;'; return; }
   now.innerHTML = cur
-    ? `<span class="wk-dot t-${cur.type}"></span>${esc(cur.t)}${cur.sub && cur.type !== 'class' ? ` <span class="faint">· ${esc(cur.sub)}</span>` : ''} <span class="faint mono-sm">until ${hhmm(cur.em)}</span>`
+    ? `<span class="wk-dot t-${cur.type}"></span>${esc(qLabel(cur))}${cur.sub && cur.type !== 'class' ? ` <span class="faint">· ${esc(cur.sub)}</span>` : ''} <span class="faint mono-sm">until ${hhmm(cur.em)}</span>`
     : '<span class="wk-dot t-rest"></span><span class="faint">nothing scheduled</span>';
   next.innerHTML = nxt
-    ? `${esc(nxt.t)} <span class="faint mono-sm">${hhmm(nxt.sm)} · ${until(nxt.sm - m)}</span>`
+    ? `${esc(qLabel(nxt))} <span class="faint mono-sm">${hhmm(nxt.sm)} · ${until(nxt.sm - m)}</span>`
     : '<span class="faint">nothing else today</span>';
 
   for (const node of el.querySelectorAll(`.wk-col[data-d="${ti}"] .wk-ev`)) {

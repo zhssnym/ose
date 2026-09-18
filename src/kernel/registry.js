@@ -63,11 +63,28 @@ export const commands = {
   },
 };
 
+/**
+ * A name is one owner's for as long as it is registered: the first registration of a name wins,
+ * the way `route.own` already settles a collision. A plugin registering a view called
+ * `dashboard` or `day` used to take the home page or the Day view, and unloading that plugin
+ * then deleted the name, so home landed on "view not registered" for the rest of the session.
+ * The same owner re-registering its own name still replaces, which is what a reload needs.
+ */
+function takenBy(map, key, plugin, what) {
+  const held = map.get(key);
+  if (!held || held.plugin === plugin) return false;
+  console.warn(`[${what}] ${key} is already registered by ${held.plugin || 'the shell'}: ${plugin || 'the shell'} keeps none`);
+  return true;
+}
+
+const noop = () => {};
+
 const viewMap = new Map();
 export const views = {
   // Answers an unsubscribe (docs/KERNEL.md), so a plugin's view goes with the rest of its
-  // registrations on unload. Registering the same name twice still replaces, as it always did.
+  // registrations on unload.
   register(name, def) {
+    if (takenBy(viewMap, name, def && def.plugin, 'views')) return noop;
     viewMap.set(name, { name, ...def });
     return () => { if (viewMap.get(name) && viewMap.get(name).mount === def.mount) viewMap.delete(name); };
   },
@@ -87,6 +104,7 @@ const tileLive = new Map();   // id -> the handle render() answered, while it is
 export const tiles = {
   register(def) {
     if (!def || !def.id || typeof def.render !== 'function') throw new Error('tiles.register: id and render required');
+    if (takenBy(tileMap, def.id, def.plugin, 'tiles')) return noop;
     tileMap.set(def.id, { order: 100, title: def.id, ...def });
     return () => { tiles.forget(def.id); tileMap.delete(def.id); };
   },

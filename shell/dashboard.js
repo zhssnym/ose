@@ -99,7 +99,7 @@ const view = {
     el.innerHTML = `
 <div class="view-root dash" tabindex="-1">
   <div class="page-col">
-    <h1 class="page-title">${esc(HOME_TITLE)}</h1>
+    <h1 class="page-title view-title">${esc(HOME_TITLE)}</h1>
     <div class="dash-grid"></div>
     <div class="dash-rest"></div>
   </div>

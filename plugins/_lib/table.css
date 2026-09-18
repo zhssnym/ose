@@ -30,7 +30,7 @@
 }
 
 .dt-row { cursor: pointer; transition: background var(--t-fast); }
-.dt-row:hover { background: var(--bg-2); }
+.dt-row:hover { background: var(--bg-3); }
 
 /* The row the keyboard is on is marked the way the sidebar marks the row it is on: the accent
    ground and a 2px bar down the left edge. The bar is an inset shadow on the first cell, not a
@@ -52,9 +52,11 @@
 .dt-right { text-align: right; }
 .dt-center { text-align: center; }
 
-/* Three tones and no chip: the ink is the whole signal. */
+/* Four tones and no chip: the ink is the whole signal. Amber is attention, brick is a file that
+   cannot be run at all. */
 .dt-ok { color: var(--ok-ink); }
 .dt-warn { color: var(--warn-ink); }
+.dt-err { color: var(--err-ink); }
 .dt-muted { color: var(--fg-3); }
 
 /* Nothing to list: one short sentence, mono, centred, inside the table it would have filled. */

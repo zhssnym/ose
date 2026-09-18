@@ -4,6 +4,7 @@ import { ose } from 'ose:kernel';
 import { esc, openOverlay, pickFolder, toast } from 'ose:ui';
 import { reloadIntoVault, chooseVault } from './vault.js';
 import { hostKind } from './host.js';
+import { byPluginOrder } from './order.js';
 
 const { bus, commands, store } = ose;
 
@@ -63,13 +64,18 @@ function seg(name, options, value) {
 // drawn here: `ose.paths.of(owner)` has no call that saves a path it is handed, so a button
 // here could not do what it says. The box inside the view offers them, one click each.
 function pathRow(row) {
+  // A row is named like the rows around it. A plugin that gives no label is named by its key,
+  // which is a lowercase word (`scratch`, `calendar`) where every neighbour is a Sentence case
+  // name, so the row capitalises it rather than the plugin having to (R8). The label itself is
+  // left alone: `ose.paths` spends it mid-sentence too ("Choose the calendar file…").
+  const name = row.label || row.key;
   // `sharedFrom`: the row is answered by another owner's choice. The calendar is one file and
   // Day and Week both ask for it, so there is one answer and one place it was given. Nothing is
   // saved under this owner, so a Reset here would have nothing to undo: the line says who chose
   // it, and releasing it there releases this row too.
   const shared = row.sharedFrom ? `chosen in ${ownerName(row.sharedFrom)} · reset it there` : '';
   return `<div class="set-path" data-owner="${esc(row.owner)}" data-key="${esc(row.key)}">
-      <div class="set-path-name">${esc(row.label || row.key)}</div>
+      <div class="set-path-name">${esc(name.charAt(0).toUpperCase() + name.slice(1))}</div>
       <div class="set-path-act">
         <button class="btn" data-act="choose">Choose…</button>
         <button class="btn" data-act="reset"${row.saved && !row.sharedFrom ? '' : ' hidden'}>Reset</button>
@@ -111,7 +117,9 @@ function paintFiles(box) {
 function paintPlugins(box) {
   const host = box.querySelector('.set-plugins');
   if (!host) return;
-  const list = ose.plugins.list();
+  // The same order as the sidebar and the home cards: a plugin sits where the view it opens
+  // sits (order.js), not where the loader happened to finish it (R8).
+  const list = ose.plugins.list().slice().sort(byPluginOrder);
   if (!list.length) {
     host.innerHTML = `<div class="set-note">No plugins. A plugin is a folder in .ose/plugins.</div>`;
     return;
@@ -248,6 +256,7 @@ export async function openSettings() {
   ov.box.innerHTML = `
     <div class="dlg-head" id="set-title">Settings</div>
     <div class="set-body">
+      <div class="label">theme</div>
       ${row('Theme',
         seg('theme', [{ value: 'light', label: 'light' }, { value: 'dark', label: 'dark' }, { value: 'system', label: 'system' }], themePref()),
         'Light, dark, or whatever the system is set to.')}
@@ -255,7 +264,8 @@ export async function openSettings() {
       <div class="label">reading</div>
       ${row('Zoom',
         seg('zoom', ZOOM_STEPS.map((n) => ({ value: n, label: n + '%' })), zoom()),
-        'The size of everything in the window. Ctrl+= and Ctrl+- step it, Ctrl+0 goes back to 100%.')}
+        'The size of everything in the window. Ctrl+= and Ctrl+- step it, and Ctrl+0 goes back '
+        + 'to 100% everywhere except in a page, where Ctrl+0 is Paragraph.')}
       ${row('Body text',
         seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), s.fontSize),
         "The size of a page's own text. The chrome around it keeps its size.")}
@@ -374,6 +384,8 @@ async function chooseAttachments(which, box) {
   const picked = await pickFolder({
     title: 'Attachments folder…',
     current: current === 'beside' ? null : current,
+    // The foot names the act: nothing is moved here (R6).
+    enterLabel: 'choose',
   });
   if (picked === null) {
     const back = settings().attachments === 'beside' ? 'beside' : 'folder';

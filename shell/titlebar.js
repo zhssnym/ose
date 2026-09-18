@@ -58,7 +58,10 @@ function renderCrumbs(route) {
 
   let parts;
   if (route.type === 'view') {
-    parts = [{ text: 'view' }, { text: route.name, cur: true }];
+    // The view's own title, the same name the tab and the window title carry: `dashboard` is a
+    // route key and `Home` is what the page is called (R14).
+    const v = ose.views.get(route.name);
+    parts = [{ text: 'view' }, { text: (v && v.title) || route.name, cur: true }];
   } else {
     // In focus mode the trail starts at the focus folder: everything above it is out of play.
     const focused = focus.get();

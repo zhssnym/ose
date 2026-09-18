@@ -54,7 +54,11 @@ export function nextAfter(spec, from) {
 /** True when the last run is older than the most recent moment `spec` was due. */
 export function isOverdue(spec, last, now) {
   if (!last) return false;                      // never run: the first run is the next due one
-  const dueBefore = nextAfter(spec, now - (Number.isFinite(spec.everyMs) ? spec.everyMs : DAY) - 1000);
+  // An interval is overdue only once a whole interval has passed since the last run. Read
+  // through `nextAfter` it came out as "anything older than a second", so a schedule every
+  // fifteen minutes whose last run was two minutes ago fired at every boot.
+  if (Number.isFinite(spec.everyMs)) return last + Math.max(1000, spec.everyMs) <= now;
+  const dueBefore = nextAfter(spec, now - DAY - 1000);
   return dueBefore <= now && last < dueBefore;
 }
 

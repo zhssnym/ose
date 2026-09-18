@@ -199,11 +199,20 @@ turns the palette black on white from either theme, so no rule elsewhere writes 
 and syntax colour prints black. `@page` is A4 with `--print-margin` on every side; the body is
 `--print-fs` of `--font-doc` at `--print-lh`, which puts about 52 lines on the sheet and follows
 Settings' `Page face`. Backgrounds are off (the host would otherwise paint the sheet in the
-theme's own ground), so a done task prints as a ticked outline. Only the page content goes on
-paper: the scrolling containers are flattened, no chrome, no meta line, no handles, no
-placeholders, no caret. A heading and a run-in label carry `break-after: avoid`; a frame, a bar,
-a table, a code block, a display formula and an image carry `break-inside: avoid`; text carries
-`orphans: 2; widows: 2`. Deliberate space (an empty paragraph) prints as the empty line it is.
+theme's own ground), so a done task prints as a ticked outline and a bullet is drawn with a
+border rather than a fill. Only the page content goes on paper: the scrolling containers are
+flattened, no chrome, no meta line, no handles (the image block's button and drag bar included),
+no placeholders, no caret. A heading, and a run-in label that opens a paragraph of its own rather
+than a list item, carry `break-after: avoid`; a frame, a bar, a display formula and a picture
+carry `break-inside: avoid`; a table and a code block do not, because they are as long as the
+author made them and a block taller than the sheet empties the sheet before it: they break
+between rows and between lines, and each fragment closes its own box. Text carries
+`orphans: 2; widows: 2`. A picture takes the measure at its own proportions, capped short of the
+printable height so that its label stays on the sheet with it. A table column is never narrower
+than its longest word, so no word is cut in two. Inline code is plain mono in the text colour
+with no box around it, and code inside a block is set at a ratio of the body, at the body's
+leading. The sheet number is in the bottom margin, mono at 9pt. Deliberate space (an empty
+paragraph) prints as the empty line it is.
 
 ## Code
 

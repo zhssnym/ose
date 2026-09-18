@@ -420,7 +420,7 @@ export function registerCommands(a) {
       const text = vaultPathOf(src) || src;
       if (!text) { toast('this image has no path', 'info'); return; }
       const ok = await copyText(text);
-      toast(ok ? 'copied' : 'copy failed', ok ? 'info' : 'err');
+      toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err');
     }),
   });
   commands.register({

@@ -90,7 +90,10 @@ export function parseDoc(text) {
   // those two is space the writer put there (space.js: a run of N blank lines is N minus 1
   // empty paragraphs), and space belongs to the body, where the editor can show it and the
   // caret can reach it. Taking the whole run into `gap` is what used to swallow it.
-  const gap = (afterTitle.match(/^\n*/) || [''])[0].slice(0, 2);
+  //
+  // A line of spaces is a blank line here as it is everywhere else: `profile/prompting.md` has
+  // one under its title, and reading it as body drew a phantom first paragraph.
+  const gap = (afterTitle.match(/^\n(?:[ \t]*\n)?/) || [''])[0];
   return {
     eol, eols, lines, bom, endsWithNewline, frontmatterRaw, style: detectStyle(rest),
     frontmatter: frontmatterRaw ? parseFrontmatter(frontmatterRaw) : null,

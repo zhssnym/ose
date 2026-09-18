@@ -86,6 +86,14 @@ export async function makeCrepe(o) {
       [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
       [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: true },
       [CrepeFeature.LinkTooltip]: { inputPlaceholder: 'Paste or type a link' },
+      // Crepe's CodeMirror feature installs One Dark as its theme, and One Dark is not only a
+      // ground and a caret: it carries a highlight style of its own, with hard-coded hexes, that
+      // ran beside ours. Ours (highlight.js) leaves a plain identifier the body colour on
+      // purpose; One Dark painted those same identifiers coral, on screen and in the PDF, where
+      // it was the one colour on an otherwise black-and-white sheet. `null` is the feature's own
+      // way of asking for no theme; the code block's ground, caret, selection and gutters are
+      // editor.css's and always were.
+      [CrepeFeature.CodeMirror]: { theme: null },
       [CrepeFeature.ImageBlock]: {
         proxyDomURL: o.resolveImage,
         onUpload: o.uploadImage,

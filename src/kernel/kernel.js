@@ -108,11 +108,6 @@ const ready = (async () => {
     vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
     store.set('root', vaultInfo);
   } catch (e) { console.warn('[kernel] rootInfo', e); }
-  // 0.5.0's boot handshake: the host armed a timer when it navigated the window to the page
-  // and this call cancelled it. The 1.0.0 host does not implement `riceReady` any more, so it
-  // answers null and nothing here depends on it. `riceReady` is that host command's
-  // historical name.
-  try { await bridge.riceReady(); } catch { /* a host that does not answer it, or the dev server */ }
 })();
 
 /* ------------------------------------------------------------------------------- the object */

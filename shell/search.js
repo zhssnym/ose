@@ -84,7 +84,8 @@ export function openSearch(opts = {}) {
     return;
   }
 
-  const ov = openOverlay({ width: 620, top: '13vh', className: 'pal search', onClose: () => { openOv = null; } });
+  // One box for one component: the palette's own width and height, to the pixel (R25).
+  const ov = openOverlay({ width: 560, top: '15vh', className: 'pal search', onClose: () => { openOv = null; } });
   ov.box.innerHTML = `
     <div class="pal-head">
       <span class="pal-icon">${icon('search')}</span>

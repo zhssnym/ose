@@ -370,7 +370,7 @@ function drawBox(row, answer, el) {
     <div class="path-box-what">Looked for ${what} in the vault.</div>
     ${picks}
     <div class="path-box-actions">
-      <button type="button" class="btn primary path-box-choose">Choose…</button>
+      <button type="button" class="btn primary path-box-choose">choose…</button>
     </div>`;
 
   // The box is inside the mounted route, so a choice made here mounts it again: that is what
@@ -409,7 +409,7 @@ async function choose(owner, key, opts = {}) {
   if (!row) return null;
   const { pickFile, pickFolder } = await import('./dialog.js');
   const picked = row.kind === 'folder'
-    ? await pickFolder({ title: `Choose the ${row.label} folder…`, current: row.path })
+    ? await pickFolder({ title: `Choose the ${row.label} folder…`, current: row.path, enterLabel: 'choose' })
     : await pickFile({ title: `Choose the ${row.label} file…`, ext: row.ext, current: row.path });
   if (picked === null || picked === undefined) return null;
   return commit(row, clean(picked), opts);

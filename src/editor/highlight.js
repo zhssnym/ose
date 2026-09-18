@@ -57,15 +57,30 @@ export const HIGHLIGHT = HighlightStyle.define([
 // ---------------------------------------------------------------------------
 // the pack
 
+/**
+ * Aliases the stock pack does not carry. `.jsonl` is one JSON object per line, which every JSON
+ * grammar parses line by line, and the pack's JSON entry answers to `json` and `map` only: the
+ * vault's `systems.jsonl` and every plugin log opened flat, with no colour at all, beside a
+ * `meta.json` that had strings and numbers. One palette everywhere code is shown.
+ */
+const ALIAS = { jsonl: 'json' };
+
 /** The pack entry for a language name, an alias, or a file name. Null when nothing matches. */
 export function describe(language, path) {
-  const name = String(language || '').trim();
+  const asked = String(language || '').trim();
+  const name = ALIAS[asked.toLowerCase()] || asked;
   if (name) {
     return LanguageDescription.matchLanguageName(LANGUAGE_PACK, name, true)
       || LANGUAGE_PACK.find((l) => l.alias.includes(name.toLowerCase()))
       || null;
   }
-  if (path) return LanguageDescription.matchFilename(LANGUAGE_PACK, P.basename(path));
+  if (path) {
+    const file = P.basename(path);
+    const dot = file.lastIndexOf('.');
+    const ext = dot > 0 ? file.slice(dot + 1).toLowerCase() : '';
+    if (ALIAS[ext]) return describe(ALIAS[ext]);
+    return LanguageDescription.matchFilename(LANGUAGE_PACK, file);
+  }
   return null;
 }
 

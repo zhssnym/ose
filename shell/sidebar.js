@@ -1056,7 +1056,8 @@ async function moveTo(items) {
   const first = clean(list[0].path);
   const title = list.length === 1 ? 'Move ' + baseName(first) + ' to…' : `Move ${countOf(list)} to…`;
   // A single folder cannot be offered its own subtree; several items are checked one by one.
-  const dest = await pickFolder({ title, current: dirName(first), hide: list.length === 1 && list[0].kind === 'dir' ? first : null });
+  // This picker really does move, so it is the one that says so in its foot (R6).
+  const dest = await pickFolder({ title, current: dirName(first), hide: list.length === 1 && list[0].kind === 'dir' ? first : null, enterLabel: 'move here' });
   if (dest === null) return;
   await moveMany(list, dest);
 }
@@ -1572,6 +1573,17 @@ export function initSidebar(node) {
   });
   // Firefox and Chromium both start an autoscroll on a middle press unless it is refused.
   scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.sb-row')) e.preventDefault(); });
+
+  // A name the column cut gets the whole name on hover, and a name that fits gets nothing: a
+  // tooltip repeating what is already on screen says nothing (R21). Measured on the row under
+  // the pointer, one row at a time, so no draw ever measures the whole tree.
+  scrollEl.addEventListener('mouseover', (e) => {
+    const name = e.target.closest && e.target.closest('.sb-row > .grow');
+    if (!name) return;
+    const cut = name.scrollWidth > name.clientWidth;
+    if (cut) name.title = name.textContent;
+    else name.removeAttribute('title');
+  });
 
   scrollEl.addEventListener('keydown', onTreeKey);
 

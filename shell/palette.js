@@ -26,9 +26,16 @@ export { fuzzy };
 
 /* -------------------------------------------------------------- what is listed */
 
+// One row per act (R9). The strip does what these two do, under the chords the app really
+// binds: `tab.close` is Ctrl+W and `tab.reopen` falls through to `app.reopen-closed` when its
+// own stack is empty. Listed as well, they printed one act twice, and `Reopen closed page`
+// carried a hint naming Ctrl+W, which is the tab command. Both still run by id.
+const SHADOWED = new Set(['page.close', 'app.reopen-closed']);
+
 function commandItems(q) {
   const out = [];
   for (const c of commands.list()) {
+    if (SHADOWED.has(c.id)) continue;
     const hay = `${c.title} ${c.group || ''} ${c.id}`;
     const m = fuzzy(hay.toLowerCase(), q.toLowerCase());
     if (!m) continue;
@@ -151,7 +158,7 @@ export function openPalette(mode = 'commands') {
     <div class="pal-list" role="listbox"></div>
     <div class="pal-foot mono-sm">
       <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-      <span><span class="kbd">Enter</span> run</span>
+      <span><span class="kbd">Enter</span> <span class="pal-enter">run</span></span>
       <span><span class="kbd">Esc</span> close</span>
       <span class="pal-create" hidden><span class="kbd">Shift</span><span class="kbd">Enter</span> new page</span>
       <span class="grow"></span>
@@ -163,6 +170,7 @@ export function openPalette(mode = 'commands') {
   const modeEl = ov.box.querySelector('.pal-mode');
   const iconEl = ov.box.querySelector('.pal-icon');
   const createEl = ov.box.querySelector('.pal-create');
+  const enterEl = ov.box.querySelector('.pal-enter');
 
   let items = [];
   let sel = 0;
@@ -245,6 +253,8 @@ export function openPalette(mode = 'commands') {
     openOv.mode = m;
     input.placeholder = m === 'files' ? 'Go to page…' : 'Type a command…';
     modeEl.textContent = m === 'files' ? 'quick open' : 'commands';
+    // The foot names the act, and quick open opens a page rather than running one (R17).
+    enterEl.textContent = m === 'files' ? 'open' : 'run';
     iconEl.innerHTML = icon(m === 'files' ? 'page' : 'command');
     // The titles are read in the background the first time quick open is used; the list is
     // drawn from file names at once and rebuilt, in place, when they land (L26).

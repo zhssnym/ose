@@ -6,9 +6,9 @@
 //
 // `ose.plugins.load()` lists `.ose/plugins`, imports each entry from the app origin, declares
 // its `paths`, links its `style.css` when it has one, and calls `activate(facade)`. Plugins load
-// independently and concurrently: one that throws on import or in `activate` is disabled for the
-// session, whatever it registered is taken back, a toast names it and Settings shows the error.
-// The rest of Ose is unaffected.
+// independently and concurrently: one that throws on import or in `activate`, or whose `activate`
+// never settles, is disabled for the session, whatever it registered is taken back, a toast names
+// it and Settings shows the error. The rest of Ose is unaffected.
 //
 // The facade is the full `ose` with four things of the plugin's own (PLUGINS.md):
 //
@@ -122,19 +122,54 @@ export function makeFacade(ose, entry) {
   };
   run.kill = (pid) => kernelRun.kill(pid);
 
+  // A status field is the one thing a plugin sets that answers no unsubscribe. The first write
+  // to a field puts the way to clear it on the same list as every subscription, so the bar does
+  // not keep a disabled plugin's word in it.
+  const statusKeys = new Set();
+  const setStatus = (key, value) => {
+    if (!statusKeys.has(key)) { statusKeys.add(key); keep(() => ose.status.clear(key)); }
+    return ose.status.set(key, value);
+  };
+
+  const ownPaths = pathsOf(id);
+
   return {
     ...ose,
     plugin: { id, name: entry.name, folder: entry.folder },
     run,
     // One key in .ose/state.json, named after the plugin. `paths` under it is the kernel's.
     state: (key) => ose.state(`plugins.${id}${key ? '.' + key : ''}`),
-    paths: pathsOf(id),
+    paths: { ...ownPaths, on: (fn) => keep(ownPaths.on(fn)) },
     commands: { ...ose.commands, register: (cmd) => keep(ose.commands.register({ ...cmd, plugin: id })) },
     views: { ...ose.views, register: (name, def) => keep(ose.views.register(name, { ...def, plugin: id })) },
     tiles: { ...ose.tiles, register: (def) => keep(ose.tiles.register({ ...def, plugin: id })) },
-    keys: { ...ose.keys, bind: (...a) => keep(ose.keys.bind(...a)) },
+    // The plugin tag travels with the binding, so the key engine can refuse a chord the kernel
+    // owns here exactly as it refuses one asked for through a command's `shortcut`.
+    keys: { ...ose.keys, bind: (combo, commandId, opts = {}) => keep(ose.keys.bind(combo, commandId, { ...opts, plugin: id })) },
     bus: { ...ose.bus, on: (...a) => keep(ose.bus.on(...a)) },
-    settings: { ...ose.settings, section: (def) => keep(ose.settings.section({ ...def, plugin: id })) },
+    store: { ...ose.store, watch: (...a) => keep(ose.store.watch(...a)) },
+    status: { ...ose.status, set: setStatus, watch: (...a) => keep(ose.status.watch(...a)) },
+    settings: {
+      ...ose.settings,
+      on: (fn) => keep(ose.settings.on(fn)),
+      onRepaint: (fn) => keep(ose.settings.onRepaint(fn)),
+      section: (def) => keep(ose.settings.section({ ...def, plugin: id })),
+    },
+    theme: { ...ose.theme, on: (fn) => keep(ose.theme.on(fn)) },
+    focus: { ...ose.focus, on: (fn) => keep(ose.focus.on(fn)) },
+    // `root` and `name` stay live: the facade is a view of `ose`, not a copy of what it held
+    // when the plugin was handed it.
+    vault: {
+      ...ose.vault,
+      get root() { return ose.vault.root; },
+      get name() { return ose.vault.name; },
+      onChange: (fn) => keep(ose.vault.onChange(fn)),
+    },
+    window: {
+      ...ose.window,
+      onClose: (fn) => keep(ose.window.onClose(fn)),
+      onMaximize: (fn) => keep(ose.window.onMaximize(fn)),
+    },
     route: {
       ...ose.route,
       own: (pattern, mount) => keep(ose.route.own(pattern, mount)),
@@ -166,6 +201,7 @@ async function loadOne(ose, base, found) {
     folder: pluginHome(id, single),
     url: single ? `${base}/plugins/${id}.js` : `${base}/plugins/${id}/index.js`,
     state: 'disabled', error: null, offs: [], procs: new Set(), mod: null, link: null,
+    activated: false,
   };
   loaded.set(id, entry);
   if (found.problem) throw new Error(found.problem);
@@ -177,16 +213,41 @@ async function loadOne(ose, base, found) {
   if (typeof mod.activate !== 'function') throw new Error('the entry exports no activate()');
   if (mod.paths && typeof mod.paths === 'object') declare(id, mod.paths);
   if (style) linkStyle(entry, `${base}/plugins/${id}/style.css`);
+  // From here the plugin has the facade, so `deactivate` is owed one call even if `activate`
+  // throws halfway: it is the only hook it has to undo what it managed to do.
+  entry.activated = true;
   await mod.activate(makeFacade(ose, entry));
   entry.state = 'active';
   return entry;
 }
 
+/** How long one plugin's `activate` may take before the boot goes on without it. */
+const ACTIVATE_MS = 10000;
+
+/**
+ * `activate` may answer a promise, and a promise may never settle: an `await` on something the
+ * host never answers, a `run` of a program that never exits, a forgotten resolve. Without a
+ * bound, that one plugin held `load()`, and with it the shell's READY and everything the shell
+ * draws on it, for as long as the window lived. The wait is bounded and the plugin is disabled
+ * with that reason, so it is named in the toast and in Settings rather than quietly dropped.
+ */
+async function withinActivateTimeout(work) {
+  let timer = null;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`activate did not finish in ${ACTIVATE_MS / 1000} s`)), ACTIVATE_MS);
+  });
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * `ose.plugins.load()` (PLUGINS.md "Loading, errors, reload"): the shell calls it once, after
- * its own surfaces exist. Every plugin is loaded independently and concurrently; one that throws
- * is disabled, named in a toast and in `list()`, and the others still activate. Resolves to the
- * same rows `list()` answers.
+ * its own surfaces exist. Every plugin is loaded independently and concurrently; one that throws,
+ * or whose `activate` has not settled ten seconds later, is disabled, named in a toast and in
+ * `list()`, and the others still activate. Resolves to the same rows `list()` answers.
  */
 export async function load(ose) {
   const base = await resolveBase();
@@ -195,7 +256,7 @@ export async function load(ose) {
     const { id } = row;
     try {
       if (!ID.test(id)) throw new Error(`"${id}" is not a plugin id: lowercase letters, digits and - only`);
-      await loadOne(ose, base, row);
+      await withinActivateTimeout(loadOne(ose, base, row));
     } catch (e) {
       const error = String((e && e.message) || e);
       // Half a plugin is worse than none: whatever it managed to register before it threw is
@@ -240,9 +301,13 @@ export async function unload(id) {
   if (entry.link) { try { entry.link.remove(); } catch { /* already gone */ } entry.link = null; }
   // The paths it declared are left standing on purpose: Settings lists a disabled plugin with
   // the paths it needs, and the choice the user made for one is not lost by a bad edit.
-  if (entry.mod && typeof entry.mod.deactivate === 'function') {
+  //
+  // `deactivate` is owed exactly one call per `activate`: a second `unload` of a plugin already
+  // taken apart used to run it again, and a plugin that does not expect that throws twice.
+  if (entry.activated && entry.mod && typeof entry.mod.deactivate === 'function') {
     try { entry.mod.deactivate(); } catch (e) { console.error(`[plugin:${id}] deactivate`, e); }
   }
+  entry.activated = false;
   entry.state = 'disabled';
   return true;
 }

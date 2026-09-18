@@ -35,15 +35,16 @@ const DAYKEY = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi:
 
 const stripAccents = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-// "- 17h30 à 19h30 Maths · salle 328 [maths]". The file used to carry (Q1)/(Q2) markers for
-// alternating weeks; they are gone from the file and from the UI, but a line that still has one
-// on either side of [type] is parsed and the marker dropped rather than ignored.
-const LINE = /^\s*[-*]\s*(\d{1,2})h(\d{2})\s*(?:à|a|to)\s*(\d{1,2})h(\d{2})\s+(.+?)\s*(?:\(Q[12]\))?\s*\[([^\]]+)\]\s*(?:\(Q[12]\))?\s*$/i;
+// "- 17h30 à 19h30 Maths · salle 328 [maths]", with an optional (Q1) or (Q2) on either side of
+// the type for a block that is only there every other week. The marker is kept: two blocks of
+// the same hour, one Q1 and one Q2, are the pair the views have to tell apart.
+const LINE = /^\s*[-*]\s*(\d{1,2})h(\d{2})\s*(?:à|a|to)\s*(\d{1,2})h(\d{2})\s+(.+?)\s*(?:\(Q([12])\))?\s*\[([^\]]+)\]\s*(?:\(Q([12])\))?\s*$/i;
 
 /**
  * The week, read from the calendar file. One `# Lundi`…`# Dimanche` heading per day; any other
  * H1 (hours per week, free windows, …) closes the current day so its prose is ignored.
- * -> [{ d, s:'17:30', e:'19:30', sm, em, t, sub?, type, kind }]  sm/em = minutes past midnight
+ * -> [{ d, s:'17:30', e:'19:30', sm, em, t, sub?, type, kind, q? }]  sm/em = minutes past
+ * midnight, q = 1 or 2 on an alternating-week block and absent on a block of every week
  */
 export function parseTimetable(text) {
   const out = [];
@@ -54,7 +55,7 @@ export function parseTimetable(text) {
     if (day === null) continue;
     const m = l.match(LINE);
     if (!m) continue;
-    const [, h1, m1, h2, m2, body, typeRaw] = m;
+    const [, h1, m1, h2, m2, body, qBefore, typeRaw, qAfter] = m;
     const kind = stripAccents(typeRaw);
     const [title, sub] = body.split(/\s+·\s+/);
     const ev = {
@@ -64,8 +65,39 @@ export function parseTimetable(text) {
       t: title.trim(), type: TYPES[kind] || 'rest', kind,
     };
     if (sub) ev.sub = sub.trim();
+    const q = qBefore || qAfter;
+    if (q) ev.q = +q;
     out.push(ev);
   }
   out.sort((a, b) => a.d - b.d || a.sm - b.sm);
+  return out;
+}
+
+/**
+ * The blocks of one day placed in columns, so that two that share an hour sit side by side
+ * instead of one over the other. The alternating (Q1) and (Q2) blocks of a Thursday are that
+ * case: without this the second one is painted over the first and neither can be read.
+ *
+ * Blocks that touch in time form one cluster and split its width between them; a cluster of one
+ * is lane 0 of 1, which is the whole column, so the caller has no special case to write.
+ * -> [{ e, lane, lanes }], lane 0-based
+ */
+export function lanes(list) {
+  const out = [];
+  let cluster = [], ends = [], clusterEnd = -1;
+  const close = () => {
+    for (const row of cluster) row.lanes = ends.length;
+    out.push(...cluster);
+    cluster = []; ends = [];
+  };
+  for (const e of [...list].sort((a, b) => a.sm - b.sm || a.em - b.em)) {
+    if (cluster.length && e.sm >= clusterEnd) close();
+    clusterEnd = cluster.length ? Math.max(clusterEnd, e.em) : e.em;
+    let lane = ends.findIndex((end) => end <= e.sm);
+    if (lane < 0) { lane = ends.length; ends.push(0); }
+    ends[lane] = e.em;
+    cluster.push({ e, lane, lanes: 1 });
+  }
+  close();
   return out;
 }

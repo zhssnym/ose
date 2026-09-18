@@ -216,8 +216,11 @@ html.mac .tb-win { display: none; }
    on every navigation, so the strip lives outside it. */
 .maincol { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
-/* `position: relative` is for the loading line below; nothing else in the column is absolute. */
-.main-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* `position: relative` is for the loading line below; nothing else in the column is absolute.
+   The gutter is held whether or not there is a scrollbar, so the page column does not step 6px
+   sideways between a short page and a long one, nor while a page grows past the window under
+   the caret (R4). */
+.main-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .page-host { min-height: 100%; }
 /* The one "loading…" line the router prints while a page column takes longer than a blink
    to mount (D9). It is the shared .empty, laid over the column where the title will be
@@ -288,7 +291,9 @@ html.mac .tb-win { display: none; }
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 .dash-card:hover { background: var(--bg-3); border-color: var(--border-strong); }
-.dash-name { font-family: var(--font-title); font-size: var(--fs-body); color: var(--fg); line-height: 1.2; }
+/* The title face is a view's title and nothing else (DESIGN.md "Four typefaces, strict roles").
+   A card name is the name of a thing in a list, so it wears the interface face (R16). */
+.dash-name { font-size: var(--fs-content); color: var(--fg); line-height: 1.2; }
 .dash-desc { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); }
 .dash-key { justify-self: start; }
 /* A plugin with no view of its own, and one that is disabled: a line under the grid, in
@@ -414,7 +419,7 @@ body.resizing * { cursor: col-resize !important; }
 .st-hint { color: var(--fg-2); }
 /* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
    bar's own colour and only warms up under the pointer (S4) */
-.st-zoom { color: var(--fg-2); cursor: pointer; }
+.st-zoom { color: var(--fg-2); }
 .st-zoom:hover { color: var(--fg); }
 
 /* ------------------------------------------------------------------ window edges */
@@ -483,6 +488,9 @@ html.maximized .edge { display: none; }
 .seg-b:last-child { border-right: 0; }
 .seg-b:hover { background: var(--bg-3); color: var(--fg); }
 .seg-b.on { background: var(--accent); color: var(--accent-fg); }
+/* The ring sits inside the button: `.seg` clips its own corners, so the base 2px offset put
+   the outline under the seg's border and left a 1px sliver of it (R2). */
+.seg-b:focus-visible { outline-offset: -2px; }
 /* a declared path (docs/PLUGINS.md `ose.paths`): its label, one sentence about the shape
    expected there, where it resolved, and the two controls. The heading above a list of them is
    a plain .label: flush with the rows, its own top padding the gap. */
@@ -518,9 +526,9 @@ html.maximized .edge { display: none; }
   color: var(--fg-2); line-height: 1.75;
 }
 .set-info > div { display: flex; gap: var(--sp-3); white-space: nowrap; overflow: hidden; }
-/* the key column: wide enough for `bridge`, the longest key */
+/* the key column: wide enough for `bridge`, the longest key. rem, so it zooms with the text. */
 .set-info > div > span {
-  width: 48px; flex: none; color: var(--fg-3);
+  width: 3rem; flex: none; color: var(--fg-3);
   text-transform: uppercase; letter-spacing: .06em;
 }
 .set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
@@ -552,6 +560,7 @@ html.maximized .edge { display: none; }
   margin-left: var(--sp-3);
 }
 
+/* No cursor of its own: one policy for every control in the app, the arrow the body sets (R20). */
 .tb-nav-btn {
   width: 1.625rem;
   align-self: stretch;
@@ -560,7 +569,6 @@ html.maximized .edge { display: none; }
   background: none;
   border: 0;
   color: var(--fg-2);
-  cursor: pointer;
   transition: background var(--t-fast), color var(--t-fast);
 }
 
@@ -682,14 +690,13 @@ html.maximized .edge { display: none; }
   font: inherit; color: inherit; cursor: default;
   transition: color var(--t-fast);
 }
-.v-link:hover { color: var(--accent); }
+.v-link:hover { color: var(--accent-ink); }
 .v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
 
 /* A status field that carries an `onClick` is a button; one that carries a `kind` says so in
    the one colour that kind owns. The separator between fields is the same dot the start
    surface uses for its chord list. */
 .st-left .st-item { color: inherit; }
-.st-left .st-click { cursor: pointer; }
 .st-left .st-click:hover { color: var(--fg); text-decoration: underline; }
 .st-left .st-item.err { color: var(--err); }
 .st-left .st-item.warn { color: var(--warn); }

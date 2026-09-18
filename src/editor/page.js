@@ -1149,7 +1149,7 @@ export function markdownPage(el, path, opts = {}) {
       p.words = countWords(text);
       p.chars = text.length;
     }
-    const n = (v) => v.toLocaleString();
+    const n = (v) => v.toLocaleString('en');
     const bits = [];
     // A file with no title of its own says its name; a page's folder is in the breadcrumb.
     if (p.plain) bits.push(P.basename(p.path));
@@ -1391,7 +1391,7 @@ export function markdownPage(el, path, opts = {}) {
       text = compose(p);
     } catch (e) { toast('could not serialise the page: ' + (e.message || e), 'err'); return; }
     const ok = await copyText(text);
-    toast(ok ? 'copied' : 'copy failed', ok ? 'info' : 'err');
+    toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err');
   }
 
   async function trashPage() {
@@ -1582,7 +1582,7 @@ function modifiedLabel(mtime) {
   const today = day(new Date());
   if (day(d) === today) return 'modified today';
   if (day(d) === today - 86_400_000) return 'modified yesterday';
-  return 'modified ' + d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return 'modified ' + d.toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /**
@@ -1794,11 +1794,18 @@ async function exportPdf() {
   const titled = inst && inst.titleEl() ? inst.titleEl().textContent.trim() : '';
   const name = titled || P.stem(path || '') || 'page';
   let r;
+  // WebView2 copies the document title into the PDF's `/Title`, and ours is the window's
+  // ("Family · lifeos"): the vault's name is nobody's business but his. The page's own title
+  // stands in it for the length of the export.
+  const windowTitle = document.title;
+  document.title = name;
   try {
     r = await ose.print.toPdf(null, { name, folder: editorApi.folder() || '' });
   } catch (e) {
     toast('could not export: ' + (e.message || e), 'err');
     return;
+  } finally {
+    document.title = windowTitle;
   }
   if (!r) { toast('Export to PDF needs the app', 'warn'); return; }
   if (r.browser) { toast('Export to PDF needs the app; in the browser, use Print', 'warn'); return; }

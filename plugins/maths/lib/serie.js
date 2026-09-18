@@ -283,7 +283,9 @@ class Run {
     this.timeEl.textContent = ''
     clear(this.optionsEl)
     clear(this.questionEl).appendChild(
-      h('div', { class: 'maths-end' }, `${correct} / ${this.total}`))
+      // the word is what tells this line from the corner readout it replaces, which counted
+      // questions and not answers
+      h('div', { class: 'maths-end' }, `${correct} / ${this.total} correct`))
     this.act.hidden = false
     this.act.textContent = 'back to the list'
     // The same floor as any other step: the Enter that answered the last question must not carry

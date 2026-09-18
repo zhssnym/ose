@@ -50,7 +50,10 @@ export function routeLabel(r) {
   if (!r) return '';
   if (r.type === 'page') return clean(r.path);
   if (r.type === 'own') return clean(r.path);
-  return 'view/' + r.name;
+  // The view's own title, which is what the tab and the window title say: the registered name
+  // is a route key, not a word the reader knows (`Home`, not `dashboard`).
+  const v = views.get(r.name);
+  return 'view/' + ((v && v.title) || r.name);
 }
 
 function normalize(route) {
@@ -283,10 +286,13 @@ export function focusMain() {
   // because the app opens on a view.
   const title = mainEl.querySelector('.page-title');
   const pick = mainEl.querySelector('.ProseMirror')
+    // A code page is an editor too: without this the caret landed on the body after every
+    // open of a .py, .json or .jsonl file and typing went nowhere.
+    || mainEl.querySelector('.cm-content')
     || (title && title.isContentEditable ? title : null)
     || mainEl.querySelector('.view-root')
     || mainEl.querySelector('.start-row')
-    || mainEl.querySelector('.miss .btn');   // "Create it" / "Retry": Enter should reach it
+    || mainEl.querySelector('.miss .btn');   // "create it" / "retry": Enter should reach it
   if (!pick) return false;
   // Views set tabindex=-1 on their root; a page title without an H1 is a plain div. Neither
   // is our DOM, so only the one attribute that makes `focus()` work is touched.
@@ -338,6 +344,36 @@ function restoreScroll(scroll, key) {
  * reject, so the next mount always proceeds. A sync `unmount` still works: `await` on a
  * non-promise is one microtask.
  */
+/** How long the router waits for an `unmount` before it draws the next page anyway. */
+const UNMOUNT_MS = 5000;
+
+/**
+ * The awaited `unmount`, with a bound on the wait. An `unmount` that never settles used to stop
+ * every later navigation, Ctrl+W, plugin unload and home for the session, with nothing on screen
+ * saying why, and on the host's close path it held the window open for ever. The wait is bounded
+ * and the page that would not close is named in a toast: a plugin that hangs is broken, and the
+ * owner is told rather than left with a column that no longer moves. A page that counts time
+ * banks on a timer as well (docs/PLUGINS.md rule 5), so nothing the contract promised is lost.
+ */
+async function callUnmount(view, where) {
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      const what = (current && routeLabel(current)) || 'a page';
+      console.error(`[router] ${where}: unmount of ${what} did not finish in ${UNMOUNT_MS / 1000} s`);
+      try { toast(`${what} did not finish closing; going on without it`, 'err', 6000); } catch { /* no DOM */ }
+      resolve();
+    }, UNMOUNT_MS);
+  });
+  try {
+    await Promise.race([Promise.resolve(view.unmount()), late]);
+  } catch (e) {
+    console.error(`[shell] ${where}`, e);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function teardown() {
   if (!current) return;
   rememberScroll();
@@ -345,7 +381,7 @@ async function teardown() {
     const host = pageHost();
     if (host) { try { await host.close(); } catch (e) { console.warn('[router] close page:', e.message || e); } }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
-    try { await mountedView.unmount(); } catch (e) { console.error('[shell] view unmount', e); }
+    await callUnmount(mountedView, 'view unmount');
   }
   mountedView = null;
 }
@@ -362,7 +398,7 @@ async function teardown() {
 async function unmountOnUnload() {
   if (!current || current.type === 'page') return;
   if (mountedView && typeof mountedView.unmount === 'function') {
-    try { await mountedView.unmount(); } catch (e) { console.error('[shell] unload unmount', e); }
+    await callUnmount(mountedView, 'unload unmount');
   }
   mountedView = null;
 }
@@ -422,7 +458,7 @@ async function mountPage(scroll, route) {
         <div class="miss-title">could not read that page</div>
         <div class="miss-path mono">${esc(path)}</div>
         <div class="miss-why">${esc(e.message || String(e))}</div>
-        <button class="btn" data-act="retry">Retry</button>
+        <button class="btn" data-act="retry">retry</button>
       </div>`);
     box.querySelector('[data-act="retry"]').addEventListener('click', () => {
       navigate({ type: 'page', path }, { replace: true, force: true });
@@ -435,7 +471,7 @@ async function mountPage(scroll, route) {
       <div class="miss">
         <div class="miss-title">page not found</div>
         <div class="miss-path mono">${esc(path)}</div>
-        <button class="btn primary" data-act="create">Create it</button>
+        <button class="btn primary" data-act="create">create it</button>
       </div>`);
     box.querySelector('[data-act="create"]').addEventListener('click', async () => {
       await bridge.writeText(path, `# ${titleOf(path)}\n`);
@@ -475,7 +511,7 @@ async function mountPage(scroll, route) {
   }
 }
 
-function renderOwned(scroll, route) {
+async function renderOwned(scroll, route, my) {
   const o = ownerFor(route.path);
   if (!o) {
     scroll.appendChild(emptyState(`
@@ -491,18 +527,24 @@ function renderOwned(scroll, route) {
   try {
     // The return value is the plugin's handle: `title` names the window, `unmount` is called
     // on the way out exactly like a view's. A plugin that returns nothing is fine.
-    const handle = o.mount(el, route) || {};
+    //
+    // An `async mount` answers a promise, and the handle is inside it: awaited, so an owned
+    // route written the way the PLUGINS.md example writes a view keeps its `unmount` and its
+    // title instead of losing both silently.
+    const handle = (await Promise.resolve(o.mount(el, route))) || {};
+    if (my !== seq) return;
     mountedView = handle;
     if (handle.title) { ownTitles.set(routeKey(route), String(handle.title)); setWindowTitle(route); bus.emit('route:title', { route, title: String(handle.title) }); }
   } catch (e) {
     console.error('[router] own mount', route.path, e);
+    if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">that page failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
   }
 }
 
 const ownTitles = new Map();
 
-function renderView(scroll, name) {
+async function renderView(scroll, name, my) {
   const v = views.get(name);
   if (!v) {
     scroll.appendChild(emptyState(`
@@ -513,8 +555,19 @@ function renderView(scroll, name) {
     return;
   }
   mountedView = v;
-  try { v.mount(scroll); } catch (e) {
+  try {
+    // Awaited, so a view with an `async mount` has drawn before the focus is settled and a
+    // rejection lands in the box below rather than as an uncaught error over a blank column.
+    // What `mount` answers counts too: a view that returns `{ unmount, refresh }` is the way
+    // half the stock views are written, and the router used to throw that object away, so the
+    // Maths index left one live copy of itself behind on every visit. What the handle carries
+    // wins over the registration; what it leaves out the registration still answers.
+    const handle = await v.mount(scroll);
+    if (my !== seq) return;
+    if (handle && typeof handle === 'object') mountedView = { ...v, ...handle };
+  } catch (e) {
     console.error('[shell] view mount', e);
+    if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">view failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
   }
 }
@@ -641,9 +694,9 @@ async function show(route, opts = {}) {
     await renderPage(scroll, route);
     spend(route);
   } else if (route.type === 'own') {
-    renderOwned(scroll, route);
+    await renderOwned(scroll, route, my);
   } else {
-    renderView(scroll, route.name);
+    await renderView(scroll, route.name, my);
   }
   if (my !== seq) return;
   restoreScroll(scroll, routeKey(route));

@@ -157,10 +157,9 @@ export const bridge = {
   run: (id, cmd, args = [], opts = {}) => call('run', id, cmd, args, opts),
   runKill: (id) => call('runKill', id),
   // The page the window is on, reloaded (Ctrl+R): only the host knows where the app's own
-  // files are. `riceReady` tells it the kernel booted. Both names are the host command's
-  // historical spelling; it answers `reloadShell` as well (docs/HOST.md "RPC").
+  // files are. `reloadRice` is that command's historical spelling; the host answers
+  // `reloadShell` as well (docs/HOST.md "RPC").
   reloadRice: () => call('reloadRice'),
-  riceReady: () => call('riceReady'),
 };
 
 if (typeof window !== 'undefined') window.__bridge = bridge; // debugging only

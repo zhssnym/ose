@@ -13,7 +13,7 @@
      t.update(rows)              // repaint, keeping the focused row when its id survives
      t.destroy()
 
-   A cell is a string or `{ text, tone }`, `tone` one of `ok`, `warn`, `muted`. A column is
+   A cell is a string or `{ text, tone }`, `tone` one of `ok`, `warn`, `err`, `muted`. A column is
    `{ key, title, align, mono, grow }`; `grow` is the one column that takes the slack.
 
    One tab stop: Tab reaches the table, Up, Down, Home and End walk the rows, Enter opens, Tab
@@ -21,7 +21,7 @@
    file name, no route, no status rule. Everything it draws is styled by `table.css`, which this
    file links itself. */
 
-const TONES = new Set(['ok', 'warn', 'muted'])
+const TONES = new Set(['ok', 'warn', 'err', 'muted'])
 const ROW = '.dt-row'
 
 /** Link `table.css` once. `import.meta.url` is this file's own, so the href is right in the exe

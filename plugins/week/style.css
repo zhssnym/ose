@@ -44,8 +44,8 @@
 }
 .wk-corner { border-left: 0; }
 .wk-hd-n { color: var(--fg-3); letter-spacing: 0; }
-.wk-hd.today { color: var(--accent); background: var(--accent-soft); }
-.wk-hd.today .wk-hd-n { color: var(--accent); }
+.wk-hd.today { color: var(--accent-ink); background: var(--accent-soft); }
+.wk-hd.today .wk-hd-n { color: var(--accent-ink); }
 
 .wk-times { position: relative; border-right: 1px solid var(--border); }
 /* an hour label is a 12px line so it can sit centred on its rule (the view offsets it by half) */
@@ -59,10 +59,16 @@
    column, the family colour at 15% with a 2px bar, name / times / room stacked one pixel apart
    (an optical gap; the scale starts above it). Its text starts --sp-2 from the edge of the
    block once the bar is counted. The day column is wide enough for one size up, and that is
-   the only thing it changes. */
+   the only thing it changes.
+   Two blocks of the same hour share the column side by side, which is what the calendar's
+   alternating (Q1) and (Q2) weeks are: the view counts the lanes and says which one this is.
+   A block alone in its hour is lane 0 of 1, so it fills the column as before. */
 .wk-ev, .dy-ev {
   --c: var(--c-rest);
-  position: absolute; left: var(--sp-half); right: var(--sp-half);
+  --lane: 0; --lanes: 1;
+  position: absolute;
+  left: calc(var(--sp-half) + (100% - var(--sp-half) * 2) * var(--lane) / var(--lanes));
+  width: calc((100% - var(--sp-half) * 2) / var(--lanes));
   display: flex; flex-direction: column; gap: 1px;
   padding: var(--sp-1) var(--sp-1) var(--sp-1) calc(var(--sp-2) - 2px); overflow: hidden;
   font-size: var(--fs-chrome-sm); line-height: 1.3;
@@ -71,7 +77,13 @@
   transition: opacity var(--t-fast);
 }
 .dy-ev { font-size: var(--fs-chrome); }
+/* A block too short for one line of its name inside the padding drops the padding, rather than
+   cut the glyphs in half or grow over the block after it. */
+.wk-ev.tight, .dy-ev.tight { padding-top: 0; padding-bottom: 0; }
 .wk-ev-n, .dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the Q marker leads the name and never shrinks: on a half-width block it is what the ellipsis
+   would otherwise eat, and it is the one word that says which week the block belongs to */
+.wk-ev-q, .dy-ev-q { color: var(--fg-2); margin-right: var(--sp-1); font-weight: 400; }
 .wk-ev-t, .wk-ev-s, .dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wk-ev.past, .dy-ev.past { opacity: .45; }
 .wk-ev.live, .dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -89,7 +101,7 @@
   border-left: 0; justify-content: flex-end; padding-right: var(--sp-2);
   color: var(--fg-3); text-transform: uppercase; letter-spacing: .06em;
 }
-.wk-ft.today { color: var(--accent); background: var(--accent-soft); }
+.wk-ft.today { color: var(--accent-ink); background: var(--accent-soft); }
 .wk-sum { margin-top: var(--sp-2); color: var(--fg-2); min-height: 16px; }
 
 /* An asynchronous region says "loading…" only when its reads outlast a blink (`loadingLine`

@@ -404,11 +404,13 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
  * for the vault root, or `null` when cancelled. `hide` drops a subtree from the list so a
  * folder cannot be moved into itself.
  */
-export async function pickFolder({ title = 'Move to…', current = null, hide = null } = {}) {
+export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' } = {}) {
   const all = (await vaultFolders()).filter((p) => !hide || (p !== hide && !p.startsWith(hide + '/')));
   return pickPath({
+    // Only the caller knows what Enter does here: moving a file is a move, naming the folder a
+    // plugin needs is a choice, and the foot used to say "move here" for both.
     title, all, current,
-    iconName: 'folder', mode: 'folders', enterLabel: 'move here',
+    iconName: 'folder', mode: 'folders', enterLabel,
     rootLabel: 'vault root', empty: 'no folder matches',
   });
 }

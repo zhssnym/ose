@@ -29,9 +29,24 @@ pub fn get(root: &Path) -> Value {
     }
 }
 
+/// The whole state, as the UI holds it. `window` and `theme` are the host's own, written through
+/// `patch` from the window itself, so a UI write that does not carry them keeps what is on disk:
+/// otherwise a save racing the geometry patch would put the window back where it was two moves
+/// ago.
 pub fn set(root: &Path, value: &Value) -> Result<(), String> {
     let _guard = GATE.lock().unwrap_or_else(|p| p.into_inner());
-    write_locked(root, value)
+    let mut next = value.clone();
+    if let Some(map) = next.as_object_mut() {
+        let on_disk = get(root);
+        for key in ["window", "theme"] {
+            if !map.contains_key(key) {
+                if let Some(v) = on_disk.get(key) {
+                    map.insert(key.to_string(), v.clone());
+                }
+            }
+        }
+    }
+    write_locked(root, &next)
 }
 
 fn write_locked(root: &Path, value: &Value) -> Result<(), String> {

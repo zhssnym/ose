@@ -84,7 +84,7 @@ Four things on it are the plugin's own:
 | `ose.plugin` | `{ id, name, folder }`. `folder` is the plugin's folder as a vault path (`.ose/plugins/maths`; `.ose/plugins` for a single-file plugin), a legal `cwd` for `ose.run`. |
 | `ose.state(key)` | `{ get, set, flush }` over `plugins.<id>.<key>` in `.ose/state.json`. The key `paths` is reserved. |
 | `ose.paths` | the plugin's own paths, below. |
-| registrations | `commands.register`, `views.register`, `tiles.register`, `settings.section`, `keys.bind`, `bus.on`, `route.own`, `route.index`, `route.on`, `watch`, `schedule` are tagged with the plugin id so unload takes them back. Use the `ose` you were handed, never `import { ose } from 'ose:kernel'`. |
+| registrations | `commands.register`, `views.register`, `tiles.register`, `settings.section`, `keys.bind`, `bus.on`, `route.own`, `route.index`, `route.on`, `watch`, `schedule` are tagged with the plugin id so unload takes them back, and so are the subscriptions (`settings.on`, `settings.onRepaint`, `theme.on`, `focus.on`, `paths.on`, `store.watch`, `status.watch`, `vault.onChange`, `window.onClose`, `window.onMaximize`) and the status fields you set. Use the `ose` you were handed, never `import { ose } from 'ose:kernel'`. |
 
 A view carries its place: `ose.views.register(name, { title, order, icon, mount, unmount })`. The
 sidebar and the home page sort plugins by `order`, then by title. The stock six use 10 to 60.
@@ -162,7 +162,8 @@ the location is a setting.
   entry from the app origin (`/plugins/<id>/index.js` or `/plugins/<id>.js`), declares its
   `paths`, links its `style.css` if there is one, and calls `activate`. Plugins load
   independently and concurrently.
-- A plugin that throws on import or in `activate` is disabled for the session: whatever it
+- A plugin that throws on import or in `activate`, or whose `activate` has not settled ten
+  seconds later, is disabled for the session: whatever it
   registered is taken back, a toast names it, and Settings › Plugins shows the error. The rest of
   Ose is unaffected. It keeps the paths it declared, so Settings still shows what it needs and a
   choice already made for it is not lost.

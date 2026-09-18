@@ -14,7 +14,7 @@
 
 import { esc, loadingLine } from 'ose:ui';
 import { ymd, ddmm, dayTitle, parseDate, addDays, sameDay, dayIdx, pad, hhmm } from 'ose:md';
-import { TIMETABLE, parseTimetable } from '../_lib/timetable.js';
+import { TIMETABLE, parseTimetable, lanes } from '../_lib/timetable.js';
 import {
   parseMonthlyPlan, parseSystemsLog, systemsFor, logKey, applies, resolvePlanPath,
 } from '../_lib/plans.js';
@@ -35,7 +35,7 @@ export const paths = {
   },
   todo: {
     file: 'todo',
-    hint: 'A markdown file of - [ ] items with optional 📅 due dates.',
+    hint: 'A markdown file of - [ ] items, each with an optional due date after a calendar marker.',
   },
   reports: {
     folder: 'reports',
@@ -48,6 +48,10 @@ const BODY_H = (END - START) * HOUR_H;
 const NARROW = 900;      // main-column width below which the two columns stack
 const TIME_MIN = 40;     // px of block height before the times fit under the name
 const SUB_MIN = 72;      // and before the room or note fits under those
+// One line of a block's name is 13px at 1.3 of leading, so a block is never shorter than that,
+// and under one line plus --sp-1 above and below it drops that padding (`.tight`) rather than
+// cut the glyphs in half.
+const NAME_H = 17, PAD_MIN = 25;
 const LIMIT = 8;         // rows shown per task section before "show all"
 const LOG_FILE = 'systems.jsonl';   // the check log, derived from the reports folder
 
@@ -120,13 +124,17 @@ function renderTimeline() {
   for (let h = Math.ceil(START) + 1; h <= Math.floor(END); h++) {   // the first hour is the top border
     out.push(`<div class="dy-line" style="top:${(h - START) * HOUR_H}px"></div>`);
   }
-  for (const e of list) {
+  for (const { e, lane, lanes: n } of lanes(list)) {
     const top = (e.sm / 60 - START) * HOUR_H;
-    const h = Math.max(16, (e.em - e.sm) / 60 * HOUR_H - 2);
+    const h = Math.max(NAME_H, (e.em - e.sm) / 60 * HOUR_H - 2);
     // a short block prints its name only; the times and the room need a second and third line
     const time = h >= TIME_MIN ? `<span class="dy-ev-t mono-sm">${hhmm(e.sm)} to ${hhmm(e.em)}</span>` : '';
     const sub = e.sub && h >= SUB_MIN ? `<span class="dy-ev-s mono-sm">${esc(e.sub)}</span>` : '';
-    out.push(`<div class="dy-ev t-${e.type}" data-s="${e.sm}" data-e="${e.em}" style="top:${top}px;height:${h}px" title="${esc(e.t)}${e.sub ? ' · ' + esc(e.sub) : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}"><span class="dy-ev-n">${esc(e.t)}</span>${time}${sub}</div>`);
+    // the marker leads the name so that it survives the ellipsis of a half-width block, which
+    // is exactly the block that has one
+    const q = e.q ? `<span class="dy-ev-q mono-sm">Q${e.q}</span>` : '';
+    const title = `${e.q ? `Q${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}`;
+    out.push(`<div class="dy-ev t-${e.type}${h < PAD_MIN ? ' tight' : ''}" data-s="${e.sm}" data-e="${e.em}" style="top:${top}px;height:${h}px;--lane:${lane};--lanes:${n}" title="${esc(title)}"><span class="dy-ev-n">${q}${esc(e.t)}</span>${time}${sub}</div>`);
   }
   out.push('<div class="dy-now" id="dyNow" hidden><span class="dy-now-dot"></span></div></div>');
   box.innerHTML = out.join('');
@@ -265,7 +273,7 @@ function group(g) {
        </div>`
     : '';
   return `<div class="dy-box">${head}
-    ${shown.map((t) => taskRow(t, { short: !!g.label })).join('')}
+    ${shown.map((t) => taskRow(t)).join('')}
     ${rest ? `<button class="dy-more mono-sm" data-more="${esc(g.path)}">show all ${list.length}</button>` : ''}
   </div>`;
 }

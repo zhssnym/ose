@@ -84,7 +84,7 @@ textarea.input.jr-input::placeholder {
   opacity: 0; transition: opacity var(--t-fast), color var(--t-fast);
 }
 .jr-day:hover .jr-open, .jr-open:focus { opacity: 1; }
-.jr-open:hover { color: var(--accent); text-decoration: underline; }
+.jr-open:hover { color: var(--accent-ink); text-decoration: underline; }
 
 /* right column: the text, nothing around it. The face and the size are `.view-prose`, carried
    on the element beside this class: an entry is the writer's own words and reads as a page. */
@@ -152,7 +152,7 @@ textarea.input.jr-input::placeholder {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   transition: color var(--t-fast);
 }
-.jr-more-btn:hover { color: var(--accent); }
+.jr-more-btn:hover { color: var(--accent-ink); }
 
 /* an empty, missing or loading record is the shared .empty line of base.css; nothing here */
 

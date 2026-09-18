@@ -49,6 +49,11 @@ let armed = false;
 // Set by `openInNewTab` for the length of one navigation: the next route makes a tab of its
 // own instead of replacing what is in front. Nothing else in the file writes it.
 let pendingNew = false;
+// Where the keyboard goes once a tab closed with Delete has been drawn away: the place in the
+// strip that tab held. Set by the Delete key alone and spent by the next render, because
+// closing the active tab goes through the kernel and comes back a frame or two later (R22).
+let refocusAt = -1;
+let refocusTimer = null;
 
 /* ------------------------------------------------------------------ routes */
 
@@ -162,6 +167,28 @@ function render() {
   }
   const on = strip.querySelector('.tab.on');
   if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (refocusAt >= 0) {
+    const rest = tabEls();
+    // One tab left is no strip, and there is nothing in it to stand on: the page takes the
+    // keyboard back, as it does after any other close.
+    if (rest.length && !strip.hidden) focusTab(rest[Math.min(refocusAt, rest.length - 1)]);
+    else clearRefocus();
+  }
+}
+
+/** Delete on a focused tab: where the keyboard lands once the strip has been drawn again. */
+function refocusAfterClose(at) {
+  refocusAt = at;
+  clearTimeout(refocusTimer);
+  // Closing the *active* tab goes out to the kernel and comes back as a route event, so the
+  // strip is drawn more than once for one close. The window covers every draw of the one act.
+  refocusTimer = setTimeout(clearRefocus, 300);
+}
+
+function clearRefocus() {
+  refocusAt = -1;
+  clearTimeout(refocusTimer);
+  refocusTimer = null;
 }
 
 /* ------------------------------------------------------------------ the list */
@@ -353,6 +380,9 @@ function onKey(e) {
     if (t) void ose.route.navigate(t.route);
   } else if (k === 'Delete' || k === 'Backspace') {
     e.preventDefault();
+    // The strip keeps the keyboard: the tab that takes this one's place is focused when the
+    // list is drawn again, instead of the ring starting over from the title bar (R22).
+    refocusAfterClose(at);
     closeTab(el.dataset.key);
   }
 }

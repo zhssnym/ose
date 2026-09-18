@@ -159,7 +159,7 @@ function renderGoals() {
   box.innerHTML = intro + cards.map((s) => `
     <div class="mo-card">
       <div class="label">${esc(s.label)}</div>
-      <ul>${s.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
+      <ul class="view-prose">${s.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
     </div>`).join('');
 }
 

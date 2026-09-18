@@ -329,14 +329,20 @@
    drawn in the text colour and centred in the hanging indent, which is where Word puts one.
    A nested level takes the hollow ring, the second mark every printed list has. */
 .ed .milkdown .milkdown-list-item-block .label.bullet svg { display: none; }
+/* The dot is drawn with a border and not with a background: the host prints without backgrounds
+   (print.rs says why), and a dot painted as a background is simply absent from the PDF, so
+   every first-level bullet was missing on paper while the nested ring, a box-shadow, printed.
+   A .15em border on a .3em border-box circle leaves no middle: it is a filled dot on screen and
+   the same dot on the sheet. */
 .ed .milkdown .milkdown-list-item-block .label.bullet::before {
   content: ""; width: .3em; height: .3em; border-radius: 50%;
-  background: currentColor; display: block;
+  border: .15em solid currentColor; box-sizing: border-box; display: block;
 }
 /* One list item inside another: the ring. The selector repeats the block class so that it
    outranks the rule above, which is one class longer than a plain `ul ul` would be. */
 .ed .milkdown .milkdown-list-item-block .milkdown-list-item-block .label.bullet::before {
   width: .4em; height: .4em; background: none;
+  border: 0;                                  /* the level-1 dot is a border; a ring is hollow */
   box-shadow: inset 0 0 0 1px currentColor;   /* 1px: a hairline ring at any body size */
 }
 /* `1.` in the text face, right-aligned so that 1. and 10. end at the same place */

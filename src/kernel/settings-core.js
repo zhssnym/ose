@@ -59,6 +59,10 @@ const sectionMap = new Map();
 export const sections = {
   register(def) {
     if (!def || !def.id || typeof def.render !== 'function') throw new Error('settings.section: id and render required');
+    // First registration wins, as it does for a view and a tile (registry.js): a second plugin
+    // taking the same id would silently replace the first one's rows, and unloading it would
+    // take the survivor's section away with it.
+    if (sectionMap.has(def.id)) { console.warn('[settings] section already registered:', def.id); return () => {}; }
     sectionMap.set(def.id, { order: 100, ...def });
     return () => sectionMap.delete(def.id);
   },

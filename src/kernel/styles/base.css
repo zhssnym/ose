@@ -35,8 +35,7 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 *::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
 *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 *::-webkit-scrollbar-corner { background: transparent; }
-.sidebar::-webkit-scrollbar-track, .sidebar *::-webkit-scrollbar-track,
-.main-scroll::-webkit-scrollbar-track, .main-scroll *::-webkit-scrollbar-track { background: var(--bg-2); }
+.sidebar::-webkit-scrollbar-track, .sidebar *::-webkit-scrollbar-track { background: var(--bg-2); }
 
 /* type helpers */
 .mono { font-family: var(--font-mono); font-size: var(--fs-chrome); }
@@ -277,7 +276,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
    the app, so Up and Down walk them and Enter takes the focused one. The dialog frame itself
    (.dlg-head, .dlg-body, .dlg-foot) is drawn by the shell's stylesheet. */
 .dlg-choices { display: flex; flex-direction: column; gap: var(--sp-1); }
-.choice { width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.choice { width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit; }
 .choice:focus-visible { outline: none; background: var(--bg-4); }
 .choice.danger > .grow { color: var(--err); }
 
@@ -340,7 +339,9 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   color: var(--fg-3);
 }
 .pal-foot .grow { flex: 1; }
-.pal-foot .kbd { height: 16px; padding: 0 var(--sp-1); border-bottom-width: 1px; }
+/* rem, so the chip zooms with the text in it, and the same 1rem the start surface gives the
+   same chip: two kbd heights in the app, not three. */
+.pal-foot .kbd { height: 1rem; padding: 0 var(--sp-1); border-bottom-width: 1px; }
 .pal-mode { color: var(--fg-2); }
 
 /* folder picker (move to…) */

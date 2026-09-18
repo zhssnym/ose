@@ -158,8 +158,10 @@ export function toggleSidebar() { setSidebarOpen(!sidebarVisible()); }
 /* -------------------------------------------------------------- page column */
 
 // The page column is a token, not a hard-coded width, so views and the editor follow it for
-// free. On a wide main area (a maximised 1920 window) it grows and the side padding scales,
-// which is the difference between a column hugging the sidebar and one that sits in the page.
+// free. On a wide main area (a maximised 1920 window) the side padding scales, which is the
+// difference between a column hugging the sidebar and one that sits in the page. The column
+// itself does not grow: DESIGN.md sets it at 720px and it read about 115 characters a line at
+// 800, which is past what a printed page sets (R27).
 const WIDE_MAIN = 1400;
 
 let wide = null;
@@ -173,11 +175,9 @@ function measureMain(w) {
   if (next === wide) return;
   wide = next;
   if (next) {
-    // rem, like the tokens they override, so a wide window zooms with everything else.
-    shell.style.setProperty('--page-w', '50rem');
+    // rem, like the token it overrides, so a wide window zooms with everything else.
     shell.style.setProperty('--page-pad-x', 'max(3rem, 6vw)');
   } else {
-    shell.style.removeProperty('--page-w');
     shell.style.removeProperty('--page-pad-x');
   }
 }
@@ -201,6 +201,8 @@ function watchMainWidth(el) {
 export function focusPage() {
   if (!mainEl) return false;
   const pick = mainEl.querySelector('.ProseMirror')
+    // A code file is a page too, and `.cm-content` is its body the way `.ProseMirror` is prose's.
+    || mainEl.querySelector('.cm-content')
     || mainEl.querySelector('.page-title')
     || mainEl.querySelector('.view-root')
     || mainEl.querySelector('.start-row')

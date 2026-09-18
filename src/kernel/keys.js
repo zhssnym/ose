@@ -169,16 +169,40 @@ let builtRev = -1;
  *
  * Normalised so `Mod+Shift+J`, `mod+shift+j` and `MOD+SHIFT+j` are one chord.
  */
-const bindings = new Map();   // combo -> { combo, cmd, inBody }
+// combo -> the bindings on it, oldest first, the last one live. A stack rather than one entry:
+// two owners can ask for the same chord (the shell's keys.json binds Mod+Shift+J before a
+// plugin does), and releasing the later binding used to leave the chord on the kernel default
+// with the shell's own binding gone for the session. Releasing one now uncovers the one under.
+const bindings = new Map();   // combo -> [{ combo, cmd, inBody }]
 export const normalizeCombo = (c) => String(c || '').toLowerCase().split('+').map((p) => p.trim()).filter(Boolean).join('+');
 
-export function bindKey(combo, commandId, { scope = 'window' } = {}) {
+/** The binding that holds a combo right now: the last one bound on it. */
+const liveBinding = (list) => (list && list.length ? list[list.length - 1] : null);
+
+export function bindKey(combo, commandId, { scope = 'window', plugin = null } = {}) {
   const key = normalizeCombo(combo);
   if (!key || !commandId) throw new Error('keys.bind: a combo and a command id are required');
+  // A chord the kernel's own keymap holds is not a plugin's to take, here as in a command's
+  // `shortcut` (docs/KERNEL.md): a plugin could take the palette, save, quit, close or quick
+  // open with one line and nothing said it had. The shell is not a plugin and still may.
+  if (plugin) {
+    const held = kernelCombos().get(key);
+    if (held) { warnOnce(key, `${commandId} (plugin ${plugin})`, held); return () => {}; }
+  }
   const entry = { combo: key, cmd: String(commandId), inBody: scope === 'body' };
-  bindings.set(key, entry);
+  const list = bindings.get(key) || [];
+  list.push(entry);
+  bindings.set(key, list);
   byCmd = null;                                   // rebuilt on the next lookup
-  return () => { if (bindings.get(key) === entry) { bindings.delete(key); byCmd = null; } };
+  return () => {
+    const held = bindings.get(key);
+    if (!held) return;
+    const at = held.indexOf(entry);
+    if (at < 0) return;
+    held.splice(at, 1);
+    if (!held.length) bindings.delete(key);
+    byCmd = null;
+  };
 }
 
 /** What is bound to a combo right now: a binding, else the default, else null. */
@@ -251,7 +275,7 @@ function index() {
   // Then a command's own `shortcut`, then the explicit bindings: the shell's keys.json wins
   // over a plugin's shortcut, and both win over a default rather than fighting it.
   for (const k of shortcuts) byCombo.set(k.combo, k);
-  for (const [combo, entry] of bindings) byCombo.set(combo, entry);
+  for (const [combo, list] of bindings) { const entry = liveBinding(list); if (entry) byCombo.set(combo, entry); }
   // What a command prints is what its chord **does**. `byCombo` is the arbiter — the shell's
   // keys.json over a plugin's `shortcut` over a shell default — so the printed hints are read
   // back out of it rather than out of the three tables that fed it. A command whose chord was

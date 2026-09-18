@@ -482,8 +482,8 @@ function skeleton() {
       <textarea class="input jr-input view-prose text-select" id="jrText" rows="6"
         placeholder="Today. Write it as it comes; the file keeps your wording."></textarea>
       <div class="jr-foot">
-        <span class="jr-hint">ctrl+enter</span>
-        <button class="btn primary" id="jrSave" disabled>Save</button>
+        <span class="jr-hint">Ctrl+Enter</span>
+        <button class="btn primary" id="jrSave" disabled>save</button>
       </div>
     </div>
 

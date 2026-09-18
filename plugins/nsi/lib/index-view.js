@@ -17,7 +17,7 @@ const COLUMNS = [
   { key: 'title', title: 'Title', grow: true },
   { key: 'category', title: 'Category' },
   { key: 'date', title: 'Date', mono: true },
-  { key: 'status', title: 'Status' },
+  { key: 'status', title: 'Status', mono: true },
 ]
 
 const live = new Set()
@@ -62,7 +62,7 @@ class IndexView {
   /** The page column, built the first time the drills folder answers. */
   frame() {
     if (this.root) return
-    this.root = h('div', { class: 'page-col nsi-index' })
+    this.root = h('div', { class: 'view-root page-col nsi-index', tabindex: '-1' })
     this.count = h('p', { class: 'page-meta' })
     this.body = h('div', {})
     this.root.appendChild(h('h1', { class: 'page-title view-title', text: 'Code' }))

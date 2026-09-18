@@ -34,17 +34,24 @@
 /* the shared .empty line under the two columns; this only makes it span both */
 .dy-tl-empty { grid-column: 1 / -1; }
 /* The kernel's box for a path it could not find is the only thing in the frame while it is
-   there, so the frame drops its two columns rather than squeezing it into the 44px gutter. */
-.dy-tl:has(> .path-box) { display: block; }
+   there, so the frame drops its two columns rather than squeezing it into the 44px gutter, and
+   its own border with them: the box brings one and two of them read as a 2px line. */
+.dy-tl:has(> .path-box) { display: block; border: 0; }
 
 /* One event block, the same one the week grid draws: --sp-half inside its column, the family
    colour at 15% with a 2px bar, name / times / room stacked one pixel apart (an optical gap;
    the scale starts above it). Its text starts --sp-2 from the edge of the block once the bar
    is counted. The day column is wide enough for one size up, and that is all it changes.
+   Two blocks of the same hour share the column side by side, which is what the calendar's
+   alternating (Q1) and (Q2) weeks are: the view counts the lanes and says which one this is.
+   A block alone in its hour is lane 0 of 1, so it fills the column as before.
    The week plugin carries the same rules for its own `.wk-ev`: a plugin ships its own look. */
 .dy-ev {
   --c: var(--c-rest);
-  position: absolute; left: var(--sp-half); right: var(--sp-half);
+  --lane: 0; --lanes: 1;
+  position: absolute;
+  left: calc(var(--sp-half) + (100% - var(--sp-half) * 2) * var(--lane) / var(--lanes));
+  width: calc((100% - var(--sp-half) * 2) / var(--lanes));
   display: flex; flex-direction: column; gap: 1px;
   padding: var(--sp-1) var(--sp-1) var(--sp-1) calc(var(--sp-2) - 2px); overflow: hidden;
   font-size: var(--fs-chrome); line-height: 1.3;
@@ -52,7 +59,13 @@
   border-left: 2px solid var(--c);
   transition: opacity var(--t-fast);
 }
+/* A block too short for one line of its name inside the padding drops the padding, rather than
+   cut the glyphs in half or grow over the block after it. */
+.dy-ev.tight { padding-top: 0; padding-bottom: 0; }
 .dy-ev-n { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the Q marker leads the name and never shrinks: on a half-width block it is what the ellipsis
+   would otherwise eat, and it is the one word that says which week the block belongs to */
+.dy-ev-q { color: var(--fg-2); margin-right: var(--sp-1); font-weight: 400; }
 .dy-ev-t, .dy-ev-s { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dy-ev.past { opacity: .45; }
 .dy-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -67,7 +80,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
   height: var(--panelhead-h); padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); color: var(--fg-2);
 }
-.dy-box-head .ok { color: var(--ok); }
+.dy-box-head .ok { color: var(--ok-ink); }
 
 /* A system row and a task row are the same row (E2): --row-h tall for one line, grown by the
    same padding when the text wraps, and their checkboxes in one column. Both carry the 2px
@@ -81,7 +94,9 @@
   transition: background var(--t-fast);
 }
 .dy-sys-row:hover { background: var(--bg-3); }
-.dy-sys-name { flex: 1; min-width: 0; font-size: var(--fs-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the name wraps exactly as a task's text does: the row grows, and a long system is read rather
+   than cut at the edge of the card */
+.dy-sys-name { flex: 1; min-width: 0; font-size: var(--fs-ui); line-height: 1.45; }
 .dy-sys-row.done .dy-sys-name { color: var(--fg-2); }
 
 .dy-tasks { min-height: 120px; }
@@ -90,7 +105,7 @@
    more row of the same card, in the chrome face the canonical `.input` already carries. */
 .dy-add { margin-top: var(--sp-2); }
 .dy-more { height: var(--row-h); padding: 0 var(--sp-3); color: var(--fg-3); transition: color var(--t-fast); }
-.dy-more:hover { color: var(--accent); }
+.dy-more:hover { color: var(--accent-ink); }
 
 /* The head of a todo box is the file's first H1 and opens the file. A single-file todo
    source has no heading, so its box is rows alone. */
@@ -101,12 +116,11 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: color var(--t-fast);
 }
-.dy-grp-head:hover { color: var(--accent); }
+.dy-grp-head:hover { color: var(--accent-ink); }
 /* --sp-1 of box inset (see .dy-sys-row for the sum), plus the nesting indent the .tk-row rule
    below computes: this selector is more specific, so it has to carry the depth itself or
    nested tasks render flat. */
 .dy-box .tk-row { padding-left: calc(var(--sp-1) + var(--tk-depth) * var(--sp-5)); padding-right: var(--sp-2); }
-.dy-box .tk-src { max-width: 64px; }
 
 /* task rows, shared with anything that lists tasks. A nested `- [ ]` line in the source keeps
    its nesting here: one --sp-5 of indentation per two spaces of source indent. */
@@ -131,7 +145,7 @@
   color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   transition: color var(--t-fast);
 }
-.tk-src:hover { color: var(--accent); text-decoration: underline; }
+.tk-src:hover { color: var(--accent-ink); text-decoration: underline; }
 
 /* One tile: the card a plugin contributes to this view (`ose.tiles`), with the tile's title
    as the .label above it. The two this plugin registers draw a .dy-box inside; another

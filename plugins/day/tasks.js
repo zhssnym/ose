@@ -185,16 +185,17 @@ export function taskDepth(t) {
 /**
  * One task row: check, text, chips, source line. The source button navigates to the file and
  * carries the 1-based line it prints in `data-line`, so the click can ask for that line rather
- * than the top of the file. Inside a labelled group the file name is already the heading, so
- * the row prints the line number alone and keeps the full path in its tooltip.
+ * than the top of the file. The column prints the line number alone and keeps the full path in
+ * its tooltip: the file is named above the rows or is the one file the card reads, so a path
+ * repeated on every row says nothing the line number does not say better.
  */
-export function taskRow(t, { short = false } = {}) {
+export function taskRow(t) {
   const depth = taskDepth(t);
   const source = `${t.path}:${t.line + 1}`;
   return `<div class="tk-row${t.done ? ' done' : ''}${depth ? ' sub' : ''}" data-id="${esc(t.id)}" style="--tk-depth:${depth}">
     <button class="tk-check" data-toggle="${esc(t.id)}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}"><span class="check${t.done ? ' on' : ''}"></span></button>
     <div class="tk-body"><span class="tk-text">${esc(t.text)}</span>${taskChips(t)}</div>
-    <button class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(source)}">${esc(short ? `:${t.line + 1}` : source)}</button>
+    <button class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(source)}">${esc(`:${t.line + 1}`)}</button>
   </div>`;
 }
 

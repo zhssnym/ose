@@ -39,7 +39,8 @@ export function mountIndex(el) {
 
 /** What the log says about a series, in the three words the Status column has to say. */
 export function statusCell(serie, answers) {
-  if (!serie.ok) return { text: 'does not parse', tone: 'warn' }
+  // a file that cannot be run at all is an error, not the amber of work in progress
+  if (!serie.ok) return { text: 'does not parse', tone: 'err' }
   const { answered, correct, total, done } = progressOf(answers, serie.id, serie.questions.length)
   if (done) return { text: `done ${correct} / ${total}`, tone: 'ok' }
   if (answered) return { text: `${answered} / ${total}`, tone: 'warn' }
@@ -50,7 +51,7 @@ class IndexView {
   constructor(el) {
     this.el = el
     this.token = 0
-    this.root = h('div', { class: 'page-col maths-index' })
+    this.root = h('div', { class: 'view-root page-col maths-index', tabindex: '-1' })
     this.meta = h('p', { class: 'page-meta' })
     this.tableHost = h('div', { class: 'maths-table-host' })
     // Where the kernel draws its box when the vault does not say where the series are. It is an

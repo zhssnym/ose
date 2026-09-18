@@ -63,22 +63,29 @@
 
 /* The question, centred and large: the one thing on screen, read from a metre away with the
    paper in front of you, so it takes twice the body size (the face and leading stay
-   `.view-prose`'s). The options follow at the document's title size, big enough to tap. */
+   `.view-prose`'s). The options follow at the document's title size, big enough to tap: the
+   size is written on the option itself and beside its prose class, because an option is a
+   `.view-prose` element and the parent's size would lose to it. */
 .maths-statement { color: var(--fg); text-align: center; font-size: calc(var(--fs-body) * 2); line-height: 1.3; }
-.maths-options { font-size: var(--fs-doc-title); }
+.maths-opt.view-prose { font-size: var(--fs-doc-title); }
 .maths-p { margin: 0 0 var(--sp-4); }
 .maths-p:last-child { margin-bottom: 0; }
 
 /* The options: a block of four rows centred under the question, the rows themselves left
    aligned so the letters make a column and the eye can run down them. */
+/* The floor is the four rows that are coming, to the pixel: one option is its line of prose,
+   the padding above and below it, and the 1px border the locked state lights. The button under
+   the options is on the same spot before and after the reveal, which is what the stage promises
+   and what a wrong answer must not move. */
 .maths-options {
+  --maths-opt-h: calc(var(--fs-doc-title) * var(--lh-body) + var(--sp-1) * 2 + 2px);
   display: flex; flex-direction: column; align-items: center;
   gap: var(--sp-1); margin-top: var(--sp-6);
-  min-height: calc(var(--row-h) * 4 + var(--sp-1) * 3);
+  min-height: calc(var(--maths-opt-h) * 4 + var(--sp-1) * 3);
 }
 
 .maths-opt {
-  min-height: var(--row-h); padding: var(--sp-1) var(--sp-3);
+  min-height: var(--maths-opt-h); padding: var(--sp-1) var(--sp-3);
   display: flex; align-items: center; gap: var(--sp-3);
   min-width: 18rem; max-width: 100%; text-align: left;
   background: none; color: var(--fg);
@@ -86,7 +93,7 @@
   cursor: pointer;
   transition: background var(--t-fast);
 }
-.maths-opt:hover:not(:disabled) { background: var(--bg-2); }
+.maths-opt:hover:not(:disabled) { background: var(--bg-3); }
 .maths-opt:disabled { cursor: default; }
 .maths-opt-letter { color: var(--fg-3); flex: none; min-width: 1.5ch; }
 .maths-opt-text { min-width: 0; }
@@ -111,7 +118,7 @@
 /* The last screen: the score, and the way back under it. It closes the run, so it is the run's
    one title: the document face at the title size, the same step every view's title takes. */
 .maths-end {
-  font-family: var(--font-doc); font-size: var(--fs-doc-title);
+  font-family: var(--font-doc); font-size: var(--fs-doc-title); font-weight: 700;
   color: var(--fg); text-align: center;
   font-variant-numeric: tabular-nums;
 }
