@@ -16,7 +16,7 @@ src-tauri/src/
   watcher.rs    notify on the root, debounced into one `fs` event
   versions.rs   .ose/versions
   run.rs        starting a program, streamed line by line
-  print.rs      the PDF and the system print dialog, both WebView2's own
+  print.rs      the PDF and the system print dialog (WebView2's on Windows, WKWebView's dialog on macOS)
   state.rs  vaults.rs  platform.rs      state.json, the recent vaults, open/reveal and the stamp
 ```
 
@@ -116,7 +116,9 @@ the app exits.
 
 ## Print
 
-Two RPCs, `printToPdf` and `showPrintUI`, both WebView2's own and therefore Windows only. Nothing
+Two RPCs, `printToPdf` and `showPrintUI`. On Windows both are WebView2's own. On macOS
+`printToPdf` answers an error that says to use Print, and `showPrintUI` opens the webview's own
+print operation, the macOS dialog, whose PDF menu saves the page. Nothing
 in the app calls `window.print()`: in WebView2 that call does not return, the renderer stops
 answering and whatever the page changed before it stays changed. That is what made `Export to PDF`
 render a tenth of a sheet and leave the app in the light theme.
@@ -198,11 +200,13 @@ The same goes for a plugin, with no flag at all.
 
 ## CI
 
-`.github/workflows/build.yml` is one Windows job on MSVC, so the result is a single
+`.github/workflows/build.yml` has two build jobs. Windows is MSVC, so the result is a single
 self-contained file. Checkout, node 22, rust stable, rust-cache, `npm ci`, `npm run build`, a
 check that `dist-kernel/` holds the bundles and `shell/index.html`, the `OSE_BUILD_SHA` /
 `OSE_BUILD_DATE` stamp, `npm run tauri:build`, `ose.exe` staged at the workspace root, an assert
 that `ose --version` matches `^ose 1\.\d+\.\d+ \(`, and the artifact `ose-windows`. A second job
 publishes to the rolling `latest` prerelease and runs only on a push to `main`; a
-`workflow_dispatch` on any ref stops after the artifact. No macOS job: the macOS code in the Rust
-sources stays, unbuilt.
+`workflow_dispatch` on any ref stops after the artifacts. macOS runs on `macos-14` (Apple
+silicon): the same steps to `npm run tauri:build`, which bundles `Ose.app`, the same `--version`
+assert, and `ose-macos-arm64.zip` packed with `ditto`. The release waits for both jobs but needs
+only Windows: a failed macOS build publishes Windows alone.

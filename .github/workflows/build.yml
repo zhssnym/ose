@@ -1,8 +1,8 @@
-# Builds ose.exe and publishes it.
+# Builds Ose for Windows and macOS and publishes both.
 #
-# One job, Windows, MSVC: that toolchain links WebView2Loader statically, so the result is one
-# self-contained file with no DLL beside it. A local MinGW build is for development and is not
-# what anyone downloads. macOS is not built; the macOS code in the Rust sources stays, unbuilt.
+# Windows is MSVC: that toolchain links WebView2Loader statically, so the result is one
+# self-contained ose.exe with no DLL beside it. A local MinGW build is for development and is
+# not what anyone downloads. macOS is Apple silicon: Ose.app, zipped with ditto.
 name: build
 
 on:
@@ -88,17 +88,81 @@ jobs:
           path: ose.exe
           if-no-files-found: error
 
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the kernel bundles and the shell
+        run: npm run build
+
+      - name: Stamp the build
+        run: |
+          echo "OSE_BUILD_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "OSE_BUILD_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
+      # tauri:build resolves to `tauri build --bundles app` on macOS (package.json): the .app and
+      # nothing else. The runner is Apple silicon, so the host target is aarch64-apple-darwin.
+      - name: Build the host
+        run: npm run tauri:build
+
+      - name: Locate Ose.app
+        id: app
+        run: |
+          set -euo pipefail
+          app=$(find src-tauri/target -maxdepth 6 -type d -name 'Ose.app' | head -n 1)
+          if [ -z "$app" ]; then echo "::error::no Ose.app under src-tauri/target"; exit 1; fi
+          echo "path=$app" >> "$GITHUB_OUTPUT"
+
+      - name: Version line
+        run: |
+          set -euo pipefail
+          line=$("${{ steps.app.outputs.path }}/Contents/MacOS/ose" --version)
+          echo "ose --version: $line"
+          case "$line" in ose\ 1.*) ;; *) echo "::error::unexpected --version line: $line"; exit 1 ;; esac
+
+      # ditto keeps the bundle's structure and attributes, which a plain zip drops.
+      - name: Package the app
+        run: ditto -c -k --keepParent "${{ steps.app.outputs.path }}" "$GITHUB_WORKSPACE/ose-macos-arm64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ose-macos
+          path: ose-macos-arm64.zip
+          if-no-files-found: error
+
   # Only a push to main publishes. A workflow_dispatch on any ref builds and uploads the
-  # artifact above and stops there.
+  # artifacts above and stops there. A failed macOS build does not hold Windows back: the
+  # release goes out with whatever built, and Windows must have.
   release:
-    needs: windows
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [windows, macos]
+    if: always() && needs.windows.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: ose-windows
+
+      - uses: actions/download-artifact@v4
+        if: needs.macos.result == 'success'
+        with:
+          name: ose-macos
 
       # A release tag cannot be moved through the release API: the action would reuse the
       # existing tag and publish the asset against the old commit. The rolling release and its
@@ -120,5 +184,7 @@ jobs:
           prerelease: true
           target_commitish: ${{ github.sha }}
           draft: false
-          fail_on_unmatched_files: true
-          files: ose.exe
+          fail_on_unmatched_files: false
+          files: |
+            ose.exe
+            ose-macos-arm64.zip

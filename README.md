@@ -16,4 +16,4 @@ A plugin is a folder of plain JavaScript in `.ose/plugins/`, inside the vault. I
 
 Everything lives in the vault as plain files. Ose keeps no database, no index and no second copy of anything, and its only state is `.ose/state.json`. The vault therefore syncs with Google Drive, OneDrive or anything else that syncs a folder. Any AI agent, Claude Code for example, can work directly in the files, because they are ordinary markdown and JSON. The same agent can write a new plugin in a few minutes for a workflow over files I already have, since a plugin is one folder written against one short document.
 
-The latest build is `ose.exe` on the Releases page. How to build it, and how each part works, is in `docs/`.
+The latest build is on the Releases page: `ose.exe` for Windows, and `ose-macos-arm64.zip` with `Ose.app` for Apple silicon Macs. On a Mac, a page goes to PDF through Print and the PDF menu of the system dialog. How to build Ose, and how each part works, is in `docs/`.

@@ -258,16 +258,24 @@ fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
 
 // ---- everywhere else --------------------------------------------------------
 
-/// The macOS sources stay in the tree, unbuilt (docs/HOST.md "CI"). Printing is the one thing
-/// with no cross-platform half at all, so it says so rather than pretending.
+/// Writing a PDF straight to a file is WebView2's own, so on macOS `Export to PDF` says so, and
+/// `Print` is the way there: the system dialog has its own PDF menu.
 #[cfg(not(windows))]
 async fn write_pdf(_ctx: &Ctx<'_>, _path: &Path) -> Result<(), String> {
-    Err("printing to PDF is WebView2's own and exists on Windows only".to_string())
+    Err("Export to PDF is Windows only; on macOS use Print, then PDF in the dialog".to_string())
 }
 
+/// The webview's own print operation: the macOS print dialog.
 #[cfg(not(windows))]
-fn show_print_ui(_ctx: &Ctx) -> Result<Value, String> {
-    Err("the system print dialog is WebView2's own and exists on Windows only".to_string())
+fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
+    use tauri::Manager as _;
+    let window = ctx
+        .app
+        .get_webview_window("main")
+        .ok_or_else(|| "no window to print".to_string())?;
+    window.print().map_err(|e| e.to_string())?;
+    log_line(ctx.st, "print: the system print dialog");
+    Ok(json!({ "shown": true }))
 }
 
 #[cfg(test)]
