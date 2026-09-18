@@ -206,8 +206,8 @@ function dollarsSafe(line, runs) {
 
 /** What the maths of a line is: the display fence, then every formula, in order. */
 const mathShape = (line) =>
-  (opensDisplay(line) ? 'D ' : '')
-  + lineRuns(line).filter((r) => r.kind === 'math').map((r) => line.slice(r.start, r.end)).join(' ');
+  (opensDisplay(line) ? 'D\0' : '')
+  + lineRuns(line).filter((r) => r.kind === 'math').map((r) => line.slice(r.start, r.end)).join('\0');
 
 /**
  * Walk one line outside code spans and formulas and undo the over-escapes.
