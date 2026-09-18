@@ -22,7 +22,7 @@ import { navHtml, bindNav } from '../_lib/nav.js';
 import { pathInto } from '../_lib/view.js';
 import {
   initTasks, setTaskPath, taskPath, indexTasks, groupsForDay, taskRow, taskById, toggleTask,
-  taskSourceMissing, taskFiles,
+  addTask, taskSourceMissing, taskFiles,
 } from './tasks.js';
 
 export const name = 'Day';
@@ -87,7 +87,7 @@ function skeleton() {
 <div class="view-root" tabindex="-1" id="dyRoot">
   <div class="page-col">
     <div class="v-head">
-      <h1 class="page-title" id="dyTitle">&nbsp;</h1>
+      <h1 class="page-title view-title" id="dyTitle">&nbsp;</h1>
       ${navHtml('day')}
     </div>
     <div class="page-meta" id="dyMeta">&nbsp;</div>
@@ -270,14 +270,61 @@ function group(g) {
   </div>`;
 }
 
+/**
+ * The foot of the tasks card: one line, and Enter puts it in the file. It is a row of the same
+ * card rather than a dialog, because adding a task is the smallest thing this view does. The
+ * strings of this view are English (DESIGN.md: the interface is English, the files are in
+ * whatever language they are in), so the placeholder is too.
+ */
+const addRow = (draft) => `<div class="dy-add">
+    <input type="text" class="input dy-add-in" id="dyAdd" autocomplete="off" spellcheck="false"
+      aria-label="New task" placeholder="new task" value="${esc(draft)}">
+  </div>`;
+
 function renderTasks() {
   const box = tasksEl;
   // no todo file: the card is holding the kernel's missing panel
   if (!box || !todoFile) return;
+  // the card is rebuilt whole, and the watch rebuilds it again the moment a task is written, so
+  // what is half typed in the foot line and where the caret sits are carried across the redraw
+  const was = box.querySelector('#dyAdd');
+  const draft = was ? was.value : '';
+  const hadFocus = !!was && document.activeElement === was;
+  const caret = was ? was.selectionStart : 0;
   // the path resolved and then the file went away between the resolve and the read
   if (taskSourceMissing()) { box.innerHTML = note(`nothing to read at ${esc(taskPath())}`); return; }
   const out = groupsForDay(cursor).map(group).join('');
-  box.innerHTML = out || note('nothing due, nothing late');
+  box.innerHTML = (out || note('nothing due, nothing late')) + addRow(draft);
+  if (hadFocus) {
+    const now = box.querySelector('#dyAdd');
+    now.focus({ preventScroll: true });
+    now.setSelectionRange(caret, caret);
+  }
+}
+
+/**
+ * Enter in the foot line. The field is emptied first so a second Enter on a slow write cannot
+ * send the same text twice, and the text goes back if the write did not happen.
+ */
+async function onAddTask(input) {
+  if (busy) return;
+  const text = input.value.trim();
+  if (!text) return;
+  busy = true;
+  input.value = '';
+  try {
+    if (await addTask(text) === 'missing') {
+      input.value = text;
+      flash(`nothing to add to at ${taskPath()}`);
+    }
+  } catch (e) {
+    input.value = text;
+    console.error('[day] add task', e);
+    flash(`task write failed: ${e.message || e}`);
+  } finally {
+    busy = false;
+    renderTasks();
+  }
 }
 
 async function onToggleTask(id) {
@@ -416,6 +463,16 @@ function onClick(ev) {
   if (link && link.dataset.path) ose.route.navigate({ type: 'page', path: link.dataset.path });
 }
 
+/** The foot line's two keys. Everything else in the view is the shell's or `bindNav`'s. */
+function onKeydown(ev) {
+  const input = ev.target.closest ? ev.target.closest('#dyAdd') : null;
+  if (!input) return;
+  if (ev.key === 'Enter') { ev.preventDefault(); void onAddTask(input); return; }
+  // Escape belongs to the field while there is something in it. Empty, it is let through and
+  // means whatever the shell means by it.
+  if (ev.key === 'Escape' && input.value) { ev.preventDefault(); ev.stopPropagation(); input.value = ''; }
+}
+
 /* ------------------------------------------------------------------- view */
 
 const view = {
@@ -429,6 +486,7 @@ const view = {
     el.innerHTML = skeleton();
     root = $('#dyRoot');
     el.addEventListener('click', onClick);
+    el.addEventListener('keydown', onKeydown);
     offNav = bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) });
     mountTiles();
 
@@ -460,7 +518,7 @@ const view = {
     clearInterval(tickTimer); tickTimer = null;
     clearTimeout(flashTimer); flashTimer = null;
     unmountTiles();
-    if (el) el.removeEventListener('click', onClick);
+    if (el) { el.removeEventListener('click', onClick); el.removeEventListener('keydown', onKeydown); }
     el = null; root = null;
   },
 

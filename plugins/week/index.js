@@ -47,7 +47,7 @@ function skeleton() {
   return `
 <div class="view-root" tabindex="-1" id="wkRoot">
   <div class="page-col">
-    <h1 class="page-title">Week</h1>
+    <h1 class="page-title view-title">Week</h1>
     <div class="page-meta" id="wkMeta">
       <button type="button" class="v-link" data-path="" hidden></button>
       <span>${esc(fmt(monday))} to ${esc(fmt(addDays(monday, 6)))}</span>

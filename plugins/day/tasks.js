@@ -2,7 +2,8 @@
 // `ose.paths` resolved it to. It is read on demand and again after the host reports a change to
 // it, so there is no vault walk, no search narrowing and no per-file mtime cache. Nesting in the
 // file (`  - [ ]` under a parent item) is kept as indentation on the row. Toggling rewrites the
-// exact source line, after checking it has not moved, and nothing else.
+// exact source line, after checking it has not moved, and nothing else; adding appends one line
+// at the end and touches nothing above it.
 
 import { esc } from 'ose:ui';
 import { ymd } from 'ose:md';
@@ -195,6 +196,34 @@ export function taskRow(t, { short = false } = {}) {
     <div class="tk-body"><span class="tk-text">${esc(t.text)}</span>${taskChips(t)}</div>
     <button class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(source)}">${esc(short ? `:${t.line + 1}` : source)}</button>
   </div>`;
+}
+
+/* -------------------------------------------------------------------- add */
+
+/**
+ * One new task at the end of the file: exactly one `- [ ] <text>` line, appended.
+ *
+ * The file is read only to learn how it ends — which line ending it uses, and whether it has
+ * one — and `append` then puts the new bytes after the old ones, so nothing above is read back
+ * into the write and nothing is reformatted. A file that does not end with a newline is given
+ * one first, so the new task is a line of its own; an empty file is not given a blank first
+ * line. Whatever was typed goes on the line as typed, markers and all: a `📅 2026-09-24` in it
+ * is read off the line by `parseTaskLine` exactly as one written by hand.
+ *
+ * -> 'ok', or 'missing' when there is no file to write to. Throws on I/O.
+ */
+export async function addTask(text) {
+  const line = String(text ?? '').trim();
+  if (!src || !line) return 'missing';
+  const st = await ose.files.stat(src);
+  if (!st || !st.exists) { missing = true; loaded = true; return 'missing'; }
+  const current = await ose.files.read(src);
+  const eol = current.includes('\r\n') ? '\r\n' : '\n';
+  const lead = current && !current.endsWith('\n') ? eol : '';
+  await ose.files.append(src, `${lead}- [ ] ${line}${eol}`);
+  stale = true;
+  await indexTasks();
+  return 'ok';
 }
 
 /* ----------------------------------------------------------------- toggle */

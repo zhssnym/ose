@@ -11,9 +11,13 @@
  * `maths-`, because a plugin's stylesheet is global while it is linked (PLUGINS.md rule 3).
  */
 
-/* Temml's own stylesheet: the MathML rules, no fonts (the system maths font draws it). One
- * stylesheet is linked for a plugin, so the vendored one comes in through this import, which
- * has to stay the first rule of the file. */
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). A question
+ * and its four answers are the words of a series file, so they are prose and wear `.view-prose`.
+ *
+ * Temml's own stylesheet does the MathML and ships no fonts (the system maths font draws it).
+ * One stylesheet is linked for a plugin, so both of these come in through @import, and the two
+ * have to stay the first rules of the file. */
+@import '../_lib/view.css';
 @import './vendor/Temml-Local.css';
 
 /* ------------------------------------------------------------------- list */
@@ -22,23 +26,29 @@
 
 /* ------------------------------------------------------------------- run */
 
-/* The element the route hands over. `.page-host` is already `min-height: 100%` of the scroller,
-   so making it a column is all that is needed for the run below to have the window's height to
-   centre itself in, with no viewport arithmetic and no second scroller. */
-.maths-host { display: flex; flex-direction: column; }
+/* The element the route hands over, and the run's positioning context. `.page-host` is already
+   `min-height: 100%` of the scroller and as wide as the main area, so making it a column is all
+   that is needed for the run below to have the window's height to centre itself in, with no
+   viewport arithmetic and no second scroller. During a session the shell's sidebar is gone from
+   the layout (`../_lib/drills.css`), so the main area is the whole window: the run's
+   `margin: 0 auto` puts the question on the middle of the WINDOW at every width, and the corner
+   readout, positioned against this element rather than against the 720px column, sits in the
+   true corner instead of at the column's right edge. */
+.maths-host { display: flex; flex-direction: column; position: relative; }
 
 .maths-run {
-  flex: 1; position: relative;
+  flex: 1;
   display: flex; flex-direction: column;
   width: 100%; max-width: calc(var(--page-w) + var(--page-pad-x) * 2);
   margin: 0 auto; padding: var(--sp-5) var(--page-pad-x);
   outline: none;
 }
 
-/* The corner: which question this is, and how long it has been on screen. It is out of flow, so
-   the question under it is centred on the column and not on what is left of it. */
+/* The corner: which question this is, and how long it has been on screen. It is out of flow,
+   so the question under it is centred on the column and not on what is left of it, and its
+   corner is the main area's, not the column's. */
 .maths-readout {
-  position: absolute; top: var(--sp-5); right: var(--page-pad-x);
+  position: absolute; top: var(--sp-5); right: var(--sp-5);
   display: flex; gap: var(--sp-4);
   color: var(--fg-3); font-variant-numeric: tabular-nums;
 }
@@ -51,11 +61,11 @@
 .maths-question { grid-row: 2; }
 .maths-below { grid-row: 3; }
 
-/* The question, large and centred: the one thing on screen. */
-.maths-statement {
-  font-family: var(--font-title); font-size: var(--fs-title);
-  line-height: 1.3; color: var(--fg); text-align: center;
-}
+/* The question, centred and large: the one thing on screen, read from a metre away with the
+   paper in front of you, so it takes twice the body size (the face and leading stay
+   `.view-prose`'s). The options follow at the document's title size, big enough to tap. */
+.maths-statement { color: var(--fg); text-align: center; font-size: calc(var(--fs-body) * 2); line-height: 1.3; }
+.maths-options { font-size: var(--fs-doc-title); }
 .maths-p { margin: 0 0 var(--sp-4); }
 .maths-p:last-child { margin-bottom: 0; }
 
@@ -72,7 +82,6 @@
   display: flex; align-items: center; gap: var(--sp-3);
   min-width: 18rem; max-width: 100%; text-align: left;
   background: none; color: var(--fg);
-  font-family: var(--font-title); font-size: var(--fs-body);
   border: 1px solid transparent; border-radius: var(--radius);
   cursor: pointer;
   transition: background var(--t-fast);
@@ -99,9 +108,11 @@
   min-height: var(--ctl-h); margin-top: var(--sp-5);
 }
 
-/* The last screen: the score, and the way back under it. */
+/* The last screen: the score, and the way back under it. It closes the run, so it is the run's
+   one title: the document face at the title size, the same step every view's title takes. */
 .maths-end {
-  font-size: var(--fs-title); color: var(--fg); text-align: center;
+  font-family: var(--font-doc); font-size: var(--fs-doc-title);
+  color: var(--fg); text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
@@ -117,7 +128,7 @@
 /* Temml's own stylesheet does the MathML; these lines are the plugin's, and only about where
    the maths sits in a line of text. No font is shipped: `math` falls to Cambria Math on Windows
    and to the platform's maths font elsewhere, which is what Temml-Local.css asks for, and the
-   prose around it is the serif of the page title, so the two agree. */
+   prose around it is now Cambria itself, so the two are one family. */
 .maths-tex { display: inline-block; }
 .maths-tex.display { display: block; margin: var(--sp-3) 0; }
 /* LaTeX Temml refused: the source stays on screen rather than a blank, marked as unread. */

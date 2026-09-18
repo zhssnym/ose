@@ -171,7 +171,7 @@ class Run {
     this.shownAt = Date.now()
     this.revealedAt = 0
     this.stepAt = this.shownAt
-    clear(this.questionEl).appendChild(statementNode(this.question.statement, 'maths-statement'))
+    clear(this.questionEl).appendChild(statementNode(this.question.statement, 'maths-statement view-prose'))
     clear(this.optionsEl)
     this.act.hidden = false
     this.act.textContent = 'open options'
@@ -189,7 +189,7 @@ class Run {
     clear(this.optionsEl)
     for (const option of this.question.options) {
       this.optionsEl.appendChild(h('button', {
-        class: 'maths-opt', type: 'button', tabindex: '-1',
+        class: 'maths-opt view-prose', type: 'button', tabindex: '-1',
         dataset: { letter: option.letter },
         'aria-label': `${option.letter}. ${option.text}`,
         onclick: () => this.pick(option.letter),
@@ -283,7 +283,7 @@ class Run {
     this.timeEl.textContent = ''
     clear(this.optionsEl)
     clear(this.questionEl).appendChild(
-      h('div', { class: 'maths-end mono' }, `${correct} / ${this.total}`))
+      h('div', { class: 'maths-end' }, `${correct} / ${this.total}`))
     this.act.hidden = false
     this.act.textContent = 'back to the list'
     // The same floor as any other step: the Enter that answered the last question must not carry

@@ -1,3 +1,6 @@
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). */
+@import '../_lib/view.css';
+
 /* Code plugin styles: only what is this plugin's own.
 
    The row, the chips, the title line, the meta line, the pane label, the controls, the verdict,
@@ -13,10 +16,11 @@
 
 /* --------------------------------------------------------------- the statement */
 
-/* The statement is prose, at the page's content size. A fenced block inside it is code, and
-   code in this app is `--fs-ui` on `--bg-2` — which is what the editor below it is, so the two
-   read as one page and not as two (ADV-V measured 12px here against 13px there). */
-.nsi-statement { font-size: var(--fs-content); line-height: var(--lh-body); }
+/* The statement is prose and `render()` draws it, which makes it a document already: this
+   plugin sets no face, no size and no leading on it, so a question reads exactly as the same
+   file does when it is opened as a page. A fenced block inside it is code, and code in this
+   app is `--fs-ui` on `--bg-2` — which is what the editor below it is, so the two read as one
+   page and not as two (ADV-V measured 12px here against 13px there). */
 .nsi-statement pre, .nsi-pre {
   font-family: var(--font-mono); font-size: var(--fs-ui);
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);

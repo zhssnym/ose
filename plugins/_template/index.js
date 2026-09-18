@@ -38,7 +38,7 @@ const view = {
     el.innerHTML = `
       <div class="view-root tpl-root" tabindex="-1">
         <div class="page-col">
-          <h1 class="page-title">Template</h1>
+          <h1 class="page-title view-title">Template</h1>
           <div class="page-meta mono-sm"></div>
           <div class="tpl-body"></div>
         </div>

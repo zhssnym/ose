@@ -234,7 +234,7 @@ export function mountClock(clock, el, { budgetS } = {}) {
 export function titleLine(text) {
   const clockEl = h('span', { class: 'drill-clock mono' })
   const el = h('div', { class: 'drill-title' },
-    h('h1', { class: 'page-title', text: text == null ? '' : String(text) }),
+    h('h1', { class: 'page-title view-title', text: text == null ? '' : String(text) }),
     clockEl)
   return { el, clockEl }
 }
@@ -317,8 +317,8 @@ export function errorBlock({ head, detail, onRetry } = {}) {
  * persisted sidebar preference, which a drill session once left folded for good. A page that
  * turns it on turns it off in `unmount`, on every path.
  *
- * The sidebar goes invisible and keeps its width (drills.css), so the page column does not
- * slide when a session starts or ends. Nothing on screen moves; the chrome stops being there.
+ * The sidebar leaves the layout (drills.css), so the main area during a session is the window
+ * and whatever the page centres, it centres on the window's middle.
  */
 export function focusMode(on) {
   document.documentElement.classList.toggle('drill-focus', !!on)

@@ -1,3 +1,8 @@
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). Day draws
+   no prose of its own — a timetable block, a system and a task are counts and labels, so they
+   stay in the chrome face the base stylesheet already gives them. */
+@import '../_lib/view.css';
+
 /* colour families, shared by the week grid, the day timeline and the now dot */
 .wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
 .wk-ev.t-maths, .wk-dot.t-maths, .dy-ev.t-maths { --c: var(--c-maths); }
@@ -80,6 +85,10 @@
 .dy-sys-row.done .dy-sys-name { color: var(--fg-2); }
 
 .dy-tasks { min-height: 120px; }
+/* The foot of the tasks card: one line to add a task without opening the file. It sits under
+   the box the way a second box would (`.dy-box + .dy-box`), because that is what it is: one
+   more row of the same card, in the chrome face the canonical `.input` already carries. */
+.dy-add { margin-top: var(--sp-2); }
 .dy-more { height: var(--row-h); padding: 0 var(--sp-3); color: var(--fg-3); transition: color var(--t-fast); }
 .dy-more:hover { color: var(--accent); }
 

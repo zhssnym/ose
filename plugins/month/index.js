@@ -113,7 +113,7 @@ function skeleton() {
 <div class="view-root" tabindex="-1" id="moRoot">
   <div class="page-col">
     <div class="v-head">
-      <h1 class="page-title" id="moTitle">&nbsp;</h1>
+      <h1 class="page-title view-title" id="moTitle">&nbsp;</h1>
       ${navHtml('month')}
     </div>
     <div class="page-meta" id="moMeta">&nbsp;</div>
@@ -125,7 +125,7 @@ function skeleton() {
     <div class="mo-matrix-wrap"><div class="mo-matrix" id="moMatrix"></div></div>
 
     <div class="label">review</div>
-    <div class="mo-review" id="moReview"></div>
+    <div class="mo-review view-prose" id="moReview"></div>
   </div>
 </div>`;
 }
@@ -148,7 +148,7 @@ function renderGoals() {
   if (!plan) { box.innerHTML = `<div class="empty">no plan file for ${esc(monthName(cursor))}</div>`; return; }
   // A month written outside the schema has its goals as plain paragraphs; they are the intro,
   // never invented into goal bullets. Show them rather than dropping them on the floor.
-  const intro = plan.intro ? `<div class="mo-intro">${prose(plan.intro)}</div>` : '';
+  const intro = plan.intro ? `<div class="mo-intro view-prose">${prose(plan.intro)}</div>` : '';
   // a goal section is a label plus its bullets; a label with none carries no goals, and
   // whatever prose sat under it is already in the intro
   const cards = plan.sections.filter((s) => s.items.length);

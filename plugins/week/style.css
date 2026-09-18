@@ -1,3 +1,7 @@
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). Week draws
+   no prose of its own: the grid, the now line and the summary are all counts and labels. */
+@import '../_lib/view.css';
+
 /* colour families, shared by the week grid, the day timeline and the now dot */
 .wk-ev.t-class, .wk-dot.t-class, .dy-ev.t-class { --c: var(--c-class); }
 .wk-ev.t-maths, .wk-dot.t-maths, .dy-ev.t-maths { --c: var(--c-maths); }

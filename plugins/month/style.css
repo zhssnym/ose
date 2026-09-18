@@ -1,3 +1,9 @@
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). The two
+   blocks of prose a plan carries — the intro paragraphs and the review — wear `.view-prose`
+   in the markup, so they read exactly as the same words do when the file is opened as a page.
+   Everything else on this page is a count, a label or a square. */
+@import '../_lib/view.css';
+
 /* ================================================================= month === */
 
 /* Each section is introduced by a .label whose own top padding is the gap above it (E3), so
@@ -41,9 +47,15 @@
 .mo-matrix.is-empty { display: block; width: auto; min-width: 0; }
 
 .mo-corner { height: 15px; }
-/* the number is a child, free to overflow a narrow column into the gaps on either side; 10px
-   is the one size under --fs-chrome-sm, so two digits fit the smallest cell */
-.mo-dh { position: relative; height: 15px; min-width: 0; color: var(--fg-3); font-size: 10px; letter-spacing: -.02em; }
+/* A day number is chrome, so it is the chrome's mono at the smaller of the two chrome sizes,
+   like every other small number in the app. It was 10px, a size no token names, which is the
+   one thing a plugin may not write; the number is a child, absolutely positioned and free to
+   overflow a narrow column into the gaps on either side, so two digits still fit the smallest
+   cell at 11. */
+.mo-dh {
+  position: relative; height: 15px; min-width: 0; color: var(--fg-3); letter-spacing: -.02em;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
 .mo-dh > span {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   white-space: nowrap; line-height: 1.2;
@@ -91,16 +103,19 @@
 }
 
 /* intro prose of a plan: the paragraphs before the first label, and the paragraphs of a month
-   written before the schema existed, which are prose and not goals */
+   written before the schema existed, which are prose and not goals. The face, the size and the
+   leading are `.view-prose`, carried on the block in the markup; only the colour and the gap
+   between paragraphs are this view's. */
 .mo-intro { grid-column: 1 / -1; }
-.mo-intro p { font-size: var(--fs-ui); line-height: 1.65; color: var(--fg-2); margin: 0 0 var(--sp-3); }
+.mo-intro p { color: var(--fg-2); margin: 0 0 var(--sp-3); }
 .mo-intro p:last-child { margin-bottom: 0; }
 
 .mo-review { min-height: 60px; }
-.mo-review p { font-size: var(--fs-ui); line-height: 1.65; color: var(--fg-2); margin: 0 0 var(--sp-3); }
+.mo-review p { color: var(--fg-2); margin: 0 0 var(--sp-3); }
 .mo-review p:last-child { margin-bottom: 0; }
 .mo-review em { color: var(--fg-3); }
-/* a `_gap: ..._` line is a marked hole, not prose: mono, muted, italic, never dressed up */
+/* a `_gap: ..._` line is a marked hole, not prose: mono, muted, italic, never dressed up. It
+   is written on the paragraph itself, so it wins over the prose face the block inherits. */
 .mo-gap, .mo-gap em {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.6;
   font-style: italic; color: var(--fg-3);

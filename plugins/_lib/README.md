@@ -21,6 +21,7 @@ clocks ticking at two rates.
 | `tasks.js` | the task line: `TASK_MARK`, `PRIORITY_RANK`, `parseTaskLine`, `parseTasks`, `toggleTaskLine` | day |
 | `nav.js` | the `‹ today ›` group of a chronological view and its keys: `navHtml`, `bindNav` | day, month |
 | `view.js` | `pathInto(ose, key, el)`: `ose.paths.get` with the part left holding the kernel's box and nothing stale beside it | day, week, month, journal |
+| `view.css` | the typography of a view, one rule: `.view-title` on a view's `<h1>`, `.view-prose` on anything drawn out of the vault's own words, the chrome for everything else. Imported, not linked: `@import '../_lib/view.css';` is the first line of every plugin's `style.css` | all six |
 
 ## The rules
 
@@ -87,7 +88,11 @@ hour of work. Elapsed is always a `Date.now()` delta, never a tick count.
   grounds.
 - `.drill-pane-label` has **no** rule under it. Whitespace groups; boxes, not rules.
 
-Focus mode hides the sidebar without moving anything: `html.drill-focus .sidebar` is
-`visibility: hidden` and the sidebar keeps its width, so the page column sits at the same x
-before, during and after a session. The subtree leaves the tab order with it, and the resizer goes
-too. The title bar's own fold is a different switch and still folds for real.
+Focus mode takes the sidebar out of the layout: `html.drill-focus .sidebar` is `display: none`,
+the same switch and the same two elements as the shell's own fold, so the main area during a
+session IS the window and a session centred in it is centred on the window. It was
+`visibility: hidden` until the fourth wave, which held the sidebar's 260px and put the maths
+question on x = 794 of a 1328px window whose middle is 664 — the "not centred" the owner saw.
+The price is that the column moves sideways when a session starts and ends, which is a mode
+change and is allowed to look like one. The subtree leaves the tab order with it, and the
+resizer goes too. The title bar's own fold is a different switch and still folds for real.

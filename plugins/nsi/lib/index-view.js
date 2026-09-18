@@ -65,7 +65,7 @@ class IndexView {
     this.root = h('div', { class: 'page-col nsi-index' })
     this.count = h('p', { class: 'page-meta' })
     this.body = h('div', {})
-    this.root.appendChild(h('h1', { class: 'page-title', text: 'Code' }))
+    this.root.appendChild(h('h1', { class: 'page-title view-title', text: 'Code' }))
     this.root.appendChild(this.count)
     this.root.appendChild(this.body)
     clear(this.el).appendChild(this.root)

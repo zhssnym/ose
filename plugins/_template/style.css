@@ -1,3 +1,8 @@
+/* The one typography rule every view follows: `.view-title` on the view's <h1>, `.view-prose`
+   on anything a view draws out of the vault's own words, and the chrome for everything else.
+   Keep this import as the first line of the file. */
+@import '../_lib/view.css';
+
 /* One class of our own in front of every selector: a plugin stylesheet is global while the plugin
    is active, and two plugins must never collide. The loader links this file by name, so there is
    no `<link>` code to write and nothing to remove on unload.

@@ -1,5 +1,7 @@
 /* The shared drills lib's stylesheet: the furniture of a drill page, and the fold that takes
-   the shell away while one is on screen. The index tables are `table.css` beside this file.
+   the shell away while one is on screen. The index tables are `table.css` beside this file,
+   and the typography of a view — the title, prose, the chrome — is `view.css`, which each
+   plugin imports at the top of its own `style.css`.
 
    Every colour, size and space is a token from the kernel's `ui.css`: no hex, no bare pixel
    beyond the 1px and 2px borders the design system already writes as the numbers they are.
@@ -125,16 +127,21 @@
 /* Focus mode: one class on <html>. The shell's own sidebar goes; nothing writes the user's
    persisted preference, so leaving the page gives him back exactly what he had.
 
-   `visibility: hidden`, not `display: none`: the sidebar keeps its width, so the space it
-   holds stays held and the page column — `margin: 0 auto` inside whatever main is left —
-   does not slide sideways when a session starts and slide back when it ends (Q). Nothing
-   moves; the chrome simply stops being there. Hidden is hidden all the way: the subtree
-   leaves the tab order and takes no clicks, so Tab from the page goes where it did before.
-   The shell's own fold, `.shell.no-sidebar`, is a different switch and is untouched — it
-   still sets `display: none` and still works the moment focus mode ends.
+   `display: none`, the same switch and the same two elements as the shell's own fold
+   (`.shell.no-sidebar`), so the main area during a session IS the window. It was
+   `visibility: hidden` until the fourth wave, which kept the sidebar's 260px held and made
+   the page column inside it centre on the middle of what was left: on a 1328px window the
+   question sat on x = 794 and the window's middle was 664, which is the "not centred" the
+   owner saw. Nothing is centred on a window by leaving a quarter of it reserved for chrome
+   that is not there.
 
-   The resizer is a seven-pixel handle sitting on the sidebar's edge; it is positioned out
-   of flow, so hiding it moves nothing either, and leaving it would hand the user a grip on
-   chrome he cannot see. */
+   The cost is the one the old comment was avoiding: entering and leaving a session moves the
+   column sideways. That is a mode change and it is allowed to look like one; a question that
+   sits off-centre for the whole session is not.
+
+   Gone is gone all the way: the subtree leaves the tab order and takes no clicks, so Tab from
+   the page goes where it did before. The resizer is a seven-pixel handle on the sidebar's
+   edge, positioned out of flow, so it takes no space either way, and leaving it would hand the
+   user a grip on chrome he cannot see. */
 html.drill-focus .sidebar,
-html.drill-focus .rs-sidebar { visibility: hidden; }
+html.drill-focus .rs-sidebar { display: none; }

@@ -56,7 +56,7 @@ class IndexView {
     // Where the kernel draws its box when the vault does not say where the series are. It is an
     // element of its own so the box lands in something empty and the table keeps its host.
     this.boxHost = h('div', { class: 'maths-box-host' })
-    this.root.append(h('h1', { class: 'page-title', text: 'Maths' }), this.meta,
+    this.root.append(h('h1', { class: 'page-title view-title', text: 'Maths' }), this.meta,
       this.tableHost, this.boxHost)
     clear(el).appendChild(this.root)
     this.table = null

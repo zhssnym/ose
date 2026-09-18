@@ -182,7 +182,7 @@ function dayHtml(day) {
     <span class="jr-d2">${DAY_SHORT[d.getDay()]}</span>
     <button type="button" class="jr-open" data-open="${esc(day.name)}">open as page</button>
   </div>
-  <div class="jr-body text-select">${bodyHtml(day)}</div>
+  <div class="jr-body view-prose text-select">${bodyHtml(day)}</div>
 </div>`;
 }
 
@@ -199,7 +199,7 @@ function compactHtml(day) {
     <span class="jr-c-t">${esc(line)}</span>
   </button>
   <button type="button" class="jr-open jr-c-open" data-open="${esc(day.name)}">open as page</button>
-  ${open ? `<div class="jr-c-body jr-body text-select">${bodyHtml(day)}</div>` : ''}
+  ${open ? `<div class="jr-c-body jr-body view-prose text-select">${bodyHtml(day)}</div>` : ''}
 </div>`;
 }
 
@@ -472,14 +472,14 @@ function skeleton() {
   return `
 <div class="view-root jr-root" tabindex="-1" id="jrRoot">
   <div class="page-col">
-    <h1 class="page-title" id="jrTitle">${esc(ymd(new Date()))}</h1>
+    <h1 class="page-title view-title" id="jrTitle">${esc(ymd(new Date()))}</h1>
     <div class="page-meta jr-meta">
       <span id="jrWhen">&nbsp;</span>
       <span class="jr-gap" id="jrGap">&nbsp;</span>
     </div>
 
     <div class="jr-compose">
-      <textarea class="input jr-input text-select" id="jrText" rows="6"
+      <textarea class="input jr-input view-prose text-select" id="jrText" rows="6"
         placeholder="Today. Write it as it comes; the file keeps your wording."></textarea>
       <div class="jr-foot">
         <span class="jr-hint">ctrl+enter</span>

@@ -1,5 +1,9 @@
+/* The three voices of a view: the title, prose, and the chrome (`../_lib/view.css`). */
+@import '../_lib/view.css';
+
 /* Journal view. Tokens only, both themes. The journal is distinct by layout, never by colour
-   or font: the same two typefaces, the same borders, the same page column as every other view.
+   or font: the title and the chrome of every other view, and an entry in the document face at
+   the document size, because an entry is prose and reads as a page does.
    Every padding, margin and gap is a step of the spacing scale; the pixel numbers left are
    the widths of the date columns, and the two insets the text column derives from them.
 
@@ -29,12 +33,13 @@
 
 /* the box is sized by the view (six lines empty, then whatever the text needs, no ceiling);
    it never scrolls inside itself, the page scrolls. The first-paint minimum is six lines plus
-   the vertical padding and the two 1px borders; grow() measures the same thing from the DOM. */
+   the vertical padding and the two 1px borders; grow() measures the same thing from the DOM.
+   The face and the size are `.view-prose`, carried on the element: what is typed here is what
+   the record under it prints, so the two cannot be two different faces. */
 textarea.input.jr-input {
   display: block; width: 100%;
   height: auto; max-height: none; resize: none; overflow-y: hidden;
   padding: var(--sp-3) var(--sp-4);
-  font-family: var(--font-ui); font-size: var(--fs-body); line-height: var(--lh-body);
   min-height: calc(6 * var(--lh-body) * var(--fs-body) + 2 * var(--sp-3) + 2px);
 }
 textarea.input.jr-input::placeholder {
@@ -81,10 +86,10 @@ textarea.input.jr-input::placeholder {
 .jr-day:hover .jr-open, .jr-open:focus { opacity: 1; }
 .jr-open:hover { color: var(--accent); text-decoration: underline; }
 
-/* right column: the text, body font, nothing around it */
+/* right column: the text, nothing around it. The face and the size are `.view-prose`, carried
+   on the element beside this class: an entry is the writer's own words and reads as a page. */
 .jr-body {
   grid-column: 2; min-width: 0;
-  font-family: var(--font-ui); font-size: var(--fs-body); line-height: var(--lh-body);
   color: var(--fg); overflow-wrap: break-word;
 }
 .jr-body p { margin: 0 0 var(--sp-3); }

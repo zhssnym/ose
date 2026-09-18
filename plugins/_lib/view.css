@@ -1,0 +1,46 @@
+/* The typography of a view: one rule, linked by every plugin.
+ *
+ * A plugin picks it up with `@import '../_lib/view.css';` as the first line of its own
+ * `style.css`, which the loader links while the plugin is active. There is no JavaScript to
+ * call and nothing to unlink.
+ *
+ * A view is the app talking over words the user wrote, so it has three voices and no fourth.
+ *
+ * 1. THE TITLE — `.view-title`, written beside `.page-title` on the view's `<h1>`.
+ *    The document face, bold, 1.4 times the body (`--fs-doc-title`), left, no box. The double
+ *    rule around a title is a DOCUMENT's title and the editor draws it; a view's title is a
+ *    heading, not a handout's header. Until this wave every view wore the chrome's
+ *    `--font-title` at `--fs-title` — the Georgia 34px of 0.5.0 — which put a second serif at
+ *    twice the size on a page whose prose is already Cambria at 16.
+ *
+ * 2. PROSE — `.view-prose`, on anything a view draws out of the vault's own words: a journal
+ *    entry and the box it is written in, a maths question and its four answers, the prose of a
+ *    monthly plan. The document look, exactly as a page: `--font-doc`, `--fs-body`,
+ *    `--lh-body`. A note a view shows through `render()` is already a document (`.md-render`,
+ *    the editor's stylesheet) and takes neither this class nor a font rule of its own.
+ *
+ * 3. THE CHROME — everything else: controls, labels, counts, dates, chips, the table, the line
+ *    of files under a title. `--font-ui` at `--fs-ui` is the body default of `base.css`, so the
+ *    chrome needs no rule here at all; mono goes through the shared `.mono` (`--fs-chrome`) and
+ *    `.mono-sm` (`--fs-chrome-sm`) of `base.css`, exactly as the shell's own bars do.
+ *
+ * Nothing in a plugin names a family or writes a size in px: tokens only, both themes.
+ */
+
+/* Both classes are kept on the element, so this beats the chrome's `.page-title` on
+   specificity and not on the order the loader happens to link stylesheets in. */
+.page-title.view-title {
+  font-family: var(--font-doc);
+  font-size: var(--fs-doc-title);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+  text-align: left;
+  color: var(--fg);
+}
+
+.view-prose {
+  font-family: var(--font-doc);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
