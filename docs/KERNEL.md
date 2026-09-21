@@ -104,15 +104,15 @@ ose.route.back() / forward() / canBack() / canForward()
 ose.route.close()            the start surface (Ctrl+W); ose.route.reopenClosed()
 ose.route.recent()           -> [paths]
 ose.route.own(pattern, mount) -> unsubscribe
-    pattern like 'nsi/*'. A route { type:'own', path:'nsi/chapitre-1/03-x' } is mounted by
+    pattern like 'journal/*'. A route { type:'own', path:'journal/2026-09/03-x' } is mounted by
     mount(el, route) -> { title?, unmount? }. History, the window title, quick open rows
     (through ose.route.index(pattern, () => [{ path, title }])) and back/forward work as for
     a page. `unmount` runs on a navigation, on the unload of its plugin, and when the window
     closes or reloads, and it is awaited (the three guarantees, below).
-    A pattern is a plain glob with two rules. A **trailing `/*` is greedy**: `nsi/*` owns
-    everything under `nsi/`, at any depth, so the route above is its page: an id with a slash
-    in it is a format a plugin picks. A `*` **anywhere else is one segment**: `nsi/*` + `/notes`
-    matches `nsi/chapitre-1/notes` and not `nsi/chapitre-1/03-x/notes`. `**` is greedy wherever
+    A pattern is a plain glob with two rules. A **trailing `/*` is greedy**: `journal/*` owns
+    everything under `journal/`, at any depth, so the route above is its page: an id with a slash
+    in it is a format a plugin picks. A `*` **anywhere else is one segment**: `journal/*` + `/notes`
+    matches `journal/2026-09/notes` and not `journal/2026-09/03-x/notes`. `**` is greedy wherever
     it stands, for the rare pattern that needs depth in the middle. Everything else is literal,
     and the first registration wins a collision.
 ose.route.index(pattern, fn) register what quick open lists for an owned pattern
@@ -164,7 +164,7 @@ ose.status.set(field, text | { text, kind, onClick }) / clear(field)
 ose.status.all()             -> [{ key, text, kind, onClick }]
 ose.status.watch(fn)         -> unsubscribe            every change, with the whole list
     The bar's own five first (mode, path, doc, save, watch), then every other field in the
-    order it was first set, so a plugin's `set('nsi', …)` is a field the bar draws.
+    order it was first set, so a plugin's `set('week', …)` is a field the bar draws.
 ose.settings.get() / set(partial) / on(fn)     the shared settings object (docs/SHELL.md)
 ose.settings.section({ id, title, render(el) })  -> unsubscribe   a section in the settings dialog
 ose.settings.sections()      -> the registered sections, in order, for the dialog to draw

@@ -246,7 +246,7 @@ The same page column as an editor page. A view's title is the document face at `
 bold and left, with no box around it: the box belongs to a document's own title, and the view is
 the app talking rather than the user's writing, so its controls, labels, counts and tables keep
 the chrome faces (`--font-ui` at `--fs-ui`, `--font-mono` at `--fs-chrome`). One rule for all
-six, at the top of `plugins/_lib/view.css`; nothing in a plugin names a family or sets a size in
+four, at the top of `plugins/_lib/view.css`; nothing in a plugin names a family or sets a size in
 px. A note a view shows rather than draws goes through `render()` and is a document like any other.
 Dense data (the week grid, the habit matrix) uses mono 11px labels and 1px grid lines in
 `--border`. Colour blocks in the week grid use the semantic tokens

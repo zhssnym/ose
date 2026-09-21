@@ -32,8 +32,8 @@ docs/
   DESIGN.md         the visual system: tokens, components, the look
 shell/              the interface, flat: index.html, main.js, the surfaces, shell.css,
                     theme.css, keys.json, logo.png. Embedded in the exe by the build.
-plugins/            the stock six as shipped with 1.0.0 (day, week, month, journal,
-                    maths, nsi) plus _template and _lib. A snapshot, not what runs: the live copies
+plugins/            the stock four as shipped with 1.0.0 (day, week, month, journal) plus
+                    _template and _lib. A snapshot, not what runs: the live copies
                     are the vault's, in .ose/plugins.
 src/
   kernel/           ose:kernel (registry, bridge, router, links, paths, settings core, state,

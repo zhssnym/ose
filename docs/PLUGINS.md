@@ -18,10 +18,10 @@ plugin, human or agent. `docs/KERNEL.md` lists every call on `ose`; `docs/DESIGN
 <vault>/.ose/
   plugins/
     week.js              a single-file plugin: the id is `week`
-    maths/               a folder plugin: the id is `maths`
+    journal/             a folder plugin: the id is `journal`
       index.js           required: the entry
       style.css          optional: linked automatically while the plugin is active
-      ...                anything else the plugin ships: more .js, a Python judge, a README
+      ...                anything else the plugin ships: more .js, a README
     _lib/                not a plugin: plain files several plugins share
   state.json             window, theme, and under `plugins.<id>` each plugin's state and paths
 ```
@@ -81,13 +81,13 @@ Four things on it are the plugin's own:
 
 | | |
 |---|---|
-| `ose.plugin` | `{ id, name, folder }`. `folder` is the plugin's folder as a vault path (`.ose/plugins/maths`; `.ose/plugins` for a single-file plugin), a legal `cwd` for `ose.run`. |
+| `ose.plugin` | `{ id, name, folder }`. `folder` is the plugin's folder as a vault path (`.ose/plugins/journal`; `.ose/plugins` for a single-file plugin), a legal `cwd` for `ose.run`. |
 | `ose.state(key)` | `{ get, set, flush }` over `plugins.<id>.<key>` in `.ose/state.json`. The key `paths` is reserved. |
 | `ose.paths` | the plugin's own paths, below. |
 | registrations | `commands.register`, `views.register`, `tiles.register`, `settings.section`, `keys.bind`, `bus.on`, `route.own`, `route.index`, `route.on`, `watch`, `schedule` are tagged with the plugin id so unload takes them back, and so are the subscriptions (`settings.on`, `settings.onRepaint`, `theme.on`, `focus.on`, `paths.on`, `store.watch`, `status.watch`, `vault.onChange`, `window.onClose`, `window.onMaximize`) and the status fields you set. Use the `ose` you were handed, never `import { ose } from 'ose:kernel'`. |
 
 A view carries its place: `ose.views.register(name, { title, order, icon, mount, unmount })`. The
-sidebar and the home page sort plugins by `order`, then by title. The stock six use 10 to 60.
+sidebar and the home page sort plugins by `order`, then by title. The stock four use 10 to 40.
 
 ## `ose.paths`: a plugin never spells a vault path
 
