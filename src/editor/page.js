@@ -982,10 +982,16 @@ export function markdownPage(el, path, opts = {}) {
     try {
       text = compose(p);
     } catch (e) {
+      // The page cannot be written as markdown. The user's text must still survive this: it is
+      // kept as a version of the file (Versions… restores it), and the window refuses to close
+      // over it, so leaving never discards a buffer that could not be saved.
       console.error('[editor] serialise', e);
-      setStatus('save', 'serialise failed, not saved');
-      toast('could not serialise the page, nothing was written: ' + (e.message || e), 'err');
-      return true;
+      const kept = await rescue(p);
+      setStatus('save', 'not saved · ' + (kept ? 'text kept in Versions…' : 'copy your text out'));
+      toast(kept
+        ? 'could not save this page as markdown; your text is kept in Versions… — ' + (e.message || e)
+        : 'could not save this page and could not keep a copy: copy your text somewhere before closing — ' + (e.message || e), 'err');
+      return !o.closing;
     }
     if (text === p.baseline) { clean(p); return true; }
 
@@ -1022,6 +1028,34 @@ export function markdownPage(el, path, opts = {}) {
       p.saving = null;
     }
     return outcome;
+  }
+
+  /**
+   * Last resort when `compose` throws: the plainest text the editor can still give, kept as a
+   * version of the file. Tries Crepe's own serialiser, then the document's bare text.
+   */
+  async function rescue(p) {
+    // Once per edit: every autosave after a failure would otherwise keep the same text again.
+    if (p.rescuedRev === p.rev) return true;
+    let text = null;
+    try { text = p.crepe ? p.crepe.getMarkdown() : null; } catch { /* next */ }
+    if (!text) {
+      try {
+        const view = p.crepe ? editorView(p.crepe) : null;
+        const d = view ? view.state.doc : null;
+        text = d ? d.textBetween(0, d.content.size, '\n\n', '\n') : null;
+      } catch { /* nothing left */ }
+    }
+    if (!text) return false;
+    if (p.title) text = '# ' + p.title + '\n\n' + text;
+    try {
+      await bridge.versionKeep(p.path, text, true);
+      p.rescuedRev = p.rev;
+      return true;
+    } catch (e) {
+      console.error('[editor] rescue', e);
+      return false;
+    }
   }
 
   /** A write or read-back threw. The buffer stays dirty, so the next autosave tries again. */

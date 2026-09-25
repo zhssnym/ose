@@ -268,9 +268,22 @@ function verify(crepe, canonical, original, legacy) {
     }
     return canonical;
   }
-  const candidate = reconcile(canonical, original, { canon });
+  // Reconciliation only ever improves on the canonical text; it must never stand between the
+  // user and a save. If it throws, the canonical text is the page, unreconciled.
+  let candidate;
+  try {
+    candidate = reconcile(canonical, original, { canon });
+  } catch (e) {
+    console.error('[editor] reconcile failed, writing the canonical text', e);
+    return canonical;
+  }
   if (candidate === canonical) return canonical;
-  return canon(candidate) === canonical ? candidate : canonical;
+  try {
+    return canon(candidate) === canonical ? candidate : canonical;
+  } catch (e) {
+    console.error('[editor] verify failed, writing the canonical text', e);
+    return canonical;
+  }
 }
 
 const CANON_CACHE = new WeakMap();

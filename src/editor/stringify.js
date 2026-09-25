@@ -504,6 +504,9 @@ function matchBlocks(A, B, canon, bLines) {
   // has a dozen blocks that are all the same block, and one of them matching further down is no
   // evidence at all — following it would orphan everything in between.
   const confirmed = (ai, bj) => {
+    // `claim` asks about the canonical block just past the edited run, which is past the end
+    // when the edit is the last thing on the page: no block there confirms anything.
+    if (ai >= A.length || bj >= B.length) return -1;
     const k = same(ai, bj);
     if (k < 0) return -1;
     if (ai + 1 >= A.length) return k;          // the last block of the file: nothing to confirm
