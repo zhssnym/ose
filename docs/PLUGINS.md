@@ -167,8 +167,12 @@ the location is a setting.
   registered is taken back, a toast names it, and Settings › Plugins shows the error. The rest of
   Ose is unaffected. It keeps the paths it declared, so Settings still shows what it needs and a
   choice already made for it is not lost.
-- Ctrl+R (`app.reload`) reloads the page and therefore every plugin from disk. Editing a plugin
-  is: save the file, Ctrl+R.
+- "Reload plugins" (`app.reload`, in the palette; no chord since D8) reloads the page and
+  therefore every plugin from disk, after the open pages are saved (`ose.reload()` leaves the
+  window first and does nothing if a page cannot be saved). Editing a plugin is: save the file,
+  run "Reload plugins".
+- A plugin that keeps unsaved work of its own answers `ose.window.onLeave(({ reason }) => …)`:
+  false keeps the window on a close, a reload and a change of vault alike.
 - `ose.plugins.list()` answers `[{ id, name, description, state, error?, single, views }]`,
   `state` one of `active`, `disabled`; `views` is what the plugin registered, `[{ name, title,
   order }]`. `ose.plugins.unload(id)` takes one down.
@@ -191,10 +195,14 @@ the location is a setting.
    started with `ose.run(program, args, { cwd: ose.plugin.folder })`.
 7. Data formats are ones a person and an agent can read: markdown for content, `.json` for
    machine state, `.jsonl` append-only for history. Never rewrite a file the user did not edit
-   through you, and never reformat the part of a file you did not change.
+   through you, and never reformat the part of a file you did not change. Add a line with
+   `ose.files.appendLine`, change one with `ose.files.replaceLine` (it refuses when the line is
+   no longer what you read), and write a whole file with `ose.files.save` against the hash
+   `ose.files.readFile` answered, so an edit made meanwhile in the editor or by a sync client is
+   a conflict you see, not a file you overwrite (docs/KERNEL.md).
 8. English interface; file content in whatever language it is in.
 
 ## Starting a new one
 
-Copy `plugins/_template/` from the Ose repository into `.ose/plugins/`, rename the folder, press
-Ctrl+R. The template registers one command, one view that asks for one path, and one tile.
+Copy `plugins/_template/` from the Ose repository into `.ose/plugins/`, rename the folder, run
+"Reload plugins". The template registers one command, one view that asks for one path, and one tile.

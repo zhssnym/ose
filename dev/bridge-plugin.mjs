@@ -1,15 +1,21 @@
 // Dev bridge: the Node implementation of what the Tauri host answers, for browser development.
 // Filesystem + /vault assets + state + SSE events + fs watcher.
-// Only used by `vite` in dev; the shipped app talks to the Tauri host instead (src/bridge/tauri.js).
+// Only used by `vite` in dev; the shipped app talks to the Tauri host instead (src/kernel/bridge/tauri.js).
 //
-// A command this bridge does not implement answers null and is named once in the log, exactly
-// as the host does: the two sides are changed by different hands and neither may break the
-// other.
+// The files, the save path, versions, drafts and the log are ./files.mjs, the Node twin of the
+// host's vault.rs, files.rs, versions.rs and drafts.rs: same commands, same answers, same
+// `[code] message` errors, same hash. A command this bridge does not implement fails with
+// `[unknown_command] <cmd>`, exactly as the host does; only the names a past version retired
+// still answer null. Drafts and the log live in `work/dev-appdata` (gitignored), the dev
+// server's stand-in for the app's per-machine folder; `OSE_DEV_APPDATA` names another.
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { vaultRoot, rootSource } from './root.mjs';
+import { vaultRoot, rootSource, repoRoot } from './root.mjs';
+import { createFiles, errorText, hash, writeAtomic } from './files.mjs';
+
+export { createFiles, hash, writeAtomic };
 
 const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space',
   // The executable itself, and the bundle on macOS (vault.rs). Both names: the app is `ose`
@@ -32,11 +38,11 @@ export function bridgePlugin() {
   // OSE_ROOT / OS_ROOT env, else ose.config.json at the repo root, else the parent folder.
   const root = vaultRoot();
   console.log(`[bridge] vault root: ${root} (from ${rootSource()})`);
-  const abs = (p) => {
-    const full = path.resolve(root, String(p ?? '').replace(/^\/+/, ''));
-    if (full !== root && !full.startsWith(root + path.sep)) throw new Error('path outside root: ' + p);
-    return full;
-  };
+  const dataDir = path.resolve(process.env.OSE_DEV_APPDATA || path.join(repoRoot, 'work', 'dev-appdata'));
+  // The dev bridge serves one vault for its whole life, so its epoch never moves.
+  const EPOCH = 1;
+  const store = createFiles({ root, dataDir, epoch: EPOCH, log: (line) => console.log('[app]', line) });
+  const { abs } = store;
   const rel = (full) => path.relative(root, full).split(path.sep).join('/');
   const node = async (full, st) => {
     st = st || await fs.stat(full);
@@ -196,28 +202,79 @@ export function bridgePlugin() {
 
   // ---------------------------------------------------------------- fs watcher
   let watcher = null, watchTimer = null, restartTimer = null;
+  // Set when a watcher failed; the next one to start says `rescan` (docs/HOST.md "Events").
+  let missed = false;
   const pending = new Map(); // relPath -> { renamed:boolean }
-  const known = new Set();   // paths we have already reported as existing
+  // Paths we have seen existing, with their file id (`ino`): a rename keeps the id, which is how
+  // a delete and a create in one batch are known to be one file moving (watcher.rs pairs the
+  // two ends of a rename the same way, from the system's own rename notice).
+  const known = new Map();   // relPath -> ino
+  // Seeded once, in the background, so a file that was there before the first event can still
+  // be recognised when it is renamed.
+  const seed = async (dir, depth) => {
+    if (depth > 24) return;
+    let ents = [];
+    try { ents = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (hiddenSegment(e.name)) continue;
+      const full = path.join(dir, e.name);
+      const p = rel(full);
+      if (!known.has(p)) { try { known.set(p, (await fs.stat(full)).ino); } catch { /* gone */ } }
+      if (e.isDirectory()) await seed(full, depth + 1);
+    }
+  };
 
+  /**
+   * One batch of changes, as the host reports them (docs/HOST.md "Events"). A delete and a
+   * create in the same batch are a rename when the created path has the file id the deleted
+   * one had, or, when the deleted path's id was never seen, the same name in another folder.
+   * A rename moves the history and re-keys the drafts, as watcher.rs `follow_rename` does, and
+   * is reported as `{path: from, kind: 'rename', to}`.
+   */
   const flush = async () => {
     watchTimer = null;
     const batch = [...pending.entries()];
     pending.clear();
     const changes = [];
+    const gone = new Map(); // relPath -> the ino it had, or undefined
     for (const [p, info] of batch) {
       let st = null;
       try { st = await fs.stat(path.join(root, p)); } catch { st = null; }
       let kind;
-      if (!st) { kind = 'delete'; known.delete(p); }
-      else if (!known.has(p) && (info.renamed || Date.now() - st.birthtimeMs < 3000)) { kind = 'create'; known.add(p); }
-      else { kind = 'modify'; known.add(p); }
-      changes.push({ path: p, kind });
+      if (!st) { kind = 'delete'; gone.set(p, known.get(p)); known.delete(p); }
+      else if (!known.has(p) && (info.renamed || Date.now() - st.birthtimeMs < 3000)) { kind = 'create'; known.set(p, st.ino); }
+      else { kind = 'modify'; known.set(p, st.ino); }
+      changes.push({ path: p, kind, ino: st ? st.ino : undefined });
     }
-    if (changes.length) emit('fs', { changes });
+    const taken = new Set();
+    const pairs = new Map(); // the delete -> the create it is the other end of
+    for (const c of changes) {
+      if (c.kind !== 'delete') continue;
+      const was = gone.get(c.path);
+      const base = path.posix.basename(c.path);
+      const to = changes.find((d) => d.kind === 'create' && !taken.has(d)
+        && (was !== undefined ? d.ino === was : path.posix.basename(d.path) === base));
+      if (to) { taken.add(to); pairs.set(c, to); }
+    }
+    const out = [];
+    for (const c of changes) {
+      if (taken.has(c)) continue;
+      const to = pairs.get(c);
+      if (!to) { out.push({ path: c.path, kind: c.kind }); continue; }
+      // A folder that moved takes what was known under it along.
+      for (const [k, v] of [...known]) {
+        if (k.startsWith(c.path + '/')) { known.delete(k); known.set(to.path + k.slice(c.path.length), v); }
+      }
+      try { await store.moveHistory(c.path, to.path); } catch (e) { console.warn(`[bridge] history: ${c.path} -> ${to.path}: ${e.message}`); }
+      try { await store.rekeyDrafts(c.path, to.path); } catch (e) { console.warn(`[bridge] drafts: ${c.path} -> ${to.path}: ${e.message}`); }
+      out.push({ path: c.path, kind: 'rename', to: to.path });
+    }
+    if (out.length) emit('fs', { changes: out });
   };
 
   function startWatch() {
     clearTimeout(restartTimer); restartTimer = null;
+    if (!known.size) seed(root, 0).catch(() => { });
     try {
       watcher = fss.watch(root, { recursive: true, persistent: true }, (type, filename) => {
         if (!filename) return;
@@ -232,11 +289,14 @@ export function bridgePlugin() {
         console.warn('[bridge] watcher error:', e.message);
         try { watcher.close(); } catch { }
         watcher = null;
+        missed = true;
         if (!restartTimer) restartTimer = setTimeout(startWatch, 1000);
       });
+      if (missed) { missed = false; emit('fs', { changes: [], rescan: true }); }
     } catch (e) {
       console.warn('[bridge] watch failed:', e.message);
       watcher = null;
+      missed = true;
       if (!restartTimer) restartTimer = setTimeout(startWatch, 2000);
     }
   }
@@ -287,84 +347,6 @@ export function bridgePlugin() {
       spawn('explorer.exe', [arg], { windowsHide: true, windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
     } else {
       spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [exists ? path.dirname(full) : full], { detached: true, stdio: 'ignore' }).unref();
-    }
-  };
-
-  // ---------------------------------------------------------------- versions
-  // The same rules as the host (src-tauri/src/versions.rs): `.ose/versions/<rel>/<id>.md`, the
-  // page's own name used as a folder, ids in UTC so they sort, one version per file per five
-  // minutes unless forced, 20 per file, 50 MB per vault, every write atomic (temp then rename).
-  const V_ROOT = '.ose/versions';
-  const V_INTERVAL = 5 * 60 * 1000;
-  const V_PER_FILE = 20;
-  const V_TOTAL = 50 * 1024 * 1024;
-  const vId = (ms) => {
-    const d = new Date(ms), p2 = (n) => String(n).padStart(2, '0');
-    return `${String(d.getUTCFullYear()).padStart(4, '0')}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}-${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}`;
-  };
-  const vOk = (id) => /^[0-9-]{1,40}$/.test(String(id ?? ''));
-  // `abs` only promises the vault; `.ose/versions/../pages` is inside it and outside the
-  // history, so containment in the history is checked here as well.
-  const vDir = (p) => {
-    const rel = String(p ?? '').replace(/\\/g, '/').trim().replace(/^\/+/, '');
-    if (!rel) throw new Error('a version needs a file');
-    const base = abs(V_ROOT), full = abs(V_ROOT + '/' + rel);
-    if (full === base || !full.startsWith(base + path.sep)) throw new Error('path escapes the version history: ' + p);
-    return full;
-  };
-  const vList = async (p) => {
-    const dir = vDir(p);
-    let names = [];
-    try { names = await fs.readdir(dir); } catch { return []; }
-    const out = [];
-    for (const n of names) {
-      if (!n.endsWith('.md') || !vOk(n.slice(0, -3))) continue;
-      try { const st = await fs.stat(path.join(dir, n)); if (st.isFile()) out.push({ id: n.slice(0, -3), at: st.mtimeMs, bytes: st.size }); } catch { }
-    }
-    out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
-    return out;
-  };
-  // Temp-plus-rename, the way the host writes every file (vault.rs `write_atomic`, S25): the
-  // new bytes are on disk before the name changes, so an interrupted write cannot leave half a
-  // file where a whole one was. The counter beside the pid is what keeps two writes inside one
-  // process from choosing the same temp name. Every write in this bridge goes through here —
-  // the dev bridge is where every agent tests, so it must not be the softer of the two (QA
-  // severity 4, "Dev bridge writes are not atomic").
-  let tmpN = 0;
-  const atomicWrite = async (full, data, enc) => {
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.${process.pid}.${tmpN++}.tmp`);
-    await fs.writeFile(tmp, data, enc);
-    await fs.rename(tmp, full);
-  };
-  const vWrite = (full, text) => atomicWrite(full, text, 'utf8');
-  const vPruneFile = async (p) => {
-    const dir = vDir(p);
-    for (const e of (await vList(p)).slice(V_PER_FILE)) { try { await fs.unlink(path.join(dir, e.id + '.md')); } catch { } }
-  };
-  const vPruneVault = async () => {
-    const all = [];
-    const walk = async (dir, depth) => {
-      if (depth > 32) return;
-      let ents;
-      try { ents = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
-      for (const e of ents) {
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) { await walk(full, depth + 1); continue; }
-        if (!e.name.endsWith('.md') || !vOk(e.name.slice(0, -3))) continue;
-        try { const st = await fs.stat(full); all.push({ dir, full, id: e.name.slice(0, -3), bytes: st.size }); } catch { }
-      }
-    };
-    await walk(abs(V_ROOT), 0);
-    let total = all.reduce((n, e) => n + e.bytes, 0);
-    if (total <= V_TOTAL) return;
-    all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const left = new Map();
-    for (const e of all) left.set(e.dir, (left.get(e.dir) || 0) + 1);
-    for (const e of all) {
-      if (total <= V_TOTAL) break;
-      if ((left.get(e.dir) || 1) <= 1) continue;            // never the last version of a file
-      try { await fs.unlink(e.full); left.set(e.dir, left.get(e.dir) - 1); total -= e.bytes; } catch { }
     }
   };
 
@@ -453,102 +435,48 @@ export function bridgePlugin() {
   // can be seen in a browser; pickVault then "chooses" the configured root without a dialog and
   // the page reloads without the flag. The flag arrives as a query on the bridge call (http.js).
   let noVault = false;
-  // A command this bridge does not implement: named once in the log, null to the caller.
+  // A command this bridge does not implement: named once in the log, `[unknown_command]` to the
+  // caller. The names a past version retired answer null, as the host's `gone()` does.
   const unknown = new Set();
+  const retired = (cmd) => ['riceInfo', 'riceReady', 'riceFailed'].includes(cmd) || cmd.startsWith('update');
   const cmds = {
-    rootInfo: async () => (noVault ? { root: null, name: null } : { root, name: path.basename(root) }),
+    rootInfo: async () => (noVault ? { root: null, name: null, epoch: EPOCH } : { root, name: path.basename(root), epoch: EPOCH }),
     vaultInfo: async () => (noVault
-      ? { root: null, name: null, remembered: false, source: null }
-      : { root, name: path.basename(root), remembered: false, source: 'dev' }),
-    pickVault: async () => ({ root, name: path.basename(root) }),
+      ? { root: null, name: null, remembered: false, source: null, epoch: EPOCH }
+      : { root, name: path.basename(root), remembered: false, source: 'dev', epoch: EPOCH }),
+    // `{adopt:false}` only chooses (docs/HOST.md "pickVault"); there is one root here either way.
+    pickVault: async (opts) => (opts && opts.adopt === false
+      ? { root, name: path.basename(root) }
+      : { root, name: path.basename(root), epoch: EPOCH }),
     // Recent vaults are the host's business (src-tauri/src/vaults.rs): the dev bridge has one
     // configured root and no per-user config folder, so the list is the vault it is serving.
     recentVaults: async () => (noVault ? [] : [{ path: root, name: path.basename(root), exists: true, current: true }]),
-    openVault: async () => ({ root, name: path.basename(root) }),
+    openVault: async () => ({ root, name: path.basename(root), epoch: EPOCH }),
     forgetVault: async () => null,
     tree: async () => { const t = await tree(root); t.name = path.basename(root); t.path = ''; return t; },
     list: async (p) => listDir(abs(p)),
     stat: async (p) => { try { const st = await fs.stat(abs(p)); return { exists: true, kind: st.isDirectory() ? 'dir' : 'file', mtime: st.mtimeMs, size: st.size }; } catch { return { exists: false }; } },
     exists: async (p) => fss.existsSync(abs(p)),
-    readText: async (p) => fs.readFile(abs(p), 'utf8'),
-    writeText: async (p, text) => { await atomicWrite(abs(p), text, 'utf8'); },
-    appendText: async (p, text) => { const f = abs(p); await fs.mkdir(path.dirname(f), { recursive: true }); await fs.appendFile(f, text, 'utf8'); },
-    writeBinary: async (p, b64) => { await atomicWrite(abs(p), Buffer.from(b64, 'base64'), null); },
-    // `ose.files.readBinary`: the bytes as base64, the counterpart of writeBinary, the same
-    // path rules as readText (vault.rs `read_binary`).
-    readBinary: async (p) => (await fs.readFile(abs(p))).toString('base64'),
-    mkdir: async (p) => fs.mkdir(abs(p), { recursive: true }),
-    // Never overwrites, like the host (vault.rs `rename`): a rename onto an existing page would
-    // silently swallow it, and the UI relies on the refusal to report the collision.
-    // `Notes.md` -> `notes.md` is a real rename, not a collision: on Windows and on a default
-    // macOS volume `existsSync` says the target is there because it *is* the source.
-    // It goes through a temporary name, exactly as the host does (vault.rs `rename`).
-    rename: async (a, b) => {
-      const src = abs(a), dst = abs(b);
-      if (!fss.existsSync(src)) throw new Error('nothing to rename: ' + a);
-      if (src === dst) return;
-      if (src !== dst && src.toLowerCase() === dst.toLowerCase()) {
-        const via = path.join(path.dirname(dst), `.${path.basename(dst)}.${process.pid}.case`);
-        await fs.rename(src, via);
-        await fs.rename(via, dst);
-        return;
-      }
-      if (fss.existsSync(dst)) throw new Error('already exists: ' + b);
-      await fs.mkdir(path.dirname(dst), { recursive: true });
-      await fs.rename(src, dst);
-    },
-    // `mode` is 'system' or 'vault' (settings, S37). Node has no recycle bin, so the dev
-    // bridge always does what 'vault' means and never deletes anything outright.
-    trash: async (p, opts) => {
-      const t = path.join(root, '.trash');
-      await fs.mkdir(t, { recursive: true });
-      await fs.rename(abs(p), path.join(t, Date.now() + '-' + path.basename(p)));
-      if (opts && opts.mode && opts.mode !== 'vault') console.log('[bridge] trash: no recycle bin in the dev bridge, used .trash');
-    },
+    // Every file command, the save path, drafts, versions and the log (./files.mjs).
+    ...store.files,
     search: async (q, opts) => search(q, opts),
-
-    versionKeep: async (p, text, force = false) => {
-      if (!text) return { kept: false, id: null };
-      const dir = vDir(p);
-      const list = await vList(p);
-      const newest = list[0];
-      if (newest) {
-        try { if (await fs.readFile(path.join(dir, newest.id + '.md'), 'utf8') === text) return { kept: false, id: null }; } catch { }
-        if (!force && Date.now() - newest.at < V_INTERVAL) return { kept: false, id: null };
-      }
-      let ms = Date.now(), id = vId(ms);
-      while (list.some((e) => e.id === id)) { ms += 1000; id = vId(ms); }
-      await vWrite(path.join(dir, id + '.md'), text);
-      await vPruneFile(p);
-      await vPruneVault();
-      return { kept: true, id };
-    },
-    versionList: async (p) => vList(p),
-    versionRead: async (p, id) => {
-      if (!vOk(id)) throw new Error('not a version id: ' + id);
-      return fs.readFile(path.join(vDir(p), id + '.md'), 'utf8');
-    },
-    // Only "there is no file" means there is nothing to keep (F3, versions.rs `restore`): a
-    // file that cannot be read holds text no version has, so the restore fails and writes
-    // nothing rather than putting the old version over content it never saw.
-    versionRestore: async (p, id) => {
-      const text = await cmds.versionRead(p, id);
-      let current = '';
-      try { current = await fs.readFile(abs(p), 'utf8'); }
-      catch (e) { if (e.code !== 'ENOENT') throw e; }
-      const kept = (!current || current === text) ? { kept: false, id: null } : await cmds.versionKeep(p, current, true);
-      await vWrite(abs(p), text);
-      return kept;
-    },
 
     run: async (id, cmd, args, opts) => run(id, cmd, args, opts),
     runKill: async (id) => runKill(id),
 
-    log: async (text) => { console.log('[app]', String(text)); },
-    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root }),
+    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root, logPath: store.logPath }),
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
-    setState: async (o) => { await fs.mkdir(path.dirname(statePath()), { recursive: true }); await fs.writeFile(statePath(), JSON.stringify(o ?? {}, null, 2), 'utf8'); },
+    // `setState(state, {epoch})`: a write sent late from a page of a vault that was left is
+    // refused (`[stale_vault]`); a lost vault folder is not recreated for it (`[no_vault]`); a
+    // refused rename gives up after a moment and leaves nothing behind (state.rs).
+    setState: async (o, opts) => {
+      store.checkEpoch(opts);
+      store.requireVault();
+      await fs.mkdir(path.dirname(statePath()), { recursive: true });
+      await writeAtomic(statePath(), JSON.stringify(o ?? {}, null, 2), { budget: 100, aside: 'discard' });
+      return null;
+    },
     openExternal, reveal, openPath,
 
     // Paper. Both are WebView2's own (src-tauri/src/print.rs) and a Node host has neither: no
@@ -604,14 +532,18 @@ export function bridgePlugin() {
         try {
           const { args = [] } = body ? JSON.parse(body) : {};
           if (!Object.prototype.hasOwnProperty.call(cmds, cmd)) {
-            if (!unknown.has(cmd)) { unknown.add(cmd); console.log(`[bridge] no such command: ${cmd} (answering null)`); }
-            res.end(JSON.stringify({ ok: true, result: null }));
+            if (!unknown.has(cmd)) { unknown.add(cmd); console.log(`[bridge] no such command: ${cmd}`); }
+            if (retired(cmd)) { res.end(JSON.stringify({ ok: true, result: null })); return; }
+            res.end(JSON.stringify({ ok: false, error: `[unknown_command] ${cmd}` }));
             return;
           }
           const result = await cmds[cmd](...args);
           res.end(JSON.stringify({ ok: true, result: result === undefined ? null : result }));
         } catch (e) {
-          res.end(JSON.stringify({ ok: false, error: `${cmd}: ${e && e.message ? e.message : String(e)}` }));
+          // `[code] message`, as the host words it (docs/HOST.md "Errors"); the kernel splits it.
+          const error = errorText(e);
+          console.warn(`[bridge] ${cmd} failed: ${error}`);
+          res.end(JSON.stringify({ ok: false, error }));
         }
       });
     },

@@ -64,8 +64,9 @@ export async function create() {
     listen(name, (e) => fanout({ event: name, data: e.payload }))
       .catch((err) => console.error(`[bridge] listen(${name}) failed`, err));
   forward('fs');
-  // A second launch that named another folder: the host has adopted it and the page reloads
-  // into it (S14). One window per vault, so this is how the other vault arrives.
+  // A second launch that named another folder: `{ requested:true, root, name }`. The host
+  // only asks now; the shell leaves the window (`ose.window.leave('vault-change')`) and adopts
+  // it itself, so an unsaved page is never switched out from under (C5).
   forward('vault');
   // `ose.run` (K1a): one event per line of a child's stdout or stderr, then one with
   // `done: true`. The http adapter forwards whatever the SSE stream names, so this list is
@@ -119,14 +120,14 @@ export async function create() {
     const pending = fanout({ event: 'window', data: { closing: true } })
       .filter((r) => r && typeof r.then === 'function');
 
-    // Past three seconds the window is still there and nothing on screen says why. One toast,
-    // which stays up until the save settles, is the whole notice.
+    // Past three seconds the window is still there and nothing on screen says why. One sticky
+    // toast, shared with the leave gate's own (../leave.js), stays up until the save settles.
     let dismiss = null;
     const notice = setTimeout(async () => {
       try {
-        const { toast } = await import('../dialog.js');
-        dismiss = toast('still saving…', 'warn', 10 * 60 * 1000);
-      } catch { /* no shell (the self-test page): the console line is enough */ }
+        const { holdStillSaving } = await import('../leave.js');
+        dismiss = holdStillSaving();
+      } catch { /* no shell: the console line is enough */ }
       console.warn('[bridge] a closing handler is taking longer than 3s; waiting');
     }, CLOSE_NOTICE);
 
@@ -143,6 +144,9 @@ export async function create() {
     // dialog or its toast is up; the user answers and closes again, which starts this over.
     if (outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
       closing = false;
+      // The leave gate may have said yes and frozen the pages before another handler said no:
+      // the window stays, so they are handed back (idempotent when the gate itself refused).
+      try { (await import('../leave.js')).stayWindow(); } catch { /* nothing frozen */ }
       return;
     }
     w.destroy().catch((err) => console.error('[bridge] destroy', err));
@@ -177,6 +181,8 @@ export async function create() {
         return w.startResizeDragging(dir);
       },
       setTheme: (theme) => w.setTheme(theme === 'light' || theme === 'dark' ? theme : null),
+      // No `closing` fan-out: `app.close-anyway`, after the user said so.
+      destroy: () => w.destroy(),
       // The window title says what is open, the way every editor's does (S13). The document
       // title follows it too, so the two never disagree.
       setTitle: (text) => {

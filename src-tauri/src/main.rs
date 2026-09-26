@@ -18,6 +18,9 @@ use ose::{args, log_line, platform, protocol, run, shell, state, vault, vaults, 
 static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 
 fn main() {
+    // Tauri's, wry's and notify's own warnings into our log (lib.rs `Records`), before any of
+    // them can say something.
+    ose::install_log_records();
     let opts = args::parse(std::env::args().skip(1));
 
     if opts.version {
@@ -289,8 +292,10 @@ fn another_instance_holds_the_lock(_identifier: &str) -> bool {
 
 /// A second `ose` launched while one is running. The plugin has already handed us its argv and
 /// ended that process, so this decides what the launch meant: the same vault (or none named)
-/// brings the window forward, another folder is adopted and the window reloads into it — one
-/// window per vault, and never two watchers on one folder (S14).
+/// brings the window forward; another folder is *asked for* (C5). The host never swaps the
+/// vault under a page that may hold unsaved work: it sends `vault {requested, root, name}`, and
+/// the page leaves the old vault (saving, or refusing) before it opens the new one itself with
+/// `openVault`. One window per vault, and never two watchers on one folder (S14).
 fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
     // A notification with no argv at all is not a launch: on macOS it is the knock from
     // `another_instance_holds_the_lock`, which connects and says nothing. Ignore it whole.
@@ -313,23 +318,14 @@ fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
 
     if different {
         let dir = asked.expect("different implies a folder was named");
-        let ctx = ose::Ctx { app, st: st.inner() };
-        match vault::adopt(&ctx, &dir, Source::Picked) {
-            Ok(_) => {
-                if let Err(e) = vaults::record(app, &dir) {
-                    log_line(st.inner(), &format!("recent vaults: {e}"));
-                }
-                // Whatever the previous vault's plugins were running belongs to a world that
-                // is gone.
-                run::kill_all(st.inner());
-                // The page goes back to the shell's index: the plugins of the *new* vault are
-                // other files, and nothing in the page could swap them under itself.
-                let _ = app.emit("vault", serde_json::json!({ "changed": true }));
-                if let Some(window) = app.get_webview_window("main") {
-                    shell::load_window(app, &window);
-                }
-            }
-            Err(e) => log_line(st.inner(), &format!("second instance: {e}")),
+        log_line(st.inner(), &format!("second instance asks for {}: the page decides", dir.display()));
+        let payload = serde_json::json!({
+            "requested": true,
+            "root": dir.to_string_lossy(),
+            "name": vault::root_name(&dir),
+        });
+        if let Err(e) = app.emit("vault", payload) {
+            log_line(st.inner(), &format!("second instance: vault event dropped: {e}"));
         }
     }
 
@@ -387,6 +383,21 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let st = app.state::<AppState>();
 
+    // The persistent log (M54), in every build: `<app log dir>/ose.log`, rotated at 2 MB. The
+    // lines written before this point were held and land first.
+    match handle.path().app_log_dir() {
+        Ok(dir) => match ose::open_persistent_log(&dir) {
+            Ok(path) => log_line(st.inner(), &format!("log: {}", path.display())),
+            Err(e) => log_line(st.inner(), &format!("log: no persistent log: {e}")),
+        },
+        Err(e) => log_line(st.inner(), &format!("log: no log folder: {e}")),
+    }
+    // Drafts live per machine, outside every vault (docs/HOST.md "Drafts").
+    match handle.path().app_local_data_dir() {
+        Ok(dir) => st.set_data_dir(dir),
+        Err(e) => log_line(st.inner(), &format!("drafts: no app data folder: {e}")),
+    }
+
     // Step 4: the remembered root, now that the app knows its config folder.
     if st.root().is_none() {
         match vault::read_remembered(&handle) {
@@ -424,6 +435,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let window = app
         .get_webview_window("main")
         .ok_or("the main window is missing from tauri.conf.json")?;
+
+    // F5, Ctrl+R, Ctrl+Shift+R and the rest of WebView2's browser keys would reload the page
+    // under unsaved work without asking (M53, C5). The page still receives the keys.
+    platform::disable_browser_keys(&window);
 
     // Theme first: the background colour has to be right before anything is painted. Without a
     // vault there is no state file, and the dark default from tauri.conf.json stands.

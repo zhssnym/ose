@@ -99,6 +99,27 @@ Key tokens (see the file for the full list):
   scrollable area (see `base.css`).
 - **Tooltips.** Mono 11px, `--fg` on `--bg-3`, 1px border, no arrow, 300ms delay.
 - **Empty states.** One short sentence in `--fg-3`, mono, centred. No illustrations.
+- **Save marks.** Unsaved changes are a 6px `--accent` dot, on the tab and beside the breadcrumb.
+  A page that could not be written, or changed on disk under unsaved text, gets the error mark
+  instead: a 7px square in `--err`, square so it does not depend on telling two colours apart,
+  with the editor's own sentence as the tooltip. The active tab's underline turns `--err` with it.
+- **The page banner.** One sticky box at the top of the page column, `.ed-banner`: the editor's
+  sentence and its actions as `.btn`s, reachable with Tab. `--err-soft` ground, `--err` border and
+  `--err-ink` text for a page that is not saved, with `role="alert"`; `--warn-soft`, `--warn` and
+  `--warn-ink` for a notice (recovered changes, a page opened as text). Never more than one.
+- **The Rich | Source switch.** Two buttons side by side in the page meta line, `.ed-mode`: a
+  hairline `--border` around both and between them, in the meta line's face, `--fg-3`; the pressed one
+  (`aria-pressed="true"`) sits on `--bg-3` in `--fg`. Tab reaches both.
+- **A sticky error.** An error the user has to act on (a file that was not moved, a page that
+  could not be saved) is a toast with no timer, a close button and its actions as real buttons,
+  `role="alert"`. An information toast still leaves on its own.
+- **The focus chip.** While a folder is in focus, a chip in the title bar: mono 11px, `--accent-soft`
+  with 1px `--border`, `focus` in `--accent-ink`, the folder's name, and a ×. The whole chip is
+  one button that leaves focus.
+- **The boot error page.** One column, at most 44rem: the title in `--err`, one sentence of how far
+  the boot got, the error in a box on `--err-soft` with `--err-ink` text, the log path in mono, the
+  stack under a disclosure, and **Copy details** / **Try again**. Every token there has the
+  system colour behind it, because the kernel's stylesheet may be what failed to load.
 - **The missing-path box.** What a view is given when the file or folder it asked for is not
   there, or when several things match the name. The kernel draws it, into the element the view
   handed to `ose.paths.get(key, { el })`, so every plugin asks the same question the same way; a
@@ -191,7 +212,7 @@ chrome's face: they are not part of the document.
 ## Print and PDF
 
 Two commands, both on the host and neither through the browser's print dialog, which never
-returns in WebView2. `page.export-pdf` (Ctrl+Shift+P; Ctrl+P is the palette) asks for a file
+returns in WebView2. `page.export-pdf` (Ctrl+Alt+P; Ctrl+Shift+P is the palette) asks for a file
 with the native save dialog and writes the PDF through WebView2's own engine; `page.print`
 opens the Windows print dialog, where Microsoft Print to PDF also lives. Neither changes the
 theme: `src/editor/print.css` holds every `@page` and `@media print` rule of the app, and it

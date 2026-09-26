@@ -201,9 +201,9 @@ const GROUPS = [
   },
   {
     key: 'page', label: 'page', items: [
-      { key: 'rename', label: 'Rename', icon: I.rename, aliases: ['rename'], cmd: 'page.rename' },
-      { key: 'duplicate', label: 'Duplicate', icon: I.duplicate, aliases: ['duplicate', 'copy'], cmd: 'page.duplicate' },
-      { key: 'trash', label: 'Move to trash', icon: I.trash, aliases: ['trash', 'delete'], cmd: 'page.trash' },
+      { key: 'rename', label: 'Rename', icon: I.rename, aliases: ['rename'], cmd: 'file.rename' },
+      { key: 'duplicate', label: 'Duplicate', icon: I.duplicate, aliases: ['duplicate', 'copy'], cmd: 'file.duplicate' },
+      { key: 'trash', label: 'Move to trash', icon: I.trash, aliases: ['trash', 'delete'], cmd: 'file.trash' },
       { key: 'reveal', label: 'Reveal in Explorer', icon: I.reveal, aliases: ['reveal', 'explorer'], cmd: 'page.reveal' },
     ],
   },

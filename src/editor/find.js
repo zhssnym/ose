@@ -90,6 +90,16 @@ export function createFind(root, getView, onEdit) {
 
   // -------------------------------------------------------------------- replace
 
+  /**
+   * One hit replaced, keeping its formatting (H4). `insertText` takes the marks of the text
+   * it replaces, so a word inside **bold**, _italics_, a link or a code span stays inside it;
+   * a bare text node had none, and the replacement came out of the bold and out of the link.
+   */
+  function replaceHit(tr, from, to, text) {
+    if (text) tr.insertText(text, from, to);
+    else tr.delete(from, to);
+  }
+
   /** The current hit, replaced; then the search runs again and lands on the next one. */
   function replaceOne() {
     const v = view();
@@ -100,8 +110,7 @@ export function createFind(root, getView, onEdit) {
     const text = replaceInput ? replaceInput.value : '';
     lastReplace = text;
     const tr = v.state.tr;
-    if (text) tr.replaceWith(hit.from, hit.to, v.state.schema.text(text));
-    else tr.delete(hit.from, hit.to);
+    replaceHit(tr, hit.from, hit.to, text);
     // The query has to be re-run against the new document, and the index has to stay where it
     // was so `Replace` twice walks forwards instead of sitting on the same word.
     tr.setMeta(FIND_KEY, { query: last, ...opts, at: hit.from + text.length });
@@ -124,8 +133,7 @@ export function createFind(root, getView, onEdit) {
     // Backwards: replacing from the end leaves every earlier position untouched.
     for (let i = s.hits.length - 1; i >= 0; i--) {
       const h = s.hits[i];
-      if (text) tr.replaceWith(h.from, h.to, v.state.schema.text(text));
-      else tr.delete(h.from, h.to);
+      replaceHit(tr, h.from, h.to, text);
     }
     const n = s.hits.length;
     tr.setMeta(FIND_KEY, { query: last, ...opts });

@@ -10,7 +10,7 @@
 
 export {
   openOverlay, closeTopOverlay, overlayCount, overlayHasInputFocus,
-  focusOrigin, retargetFocusOrigin,
+  focusOrigin, retargetFocusOrigin, focusField,
   prompt, confirm, choose,
   pickPage, pickFolder, pickFile,
   contextMenu,

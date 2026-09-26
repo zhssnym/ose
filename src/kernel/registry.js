@@ -55,10 +55,21 @@ export const commands = {
   },
   list: () => [...cmdMap.values()].filter(c => !c.when || c.when()),
   get: (id) => cmdMap.get(id),
+  /**
+   * Run a command and answer what its `run` answers (a promise stays a promise, so a caller
+   * can await a save). With an explicit target (the row a context menu was opened on) and an
+   * `applies(target)` on the command, that decides, not `when()`: `when` reads where the
+   * keyboard focus is, and a right-click does not move it (H21, on macOS a click does not
+   * either), so the menu's Rename used to do nothing on any row that was not focused.
+   * Without `applies`, `when` gets the same arguments, so a guard that can read a target does.
+   */
   run(id, ...args) {
     const c = cmdMap.get(id);
     if (!c) { console.warn('unknown command', id); return; }
-    if (c.when && !c.when()) return;
+    const target = args[0];
+    if (target !== undefined && target !== null && typeof c.applies === 'function') {
+      if (!c.applies(target)) return;
+    } else if (c.when && !c.when(...args)) return;
     return c.run(...args);
   },
 };
@@ -122,7 +133,8 @@ export const tiles = {
   },
 };
 
-const STATUS_ORDER = ['mode', 'path', 'doc', 'save', 'watch'];
+// `focus` is the kernel's own (./focus.js): while the app is narrowed to a folder, the bar says so.
+const STATUS_ORDER = ['mode', 'focus', 'path', 'doc', 'save', 'watch'];
 const statusData = new Map();
 const statusWatchers = makeEmitter();
 export const status = {

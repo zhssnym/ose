@@ -73,22 +73,64 @@ function readContainer(node, source, from, to) {
   if (!kids || !kids.length) return;
   const out = [];
   const pad = (n) => { for (let i = 0; i < n; i++) out.push(emptyParagraph()); };
+  const at = spans(kids, source, from, to);
 
-  const first = offsets(kids[0]);
+  const first = at[0];
   if (first) pad(Math.max(0, blankRun(source, from, first.start.offset)));
 
   for (let i = 0; i < kids.length; i++) {
     out.push(kids[i]);
-    const a = offsets(kids[i]);
-    const b = offsets(kids[i + 1]);
+    const a = at[i];
+    const b = at[i + 1];
     if (!a || !b) continue;
     pad(Math.max(0, blankRun(source, a.end.offset, b.start.offset) - 2));
   }
 
-  const last = offsets(kids[kids.length - 1]);
+  const last = at[kids.length - 1];
   if (last) pad(Math.max(0, blankRun(source, last.end.offset, to) - 1));
 
   node.children = out;
+}
+
+/**
+ * Where each child sits in the source. Most carry a `position`; a node another remark plugin
+ * built in place of the one the parser made does not. The image block is one: a paragraph
+ * holding nothing but an image becomes a new `image-block` node with no position, so the space
+ * around every image was invisible and went at the next save (M7). Such a node is found in the
+ * source instead. A run of such nodes between two that have a position is matched with the
+ * runs of non-blank lines between those two, in order, when there are exactly as many of each;
+ * otherwise they are left without a span, as before.
+ */
+function spans(kids, source, from, to) {
+  const at = kids.map(offsets);
+  for (let i = 0; i < kids.length; i++) {
+    if (at[i]) continue;
+    let j = i;
+    while (j + 1 < kids.length && !at[j + 1]) j++;
+    const lo = i > 0 ? at[i - 1].end.offset : from;
+    const hi = j + 1 < kids.length ? at[j + 1].start.offset : to;
+    const found = contentRuns(source, lo, hi);
+    if (found.length === j - i + 1) for (let k = i; k <= j; k++) at[k] = found[k - i];
+    i = j;
+  }
+  return at;
+}
+
+/** The runs of lines with content between two offsets, as positions. */
+function contentRuns(source, lo, hi) {
+  const runs = [];
+  if (!(hi > lo)) return runs;
+  // Content is anything but whitespace and the `>` of a quoted line (see `blankRun`).
+  let offset = lo;
+  let cur = null;
+  for (const line of source.slice(lo, hi).split('\n')) {
+    if (/[^\s>]/.test(line)) {
+      if (!cur) { cur = { start: { offset: offset + line.search(/[^\s>]/) }, end: null }; runs.push(cur); }
+      cur.end = { offset: offset + line.replace(/\s+$/, '').length };
+    } else cur = null;
+    offset += line.length + 1;
+  }
+  return runs;
 }
 
 /** Walk the tree, deepest first, so an inserted paragraph is never walked into. */
@@ -116,7 +158,13 @@ export const remarkSpace = $remark('os-space', () => remarkOseSpace);
 // ---------------------------------------------------------------------------
 // writing: what an empty paragraph costs
 
-const isEmptyParagraphNode = (n) => !!n && n.type === 'paragraph' && !(n.children && n.children.length);
+/**
+ * A paragraph that writes nothing: no children, or only spaces and breaks, which the
+ * serializer leaves off the end of a line (stringify.js `writeText`, `writeBreak`). A space
+ * typed on an empty line is still an empty line.
+ */
+const isEmptyParagraphNode = (n) => !!n && n.type === 'paragraph'
+  && (n.children || []).every((c) => c.type === 'break' || (c.type === 'text' && /^[ \t]*$/.test(String(c.value ?? ''))));
 
 /**
  * The `join` rule handed to remark-stringify (stringify.js). mdast writes an empty paragraph as

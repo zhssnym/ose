@@ -70,6 +70,38 @@ pub(crate) fn quiet_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     c
 }
 
+// ---- browser keys ---------------------------------------------------------
+
+/// WebView2's browser accelerator keys off (M53): F5, Ctrl+R and Ctrl+Shift+R reload, Ctrl+P
+/// prints, F3 finds, Alt+Left goes back — each one a way to throw the page away under unsaved
+/// work without asking. With the setting off the page still receives every key, so the app's
+/// own commands (Ctrl+P, Ctrl+F) keep working, and editing keys (Ctrl+C/V/X/Z/A) are untouched.
+/// The shell guards the same keys in JS as well (docs/SHELL.md), which is all a Mac has.
+#[cfg(windows)]
+pub fn disable_browser_keys(window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+    let done = window.with_webview(|webview| unsafe {
+        let set = webview
+            .controller()
+            .CoreWebView2()
+            .and_then(|core| core.Settings())
+            .and_then(|s| s.cast::<ICoreWebView2Settings3>())
+            .and_then(|s| s.SetAreBrowserAcceleratorKeysEnabled(false));
+        if let Err(e) = set {
+            eprintln!("browser keys: {e}");
+        }
+    });
+    if let Err(e) = done {
+        eprintln!("browser keys: {e}");
+    }
+}
+
+/// WKWebView has no browser keys of its own to switch off: a Mac reloads only through the menu,
+/// and ours has no Reload item.
+#[cfg(not(windows))]
+pub fn disable_browser_keys(_window: &tauri::WebviewWindow) {}
+
 // ---- rpc ------------------------------------------------------------------
 
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
@@ -211,6 +243,7 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 
 // ---- platform -------------------------------------------------------------
 
+/// `logPath` is the persistent log (`<app log dir>/ose.log`), empty before it is open.
 /// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
 /// executable's own, or the folder holding `Ose.app` on macOS. `build` is the CI stamp
 /// `{sha, short, date}`, null for a local build.
@@ -230,6 +263,7 @@ fn platform_info(ctx: &Ctx) -> Value {
         "kernelOrigin": crate::shell::kernel_origin(),
         "appOrigin": crate::shell::app_origin(),
         "vaultOrigin": crate::shell::vault_origin(),
+        "logPath": crate::persistent_log_path().map(|p| p.display().to_string()).unwrap_or_default(),
     })
 }
 

@@ -2,7 +2,7 @@
 // kernel's (src/kernel/settings-core.js, docs/KERNEL.md `ose.settings`); this file draws them.
 import { ose } from 'ose:kernel';
 import { esc, openOverlay, pickFolder, toast } from 'ose:ui';
-import { reloadIntoVault, chooseVault } from './vault.js';
+import { chooseVault, switchVault } from './vault.js';
 import { hostKind } from './host.js';
 import { byPluginOrder } from './order.js';
 
@@ -25,7 +25,6 @@ const applySettings = () => ose.settings.apply();
 const onRepaint = (fn) => ose.settings.onRepaint(fn);
 const themePref = () => ose.theme.get();
 const setTheme = (next) => ose.theme.set(next);
-const flushState = () => ose.state('sidebar').flush();
 
 /** One step in or out, clamped at the ends rather than wrapping. */
 function stepZoom(dir) {
@@ -403,23 +402,21 @@ async function chooseAttachments(which, box) {
 }
 
 /**
- * `Change vault…`: the chooser (a recent vault, or the native folder picker), then the whole
- * app boots again against the choice — the host remembers it. The open page is saved first and
- * the state file flushed, because a reload gives neither the `closing` notice the editor
- * relies on.
+ * `Change vault…` (C5), in this order: choose a folder without adopting it, let the window go
+ * (the open page is saved into *this* vault, or the switch stops with the page's reason on
+ * screen), adopt the folder, and boot again on it (`switchVault`, shell/vault.js). The old
+ * order adopted first, so the last save of the page landed in the other vault.
  */
 async function changeVault() {
   let picked;
   try {
-    picked = await chooseVault();
+    picked = await chooseVault({ adopt: false });
   } catch (e) {
-    toast(String(e && e.message ? e.message : e), 'err');
+    toast(String(e && e.message ? e.message : e), 'err', 0);
     return;
   }
   if (!picked || !picked.root) return;
-  try { await commands.run('page.save'); } catch (e) { console.warn('[shell] save before vault change', e); }
-  await flushState();
-  reloadIntoVault();
+  await switchVault(picked.root);
 }
 
 export function initSettings() {

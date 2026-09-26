@@ -48,13 +48,78 @@ const ready = (async () => {
   return adapter;
 })();
 
-const call = async (cmd, ...args) => { await ready; return adapter.call(cmd, args); };
+/**
+ * A host refusal as the rest of the app reads it (docs/HOST.md "Errors"): the host answers
+ * `[code] message`, and the caller gets an `Error` whose `message` is the text after the code,
+ * `.code` the code (`io` when the host gave none, or the transport failed) and `.cmd` the rpc
+ * name. `String(e)` is the message alone, so a toast that prints `e` says what it always said.
+ */
+export class HostError extends Error {
+  constructor(message, code = 'io', cmd = '') {
+    super(message);
+    this.name = 'HostError';
+    this.code = code;
+    this.cmd = cmd;
+  }
+  toString() { return this.message; }
+}
+
+const CODED = /^\s*\[([a-z_]+)\]\s*([\s\S]*)$/;
+
+/** Whatever an adapter rejected with (a string from Tauri, an Error from fetch) as a HostError. */
+export function hostError(cmd, raw) {
+  if (raw instanceof HostError) return raw;
+  const text = raw && typeof raw === 'object' && 'message' in raw ? String(raw.message) : String(raw ?? 'host error');
+  const m = CODED.exec(text);
+  return m ? new HostError(m[2] || m[1], m[1], cmd) : new HostError(text, 'io', cmd);
+}
+
+const call = async (cmd, ...args) => {
+  await ready;
+  try {
+    return await adapter.call(cmd, args);
+  } catch (e) {
+    throw hostError(cmd, e);
+  }
+};
+
+/**
+ * The commands of the host contract whose answer is always a value (docs/HOST.md). A host that
+ * does not know one answered `null` before `[unknown_command]` existed, and a `null` from
+ * `saveFile` read as a successful write is exactly the failure that must never happen again:
+ * for these, no answer is an error.
+ */
+const valued = async (cmd, ...args) => {
+  const r = await call(cmd, ...args);
+  if (r === null || r === undefined) throw new HostError(`the host does not answer ${cmd}`, 'unknown_command', cmd);
+  return r;
+};
+
+/**
+ * The vault epoch (docs/HOST.md "Epoch"): the host counts every vault it adopts, and a mutating
+ * call that carries an older count than the current one is refused with `[stale_vault]` instead
+ * of landing in the vault that replaced it. The kernel sets it from `rootInfo` at boot; every
+ * mutating call below adds it to its trailing options, so no caller can forget it. Unknown (an
+ * old host, or no vault yet) means nothing is added.
+ */
+let epoch = null;
+/** Set by the kernel from `rootInfo`. */
+export function setEpoch(n) { epoch = Number.isFinite(n) ? n : null; }
+/** The current epoch, or null. */
+export function currentEpoch() { return epoch; }
+/** `opts` with the epoch added, unless the caller named one. */
+const withEpoch = (opts) => {
+  const o = opts && typeof opts === 'object' ? { ...opts } : {};
+  if (epoch !== null && o.epoch === undefined) o.epoch = epoch;
+  return o;
+};
 
 // Window control: the Tauri adapter owns it, the other hosts answer it over the RPC.
 const WIN_RPC = {
   minimize: 'winMinimize', maximize: 'winMaximize', close: 'winClose',
   isMaximized: 'winIsMaximized', startDrag: 'winStartDrag',
   startResize: 'winStartResize', setTheme: 'winSetTheme', setTitle: 'winSetTitle',
+  destroy: 'winDestroy',
 };
 const winCall = async (name, ...args) => {
   await ready;
@@ -81,7 +146,9 @@ export const bridge = {
   // while no vault is open; `pickVault` opens the native folder picker and adopts the choice;
   // `vaultInfo` adds where the root came from; `forgetVault` drops the remembered root.
   vaultInfo: () => call('vaultInfo'),
-  pickVault: () => call('pickVault'),
+  // `opts` {adopt}: `{adopt:false}` only chooses the folder, and the caller adopts it with
+  // `openVault` once the window has let go of the old one (docs/HOST.md `pickVault`).
+  pickVault: (opts) => (opts === undefined ? call('pickVault') : call('pickVault', opts)),
   // The vaults this machine has opened, newest first, at most ten (S46): `recentVaults` lists
   // them, `openVault` adopts one without a dialog, and `forgetVault(path)` drops one line.
   // `forgetVault()` with no path still means "stop remembering a root at all".
@@ -96,25 +163,57 @@ export const bridge = {
   stat: (path) => call('stat', path),
   exists: (path) => call('exists', path),
   readText: (path) => call('readText', path),
-  writeText: (path, text) => call('writeText', path, text),
-  appendText: (path, text) => call('appendText', path, text),
-  writeBinary: (path, base64) => call('writeBinary', path, base64),
+  writeText: (path, text, opts) => call('writeText', path, text, withEpoch(opts)),
+  appendText: (path, text, opts) => call('appendText', path, text, withEpoch(opts)),
+  writeBinary: (path, base64, opts) => call('writeBinary', path, base64, withEpoch(opts)),
   // The file's bytes as base64 (docs/KERNEL.md `ose.files.readBinary`). A host that does not
   // implement it rejects, which is what `ose.files.readBinary` reports to whoever asked.
   readBinary: (path) => call('readBinary', path),
-  mkdir: (path) => call('mkdir', path),
-  rename: (from, to) => call('rename', from, to),
+  mkdir: (path, opts) => call('mkdir', path, withEpoch(opts)),
+  rename: (from, to, opts) => call('rename', from, to, withEpoch(opts)),
   // `mode`: 'system' (the recycle bin, the default) or 'vault' (`.trash` inside the vault),
-  // from settings (S37). A host that does not know the option ignores it and uses the bin.
-  trash: (path, opts) => (opts === undefined ? call('trash', path) : call('trash', path, opts)),
+  // from settings (S37). The same object carries the epoch.
+  trash: (path, opts) => call('trash', path, withEpoch(opts)),
   search: (query, opts = {}) => call('search', query, opts),
-  // Versions (docs/HOST.md "Versions"): the text a save is about to replace, kept under
-  // `.ose/versions/<path>/<yyyy-mm-dd-hhmmss>.md`. `versionKeep` answers {kept, id} and keeps
-  // nothing when the newest version of that file is younger than five minutes, unless `force`.
-  versionKeep: (path, text, force = false) => call('versionKeep', path, text, force),
-  versionList: (path) => call('versionList', path),
+
+  // The save path (docs/HOST.md "saveFile"). The JS side never computes a hash: it carries
+  // the one `readFile` answered and hands it back as `expectedHash`, and the host compares and
+  // writes in one call under one lock. Every one of these answers a value, so a `null` is an
+  // `[unknown_command]` error and never a success.
+  /** -> { text, hash, mtime, size } */
+  readFile: (path) => valued('readFile', path),
+  /** opts { expectedHash: string|null, version?: 'save'|'conflict'|'none' } -> SaveOutcome */
+  saveFile: (path, text, opts = {}) => valued('saveFile', path, text, withEpoch(opts)),
+  /** Exclusive create; never overwrites. -> { path, hash } */
+  createNew: (path, text = '', opts) => valued('createNew', path, text, withEpoch(opts)),
+  /** A byte copy under the same create-only rule. -> { path, hash } */
+  copyFile: (from, to, opts) => valued('copyFile', from, to, withEpoch(opts)),
+  /** One line, with the separator the file needs; no `\n` in `line`. -> { hash } */
+  appendLine: (path, line, opts) => valued('appendLine', path, line, withEpoch(opts)),
+  /** -> { status:'replaced', hash } | { status:'conflict', actual } */
+  replaceLine: (path, index, expected, next, opts) => valued('replaceLine', path, index, expected, next, withEpoch(opts)),
+
+  // Drafts (docs/HOST.md "Drafts"): the buffer a page could not write, per machine, outside
+  // the vault. `draftRead` answers null when there is none, so it is the one that may.
+  /** -> { at } */
+  draftWrite: (path, draft, opts) => valued('draftWrite', path, draft, withEpoch(opts)),
+  /** -> DraftInfo[], newest first */
+  draftList: () => valued('draftList'),
+  /** -> Draft | null */
+  draftRead: (path) => call('draftRead', path),
+  /** opts { ifRev? } -> { dropped } */
+  draftDrop: (path, opts) => (opts === undefined ? valued('draftDrop', path) : valued('draftDrop', path, opts)),
+
+  // Versions (docs/HOST.md "Versions"): `.ose/history`, tiered. `opts` is `{ force?, reason? }`,
+  // or a boolean, which is the old `force`. The host names the files; nothing here builds a
+  // path into the history folder.
+  /** -> { kept, id } */
+  versionKeep: (path, text, opts = false) => valued('versionKeep', path, text, opts),
+  /** -> VersionInfo[], newest first */
+  versionList: (path) => valued('versionList', path),
   versionRead: (path, id) => call('versionRead', path, id),
-  versionRestore: (path, id) => call('versionRestore', path, id),
+  /** -> { kept, id, hash } */
+  versionRestore: (path, id, opts) => valued('versionRestore', path, id, withEpoch(opts)),
   assetUrl: (path) => (adapter && adapter.assetUrl ? adapter.assetUrl(path) : staticAssetUrl(path)),
 
   win: {
@@ -126,6 +225,9 @@ export const bridge = {
     startResize: (edge) => winCall('startResize', edge),
     setTheme: (theme) => winCall('setTheme', theme),
     setTitle: (text) => winCall('setTitle', text),
+    // The window goes, without the `closing` fan-out: `app.close-anyway` only, after the user
+    // said so. Drafts are outside the window and survive it.
+    destroy: () => winCall('destroy'),
   },
 
   // The window's own title (S13): "<page> — <vault>" in the host, the tab title in a browser.
@@ -150,16 +252,18 @@ export const bridge = {
   openPath: (path) => call('openPath', path),
   getState: () => call('getState'),
   setState: (obj) => call('setState', obj),
-  log: (text) => call('log', text),
+  // `<stamp> <level> ui: <text>` in the host's log (docs/HOST.md "Log"). Never rejects: a log
+  // line that cannot be written must not become an error of its own.
+  log: (text, level = 'info') => call('log', String(text ?? ''), level).catch(() => null),
   // Spawn a program (never a shell, docs/HOST.md `run`): `opts` is {cwd, timeout, env, input},
   // stdout and stderr arrive as the bridge event `run` — {id, stream, line} per line, then
   // {id, done:true, code, timedOut}.
   run: (id, cmd, args = [], opts = {}) => call('run', id, cmd, args, opts),
   runKill: (id) => call('runKill', id),
-  // The page the window is on, reloaded (Ctrl+R): only the host knows where the app's own
-  // files are. `reloadRice` is that command's historical spelling; the host answers
-  // `reloadShell` as well (docs/HOST.md "RPC").
-  reloadRice: () => call('reloadRice'),
+  // The page the window is on, reloaded: only the host knows where the app's own files are.
+  // Nothing calls it except `ose.reload()`, and only once `leaveWindow('reload')` has let go
+  // (docs/KERNEL.md "Leaving the window").
+  reloadShell: () => call('reloadShell'),
 };
 
 if (typeof window !== 'undefined') window.__bridge = bridge; // debugging only

@@ -74,6 +74,74 @@ export async function renameRemembered(from, to) {
 }
 
 // ---------------------------------------------------------------------------
+// the bytes CodeMirror does not keep (M3)
+//
+// CodeMirror splits its document on `\r\n`, `\r` and `\n` alike and joins it back with `\n`,
+// and a byte-order mark is a character it draws. So the text a view hands back is never quite
+// the file: a CRLF page came out LF from end to end after one keystroke in source mode, and a
+// BOM was either drawn as a red dot or lost. A page's source view is built with `exact: true`
+// and keeps the file's own shape here: the mark, and the separator each line had. `getText`
+// puts them back the way composeDoc does for the rich view (doc.js `restoreEols`): the lines
+// before the first difference and after the last one keep theirs, every line in between gets
+// the file's usual ending.
+
+/**
+ * The shape of `raw`: `{bom, lines, seps, eol, plain}`. `lines` and `seps` are split exactly
+ * where CodeMirror splits, so line `i` of the view is `lines[i]` until someone edits it.
+ * `plain` is a file with no mark and nothing but `\n`, which needs nothing put back.
+ * @param {string} raw
+ */
+export function textFormat(raw) {
+  let text = String(raw ?? '');
+  const bom = text.charCodeAt(0) === 0xFEFF;
+  if (bom) text = text.slice(1);
+  const lines = [];
+  const seps = [];
+  const count = { '\n': 0, '\r\n': 0, '\r': 0 };
+  const re = /\r\n|\r|\n/g;
+  let at = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    lines.push(text.slice(at, m.index));
+    seps.push(m[0]);
+    count[m[0]]++;
+    at = re.lastIndex;
+  }
+  lines.push(text.slice(at));
+  let eol = '\n';
+  if (count['\r\n'] > count['\n'] && count['\r\n'] >= count['\r']) eol = '\r\n';
+  else if (count['\r'] > count['\n'] && count['\r'] > count['\r\n']) eol = '\r';
+  return { bom, lines, seps, eol, plain: !bom && count['\r\n'] === 0 && count['\r'] === 0 };
+}
+
+/**
+ * `text` (what a view holds, lines joined by `\n`) with the mark and the line endings of the
+ * file `fmt` was taken from. A pure LF file without a mark comes back exactly as it went in.
+ * @param {string} text
+ * @param {ReturnType<typeof textFormat> | null} fmt
+ */
+export function applyFormat(text, fmt) {
+  const out = String(text ?? '');
+  if (!fmt || fmt.plain) return out;
+  const A = fmt.lines;
+  const B = out.split('\n');
+  const n = Math.min(A.length, B.length);
+  let p = 0;
+  while (p < n && A[p] === B[p]) p++;
+  let s = 0;
+  while (s < n - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+  let r = '';
+  for (let i = 0; i < B.length; i++) {
+    r += B[i];
+    if (i === B.length - 1) break;
+    // The separator after line i: its own while the line is in the untouched head or tail.
+    const j = i < p ? i : i >= B.length - s ? A.length - (B.length - i) : -1;
+    r += (j >= 0 && j < fmt.seps.length && fmt.seps[j]) || fmt.eol;
+  }
+  return (fmt.bom ? '\uFEFF' : '') + r;
+}
+
+// ---------------------------------------------------------------------------
 // the CodeMirror host
 
 /**
@@ -231,6 +299,8 @@ function ide(lang) {
  * @param {boolean} [o.readOnly]
  * @param {string} [o.placeholder]   the line shown while the buffer is empty
  * @param {string} [o.indent]        what Tab inserts; two spaces, the app's own, by default
+ * @param {boolean} [o.exact]       keep the file's BOM and line endings (M3): `getText` hands
+ *                                  back the file's own bytes, not CodeMirror's `\n` join
  * @param {() => void} [o.onChange]  a user edit (never our own setText)
  * @param {() => void} [o.onEscape]  Escape with no search panel open
  */
@@ -243,11 +313,14 @@ export function createSourceView(o) {
   // do, or Ctrl+Z walks back into the empty buffer and the next save writes it (A, finding 1).
   const historian = new Compartment();
   let quiet = false;                                   // true while setText replaces the doc
+  // The file's own shape, for an `exact` view (M3): taken from every text loaded into it.
+  let fmt = o.exact ? textFormat(o.text) : null;
+  const inView = (text) => (fmt ? fmt.lines.join('\n') : String(text ?? ''));
 
   const view = new EditorView({
     parent: o.host,
     state: EditorState.create({
-      doc: String(o.text ?? ''),
+      doc: inView(o.text),
       extensions: [
         historian.of(history()),
         drawSelection(),
@@ -297,7 +370,10 @@ export function createSourceView(o) {
 
   return {
     view,
-    getText: () => view.state.doc.toString(),
+    /** The buffer as the file would hold it: with its BOM and line endings when `exact`. */
+    getText: () => (fmt ? applyFormat(view.state.doc.toString(), fmt) : view.state.doc.toString()),
+    /** The buffer as CodeMirror holds it, lines joined by `\n`: for counting, never for writing. */
+    viewText: () => view.state.doc.toString(),
     /**
      * Replace the whole document. Answers **true when the document actually changed**, so a
      * caller can tell a real replacement from a no-op and mark itself dirty accordingly
@@ -315,7 +391,9 @@ export function createSourceView(o) {
      *     left an empty buffer the next save wrote to disk (A, finding 1).
      */
     setText(text, opts = {}) {
-      const next = String(text ?? '');
+      // A text put in from outside is a file's text: an exact view takes its shape from it.
+      if (o.exact) fmt = textFormat(text);
+      const next = inView(text);
       if (next === view.state.doc.toString()) return false;
       const mode = opts.history || 'isolate';
       quiet = true;
@@ -452,15 +530,32 @@ export function plugins(ctx, o) {
 
 export function registerCommands(a) {
   api = a;
+  // The words a person types into the palette looking for this are "source", "raw" and
+  // "markdown", so the titles carry all three (H14). The switch in the page's meta line and
+  // the status bar field run the same commands.
   commands.register({
     id: 'page.source-toggle',
-    title: 'Toggle source mode',
+    title: 'Switch between rich view and source (raw markdown)',
     group: 'page',
     shortcut: 'Ctrl+E',
     // `hasPage` only: a file that is not markdown has one mode, and `toggleSource` says so in
     // its own words. Guarding on `canToggleSource` here made that sentence unreachable — the
     // chord fell through to the shell's generic "not available here" instead (QA F20).
     when: () => !!(api && api.hasPage()),
-    run: () => { if (api && api.toggleSource) void api.toggleSource(); },
+    run: () => (api && api.toggleSource ? api.toggleSource() : undefined),
+  });
+  commands.register({
+    id: 'page.view-source',
+    title: 'Show source (raw markdown text)',
+    group: 'page',
+    when: () => !!(api && api.hasPage() && !api.isSource()),
+    run: () => (api && api.setMode ? api.setMode('source') : undefined),
+  });
+  commands.register({
+    id: 'page.view-rich',
+    title: 'Show rich view',
+    group: 'page',
+    when: () => !!(api && api.hasPage() && api.isSource() && api.isMarkdown()),
+    run: () => (api && api.setMode ? api.setMode('rich') : undefined),
   });
 }

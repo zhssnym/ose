@@ -1,6 +1,7 @@
-/* Batch 12, package P5. Three surfaces, one file because P5 owns one stylesheet:
-   the source-mode body (.ed-source), the Versions… dialog (.ed-versions) and the box a
-   missing image draws in its place (.ed-image-missing). Every value is a token. */
+/* Batch 12, package P5. Four surfaces, one file because P5 owns one stylesheet:
+   the source-mode body (.ed-source), the Versions… dialog (.ed-versions), the comparison of
+   two texts (.ed-compare, wave 1) and the box a missing image draws in its place
+   (.ed-image-missing). Every value is a token. */
 
 /* ------------------------------------------------- the standalone code editor
    `codeEditor(el, …)` (round four): the same CodeMirror, mounted anywhere rather than inside
@@ -204,6 +205,44 @@
   font-family: var(--font-mono);
   font-size: var(--fs-chrome-sm);
   color: var(--fg-3);
+}
+
+/* ---------------------------------------------------------------- compare (C4, H10)
+
+   Two read-only texts side by side (compare.js, over @codemirror/merge). The merge view's own
+   stylesheet colours the changes with literals; these rules paint them again from the tokens,
+   one class deeper than its `&light` / `&dark` rules so they win in both themes. The left side
+   is the older text (removed lines), the right the newer (added lines). */
+
+.ed-compare-body { padding: var(--sp-2) 0; }
+.ed-compare-labels {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
+  padding: 0 var(--sp-3) var(--sp-2);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+.ed-compare-pane {
+  max-height: 62vh; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor { background: var(--bg); color: var(--fg); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-gutters { background: var(--bg-2); color: var(--fg-3); border-right: 1px solid var(--border); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedLine,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedChunk { background: var(--err-soft); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedLine { background: var(--ok-soft); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedText,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedChunk .cm-deletedText {
+  background: none; text-decoration: underline; text-decoration-color: var(--err); color: var(--err-ink);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedText {
+  background: none; text-decoration: underline; text-decoration-color: var(--ok); color: var(--ok-ink);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedLineGutter,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedLineGutter { background: var(--err); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedLineGutter { background: var(--ok); }
+.ed-compare .ed-compare-pane .cm-collapsedLines {
+  background: var(--bg-2); color: var(--fg-3);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
 }
 
 /* ---------------------------------------------------------------- images */

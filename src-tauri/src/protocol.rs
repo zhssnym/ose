@@ -41,13 +41,27 @@ pub fn serve(root: &Path, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime_of(&ext))
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::CACHE_CONTROL, "no-cache")
+        // A file is what its extension says, never what its bytes look like (L18).
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+    // A vault file that could run script when opened as a document (an HTML page, an SVG, an
+    // XML file) runs none: it is shown, never executed. An `<img>` of an SVG is unaffected, and
+    // the other types (a PDF above all, which the web view's own viewer draws) get no sandbox.
+    if active(&ext) {
+        response = response.header(header::CONTENT_SECURITY_POLICY, "sandbox");
+    }
+    response
         .body(bytes)
         .unwrap_or_else(|_| plain(StatusCode::INTERNAL_SERVER_ERROR, "response failed"))
+}
+
+/// The types a browser would run script in when loaded as a document.
+fn active(ext: &str) -> bool {
+    matches!(ext, "html" | "htm" | "xhtml" | "svg" | "xml" | "xsl")
 }
 
 fn plain(status: StatusCode, message: &str) -> Response<Vec<u8>> {
@@ -55,6 +69,7 @@ fn plain(status: StatusCode, message: &str) -> Response<Vec<u8>> {
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(message.as_bytes().to_vec())
         .expect("static response builds")
 }
@@ -100,5 +115,21 @@ mod tests {
         assert_eq!(mime_of("png"), "image/png");
         assert_eq!(mime_of("md"), "text/plain; charset=utf-8");
         assert_eq!(mime_of("zip"), "application/octet-stream");
+    }
+
+    #[test]
+    fn active_content_is_sandboxed_and_nothing_is_sniffed() {
+        let dir = std::env::temp_dir().join(format!("ose-protocol-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.html"), "<script>1</script>").unwrap();
+        std::fs::write(dir.join("b.pdf"), "%PDF-1.4").unwrap();
+        let get = |p: &str| serve(&dir, &Request::builder().uri(p).body(Vec::new()).unwrap());
+        let html = get("/a.html");
+        assert_eq!(html.headers()[header::CONTENT_SECURITY_POLICY], "sandbox");
+        assert_eq!(html.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        let pdf = get("/b.pdf");
+        assert!(pdf.headers().get(header::CONTENT_SECURITY_POLICY).is_none());
+        assert_eq!(pdf.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

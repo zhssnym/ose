@@ -55,11 +55,18 @@ export function parseDoc(text) {
 
   // Line endings are recorded per line, not per file: a file with 99 CRLF lines and 8 LF ones
   // keeps all 107 as they are (M15). `eol` is only what a line the editor *adds* gets.
-  const eols = src.split('\n').map((l) => (l.endsWith('\r') ? '\r\n' : '\n'));
-  let crlf = 0;
-  for (const e of eols) if (e === '\r\n') crlf++;
-  const eol = crlf * 2 > eols.length ? '\r\n' : '\n';
-  const lf = src.replace(/\r\n/g, '\n');
+  //
+  // Only the terminators that are there are recorded, as source.js `textFormat` does. The last
+  // line of a file has none, and counting it as an LF gave a one-line CRLF file an LF majority
+  // and the last line an LF of its own the moment a paragraph was added under it. A lone `\r`
+  // ends a line too (CommonMark 2.1), so a file written with CRs keeps its CRs.
+  const eols = [];
+  const count = { '\n': 0, '\r\n': 0, '\r': 0 };
+  for (const m of src.matchAll(/\r\n|\r|\n/g)) { eols.push(m[0]); count[m[0]]++; }
+  let eol = '\n';
+  if (count['\r\n'] > count['\n'] && count['\r\n'] >= count['\r']) eol = '\r\n';
+  else if (count['\r'] > count['\n'] && count['\r'] > count['\r\n']) eol = '\r';
+  const lf = src.replace(/\r\n?/g, '\n');
   const lines = lf.split('\n');
   const endsWithNewline = /\n$/.test(lf);
 
@@ -118,7 +125,13 @@ export function composeDoc(doc, { title, body }) {
     // most those two. Everything past them is the body's own: a blank line at the top of the
     // body is an empty paragraph the user can see, reach and delete (space.js), so it is
     // written. Batch 12 trimmed it away here, which is what swallowed space at the top of a page.
-    out += doc.gap || (body.trim() ? '\n\n' : '\n');
+    //
+    // A page made with New file is `# stem\n`: its gap is the title's newline and nothing is
+    // under it. The first paragraph typed there is a block under a block, and one blank line
+    // separates two blocks, so it gets one. A file that already had its body directly under its
+    // title keeps its bytes.
+    const opened = doc.gap === '\n' && !doc.body.trim() && !!String(body).trim();
+    out += opened ? '\n\n' : doc.gap || (body.trim() ? '\n\n' : '\n');
   }
   out += body;
 
@@ -141,7 +154,7 @@ const withBom = (doc, out) => (doc.bom ? '\uFEFF' + out : out);
  */
 function restoreEols(out, doc) {
   const A = doc.lines;
-  if (!A || !doc.eols || !doc.eols.includes('\r\n')) return out;
+  if (!A || !doc.eols || doc.eols.every((e) => e === '\n')) return out;
   const B = out.split('\n');
   const m = Math.min(A.length, B.length);
   let p = 0;

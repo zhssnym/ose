@@ -12,19 +12,34 @@
     "ship": "npm run tauri:build && node scripts/ship.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "node -e \"import('node:child_process').then(({spawnSync})=>process.exit(spawnSync('npm',['exec','--','tauri','build',...(process.platform==='darwin'?['--bundles','app']:['--no-bundle'])],{stdio:'inherit',shell:true}).status??1))\""
+    "tauri:build": "node -e \"import('node:child_process').then(({spawnSync})=>process.exit(spawnSync('npm',['exec','--','tauri','build',...(process.platform==='darwin'?['--bundles','app']:['--no-bundle'])],{stdio:'inherit',shell:true}).status??1))\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check",
+    "lint:fix": "biome check --write"
   },
   "dependencies": {
     "@codemirror/language-data": "^6.5.2",
+    "@codemirror/merge": "^6.12.2",
     "@milkdown/crepe": "^7.22.1",
     "@milkdown/kit": "^7.22.1",
     "@tauri-apps/api": "^2.11.1",
     "dompurify": "^3.4.14",
     "marked": "^18.0.11",
-    "temml": "^0.13.5"
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "mdast-util-math": "^3.0.0",
+    "micromark-extension-gfm": "^3.0.0",
+    "micromark-extension-math": "^3.1.0",
+    "temml": "^0.13.5",
+    "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@tauri-apps/cli": "^2.11.4",
-    "vite": "^8.2.2"
+    "fast-check": "^4.10.2",
+    "happy-dom": "^20.14.5",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.2"
   }
 }

@@ -41,6 +41,11 @@ base64 = "0.22"
 # one inline script without allowing every other one (shell.rs). Pure Rust, and already in the
 # tree as a transitive dependency of tauri, so it is no extra download.
 sha2 = "0.10"
+# The `log` facade, so Tauri's and notify's own records reach the persistent log (lib.rs
+# `Records`) and notify's silent Windows unwatch becomes a watcher restart (H9). Already in the
+# tree under tauri; naming it is no extra download. The rotation is ours (lib.rs), which is why
+# tauri-plugin-log is not here.
+log = "0.4"
 
 # Printing is WebView2's own (print.rs): `ICoreWebView2_7::PrintToPdf` writes the PDF and
 # `ICoreWebView2_16::ShowPrintUI` opens the system dialog. Both crates are already in the tree

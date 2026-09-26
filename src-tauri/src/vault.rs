@@ -184,32 +184,43 @@ fn is_remembered(app: &tauri::AppHandle) -> bool {
 
 // ---- choosing a vault ------------------------------------------------------
 
-/// Makes `dir` the open vault: validated, remembered, set in the state, watched. Everything
-/// after the picker itself, so the picker stays the only platform-specific line.
+/// Makes `dir` the open vault: validated, remembered, set in the state, watched, and the epoch
+/// moved on (docs/HOST.md "Epoch"), so a late write from a page of the previous vault is
+/// refused instead of landing here. Everything after the picker itself, so the picker stays
+/// the only platform-specific line.
 pub fn adopt(ctx: &Ctx, dir: &Path, source: Source) -> Result<Value, String> {
     let full = normalize(dir);
     if !full.is_dir() {
-        return Err(format!("not a folder: {}", full.display()));
+        return Err(crate::coded("not_found", format!("not a folder: {}", full.display())));
     }
-    remember(ctx.app, &full)?;
-    ctx.st.set_root(full.clone(), source);
+    let before = ctx.st.root();
+    remember(ctx.app, &full).map_err(|e| crate::coded("io", e))?;
+    let epoch = ctx.st.adopt_root(full.clone(), source);
     ctx.st.watch(ctx.app, full.clone());
+    // Whatever the previous vault's plugins were running belongs to a world that is gone.
+    if before.as_deref().map(|b| !crate::vaults::same(b, &full)).unwrap_or(false) {
+        crate::run::kill_all(ctx.st);
+    }
     crate::log_line(
         ctx.st,
-        &format!("vault root: {} (from {})", full.display(), source.as_str()),
+        &format!("vault root: {} (from {}, epoch {epoch})", full.display(), source.as_str()),
     );
-    Ok(root_info(&full))
+    let mut info = root_info(&full);
+    info["epoch"] = json!(epoch);
+    Ok(info)
 }
 
-/// `pickVault`: the native folder picker (supplied by the binary, see `crate::FolderPicker`),
-/// opened in the executable's folder. `null` on cancel, `{root, name}` once the choice is
-/// adopted. The picker calls back from a thread of its own; awaiting a channel keeps the async
-/// runtime free and never blocks the main thread.
-pub async fn pick_vault(ctx: &Ctx<'_>) -> Result<Value, String> {
+/// `pickVault(opts)`: the native folder picker (supplied by the binary, see
+/// `crate::FolderPicker`), opened in the executable's folder. `null` on cancel. With `adopt`
+/// (the default) the choice is adopted and answered as `{root, name, epoch}`; without, it is
+/// only chosen and answered as `{root, name}`, normalised and absolute, so the page can leave
+/// the old vault before it opens the new one. The picker calls back from a thread of its own;
+/// awaiting a channel keeps the async runtime free and never blocks the main thread.
+pub async fn pick_vault(ctx: &Ctx<'_>, adopt_it: bool) -> Result<Value, String> {
     let picker = ctx
         .st
         .picker
-        .ok_or_else(|| "this build has no folder picker".to_string())?;
+        .ok_or_else(|| crate::coded("io", "this build has no folder picker"))?;
     let start = exe_dir().filter(|d| d.is_dir());
 
     let (tx, mut rx) = tauri::async_runtime::channel::<Option<PathBuf>>(1);
@@ -223,7 +234,14 @@ pub async fn pick_vault(ctx: &Ctx<'_>) -> Result<Value, String> {
 
     match rx.recv().await.flatten() {
         None => Ok(Value::Null),
-        Some(path) => adopt(ctx, &path, Source::Picked),
+        Some(path) if adopt_it => adopt(ctx, &path, Source::Picked),
+        Some(path) => {
+            let full = normalize(&path);
+            if !full.is_dir() {
+                return Err(crate::coded("not_found", format!("not a folder: {}", full.display())));
+            }
+            Ok(root_info(&full))
+        }
     }
 }
 
@@ -236,12 +254,14 @@ pub fn vault_info(ctx: &Ctx) -> Value {
             "name": root_name(&r.path),
             "remembered": is_remembered(ctx.app),
             "source": r.source.as_str(),
+            "epoch": ctx.st.epoch(),
         }),
         None => json!({
             "root": null,
             "name": null,
             "remembered": is_remembered(ctx.app),
             "source": null,
+            "epoch": ctx.st.epoch(),
         }),
     }
 }
@@ -289,7 +309,7 @@ pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
             "" | "." => continue,
             ".." => {
                 if depth == 0 {
-                    return Err(format!("path escapes the vault: {rel}"));
+                    return Err(crate::coded("escapes_vault", format!("path escapes the vault: {rel}")));
                 }
                 out.pop();
                 depth -= 1;
@@ -298,10 +318,10 @@ pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
                 // A segment holding a drive letter or a NUL would rewrite the path instead of
                 // extending it, so it is rejected outright.
                 if s.contains(':') {
-                    return Err(format!("path must be vault-relative: {rel}"));
+                    return Err(crate::coded("escapes_vault", format!("path must be vault-relative: {rel}")));
                 }
                 if s.contains('\0') {
-                    return Err(format!("path escapes the vault: {rel}"));
+                    return Err(crate::coded("escapes_vault", format!("path escapes the vault: {rel}")));
                 }
                 out.push(s);
                 depth += 1;
@@ -524,29 +544,139 @@ pub fn exists(root: &Path, rel: &str) -> Result<bool, String> {
 /// code unreachable and lost the mark on the first edit.
 pub fn read_text(root: &Path, rel: &str) -> Result<String, String> {
     let full = resolve(root, rel)?;
-    let bytes = fs::read(&full).map_err(|e| format!("{rel}: {e}"))?;
-    String::from_utf8(bytes).map_err(|_| format!("not valid UTF-8: {rel}"))
+    let bytes = fs::read(&full).map_err(|e| crate::io_error(rel, &e))?;
+    String::from_utf8(bytes).map_err(|_| crate::coded("not_utf8", format!("not valid UTF-8: {rel}")))
+}
+
+// ---- the hash --------------------------------------------------------------
+
+/// FNV-1a, 64 bits, over the file's raw bytes, as 16 lowercase hex digits (docs/HOST.md
+/// "Hash"). It is how the page says "the text I started from" without sending it back: the page
+/// never computes one, it carries what `readFile` and `saveFile` answered and compares by
+/// equality. Not a defence against anyone, only a fingerprint of a file's bytes.
+pub fn hash(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 // ---- writes ----------------------------------------------------------------
 
-fn ensure_parent(full: &Path) -> Result<(), String> {
+/// The vault folder must still be there before anything is written into it. A root that was
+/// renamed, moved or unplugged is `[no_vault]`, never recreated: `create_dir_all` under a lost
+/// root would build an empty ghost vault at the old path, and the page written into it would be
+/// the only thing there while the real vault is elsewhere.
+pub(crate) fn require_vault(root: &Path) -> Result<(), String> {
+    if root.is_dir() {
+        Ok(())
+    } else {
+        Err(crate::coded("no_vault", format!("the vault folder is gone: {}", root.display())))
+    }
+}
+
+/// The folders above `full`, created when missing, inside a vault folder that still exists.
+pub(crate) fn ensure_parent(root: &Path, full: &Path) -> Result<(), String> {
+    require_vault(root)?;
     if full.file_name().is_none() {
-        return Err("no file name to write".to_string());
+        return Err(crate::coded("bad_arg", "no file name to write"));
     }
     if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| crate::coded("io", format!("{}: {e}", parent.display())))?;
     }
     Ok(())
 }
 
-/// Write `bytes` to `full` without ever leaving the target half-written (S25): a temp file
-/// beside it, then a rename over it, the way `state.rs write_locked` does. A rename within one
-/// folder is atomic on NTFS, APFS and ext4, so a crash mid-write loses the new text, never the
-/// old file. The temp name carries the process id and a counter so two writes to one path (two
-/// windows, a save racing a link rewrite) cannot use the same scratch file; a failed write
-/// takes its temp file with it.
-fn write_atomic(full: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// How long a rename that the system refuses for a moment is tried again: about two seconds,
+/// in steps of 10, 20, 40 … ms (C3). That is the time an antivirus scan, the search indexer or
+/// a sync client takes to let go of a file it opened the moment it appeared.
+pub(crate) const RENAME_BUDGET_MS: u64 = 2000;
+
+/// Why `write_atomic` failed, and where the new bytes are when they survived it.
+#[derive(Debug)]
+pub struct WriteFailure {
+    pub error: std::io::Error,
+    /// The file holding the new bytes after a rename that never went through: a visible
+    /// `<stem>.unsaved-<yyyymmdd-hhmmss>.<ext>` beside the target, or the temp file itself when
+    /// even that rename was refused. `None` when the bytes never reached the disk.
+    pub kept: Option<PathBuf>,
+}
+
+impl WriteFailure {
+    /// `[write_failed] <what>: <os error>; your text is in <where>`. `root` turns the kept
+    /// file's path into a vault path when it is inside the vault.
+    pub fn message(&self, what: &str, root: Option<&Path>) -> String {
+        match &self.kept {
+            Some(p) => {
+                let at = match root {
+                    Some(r) if p.starts_with(r) => relative(r, p),
+                    _ => p.display().to_string(),
+                };
+                crate::coded("write_failed", format!("{what}: {}; your text is in {at}", self.error))
+            }
+            None => crate::coded("write_failed", format!("{what}: {}", self.error)),
+        }
+    }
+}
+
+/// Write `bytes` to `full` so that the target is always either the old bytes or the new ones
+/// (S25, C3), and the new ones are never thrown away:
+///
+/// 1. a temp file beside the target (`.<name>.<pid>.<n>.tmp`, the pid and a counter so two
+///    writes to one path cannot share it), written and `sync_all`ed;
+/// 2. `rename` onto the target. There is no delete first: `std::fs::rename` replaces an
+///    existing file on Windows too (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`). The old
+///    code deleted the note first "because Windows refuses", which was false, and when the
+///    rename then failed both the old and the new text were gone;
+/// 3. a rename refused with a sharing violation or access denied (Windows errors 32 and 5, what
+///    a scanner or a sync client holding the fresh temp file causes) is tried again with
+///    backoff for about two seconds. A target with the read-only attribute is refused for good
+///    with the same error 5, so it fails at once (`the file is read-only`) and nothing is set
+///    aside: the caller still holds the bytes;
+/// 4. once the bytes are on disk they are never deleted. A rename that still fails moves the
+///    temp file to a visible `<stem>.unsaved-<stamp>.<ext>` beside the target (or leaves it
+///    where it is when even that is refused), and the failure says where. One set-aside per
+///    target per run: the next failure replaces the copy this process made, so a save retried
+///    for an hour leaves one file, not one a minute;
+/// 5. on unix the folder is fsynced after the rename, so the new name survives a power cut.
+///
+/// A temp file whose own write failed (a full disk) is removed: it holds half the new bytes and
+/// the target was never touched.
+pub fn write_atomic(full: &Path, bytes: &[u8]) -> Result<(), WriteFailure> {
+    write_atomic_with(full, bytes, RENAME_BUDGET_MS, Aside::Visible, &|_| Ok(()))
+}
+
+/// `write_atomic` for a file the app owns (a draft, a version, `.ose/state.json`): the bytes are
+/// still in memory and the file is the app's bookkeeping, so a rename that never goes through
+/// removes the temp file instead of setting a copy aside, after `budget_ms` of retries.
+pub fn write_atomic_owned(full: &Path, bytes: &[u8], budget_ms: u64) -> Result<(), WriteFailure> {
+    write_atomic_with(full, bytes, budget_ms, Aside::Discard, &|_| Ok(()))
+}
+
+/// What a rename that never goes through does with the temp file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Aside {
+    /// set it aside where a person sees it (a vault file: those bytes may exist nowhere else)
+    Visible,
+    /// remove it (a file the app owns, whose bytes the caller still has)
+    Discard,
+}
+
+/// `write_atomic` with the retry budget, what a failure does with the temp file, and a check
+/// called on the temp file just before the first rename. The check answering `Err` stops the
+/// write: the temp file is removed, the target is untouched, and the failure carries that
+/// error with nothing kept. `saveFile` uses it to look at the target once more, so an outside
+/// write made while the new bytes were being synced is never replaced (the tests also use it to
+/// hold the temp file open the way a scanner does).
+pub(crate) fn write_atomic_with(
+    full: &Path,
+    bytes: &[u8],
+    budget_ms: u64,
+    aside: Aside,
+    before_rename: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> Result<(), WriteFailure> {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let n = SEQ.fetch_add(1, AtomicOrdering::Relaxed);
@@ -560,49 +690,161 @@ fn write_atomic(full: &Path, bytes: &[u8]) -> std::io::Result<()> {
         f.write_all(bytes)?;
         f.sync_all()
     })();
-    if let Err(e) = write {
+    if let Err(error) = write {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(WriteFailure { error, kept: None });
     }
-    // Windows refuses a rename onto an existing file, so the target goes first. Losing the
-    // race here means losing the old file, which is why the new bytes are already on disk.
-    #[cfg(windows)]
-    if full.exists() {
-        let _ = fs::remove_file(full);
-    }
-    if let Err(e) = fs::rename(&tmp, full) {
+
+    if let Err(error) = before_rename(&tmp) {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(WriteFailure { error, kept: None });
     }
-    Ok(())
+
+    let mut waited = 0u64;
+    let mut step = 10u64;
+    loop {
+        match fs::rename(&tmp, full) {
+            Ok(()) => {
+                sync_dir(full);
+                return Ok(());
+            }
+            Err(_) if read_only(full) => {
+                let _ = fs::remove_file(&tmp);
+                let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the file is read-only");
+                return Err(WriteFailure { error, kept: None });
+            }
+            Err(e) if transient(&e) && waited < budget_ms => {
+                let pause = step.min(budget_ms - waited);
+                std::thread::sleep(std::time::Duration::from_millis(pause));
+                waited += pause;
+                step = (step * 2).min(640);
+            }
+            Err(error) if aside == Aside::Discard => {
+                let _ = fs::remove_file(&tmp);
+                return Err(WriteFailure { error, kept: None });
+            }
+            Err(error) => {
+                let kept = keep_unsaved(&tmp, full);
+                return Err(WriteFailure { error, kept: Some(kept) });
+            }
+        }
+    }
 }
+
+/// A target whose read-only attribute makes every rename over it fail, for good. Windows only:
+/// elsewhere a rename over a file is the folder's business, not the file's mode.
+fn read_only(full: &Path) -> bool {
+    cfg!(windows) && fs::metadata(full).map(|m| m.permissions().readonly()).unwrap_or(false)
+}
+
+/// The two refusals that pass: a sharing violation (32), access denied (5), and the lock
+/// violation (33) a byte-range lock gives, on Windows; a busy file elsewhere.
+fn transient(e: &std::io::Error) -> bool {
+    match e.raw_os_error() {
+        Some(code) if cfg!(windows) => matches!(code, 5 | 32 | 33),
+        Some(code) => code == 16, // EBUSY
+        None => false,
+    }
+}
+
+type AsideMap = std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>;
+
+/// The set-aside this process made for each target, so the next failure of the same target
+/// replaces it instead of adding one more.
+fn asides() -> &'static AsideMap {
+    static ASIDES: std::sync::OnceLock<AsideMap> = std::sync::OnceLock::new();
+    ASIDES.get_or_init(Default::default)
+}
+
+/// The new bytes, out of the hidden temp file and into a name a person sees in the tree:
+/// `<stem>.unsaved-<yyyymmdd-hhmmss>.<ext>` beside the target (`-2`, `-3` … when taken). The
+/// copy this process already set aside for the same target is replaced: the later buffer
+/// holds the earlier one's typing and more. A copy from another run is never touched. When the
+/// rename is refused too, the temp file stays where it is. Answers where the bytes are.
+fn keep_unsaved(tmp: &Path, full: &Path) -> PathBuf {
+    let mut made = asides().lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(earlier) = made.get(full).cloned() {
+        if earlier.is_file() && fs::rename(tmp, &earlier).is_ok() {
+            return earlier;
+        }
+    }
+    let name = full
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".into());
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
+        _ => (name.clone(), String::new()),
+    };
+    let stamp = unsaved_stamp();
+    for k in 1..100 {
+        let tag = if k == 1 { String::new() } else { format!("-{k}") };
+        let candidate = full.with_file_name(format!("{stem}.unsaved-{stamp}{tag}{ext}"));
+        if candidate.exists() {
+            continue;
+        }
+        return match fs::rename(tmp, &candidate) {
+            Ok(()) => {
+                made.insert(full.to_path_buf(), candidate.clone());
+                candidate
+            }
+            Err(_) => tmp.to_path_buf(),
+        };
+    }
+    tmp.to_path_buf()
+}
+
+/// `20260925-101500`, UTC: the time an unsaved copy was set aside.
+fn unsaved_stamp() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let (y, m, d) = crate::civil_from_days(days);
+    format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", rem / 3600, (rem % 3600) / 60, rem % 60)
+}
+
+/// The rename is durable only once the folder's own entry is on disk: fsync the folder on
+/// unix. Windows has no such call for a folder, and NTFS journals the rename itself.
+#[cfg(unix)]
+fn sync_dir(full: &Path) {
+    if let Some(parent) = full.parent() {
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_full: &Path) {}
 
 /// UTF-8, the bytes exactly as given: nothing is added and nothing is stripped, so a text that
 /// starts with a byte-order mark is written back with it and one that does not never gains one.
 pub fn write_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
-    ensure_parent(&full)?;
-    write_atomic(&full, text.as_bytes()).map_err(|e| format!("{rel}: {e}"))
+    ensure_parent(root, &full)?;
+    write_atomic(&full, text.as_bytes()).map_err(|f| f.message(rel, Some(root)))
 }
 
 pub fn append_text(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
-    ensure_parent(&full)?;
+    ensure_parent(root, &full)?;
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&full)
-        .map_err(|e| format!("{rel}: {e}"))?;
-    f.write_all(text.as_bytes()).map_err(|e| format!("{rel}: {e}"))
+        .map_err(|e| crate::io_error(rel, &e))?;
+    f.write_all(text.as_bytes()).map_err(|e| crate::io_error(rel, &e))
 }
 
 pub fn write_binary(root: &Path, rel: &str, b64: &str) -> Result<(), String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64.trim())
-        .map_err(|e| format!("not base64: {e}"))?;
+        .map_err(|e| crate::coded("bad_arg", format!("not base64: {e}")))?;
     let full = resolve(root, rel)?;
-    ensure_parent(&full)?;
-    write_atomic(&full, &bytes).map_err(|e| format!("{rel}: {e}"))
+    ensure_parent(root, &full)?;
+    write_atomic(&full, &bytes).map_err(|f| f.message(rel, Some(root)))
 }
 
 /// The file's bytes as base64 (`ose.files.readBinary`). The counterpart of `write_binary`,
@@ -610,13 +852,14 @@ pub fn write_binary(root: &Path, rel: &str, b64: &str) -> Result<(), String> {
 /// `vault` origin, which is for the DOM rather than for code.
 pub fn read_binary(root: &Path, rel: &str) -> Result<String, String> {
     let full = resolve(root, rel)?;
-    let bytes = fs::read(&full).map_err(|e| format!("{rel}: {e}"))?;
+    let bytes = fs::read(&full).map_err(|e| crate::io_error(rel, &e))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 pub fn mkdir(root: &Path, rel: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
-    fs::create_dir_all(&full).map_err(|e| format!("{rel}: {e}"))
+    require_vault(root)?;
+    fs::create_dir_all(&full).map_err(|e| crate::io_error(rel, &e))
 }
 
 /// Never overwrites: the .NET host moved with `overwrite: false` and the UI relies on that
@@ -630,39 +873,39 @@ pub fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     let src = resolve(root, from)?;
     let dst = resolve(root, to)?;
     if !src.exists() {
-        return Err(format!("nothing to rename: {from}"));
+        return Err(crate::coded("not_found", format!("nothing to rename: {from}")));
     }
     if src == dst {
         return Ok(());
     }
     if case_only(&src, &dst) {
-        ensure_parent(&dst)?;
+        ensure_parent(root, &dst)?;
         let name = dst
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "item".into());
         let via = src.with_file_name(format!(".{name}.{}.case", std::process::id()));
         let _ = fs::remove_file(&via);
-        fs::rename(&src, &via).map_err(|e| format!("{from} -> {to}: {e}"))?;
+        fs::rename(&src, &via).map_err(|e| crate::coded("io", format!("{from} -> {to}: {e}")))?;
         return match fs::rename(&via, &dst) {
             Ok(()) => Ok(()),
             Err(e) => {
                 let _ = fs::rename(&via, &src);
-                Err(format!("{from} -> {to}: {e}"))
+                Err(crate::coded("io", format!("{from} -> {to}: {e}")))
             }
         };
     }
     if dst.exists() {
-        return Err(format!("target already exists: {to}"));
+        return Err(crate::coded("exists", format!("target already exists: {to}")));
     }
-    ensure_parent(&dst)?;
-    fs::rename(&src, &dst).map_err(|e| format!("{from} -> {to}: {e}"))
+    ensure_parent(root, &dst)?;
+    fs::rename(&src, &dst).map_err(|e| crate::coded("io", format!("{from} -> {to}: {e}")))
 }
 
 /// Two vault paths that differ only in letter case — the same file on Windows and on a
 /// default macOS volume, a different one on Linux (where the plain rename does the right
 /// thing anyway, and the two-step is merely a longer way to the same result).
-fn case_only(a: &Path, b: &Path) -> bool {
+pub(crate) fn case_only(a: &Path, b: &Path) -> bool {
     let (a, b) = (a.to_string_lossy(), b.to_string_lossy());
     a != b && a.to_lowercase() == b.to_lowercase()
 }
@@ -671,10 +914,10 @@ fn case_only(a: &Path, b: &Path) -> bool {
 pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
     if full == root {
-        return Err("refusing to trash the vault root".to_string());
+        return Err(crate::coded("bad_arg", "refusing to trash the vault root"));
     }
     if !full.exists() {
-        return Err(format!("nothing to trash: {rel}"));
+        return Err(crate::coded("not_found", format!("nothing to trash: {rel}")));
     }
     // The Recycle Bin call goes through COM and wants a thread of its own (an apartment already
     // initialised differently makes the shell abort the operation). If the shell still refuses,
@@ -695,10 +938,10 @@ pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
 pub fn trash_into_vault(root: &Path, rel: &str) -> Result<(), String> {
     let full = resolve(root, rel)?;
     if full == root {
-        return Err("refusing to trash the vault root".to_string());
+        return Err(crate::coded("bad_arg", "refusing to trash the vault root"));
     }
     if !full.exists() {
-        return Err(format!("nothing to trash: {rel}"));
+        return Err(crate::coded("not_found", format!("nothing to trash: {rel}")));
     }
     into_vault_bin(root, rel, &full, "")
 }
@@ -1009,20 +1252,33 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
     // The three that answer without a vault; everything else reads the root at call time.
     match cmd {
         "rootInfo" => {
-            return Some(Ok(match ctx.st.root() {
+            let mut info = match ctx.st.root() {
                 Some(root) => root_info(&root),
                 None => json!({ "root": null, "name": null }),
-            }))
+            };
+            info["epoch"] = json!(ctx.st.epoch());
+            return Some(Ok(info));
         }
         "vaultInfo" => return Some(Ok(vault_info(ctx))),
-        "forgetVault" => return Some(forget(ctx.app).map(|_| Value::Null)),
+        "forgetVault" => return Some(forget(ctx.app).map(|_| Value::Null).map_err(crate::with_code)),
         _ => {}
     }
-    let root = match ctx.st.require_root() {
+    // A mutating command that names an epoch other than the open one is refused here, before
+    // it touches anything (`[stale_vault]`).
+    let root = match crate::root_for(ctx.st, cmd, args) {
         Ok(r) => r,
         Err(e) => return Some(Err(e)),
     };
-    Some(dispatch(&root, cmd, args))
+    let r = dispatch(&root, cmd, args);
+    // A page's drafts follow it to its new name, as its history already did in `dispatch`.
+    if cmd == "rename" && r.is_ok() {
+        if let (Ok(from), Ok(to)) = (arg_str(args, 0), arg_str(args, 1)) {
+            if let Err(e) = crate::drafts::rekey(ctx.st, &root, &from, &to) {
+                crate::log_at(ctx.st, crate::Level::Warn, &format!("drafts: {from} -> {to}: {e}"));
+            }
+        }
+    }
+    Some(r)
 }
 
 /// The synchronous half of `handle`, for a caller that already has the root and wants to run
@@ -1053,7 +1309,13 @@ pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, 
             ok
         }
         "rename" => {
-            rename(root, &arg_str(args, 0)?, &arg_str(args, 1)?)?;
+            let (from, to) = (arg_str(args, 0)?, arg_str(args, 1)?);
+            rename(root, &from, &to)?;
+            // The history moves with the file, or with every file of a folder (H10). A history
+            // that cannot move is not a failed rename: the file is where it was asked to be.
+            if let Err(e) = crate::versions::move_history(root, &from, &to) {
+                eprintln!("history: {from} -> {to}: {e}");
+            }
             ok
         }
         "trash" => {
@@ -1332,6 +1594,153 @@ mod tests {
         assert!(leftovers.is_empty(), "left behind: {leftovers:?}");
         write_binary(root, "notes/x.bin", "aGVsbG8=").unwrap();
         assert_eq!(fs::read(root.join("notes/x.bin")).unwrap(), b"hello");
+    }
+
+    /// C3: a scanner or a sync client holding the fresh temp file open (share-read only, the
+    /// way they do) makes the rename fail. The old file must survive untouched, and the new
+    /// bytes must be somewhere the failure names — never deleted.
+    #[cfg(windows)]
+    #[test]
+    fn a_held_temp_file_loses_nothing() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::sync::Mutex;
+        const FILE_SHARE_READ: u32 = 1;
+        let t = Tmp::new("held");
+        let root = &t.0;
+        let full = root.join("page.md");
+        fs::write(&full, "old text\n").unwrap();
+
+        let held: Mutex<Option<fs::File>> = Mutex::new(None);
+        let r = write_atomic_with(&full, b"new text\n", 100, Aside::Visible, &|tmp| {
+            let f = fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(tmp).unwrap();
+            *held.lock().unwrap() = Some(f);
+            Ok(())
+        });
+        let failure = r.expect_err("a rename over a held temp file cannot succeed");
+        assert_eq!(fs::read_to_string(&full).unwrap(), "old text\n", "the old file survives");
+        let kept = failure.kept.clone().expect("the new bytes are kept");
+        let message = failure.message("page.md", Some(root));
+        assert!(message.starts_with("[write_failed] page.md: "), "{message}");
+        assert!(message.contains("your text is in "), "{message}");
+        held.lock().unwrap().take();
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "new text\n", "the new bytes are recoverable");
+    }
+
+    /// The same scanner letting go within the retry budget: the save goes through.
+    #[cfg(windows)]
+    #[test]
+    fn a_briefly_held_temp_file_is_waited_for() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = Tmp::new("brief");
+        let full = t.0.join("page.md");
+        fs::write(&full, "old\n").unwrap();
+        write_atomic_with(&full, b"new\n", 2000, Aside::Visible, &|tmp| {
+            let f = fs::OpenOptions::new().read(true).share_mode(1).open(tmp).unwrap();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                drop(f);
+            });
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fs::read_to_string(&full).unwrap(), "new\n");
+        let names: Vec<String> = fs::read_dir(&t.0)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["page.md".to_string()], "no temp file left behind");
+    }
+
+    /// The target itself locked (an editor holding it open without share-delete): the new bytes
+    /// land in a visible `<stem>.unsaved-<stamp>.<ext>` beside it, and the old file is intact.
+    #[cfg(windows)]
+    #[test]
+    fn a_locked_target_sets_the_new_bytes_aside_where_they_can_be_seen() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = Tmp::new("locked");
+        let root = &t.0;
+        let full = root.join("page.md");
+        fs::write(&full, "old\n").unwrap();
+        let lock = fs::OpenOptions::new().read(true).share_mode(1).open(&full).unwrap();
+        let failure = write_atomic_with(&full, b"new\n", 50, Aside::Visible, &|_| Ok(())).unwrap_err();
+        drop(lock);
+        assert_eq!(fs::read_to_string(&full).unwrap(), "old\n");
+        let kept = failure.kept.clone().unwrap();
+        let name = kept.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("page.unsaved-") && name.ends_with(".md"), "{name}");
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "new\n");
+        let message = failure.message("page.md", Some(root));
+        assert!(message.ends_with(&format!("your text is in {name}")), "{message}");
+
+        // The same target failing again replaces this run's copy instead of adding one.
+        let lock = fs::OpenOptions::new().read(true).share_mode(1).open(&full).unwrap();
+        let again = write_atomic_with(&full, b"newer\n", 50, Aside::Visible, &|_| Ok(())).unwrap_err();
+        drop(lock);
+        assert_eq!(again.kept.as_deref(), Some(kept.as_path()), "one set-aside per target");
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "newer\n");
+        let count = fs::read_dir(root).unwrap().flatten().count();
+        assert_eq!(count, 2, "the page and one set-aside, nothing else");
+    }
+
+    /// A read-only target refuses every rename for good: the write fails at once, sets nothing
+    /// aside and leaves no temp file.
+    #[cfg(windows)]
+    #[test]
+    #[allow(clippy::permissions_set_readonly_false)]
+    fn a_read_only_target_fails_at_once_and_sets_nothing_aside() {
+        let t = Tmp::new("readonly");
+        let full = t.0.join("page.md");
+        fs::write(&full, "old\n").unwrap();
+        let mut perms = fs::metadata(&full).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&full, perms.clone()).unwrap();
+        let started = std::time::Instant::now();
+        let failure = write_atomic(&full, b"new\n").unwrap_err();
+        assert!(started.elapsed() < std::time::Duration::from_millis(1000), "no retry budget spent");
+        assert!(failure.kept.is_none());
+        assert_eq!(failure.message("page.md", Some(&t.0)), "[write_failed] page.md: the file is read-only");
+        let count = fs::read_dir(&t.0).unwrap().flatten().count();
+        assert_eq!(count, 1, "no set-aside and no temp file");
+        perms.set_readonly(false);
+        fs::set_permissions(&full, perms).unwrap();
+        assert_eq!(fs::read_to_string(&full).unwrap(), "old\n");
+    }
+
+    /// The check before the rename can stop the write: the target is untouched, the temp file
+    /// is gone, and an app-owned write that fails leaves nothing behind either.
+    #[test]
+    fn a_refusing_check_or_an_owned_failure_leaves_nothing_behind() {
+        let t = Tmp::new("check");
+        let full = t.0.join("page.md");
+        fs::write(&full, "old\n").unwrap();
+        let failure =
+            write_atomic_with(&full, b"new\n", 50, Aside::Visible, &|_| Err(std::io::Error::other("changed"))).unwrap_err();
+        assert!(failure.kept.is_none());
+        assert_eq!(fs::read_to_string(&full).unwrap(), "old\n");
+        assert_eq!(fs::read_dir(&t.0).unwrap().flatten().count(), 1);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let lock = fs::OpenOptions::new().read(true).share_mode(1).open(&full).unwrap();
+            let failure = write_atomic_owned(&full, b"new\n", 50).unwrap_err();
+            drop(lock);
+            assert!(failure.kept.is_none(), "an app-owned file sets nothing aside");
+            assert_eq!(fs::read_dir(&t.0).unwrap().flatten().count(), 1, "and leaves no temp file");
+        }
+    }
+
+    /// H10: a rename through the app moves the file's history with it.
+    #[test]
+    fn a_rename_moves_the_history() {
+        let t = Tmp::new("rename-history");
+        let root = &t.0;
+        write_text(root, "a.md", "# a\n").unwrap();
+        crate::versions::keep(root, "a.md", b"# before\n", true, crate::versions::Reason::Save).unwrap();
+        dispatch(root, "rename", &[json!("a.md"), json!("b.md")]).unwrap();
+        assert_eq!(crate::versions::list(root, "a.md").unwrap(), json!([]));
+        assert_eq!(crate::versions::list(root, "b.md").unwrap().as_array().unwrap().len(), 1);
     }
 
     /// F14: the mark is a byte of the file. `read_text` hands it to the editor, `write_text`

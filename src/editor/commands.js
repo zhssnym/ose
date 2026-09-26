@@ -340,10 +340,12 @@ export function registerCommands(editorApi) {
   commands.register(def('block.select', 'Select block', 'block', () => { const v = focused(); if (v) selectBlock(v); }));
   commands.register(def('block.turn-into', 'Turn into…', 'block', () => { const v = focused(); if (v) turnIntoMenu(v); }));
 
+  // Ctrl+W. The router asks the page whether it may be left (C1): a dirty page saves first,
+  // and one that cannot be saved stays, with its banner. The promise answers whether it went.
   commands.register({
     id: 'page.close', title: 'Close page', group: 'page',
     when: () => !!api.getPath(),
-    run: () => void closePage(),
+    run: () => closePage(),
   });
   commands.register({
     id: 'page.replace', title: 'Find and replace', group: 'page',
@@ -352,10 +354,18 @@ export function registerCommands(editorApi) {
   });
 }
 
-/** Ctrl+W: the page is saved through the normal path, then the start surface takes over. */
+/**
+ * Ctrl+W: the start surface takes over, if the page lets itself be left. The save is the
+ * router's question to the page (`canLeave`), not a second one asked here: answers false when
+ * the page refused and is still on screen.
+ */
 async function closePage() {
-  try { await api.saveNow({ explicit: true }); } catch (e) { console.error('[editor] close', e); }
-  clearRoute();
+  try {
+    return (await clearRoute()) !== false;
+  } catch (e) {
+    console.error('[editor] close', e);
+    return false;
+  }
 }
 
 /**

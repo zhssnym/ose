@@ -33,6 +33,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -41,9 +43,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The save path, the serializer, the router and the dev bridge (vitest, H11). A failing
+      # test stops the build: nothing that loses text is published.
+      - name: Test the page
+        run: npm test
+
       # dist-kernel/: the four bundles, the two stylesheets and shell/, which the exe embeds.
       - name: Build the kernel bundles and the shell
         run: npm run build
+
+      # The host's own tests: the atomic write with a held temp file, saveFile, drafts, the
+      # version tiers, the epoch. They need dist-kernel/, which `generate_context!` embeds.
+      - name: Test the host
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # Warnings are reported, not fatal, until the existing ones are gone.
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
       - name: Check the build
         shell: pwsh
@@ -100,6 +116,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -108,8 +126,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test the page
+        run: npm test
+
       - name: Build the kernel bundles and the shell
         run: npm run build
+
+      - name: Test the host
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
       - name: Stamp the build
         run: |

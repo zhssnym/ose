@@ -8,8 +8,12 @@
 // page editor through `./pagehost.js` so that `ose:editor` stays a separate bundle.
 
 import { bus, store, commands, views, tiles, status, uid, debounce, esc } from './registry.js';
-import { bridge } from './bridge/index.js';
+import { bridge, setEpoch, currentEpoch, HostError } from './bridge/index.js';
 import * as router from './router.js';
+import { leaveWindow, stayWindow, onLeave, abandonWindow } from './leave.js';
+import { logLine, forwardErrors } from './log.js';
+import * as fileops from './fileops.js';
+import * as names from './names.js';
 import * as linksLib from './links.js';
 import { linkTarget, relativeHref } from './href.js';
 import * as locate from './locate.js';
@@ -23,7 +27,7 @@ import { schedule, cancelAll as cancelSchedules } from './schedule.js';
 import * as plugins from './plugins.js';
 import { setPageHost, setPageList, pageList } from './pagehost.js';
 import * as focusLib from './focus.js';
-import { toast } from './dialog.js';
+import { toast, confirm } from './dialog.js';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
@@ -85,6 +89,32 @@ function toBase64(v) {
 
 let vaultInfo = { root: null, name: null };
 
+/**
+ * The vault the host has open, and its epoch (docs/HOST.md "Epoch"). Read once at boot; after
+ * that the epoch only moves forward with a reload, on purpose: a write that a page started
+ * against the old vault must be refused by the host (`[stale_vault]`), not land in the new one.
+ * The one exception is a window that had no vault at all (the first run's chooser): nothing
+ * was open to protect, so the adopted vault's epoch is taken at once.
+ */
+async function readRoot() {
+  const info = await bridge.rootInfo();
+  vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
+  if (info && Number.isFinite(info.epoch)) setEpoch(info.epoch);
+  store.set('root', vaultInfo);
+  return vaultInfo;
+}
+
+/** After a pick or an open: take the new vault's epoch only when none was open (see above). */
+async function adopted(answer) {
+  if (answer && answer.root && !vaultInfo.root) {
+    try { await readRoot(); } catch (e) { console.warn('[kernel] rootInfo', e); }
+  }
+  return answer;
+}
+
+// Every error nobody caught goes to the host log (M54), from the first line the kernel runs.
+forwardErrors();
+
 const ready = (async () => {
   await bridge.ready;
   // The host's own description of itself, and the vault it resolved. Neither throws the boot:
@@ -103,12 +133,81 @@ const ready = (async () => {
   } catch (e) { console.warn('[kernel] platform', e); }
   try { await loadState(); } catch (e) { console.warn('[kernel] state', e); }
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[kernel] focus', e); }
-  try {
-    const info = await bridge.rootInfo();
-    vaultInfo = { root: (info && info.root) || null, name: (info && info.name) || null };
-    store.set('root', vaultInfo);
-  } catch (e) { console.warn('[kernel] rootInfo', e); }
+  try { await readRoot(); } catch (e) { console.warn('[kernel] rootInfo', e); }
 })();
+
+/* ------------------------------------------------------------------------ leaving (C5) */
+
+// The window's close button goes through the same gate as a reload and a change of vault
+// (./leave.js). The Tauri adapter awaits what this answers, and a `false` keeps the window.
+// The router's own `closing` handler (unmount the view, flush the state file) stays beside it.
+bridge.on('window', (d) => (d && d.closing ? leaveWindow('close') : undefined));
+
+let abandoning = false;
+
+commands.register({
+  id: 'app.close-anyway', title: 'Close window without saving', group: 'app',
+  hint: 'unsaved text stays in the recovered changes',
+  when: () => bridge.kind !== 'http',
+  // No `closing` fan-out: the user was told the page could not be saved and chose this. What
+  // the hint promises is made true first: every handler is asked to keep its unsaved text as a
+  // draft (`abandonWindow`), and when one could not, the user is asked again, by name, before
+  // anything goes. The command is in the palette at any time, not only after a refusal, so
+  // this is not a formality. The state file is flushed last; the drafts live outside the
+  // window and survive it.
+  run: async () => {
+    if (abandoning) return false;
+    abandoning = true;
+    try {
+      const lost = await abandonWindow();
+      if (lost.length) {
+        const names = [...new Set(lost.filter(Boolean))];
+        const who = names.length === 1 ? names[0]
+          : names.length ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+          : 'A page';
+        const ok = await confirm({
+          title: 'Close without saving?',
+          body: `${who} ${names.length > 1 ? 'have' : 'has'} unsaved text that could not be kept anywhere. Closing now loses it.`,
+          ok: 'Close and lose it',
+          danger: true,
+        });
+        if (!ok) {
+          logLine('close anyway: cancelled, unsaved text was not kept', 'warn');
+          stayWindow();
+          return false;
+        }
+      }
+      logLine(lost.length ? 'close anyway: the window goes, and unsaved text with it' : 'close anyway: the window goes without saving', 'warn');
+      try { await flushState(); } catch (e) { console.warn('[kernel] state', e); }
+      return bridge.win.destroy();
+    } finally {
+      abandoning = false;
+    }
+  },
+});
+
+/** `ose.files.save` needs to be told what the file was: a hash, or null for "not there". */
+function saveArgs(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  if (!('expectedHash' in o)) {
+    throw new HostError('files.save needs expectedHash: the hash readFile answered, or null for a new file', 'bad_arg', 'saveFile');
+  }
+  return o;
+}
+
+/**
+ * One save through the facade. The host logs every outcome it reaches (saved, conflict,
+ * failed); a refusal it may not have logged (a stale epoch, a transport error, an old host)
+ * is logged here.
+ */
+async function saveThrough(path, text, opts) {
+  try {
+    return await bridge.saveFile(path, text, saveArgs(opts));
+  } catch (e) {
+    logLine(`files.save failed ${path}: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'error');
+    throw e;
+  }
+}
 
 /* ------------------------------------------------------------------------------- the object */
 
@@ -124,16 +223,38 @@ export const ose = {
   vault: {
     get root() { return vaultInfo.root; },
     get name() { return vaultInfo.name; },
-    /** `{root, name, remembered, source, exeDir}`; exeDir is the chooser's suggestion. */
+    /**
+     * `{root, name, remembered, source, exeDir, logPath}`; exeDir is the chooser's suggestion,
+     * logPath the host's persistent log (the boot error page names it).
+     */
     info: async () => {
       const [v, p] = await Promise.all([bridge.vaultInfo(), bridge.platformInfo().catch(() => null)]);
-      return { ...(v || {}), exeDir: (p && p.exeDir) || null };
+      return { ...(v || {}), exeDir: (p && p.exeDir) || null, logPath: (p && p.logPath) || null };
     },
-    /** A second launch named another folder and the host adopted it: the page reloads. */
+    /**
+     * The count of vaults the host has adopted, as this window read it at boot (docs/HOST.md
+     * "Epoch"). Every mutating call carries it, and the host refuses one from an older vault.
+     */
+    get epoch() { return currentEpoch(); },
+    /**
+     * Kept for plugins that subscribed to it. The host no longer switches a window's vault on
+     * its own (a second launch asks instead: `onChangeRequested`), so it never fires.
+     */
     onChange: (fn) => bridge.on('vault', (d) => (d && d.changed ? fn(d) : undefined)),
-    pick: () => bridge.pickVault(),
+    /**
+     * A second launch named another folder (C5). The host did not adopt it: `fn({root, name})`
+     * decides, and the shell leaves the window (`ose.window.leave('vault-change')`) before it
+     * opens the folder and reloads.
+     */
+    onChangeRequested: (fn) => bridge.on('vault', (d) => (d && d.requested ? fn({ root: d.root, name: d.name }) : undefined)),
+    /**
+     * The native folder picker. `{adopt:false}` only chooses (`{root, name}` with the normalised
+     * path, nothing adopted and nothing recorded), for a caller that must leave the window
+     * before it opens the folder; without it the choice is adopted, as before.
+     */
+    pick: (opts) => bridge.pickVault(opts).then(adopted),
     recent: () => bridge.recentVaults(),
-    open: (path) => bridge.openVault(path),
+    open: (path) => bridge.openVault(path).then(adopted),
     forget: (path) => bridge.forgetVault(path),
   },
 
@@ -156,12 +277,76 @@ export const ose = {
     reveal: (path) => bridge.reveal(path),
     open: (path) => bridge.openPath(path),
     assetUrl: (path) => bridge.assetUrl(path),
+
+    // The save path (docs/KERNEL.md "Saving a file"). The host compares and writes in one call
+    // under one lock, keeps the replaced bytes as a version, and answers a SaveOutcome; the
+    // kernel adds the vault epoch to every mutating call. The hash is the host's: JavaScript
+    // carries it from `readFile` to `save` and never computes one.
+    /** -> { text, hash, mtime, size } */
+    readFile: (path) => bridge.readFile(path),
+    /**
+     * `opts { expectedHash: string|null, version?: 'save'|'conflict'|'none' }` -> SaveOutcome:
+     * `{status:'saved', hash, mtime, unchanged?}` or `{status:'conflict', disk:{exists, text, hash}}`.
+     * `expectedHash: null` means "the file must not exist yet". A conflict writes nothing.
+     */
+    save: (path, text, opts) => saveThrough(path, text, opts),
+    /** Exclusive create, parent folders made; never overwrites (`[exists]`). -> { path, hash } */
+    createNew: (path, text = '') => bridge.createNew(path, text),
+    /** A byte copy under the same create-only rule. -> { path, hash } */
+    copy: (from, to) => bridge.copyFile(from, to),
+    /** One line at the end, with the separator and line ending the file needs. -> { hash } */
+    appendLine: (path, line) => bridge.appendLine(path, line),
+    /**
+     * Line `index` (0-based) replaced by `next`, only if it still reads `expected`.
+     * -> `{status:'replaced', hash}` | `{status:'conflict', actual}`
+     */
+    replaceLine: (path, index, expected, next) => bridge.replaceLine(path, index, expected, next),
+
+    /**
+     * Drafts (docs/KERNEL.md "Drafts", D5): the buffer a page could not write, kept per machine
+     * outside the vault until a save that leaves the page clean drops it.
+     */
+    drafts: {
+      /** `draft {text, baselineHash, mode, exact, rev}` -> { at } */
+      write: (path, draft) => bridge.draftWrite(path, draft),
+      /** -> DraftInfo[] for the open vault, newest first */
+      list: () => bridge.draftList(),
+      /** -> Draft | null */
+      read: (path) => bridge.draftRead(path),
+      /** `opts {ifRev}`: drop only a draft written at or before that edit. -> { dropped } */
+      drop: (path, opts) => bridge.draftDrop(path, opts),
+    },
+
     versions: {
-      keep: (path, text, force = false) => bridge.versionKeep(path, text, force),
+      /** `opts`: `{ force?, reason? }`, or a boolean, the old `force`. -> { kept, id } */
+      keep: (path, text, opts = false) => bridge.versionKeep(path, text, opts),
+      /** -> VersionInfo[] `{id, at, bytes, reason, session}`, newest first */
       list: (path) => bridge.versionList(path),
       read: (path, id) => bridge.versionRead(path, id),
+      /** The version back on disk, the current text kept first. -> { kept, id, hash } */
       restore: (path, id) => bridge.versionRestore(path, id),
     },
+  },
+
+  /**
+   * File operations (docs/KERNEL.md `ose.fileops`, H12, C6): the one create, rename, move,
+   * trash and duplicate. Each asks the open page first and touches nothing if it cannot let
+   * go; none of them navigates.
+   */
+  fileops: {
+    create: (folder, name, opts) => fileops.create(folder, name, opts),
+    rename: (path, name) => fileops.rename(path, name),
+    move: (paths, folder) => fileops.move(paths, folder),
+    trash: (paths) => fileops.trash(paths),
+    duplicate: (path) => fileops.duplicate(path),
+  },
+
+  /** File names (docs/KERNEL.md `ose.names`): literal, checked, never rewritten. */
+  names: {
+    split: (name) => names.split(name),
+    check: (name, opts) => names.check(name, opts),
+    free: (folder, name) => names.free(folder, name),
+    extChanged: (a, b) => names.extChanged(a, b),
   },
 
   watch,
@@ -171,6 +356,8 @@ export const ose = {
 
   route: {
     current: () => router.currentRoute(),
+    // navigate, back, forward and close answer Promise<boolean>: false when the page on screen
+    // could not be left (its save failed or is waiting on a question), and then nothing moved.
     navigate: (route, opts) => router.navigate(route, opts),
     back: () => router.back(),
     forward: () => router.forward(),
@@ -178,6 +365,8 @@ export const ose = {
     canForward: () => router.canForward(),
     close: (opts) => router.clearRoute(opts),
     reopenClosed: () => router.reopenClosed(),
+    /** A file or folder moved and the page followed it: history, tabs and title re-pointed. */
+    repoint: (moves) => router.repoint(moves),
     recent: () => router.recentFiles(),
     own: (pattern, mount) => router.own(pattern, mount),
     index: (pattern, fn) => router.registerIndex(pattern, fn),
@@ -358,12 +547,23 @@ export const ose = {
      * A handler that throws is logged and counts as done: the close must never hang on a bug.
      */
     onClose: (fn) => bridge.on('window', (d) => (d && d.closing ? fn(d) : undefined)),
+    /**
+     * The leave gate (C5, docs/KERNEL.md "Leaving the window"): `reason` is 'close', 'reload'
+     * or 'vault-change'. Every `onLeave` handler is awaited; one `false` and the window stays
+     * (a sticky notice says why) and this answers false. True leaves the pages frozen: the
+     * caller goes, or calls `stay()`.
+     */
+    leave: (reason) => leaveWindow(reason),
+    /** A successful `leave` whose caller changed its mind (the new vault would not open). */
+    stay: () => stayWindow(),
+    /** `fn({reason})` -> boolean | Promise<boolean>; false keeps the window. -> unsubscribe */
+    onLeave: (fn) => onLeave(fn),
   },
 
   /**
    * `ose.plugins` (docs/PLUGINS.md): what is in `.ose/plugins` is what is loaded. The shell
    * calls `load()` once at boot; `list()` is what the sidebar, the home page and Settings draw;
-   * `unload(id)` takes one down whole. Editing a plugin is: save the file, Ctrl+R.
+   * `unload(id)` takes one down whole. Editing a plugin is: save the file, run "Reload plugins".
    */
   plugins: {
     load: () => plugins.load(ose),
@@ -373,27 +573,34 @@ export const ose = {
     folder: plugins.FOLDER,
   },
 
-  log: (text) => bridge.log(text),
   /**
-   * `ose.reload()` (Ctrl+R, `app.reload`): the page again, and therefore every plugin from
-   * disk. Editing a plugin is: save the file, press Ctrl+R, see the change.
+   * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Log").
+   * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
+   */
+  log: (text, level = 'info') => { logLine(text, level); return Promise.resolve(null); },
+  /**
+   * `ose.reload()` (`app.reload`, "Reload plugins"; no chord since D8): the page again, and
+   * therefore every plugin from disk. It leaves the window first (`window.leave('reload')`):
+   * a page that cannot be saved keeps the window, and this answers false. `{skipLeave:true}`
+   * is for a caller that has already left (Change vault). Answers true once the reload is on
+   * its way.
    *
    * In the host the window is navigated back to the app's index.html, which is the host's job
-   * because only it knows where that is. `reloadRice` is the host command's historical name,
-   * kept on both sides; the host answers `reloadShell` too (docs/HOST.md "RPC"). In a browser
-   * there is no host to do it and the call answers null; F5 is not an escape either, because
-   * the key engine binds `mod+r` and swallows it. So a null answer, or no host at all, means
-   * the page reloads itself.
+   * because only it knows where that is (`reloadShell`). In a browser the document reloads
+   * itself, and it does too if the host could not.
    */
-  async reload() {
-    if (ose.host !== 'browser' && typeof bridge.reloadRice === 'function') {
+  async reload(opts = {}) {
+    if (!(opts && opts.skipLeave) && !(await leaveWindow('reload'))) return false;
+    if (ose.host !== 'browser') {
       try {
-        const answer = await bridge.reloadRice();
-        if (answer !== null && answer !== undefined) return answer;
-      } catch (e) { console.warn('[kernel] reloadRice', e); }
+        await bridge.reloadShell();
+        return true;
+      } catch (e) {
+        logLine(`reloadShell failed, reloading the document: ${(e && e.message) || e}`, 'warn');
+      }
     }
     location.reload();
-    return null;
+    return true;
   },
 
   /* The seams the shell fills: whoever draws a markdown page, and whoever knows the page list.

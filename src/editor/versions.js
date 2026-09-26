@@ -1,13 +1,15 @@
-// Versions: the previous content of a file kept under .ose/versions before a save changes it;
-// the Versions… dialog that lists and restores. Host side in src-tauri/src/versions.rs, dev
-// side in dev/bridge-plugin.mjs. See docs/HOST.md "Versions".
+// Versions: the previous content of a file, kept under `.ose/history` by the host when a save
+// replaces it (wave 1, M2: the page's save is one host call that keeps the version itself); the
+// Versions… dialog that lists, compares and restores. Host side in src-tauri/src/versions.rs,
+// dev side in dev/bridge-plugin.mjs. See docs/HOST.md "Versions".
 //
-// Nothing here is on the critical path of a save except one rpc, and that rpc can fail without
-// the save noticing: a version is insurance, never a precondition. Every call is swallowed and
-// logged.
+// `keepVersion` and `keepDiskVersion` are what the code editor still calls before its own
+// writes. Neither is on the critical path of a save: a version is insurance, never a
+// precondition, and every call is swallowed and logged.
 
 import { bridge, commands } from './host.js';
 import { choose, openOverlay, toast } from './deps.js';
+import { compareTexts } from './compare.js';
 
 /** The api handed over by index.js at boot (registerExtensionCommands). */
 let api = null;
@@ -84,6 +86,12 @@ const size = (bytes) => {
   return n < 1024 ? `${n} B` : `${Math.round(n / 1024)} kB`;
 };
 
+/**
+ * Why a version was kept, in the words the dialog shows (H10). `save` is the ordinary one and
+ * says nothing; the others are the moments the user would look for.
+ */
+const REASONS = { conflict: 'before Keep mine', reload: 'discarded', restore: 'before a restore' };
+
 /** Every version of `path` with the diff summary against `current`, newest first. */
 async function loadVersions(path, current) {
   const list = await bridge.versionList(path);
@@ -102,7 +110,8 @@ async function loadVersions(path, current) {
 
 /**
  * Restore one version. The page is flushed first so the reopen cannot lose a buffer, and so
- * the write below is never seen as somebody else changing the file under a dirty page.
+ * the write below is never seen as somebody else changing the file under a dirty page. The
+ * host keeps the text being replaced as a version of its own (reason `restore`).
  */
 async function restore(path, id) {
   if (api && api.hasPage() && api.getPath() === path) {
@@ -120,7 +129,7 @@ async function restore(path, id) {
 }
 
 /** The list, on the shell's overlay stack. Arrow keys move, Enter restores, Esc closes. */
-function versionsOverlay(ov, path, rows) {
+function versionsOverlay(ov, path, rows, current) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
@@ -143,11 +152,25 @@ function versionsOverlay(ov, path, rows) {
     cancel.className = 'btn';
     cancel.textContent = 'Close';
     cancel.addEventListener('click', () => finish(null));
+    // The selected version against the file as it is now, side by side (compare.js). The list
+    // stays open underneath; closing the comparison comes back to it.
+    const diffBtn = document.createElement('button');
+    diffBtn.className = 'btn';
+    diffBtn.textContent = 'Compare';
+    diffBtn.title = 'Show this version beside the file as it is now (C)';
+    const compare = async () => {
+      const r = rows[sel];
+      if (!r || r.text === null) { toast('that version could not be read', 'warn'); return; }
+      await compareTexts({ title: 'Version', a: current, b: r.text, aLabel: 'the file now', bLabel: when(r.at) });
+      const row = body.querySelector('.row.current');
+      (row || diffBtn).focus();
+    };
+    diffBtn.addEventListener('click', () => { void compare(); });
     const ok = document.createElement('button');
     ok.className = 'btn primary';
     ok.textContent = 'Restore';
     ok.addEventListener('click', () => finish(rows[sel] ? rows[sel].id : null));
-    foot.append(note, cancel, ok);
+    foot.append(note, cancel, diffBtn, ok);
 
     let sel = 0;
     const paint = () => {
@@ -162,13 +185,16 @@ function versionsOverlay(ov, path, rows) {
         const time = document.createElement('span');
         time.className = 'grow';
         time.textContent = when(r.at);
+        const why = document.createElement('span');
+        why.className = 'hint';
+        why.textContent = REASONS[r.reason] || (r.session ? 'this session' : '');
         const diff = document.createElement('span');
         diff.className = 'hint';
         diff.textContent = r.diff ? `+${r.diff.added} −${r.diff.removed}` : 'unreadable';
         const bytes = document.createElement('span');
         bytes.className = 'hint ed-versions-size';
         bytes.textContent = size(r.bytes);
-        row.append(time, diff, bytes);
+        row.append(time, why, diff, bytes);
         row.addEventListener('click', () => { sel = i; paint(); });
         row.addEventListener('dblclick', () => finish(r.id));
         body.append(row);
@@ -183,6 +209,7 @@ function versionsOverlay(ov, path, rows) {
       if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paint(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
       else if (e.key === 'Enter') { e.preventDefault(); finish(rows[sel] ? rows[sel].id : null); }
+      else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); void compare(); }
     });
 
     box.append(head, body, foot);
@@ -226,7 +253,7 @@ async function openVersions() {
   // `title` is what `openOverlay` puts on the box as its aria-label: a dialog with no
   // accessible name is announced as just "dialog".
   const ov = await openOverlay({ width: 520, className: 'dlg-ov', title: 'Versions' });
-  const id = ov ? await versionsOverlay(ov, path, rows) : await versionsFallback(rows);
+  const id = ov ? await versionsOverlay(ov, path, rows, current) : await versionsFallback(rows);
   if (id) await restore(path, id);
 }
 

@@ -8,15 +8,22 @@
 // In focus mode the pages section is rooted at one folder and the other sections go away.
 // Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
 // every move, however it was made, rewrites the links that pointed at what moved (C13).
+// Create, rename, move, duplicate and trash are not done here: every gesture of the tree ends
+// in shell/fileops.js and from there in `ose.fileops`, which saves the open page first and
+// refuses when it cannot (C6). This file only follows what happened, off `paths:moved`,
+// `paths:trashed` and `paths:created`: expansion, pins, the selection and the focused row.
 import { ose } from 'ose:kernel';
 import {
-  esc, icon, hasIcon, prompt, confirm, contextMenu, pickFolder, toast, copyText,
+  esc, icon, hasIcon, prompt, confirm, contextMenu, toast, copyText,
   focusOrigin, retargetFocusOrigin, overlayCount,
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
 import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHiddenName, segments } from './paths.js';
 import { openSearch } from './search.js';
-import { moveTabs, closeTabsUnder, openInNewTab } from './tabs.js';
+import { openInNewTab } from './tabs.js';
+import {
+  newFile, renamePath, movePaths, trashPaths, duplicatePath, setContext, canMoveInto,
+} from './fileops.js';
 import { HOME } from './dashboard.js';
 import { byViewOrder } from './order.js';
 import { isMediaFile } from './media.js';
@@ -28,7 +35,6 @@ const { bus, store, commands, views, debounce, files, links, route } = ose;
 // code below reads as it always did. Everything here is `ose` and nothing else.
 const navigate = (r, opts) => route.navigate(r, opts);
 const currentRoute = () => route.current();
-const clearRoute = (opts) => route.close(opts);
 const shortcutFor = (id) => ose.keys.shortcutFor(id);
 const getFocus = () => ose.focus.get();
 const setFocus = (path) => ose.focus.set(path);
@@ -109,6 +115,24 @@ export function allPages() {
     for (const c of sortChildren(n.children, atRoot)) {
       if (c.kind === 'dir') walk(c, false);
       else if (isMd(c.name)) out.push(c.path);
+    }
+  };
+  if (tree) walk(tree, true);
+  return getFocus() ? out.filter((p) => isUnderFocus(p)) : out;
+}
+
+/**
+ * Every file the app can open, in tree order: the pages, and beside them the text and media
+ * files the tree opens in the code editor or the viewer. Quick open lists these, so a
+ * `notes.txt` made with New file can be found again without the tree. Focus mode narrows it.
+ */
+export function allFiles() {
+  const out = [];
+  const walk = (n, atRoot) => {
+    if (!n.children) return;
+    for (const c of sortChildren(n.children, atRoot)) {
+      if (c.kind === 'dir') walk(c, false);
+      else if (isMd(c.name) || isTextFile(c.path) || isMediaFile(c.path)) out.push(c.path);
     }
   };
   if (tree) walk(tree, true);
@@ -577,9 +601,6 @@ function batchFor(t) {
   return selectableRows().filter((r) => selected.has(r.dataset.path)).map((r) => ({ path: r.dataset.path, kind: r.dataset.kind }));
 }
 
-/** The one thing every batch command needs to know before it starts: how many, and of what. */
-const countOf = (items) => `${items.length} item${items.length === 1 ? '' : 's'}`;
-
 /** Expand or collapse a tree folder row. Pinned folders reveal instead (they are shortcuts, not tree nodes). */
 function toggleDir(row) {
   const path = row.dataset.path;
@@ -591,18 +612,18 @@ function toggleDir(row) {
 
 /**
  * Enter: what a click does. Pages open (and take focus, B3), folders toggle, a pinned folder
- * focuses.
+ * goes to its folder in the tree.
  */
 function activateRow(row) {
   if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
   const path = row.dataset.path;
   // A pinned folder is a shortcut to a place, not a branch to unfold — unfolding it in a
-  // section that draws no children was the one row in the sidebar that did nothing. Clicking
-  // or Entering it roots the pages section there, exactly what `app.focus-enter` does on any
-  // folder row. It is not a toggle: `app.focus-exit` is the way out, so the folder already in
-  // focus does nothing at all. A pinned page still opens the page.
+  // section that draws no children was the one row in the sidebar that did nothing. It goes
+  // there: the tree opens down to the folder and its row takes the keyboard. It used to enter
+  // focus mode, which narrowed pins, scratch, search and quick open behind the user's back
+  // (H18); focus is its own command now (`app.focus-enter`), and nothing else enters it.
   if (row.dataset.pin === '1' && row.dataset.kind === 'dir') {
-    if (getFocus() !== path) setFocus(path);
+    focusFolder(path);
     return;
   }
   if (row.dataset.kind === 'dir') { toggleDir(row); return; }
@@ -720,10 +741,12 @@ function onTreeKey(e) {
     if (!next) return;
   } else if (k === 'Enter') { e.preventDefault(); activateRow(row); return; }
   else if (k === ' ') { e.preventDefault(); if (isDir) toggleDir(row); return; }
-  else if (k === 'F2') { if (!target) return; e.preventDefault(); void renameAt(target.path, target.kind); return; }
+  // F2 renames in place, with the stem selected (H13). It is `file.rename` on the row: the
+  // window's own F2 (keys.json) would reach the same function with the same row.
+  else if (k === 'F2') { if (!target || !target.path) return; e.preventDefault(); e.stopPropagation(); void renamePath(target); return; }
   // Delete is the Windows key, Backspace the macOS one; both do the same thing everywhere,
   // because a keyboard that has one is not always the machine the vault is on (S21).
-  else if (k === 'Delete' || k === 'Backspace') { if (!target) return; e.preventDefault(); void trashAt(batchFor(target) || [target]); return; }
+  else if (k === 'Delete' || k === 'Backspace') { if (!target || !target.path) return; e.preventDefault(); void trashPaths(batchFor(target) || [target]); return; }
   // Shift+F10 and the Menu key are the Windows convention for "the context menu of the thing
   // that has focus", and the tree is the one place in the app with a context menu (S12).
   else if (k === 'ContextMenu' || (k === 'F10' && e.shiftKey)) {
@@ -788,58 +811,28 @@ export async function refreshTree() {
 
 /* ------------------------------------------------------------------ mutations */
 
-/**
- * A new page in `folder`. With no `name` it is `Untitled.md` and the title is selected so the
- * first thing typed names it (C12); with one — quick open's Shift+Enter (N41) — the file and
- * the H1 carry that name and the caret goes to the body instead, because the name is settled.
- */
-export async function newPageIn(folder, name) {
-  const dir = clean(folder || '');
-  const base = safeName(String(name || '').trim(), '') || 'Untitled';
-  try {
-    let path = join(dir, `${base}.md`);
-    for (let n = 2; n < 500 && await files.exists(path); n++) path = join(dir, `${base} ${n}.md`);
-    await files.write(path, `# ${base}\n`);
-    if (dir) { expanded.add(dir); expandAncestors(path); persistExpanded(); }
-    await refreshTree();
-    await navigate({ type: 'page', path });
-    // A new page wants its name first: the title, selected, the way the editor's own page.new
-    // leaves it. DOM level only, since the title element belongs to the editor. A page created
-    // with a name has one already, so the caret is left where the editor put it.
-    const title = name ? null : document.querySelector('.main .page-title[contenteditable]');
-    if (title) {
-      title.focus({ preventScroll: true });
-      const range = document.createRange();
-      range.selectNodeContents(title);
-      const sel = getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-    return path;
-  } catch (e) {
-    toast('could not create page: ' + (e.message || e), 'err');
-    return null;
-  }
-}
-
 async function newFolderIn(folder) {
-  const name = await prompt({ title: 'New Folder', placeholder: 'folder name', ok: 'Create' });
-  if (!name) return;
+  const typed = await prompt({ title: 'New Folder', placeholder: 'folder name', ok: 'Create' });
+  if (!typed) return;
+  // The same rule every name in the app follows (`ose.names.check`): literal, and refused with
+  // the reason when no file system can hold it. `a/b` makes both.
+  const c = ose.names.check(typed, { folders: true });
+  if (!c.ok) { toast(`could not create folder: ${c.reason}`, 'err', 0); return; }
   const dir = clean(folder || '');
   try {
-    await files.mkdir(join(dir, name));
+    await files.mkdir(join(dir, c.name));
     if (dir) expanded.add(dir);
-    expanded.add(join(dir, name));
+    expandAncestors(join(dir, c.name) + '/x');
+    expanded.add(join(dir, c.name));
     persistExpanded();
     await refreshTree();
-  } catch (e) { toast('could not create folder: ' + (e.message || e), 'err'); }
+  } catch (e) { toast('could not create folder: ' + (e.message || e), 'err', 0); }
 }
 
 /**
- * The from/to pairs a move produces for the link rewrite (C13): the path itself, and for a
- * folder every file under it as well, since a link into a moved folder names one of its
- * files. Read from the tree before `ose.files.rename` runs, because the fs event that follows
- * replaces the tree and the old folder is not in the new one.
+ * The from/to pairs a move produces, read from the tree before it happens: the path itself,
+ * and for a folder every file under it, because the watcher reports a folder moved in the app
+ * as one rename per file and the N19 question below must not ask about any of them.
  */
 function filePairs(from, to) {
   const out = [{ from, to }];
@@ -857,26 +850,35 @@ function filePairs(from, to) {
 const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null);
 
 /**
- * Shared tail of rename, move-to and drag, for one move or many: keep expansion, pins, the
- * selection and the open page pointing at the new paths, then rewrite every link into what
- * moved (C13) and say what happened in one toast: "moved to X · 3 links in 2 pages updated",
- * or just the verb when nothing linked there. A file whose links could not be written is
- * named in its own toast; the move itself has already happened and is not undone for it.
- * `moves` is [{ from, to, pairs }], `pairs` from filePairs taken before the rename.
+ * `paths:moving` (shell/fileops.js, before the host call): the watcher will report these a
+ * moment later, and the links are about to be rewritten by `ose.fileops` itself, so the N19
+ * question must not offer to fix them.
  */
-async function afterMoves(moves, verb) {
+function onMoving(d) {
+  for (const m of (d && d.moves) || []) {
+    if (!m || !m.from || !m.to) continue;
+    for (const p of filePairs(clean(m.from), clean(m.to))) noteSelfMove(p.from, p.to);
+  }
+}
+
+/**
+ * `paths:moved` (`ose.fileops`, after the host call): expansion, pins, the selection and the
+ * focused row follow the files to their new paths, and the tree is read again. The page and
+ * its tab have followed already (the router's `route:repointed`); nothing here navigates.
+ */
+async function onMoved(d) {
+  const moves = ((d && d.moves) || []).filter((m) => m && m.from && m.to).map((m) => ({ from: clean(m.from), to: clean(m.to) }));
+  if (!moves.length) return;
   for (const m of moves) {
-    // The watcher will report this rename in a moment; N19 must not offer to fix what we
-    // are about to fix ourselves.
-    for (const p of m.pairs || [{ from: m.from, to: m.to }]) noteSelfMove(p.from, p.to);
+    noteSelfMove(m.from, m.to);
     for (const p of [...expanded]) { const n = followMove(p, m.from, m.to); if (n) { expanded.delete(p); expanded.add(n); } }
+    // Where it went is opened, so the row can be seen and focused there.
+    const dest = dirName(m.to);
+    if (dest) { expanded.add(dest); expandAncestors(m.to); }
     repinMoved(m.from, m.to);
     // The row the user was on has a new name; the next render focuses it there (B4, D1).
     if (roving === 'path:' + m.from) focusAfterRender = 'path:' + m.to;
     else if (roving === 'pin:' + m.from) focusAfterRender = 'pin:' + m.to;
-    // The tab follows the page, before the navigate below: otherwise the renamed page opens a
-    // second tab and the first one points at a path that no longer exists (shell/tabs.js).
-    moveTabs(m.from, m.to);
   }
   persistExpanded();
   if (selected.size) {
@@ -888,29 +890,36 @@ async function afterMoves(moves, verb) {
     }
     selected = next;
   }
-
-  const r = currentRoute();
-  let reopen = null;
-  if (r && r.type === 'page') for (const m of moves) { reopen = followMove(r.path, m.from, m.to); if (reopen) break; }
   await refreshTree();
-  if (reopen) await navigate({ type: 'page', path: reopen }, { replace: true, force: true });
+}
 
-  let res = { files: 0, links: 0, failed: [] };
-  try {
-    res = await rewriteInboundMany(moves.flatMap((m) => m.pairs || [{ from: m.from, to: m.to }]));
-  } catch (e) {
-    console.error('[shell] links', e);
-    toast('links not updated: ' + (e.message || e), 'err');
+/** `paths:trashed`: what went takes its expansion, its pins and its place in the selection. */
+async function onTrashed(d) {
+  const paths = ((d && d.paths) || []).map(clean).filter(Boolean);
+  if (!paths.length) return;
+  for (const p of paths) {
+    for (const e of [...expanded]) if (followMove(e, p, p)) expanded.delete(e);
+    dropPinsUnder(p);
+    for (const s of [...selected]) if (followMove(s, p, p)) selected.delete(s);
   }
-  const n = res.links, f = res.files;
-  toast(verb + (n ? ` · ${n} link${n === 1 ? '' : 's'} in ${f} page${f === 1 ? '' : 's'} updated` : ''), 'info', 2600);
-  for (const p of res.failed) toast('could not update links in ' + p, 'err');
+  persistExpanded();
+  await refreshTree();
+}
+
+/** `paths:created` (New file…, Duplicate): the tree opens down to it; `focus` puts the row in front. */
+async function onCreated(d) {
+  const paths = ((d && d.paths) || []).map(clean).filter(Boolean);
+  if (!paths.length) return;
+  for (const p of paths) { expandAncestors(p); }
+  persistExpanded();
+  if (d.focus) focusAfterRender = 'path:' + paths[paths.length - 1];
+  await refreshTree();
 }
 
 /* ------------------------------------------------- renames made outside the app (N19) */
 
 // A move the app made itself: the watcher reports it a moment later, and the links have
-// already been rewritten by `afterMoves`. Keyed `from>to`, forgotten after a few seconds.
+// already been rewritten by `ose.fileops`. Keyed `from>to`, forgotten after a few seconds.
 const selfMoves = new Map();
 const SELF_MOVE_MS = 8000;
 
@@ -974,7 +983,7 @@ async function askAboutRenames() {
     toast(res.links
       ? `${res.links} link${res.links === 1 ? '' : 's'} in ${res.files} page${res.files === 1 ? '' : 's'} updated`
       : 'nothing to update', 'info', 2600);
-    for (const p of res.failed) toast('could not update links in ' + p, 'err');
+    for (const p of res.failed || []) toast('could not update links in ' + (p && p.path ? p.path : p), 'err', 0);
   } finally {
     askingRenames = false;
     if (pendingRenames.length) void askAboutRenames();
@@ -992,114 +1001,6 @@ function onFsRenames(payload) {
     // file, and `findInbound` finds those too, so both kinds are collected.
     pendingRenames.push({ from, to });
   }
-}
-
-/**
- * A name the filesystem accepts, keeping the extension the file already had when the user
- * did not type one. A folder is passed '' and keeps no extension. Mirrors the editor's own
- * rename (editor/index.js), which is the path this one used to disagree with.
- */
-function safeName(name, ext) {
-  const base = String(name).replace(/[\\/:*?"<>|]/g, '-').trim().replace(/\.+$/, '');
-  if (!base || base === '.' || base === '..') return '';
-  if (!ext) return base;
-  return base.toLowerCase().endsWith('.' + ext) ? base : base + '.' + ext;
-}
-
-async function renameAt(path, kind) {
-  const old = baseName(path);
-  const name = await prompt({ title: kind === 'dir' ? 'Rename Folder' : 'Rename Page', value: old, ok: 'Rename' });
-  if (!name || name === old) return;
-  const safe = safeName(name, kind === 'dir' ? '' : extOf(old));
-  if (!safe) { toast('that is not a usable name', 'err'); return; }
-  const to = join(dirName(path), safe);
-  if (to === path) return;
-  try {
-    // `Notes.md` -> `notes.md` is the same file on Windows, so `exists` says yes and the
-    // rename used to be refused; the host performs a case-only rename through a temporary
-    // name, and this guard has to let it through (N17).
-    if (to.toLowerCase() !== path.toLowerCase() && await files.exists(to)) { toast(safe + ' already exists here', 'err'); return; }
-    const pairs = filePairs(path, to);
-    await files.rename(path, to);
-    await afterMoves([{ from: path, to, pairs }], 'renamed');
-  } catch (e) { toast('rename failed: ' + (e.message || e), 'err'); }
-}
-
-/**
- * Move `items` ([{ path }]) into the folder `dest`, one `ose.files.rename` each, then one shared
- * tail: one tree refresh, one link pass, one toast. An item that cannot go there (into itself,
- * or where it already is) is skipped; one that would overwrite a file is skipped and said.
- */
-async function moveMany(items, dest) {
-  const target = clean(dest);
-  const moves = [];
-  for (const it of items) {
-    const src = clean(it.path);
-    if (!canDropInto(src, target)) continue;
-    const to = join(target, baseName(src));
-    try {
-      if (await files.exists(to)) { toast(baseName(src) + ' already exists in ' + (target || 'the vault root'), 'err'); continue; }
-      const pairs = filePairs(src, to);
-      await files.rename(src, to);
-      moves.push({ from: src, to, pairs });
-    } catch (e) { toast('move failed: ' + (e.message || e), 'err'); }
-  }
-  if (!moves.length) return;
-  if (target) { expanded.add(target); for (const m of moves) expandAncestors(m.to); }
-  await afterMoves(moves, 'moved to ' + (target || 'vault root'));
-}
-
-/** Move to…: pick a destination for one item or a selection, then moveMany. */
-async function moveTo(items) {
-  const list = Array.isArray(items) ? items : [items];
-  if (!list.length) return;
-  const first = clean(list[0].path);
-  const title = list.length === 1 ? 'Move ' + baseName(first) + ' to…' : `Move ${countOf(list)} to…`;
-  // A single folder cannot be offered its own subtree; several items are checked one by one.
-  // This picker really does move, so it is the one that says so in its foot (R6).
-  const dest = await pickFolder({ title, current: dirName(first), hide: list.length === 1 && list[0].kind === 'dir' ? first : null, enterLabel: 'move here' });
-  if (dest === null) return;
-  await moveMany(list, dest);
-}
-
-/** Trash one item or a selection: one confirm naming what goes, then one refresh. */
-async function trashAt(items) {
-  const list = Array.isArray(items) ? items : [items];
-  if (!list.length) return;
-  const one = list.length === 1 ? list[0] : null;
-  const ok = await confirm({
-    title: one ? (one.kind === 'dir' ? 'Move Folder to Trash' : 'Move Page to Trash') : `Move ${countOf(list)} to Trash`,
-    body: one
-      ? `${one.path} goes to the Recycle Bin. Nothing is deleted permanently.`
-      : `${countOf(list)} go to the Recycle Bin: ${list.map((it) => baseName(it.path)).join(', ')}. Nothing is deleted permanently.`,
-    ok: 'Move to Trash', danger: true,
-  });
-  if (!ok) return;
-  // Trashed from the tree (Delete, or the menu on a row): focus stays in the tree, on the row
-  // that takes the gap (B4 does that in render). Trashed from the page: whatever takes the
-  // tab's place takes the focus, the way any other open does.
-  const fromTree = !!(scrollEl && scrollEl.contains(focusOrigin()));
-  let hit = false;
-  let handled = false;
-  const r = currentRoute();
-  for (const it of list) {
-    const path = clean(it.path);
-    try {
-      await files.trash(path);
-      expanded.delete(path);
-      dropPinsUnder(path);
-      selected.delete(path);
-      if (r && r.type === 'page' && followMove(r.path, path, path)) hit = true;
-      // A trashed page takes its tab with it (shell/tabs.js): the strip must never hold a row
-      // pointing at a file that is gone, and the one in front lands on its neighbour rather
-      // than on the empty surface.
-      if (closeTabsUnder(path, { focus: !fromTree })) handled = true;
-    } catch (e) { toast('trash failed: ' + (e.message || e), 'err'); }
-  }
-  await refreshTree();
-  // Only when no tab held it: the open page was something else's, so the empty surface is
-  // still the honest place for it to land.
-  if (hit && !handled) await clearRoute({ focus: !fromTree });
 }
 
 /** Expand the tree down to a folder and bring it into view. No navigation. */
@@ -1168,12 +1069,8 @@ function dropTargetOf(node) {
   return null;
 }
 
-function canDropInto(from, dir) {
-  const src = clean(from), target = clean(dir);
-  if (!src) return false;
-  if (src === target || target.startsWith(src + '/')) return false; // into itself or its subtree
-  return dirName(src) !== target;                                   // already there
-}
+// Into itself, under itself, or where it already is: no. The same rule Move to… uses.
+const canDropInto = (from, dir) => canMoveInto(from, dir);
 
 function setDropEl(node) {
   if (dropEl === node) return;
@@ -1184,14 +1081,31 @@ function setDropEl(node) {
 
 function endDrag() { dragPaths = null; setDropEl(null); }
 
-/** `<dir>/name.ext`, numbered when taken, so an import never overwrites a vault file. */
-async function freeName(dir, name) {
+/**
+ * `<dir>/name.ext`, numbered when taken, so an import never overwrites a vault file. The name
+ * is claimed with the host's exclusive create (an empty file), so a file that arrived between
+ * the look and the write is never replaced (M4); the caller then writes the bytes into it. A
+ * kernel without `createNew` gets the old probe.
+ */
+async function claimFreeName(dir, name) {
   const dot = name.lastIndexOf('.');
   const base = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
-  let p = join(dir, name);
-  for (let n = 2; n < 500 && await files.exists(p); n++) p = join(dir, `${base} ${n}${ext}`);
-  return p;
+  for (let n = 1; n < 500; n++) {
+    const p = n < 2 ? join(dir, name) : join(dir, `${base} ${n}${ext}`);
+    if (typeof files.createNew !== 'function') {
+      if (await files.exists(p)) continue;
+      return p;
+    }
+    try {
+      await files.createNew(p, '');
+      return p;
+    } catch (e) {
+      if (e && e.code === 'exists') continue;
+      throw e;
+    }
+  }
+  throw new Error(`no free name for ${join(dir, name)}`);
 }
 
 function base64Of(buffer) {
@@ -1202,14 +1116,18 @@ function base64Of(buffer) {
   return btoa(out);
 }
 
-/** Files dragged in from Explorer. Text goes through writeText, everything else as base64. */
-async function importFiles(files, dir) {
-  const list = [...files];
+/**
+ * Files dragged in from Explorer. Text goes through writeText, everything else as base64.
+ * The parameter is `dropped`, not `files`: that name is `ose.files` in this module, and the
+ * old shadowing made every import fail with "files.write is not a function".
+ */
+async function importFiles(dropped, dir) {
+  const list = [...dropped];
   if (!list.length) return;
   let done = 0;
   for (const f of list) {
     try {
-      const path = await freeName(clean(dir), f.name || 'file');
+      const path = await claimFreeName(clean(dir), f.name || 'file');
       if (TEXT_IMPORT.has(extOf(path))) await files.write(path, await f.text());
       else await files.writeBinary(path, base64Of(await f.arrayBuffer()));
       done++;
@@ -1266,7 +1184,7 @@ function bindDnd(host) {
     const files = e.dataTransfer ? e.dataTransfer.files : null;
     endDrag();
     if (!t) return;
-    if (from && from.length) void moveMany(from.map((p) => ({ path: p })), t.dir);
+    if (from && from.length) void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
     else if (files && files.length) void importFiles(files, t.dir);
   });
 }
@@ -1320,26 +1238,6 @@ function treeTarget() {
 const folderOf = (t) => (t.kind === 'dir' ? t.path : dirName(t.path));
 const reveal = (path) => files.reveal(path).catch((e) => toast(e.message || e, 'err'));
 
-/** `Name 2.md` beside a file, byte for byte, then the tree shows it (N23). Files only. */
-async function duplicateAt(path) {
-  const src = clean(path);
-  const dot = baseName(src).lastIndexOf('.');
-  const ext = dot > 0 ? baseName(src).slice(dot) : '';
-  const stem = dot > 0 ? baseName(src).slice(0, dot) : baseName(src);
-  const dir = dirName(src);
-  try {
-    let to = join(dir, `${stem} 2${ext}`);
-    for (let n = 3; n < 500 && await files.exists(to); n++) to = join(dir, `${stem} ${n}${ext}`);
-    // Text through readText/writeText so the bytes are not re-encoded through base64 for
-    // nothing; anything else could be binary and has no business being read as UTF-8.
-    if (isMd(src) || isTextFile(src)) await files.write(to, await files.read(src));
-    else { toast('only text files can be duplicated from the tree', 'warn'); return; }
-    focusAfterRender = 'path:' + to;
-    await refreshTree();
-    toast('duplicated · ' + baseName(to), 'info', 2200);
-  } catch (e) { toast('could not duplicate: ' + (e.message || e), 'err'); }
-}
-
 /** Every folder in the tree, or none of them (N26). One persist, one render. */
 function setAllExpanded(open) {
   if (!open) { expanded = new Set(); }
@@ -1366,9 +1264,15 @@ function setAllExpanded(open) {
 // never focuses) and fall back to `treeTarget()` from the palette or a chord. Pin, unpin,
 // move and trash act on the whole selection when the target is part of one (C17, batchFor);
 // the rest are one-row verbs and never see a selection.
+//
+// The five file operations are not the tree's: `file.new`, `file.rename`, `file.move`,
+// `file.duplicate` and `file.trash` are registered by shell/fileops.js, the one UI for them
+// (H12, H13). Their rows here (`own: false`) only say when the menu offers them and hand them
+// the row; the old `tree.*` ids for the same acts are gone, so the palette lists each act
+// once (L7).
 const TREE_COMMANDS = [
-  { id: 'tree.new-page', title: 'New page here', icon: 'plus', group: 'tree',
-    applies: () => true, run: (t) => void newPageIn(folderOf(t)) },
+  { id: 'file.new', title: 'New file…', icon: 'plus', group: 'file', own: false,
+    applies: () => true, run: (t) => void newFile(t) },
   { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'tree',
     applies: () => true, run: (t) => void newFolderIn(folderOf(t)) },
   { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
@@ -1379,16 +1283,15 @@ const TREE_COMMANDS = [
     run: (t) => { const b = batchFor(t); if (b) unpinMany(b.map((it) => it.path)); else unpin(t.path); } },
   { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
     applies: (t) => !!t.path && t.kind === 'dir' && getFocus() !== t.path, run: (t) => setFocus(t.path) },
-  { id: 'tree.rename', title: 'Rename…', icon: 'rename', group: 'tree',
-    applies: (t) => !!t.path, run: (t) => void renameAt(t.path, t.kind) },
-  // A lone folder is not offered Move to… (it drags); a selection may hold folders, and each
-  // is checked against the destination when it lands.
-  // A folder can be moved from the menu now as well as dragged (N22): dragging is a mouse,
-  // and everything in this app has to be reachable without one.
-  { id: 'tree.move', title: 'Move to…', icon: 'folder', group: 'tree',
-    applies: (t) => !!t.path, run: (t) => void moveTo(batchFor(t) || [t]) },
-  { id: 'tree.duplicate', title: 'Duplicate', icon: 'copy', group: 'tree',
-    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void duplicateAt(t.path) },
+  { id: 'file.rename', title: 'Rename…', icon: 'rename', group: 'file', own: false,
+    applies: (t) => !!t.path, run: (t) => void renamePath(t) },
+  // A folder can be moved from the menu as well as dragged (N22): dragging is a mouse, and
+  // everything in this app has to be reachable without one. A selection may hold folders, and
+  // each is checked against the destination when it lands.
+  { id: 'file.move', title: 'Move to…', icon: 'folder', group: 'file', own: false,
+    applies: (t) => !!t.path, run: (t) => void movePaths(batchFor(t) || [t]) },
+  { id: 'file.duplicate', title: 'Duplicate', icon: 'copy', group: 'file', own: false,
+    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void duplicatePath(t) },
   { id: 'tree.copy-path', title: 'Copy path', icon: 'copy', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
@@ -1407,12 +1310,13 @@ const TREE_COMMANDS = [
     applies: () => true, run: () => setAllExpanded(false) },
   { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(true) },
-  { id: 'tree.trash', title: 'Move to trash', icon: 'trash', group: 'tree', danger: true,
-    applies: (t) => !!t.path, run: (t) => void trashAt(batchFor(t) || [t]) },
+  { id: 'file.trash', title: 'Move to trash', icon: 'trash', group: 'file', danger: true, own: false,
+    applies: (t) => !!t.path, run: (t) => void trashPaths(batchFor(t) || [t]) },
 ];
 
 function registerTreeCommands() {
   for (const c of TREE_COMMANDS) {
+    if (c.own === false) continue;
     commands.register({
       id: c.id, title: c.title, group: c.group, icon: c.icon,
       when: () => { const t = treeTarget(); return !!t && c.applies(t); },
@@ -1425,19 +1329,27 @@ function registerTreeCommands() {
 // clipboard and Explorer, then the one destructive action. `app.focus-exit` lives in
 // focus.js; its menu row shows only on the folder that is the focus.
 const MENU = [
-  'tree.new-page', 'tree.new-folder',
+  'file.new', 'tree.new-folder',
   null,
   'tree.pin', 'tree.unpin', 'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
-  'tree.rename', 'tree.move', 'tree.duplicate',
+  'file.rename', 'file.move', 'file.duplicate',
   null,
   'tree.copy-path', 'tree.copy-link',
   null,
   'tree.search-here', 'tree.open-external', 'tree.reveal',
   null,
-  'tree.trash',
+  'file.trash',
 ];
 
-/** A menu row from a registered command: its title, icon and chord, run against `target`. */
+/**
+ * A menu row from a registered command: its title, icon and chord, run against `target`.
+ *
+ * The row runs the command's own function with the row, not `commands.run`: that asks the
+ * command's `when`, which knows only the focused row, and right-click never focused one, so
+ * Rename, Move, Trash, Pin, Focus and Search in folder did nothing from the menu unless a row
+ * already had the keyboard (H21). The menu has asked `applies(target)` of this very row before
+ * offering it, which is the question `when` stands in for.
+ */
 function menuItem(id, target, label) {
   const c = commands.get(id);
   if (!c) return null;
@@ -1445,7 +1357,15 @@ function menuItem(id, target, label) {
   return {
     label: label || c.title, iconSvg: c.icon ? icon(c.icon) : '', shortcut: shortcutFor(id) || '',
     danger: !!(local && local.danger),
-    run: () => commands.run(id, target),
+    run: () => {
+      try {
+        const out = local ? local.run(target) : c.run(target);
+        if (out && typeof out.catch === 'function') out.catch((e) => toast(String(e.message || e), 'err', 0));
+      } catch (e) {
+        console.error('[shell] menu', id, e);
+        toast(String(e.message || e), 'err', 0);
+      }
+    },
   };
 }
 
@@ -1467,7 +1387,7 @@ function menuFor(path, kind) {
 // The menu for a row inside a selection of several (C17): only what makes sense for many.
 // No rename, no focus, no copy: those are one-row verbs. Labels carry the count so the user
 // knows the menu is for the selection, not the row under the pointer.
-const MULTI_MENU = ['tree.pin', 'tree.unpin', 'tree.move', null, 'tree.trash'];
+const MULTI_MENU = ['tree.pin', 'tree.unpin', 'file.move', null, 'file.trash'];
 
 function multiMenu(batch) {
   const target = batch[0];
@@ -1507,7 +1427,7 @@ function emptyMenu() {
   const where = baseName(dir) || 'the vault root';
   const target = { path: dir, kind: 'dir' };
   return [
-    menuItem('tree.new-page', target, `New page in ${where}`),
+    menuItem('file.new', target, `New file in ${where}…`),
     menuItem('tree.new-folder', target, `New folder in ${where}`),
   ];
 }
@@ -1555,7 +1475,10 @@ export function initSidebar(node) {
     }
     clearSelection();
     anchor = rowKey(row);
-    setRoving(row);
+    // The clicked row takes the keyboard (H21): a click does not focus a button on macOS, and
+    // every tree command asks the focused row what it is about. A page that opens takes it
+    // from here, as any open does; a folder keeps it.
+    focusRow(row);
     activateRow(row);
   });
 
@@ -1594,10 +1517,25 @@ export function initSidebar(node) {
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
+    // The row under the pointer is the row the menu is about, and it is the row the keyboard
+    // comes back to when the menu closes: a command run from the palette afterwards acts on it
+    // too, instead of on whatever row happened to have focus before (H21).
+    focusRow(row);
     contextMenu(e.clientX, e.clientY, menuItemsForRow(row));
   });
 
   bindDnd(scrollEl);
+
+  // What "here" is for the file commands run from the palette or a chord (shell/fileops.js):
+  // the focused row, else the open page; and the selection that row is part of.
+  setContext({
+    target: () => treeTarget(),
+    batch: () => { const t = treeTarget(); return t ? batchFor(t) || [t] : []; },
+  });
+  bus.on('paths:moving', onMoving);
+  bus.on('paths:moved', (d) => { void onMoved(d); });
+  bus.on('paths:trashed', (d) => { void onTrashed(d); });
+  bus.on('paths:created', (d) => { void onCreated(d); });
 
   const onFs = debounce(() => refreshTree(), 350);
   const askLater = debounce(() => void askAboutRenames(), 600);

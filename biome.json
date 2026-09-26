@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "src/**/*.js",
+      "shell/**/*.js",
+      "plugins/**/*.js",
+      "dev/**/*.mjs",
+      "scripts/**/*.mjs",
+      "tests/**/*.js",
+      "*.js",
+      "*.mjs"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": false,
+      "correctness": {
+        "recommended": true
+      }
+    }
+  }
+}

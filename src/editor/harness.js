@@ -330,6 +330,36 @@ const FIXTURES = [
     raw: '# E\n\nSee [label](http://x.com) for more.\n',
     edit: { line: 1, append: '!' },
   },
+
+  // ---- wave 1: the write guard and the serializer fixes ---------------------
+  {
+    // a paragraph typed above the first one took the first block's leading gap of none, fused
+    // with it, failed the check and had the whole file written in remark's house style: the
+    // table reflowed, `*` bullets turned to `-`, the hard-break spaces gone (C11)
+    path: 'C11 a paragraph inserted at index 0 touches nothing else',
+    raw: '# T\n\nIntro paragraph.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n* star\n* list\n\nline one  \nline two\n',
+    edit: { line: 1, text: 'Typed above.\n\nIntro paragraph.' },
+  },
+  {
+    // `\[not a link\](x)` is text, and stays text when the line it is on is edited (C8). The
+    // underscores inside a word need no backslash, so the edited line may lose those two.
+    path: 'C8 an escaped link on an edited line stays text',
+    raw: '# E\n\nMath 2\\*3\\*4 and snake\\_case\\_name and \\[not a link\\](x) end.\n',
+    edit: { line: 1, append: ' X' },
+    expect: 'Math 2\\*3\\*4 and snake_case_name and \\[not a link](x) end. X\n',
+  },
+  {
+    // code in a quote keeps every backslash when the quote is edited (C9)
+    path: 'C9 code inside a quote keeps its backslashes',
+    raw: '# Q\n\n> ```py\n> x = re.sub(r"\\[\\|\\#tag\\]", "\\$5", s)\n> ```\n>\n> quoted text\n',
+    edit: { line: 5, append: '!' },
+  },
+  {
+    // and so does code under a nested list item (C9)
+    path: 'C9 code inside a nested list keeps its backslashes',
+    raw: '# Q\n\n- a\n  - b\n\n    ```py\n    x = "\\[\\|\\#tag\\]"\n    ```\n\n    more\n',
+    edit: { line: 8, append: '!' },
+  },
 ];
 
 // ---------------------------------------------------------------------------

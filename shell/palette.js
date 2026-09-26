@@ -1,23 +1,23 @@
-// Command palette (Ctrl+K) and quick open (Ctrl+P). Same surface, two data sources.
+// Command palette (Ctrl+Shift+P) and quick open (Ctrl+O, and Ctrl+P beside it: D8). Same surface,
+// two data sources.
 // Matching is a subsequence score with a bonus for word starts, so "phab" finds "page.habits".
 import { ose } from 'ose:kernel';
-import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems } from 'ose:ui';
+import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
 // One reader for "the first H1 of a markdown text", the same one the editor's title strip and
 // the task index use: it skips frontmatter and fenced code.
 import { firstH1 } from 'ose:md';
-import { allPages, newPageIn, scratchFolder } from './sidebar.js';
-import { dirName } from './paths.js';
+import { allPages, allFiles } from './sidebar.js';
+import { newFile } from './fileops.js';
 
-const { bus, commands, store, files, route } = ose;
+const { bus, commands, files, route } = ose;
 const navigate = (r, opts) => route.navigate(r, opts);
 const recentFiles = () => route.recent();
 const shortcutFor = (id) => ose.keys.shortcutFor(id);
-const defaultNewFolder = () => ose.focus.defaultNewFolder();
 
 // `tree` is the sidebar's row commands (D3): they act on the focused row, else the open page.
 // `editor` (the code block's own two) and `image` sit with the other block-level groups; both
 // used to fall past the end of this list and sort under a heading nothing declared (QA F8).
-const GROUP_ORDER = ['navigate', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'app'];
+const GROUP_ORDER = ['navigate', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
@@ -104,7 +104,10 @@ function ownedRows() {
 }
 
 function fileItems(q) {
-  const paths = allPages();
+  // Every file the tree can open, not only the pages: New file and Shift+Enter below make a
+  // `notes.txt` as readily as a page, and quick open is how it is found again. A page is named
+  // by its H1 or its stem; any other file by its whole name, extension and all, as in the tree.
+  const paths = allFiles();
   const seen = new Set(paths);
   const owned = new Map();                 // path -> the plugin's title for it
   for (const row of ownedRows()) {
@@ -123,19 +126,21 @@ function fileItems(q) {
 }
 
 /**
- * Shift+Enter in quick open (N41): a page with the typed name, where a new page goes — the
- * focused folder, else whatever the "new page in" setting says, else beside the open page and
- * finally the scratch folder. That last pair is `page.new`'s rule, and the two chords are the
- * same sentence ("make me a page, now"): asking only `defaultNewFolder()` answered '' in the
- * default setting and dropped the page at the vault root (QA defect 7).
+ * Shift+Enter in quick open (N41): the page you were looking for and did not find, made with
+ * the name you typed. It is New file… (shell/fileops.js) with the prompt already answered, so
+ * there is one way a file is created and one rule for where it goes: beside the open page,
+ * else in the focused folder, else at the vault root. The name is taken as typed; quick open
+ * lists pages, so a name that carries no extension is a page and gets `.md`, and one that does
+ * (`notes.txt`, `data.json`) is exactly that file. A name that cannot be used brings the
+ * New file prompt up with the reason.
  */
 async function createTyped(text) {
-  const name = String(text || '').trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\.md$/i, '').trim();
-  if (!name) return;
-  const open = store.get('route');
-  const beside = open && open.type === 'page' && open.path ? dirName(open.path) : '';
-  const path = await newPageIn(defaultNewFolder() || beside || scratchFolder(), name);
-  if (path) titles.set(path, name);
+  const typed = String(text || '').trim();
+  if (!typed) return;
+  const { ext } = ose.names.split(typed);
+  const name = /^[A-Za-z0-9]{1,10}$/.test(ext) ? typed : `${typed}.md`;
+  const path = await newFile(undefined, { name });
+  if (path) titles.delete(path);
 }
 
 /* ------------------------------------------------------------------ ui */
@@ -251,7 +256,7 @@ export function openPalette(mode = 'commands') {
   function setMode(m) {
     current = m;
     openOv.mode = m;
-    input.placeholder = m === 'files' ? 'Go to page…' : 'Type a command…';
+    input.placeholder = m === 'files' ? 'Go to page or file…' : 'Type a command…';
     modeEl.textContent = m === 'files' ? 'quick open' : 'commands';
     // The foot names the act, and quick open opens a page rather than running one (R17).
     enterEl.textContent = m === 'files' ? 'open' : 'run';
@@ -293,7 +298,9 @@ export function openPalette(mode = 'commands') {
 
   openOv = { ...ov, mode, setMode };
   setMode(mode);
-  requestAnimationFrame(() => input.focus());
+  // In the same task as the chord, so the keys typed right after it land in the input and
+  // never in the page behind (focusField tries once more after a task, only if focus moved).
+  focusField(ov.box, input);
 }
 
 /** A changed vault means changed titles: the index is dropped and read again when next used. */

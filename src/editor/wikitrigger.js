@@ -14,9 +14,9 @@ import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { editorViewCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import { findParent } from '@milkdown/kit/prose';
-import { esc, bridge, allPages, recentFiles, pageItems, highlight } from './host.js';
+import { esc, allPages, recentFiles, pageItems, highlight } from './host.js';
 import { toast } from './deps.js';
-import { insertLink, pageTitle, hrefFor } from './link.js';
+import { insertLink, pageTitle, hrefFor, createFreePage } from './link.js';
 import { missingLinkPlugin, registerLinkCommands } from './linkstate.js';
 import * as P from './paths.js';
 
@@ -48,14 +48,6 @@ function matchAt(view) {
   const query = before.slice(i + 2);
   if (query.length > MAX_QUERY || /[[\]\n]/.test(query)) return null;
   return { from: $from.pos - ($from.parentOffset - i), to: $from.pos, query };
-}
-
-/** `<folder>/<name>.md`, numbered when taken. The folder is the open page's own. */
-async function freePath(folder, base) {
-  const dir = folder ? folder + '/' : '';
-  let candidate = `${dir}${base}.md`;
-  for (let n = 2; n < 500 && await bridge.exists(candidate); n++) candidate = `${dir}${base} ${n}.md`;
-  return candidate;
 }
 
 /** A file name from what was typed: no separators, no Windows-reserved characters. */
@@ -229,8 +221,8 @@ class WikiView {
     if (item.kind === 'create') {
       this.busy = true;
       try {
-        target = await freePath(P.dirname(from), item.name);
-        await bridge.writeText(target, `# ${item.name}\n`);
+        // In the open page's own folder, numbered when taken, never over a file (link.js).
+        target = await createFreePage(P.dirname(from), item.name, `# ${item.name}\n`);
       } catch (err) {
         toast('could not create the page: ' + (err.message || err), 'err');
         this.busy = false;

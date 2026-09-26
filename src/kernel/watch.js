@@ -3,9 +3,11 @@
 //   ose.watch(fn)             every change
 //   ose.watch(folders, fn)    only changes under those vault folders
 //
-// `fn({ changes: [{ kind, path, to? }], lost? })`. `lost` is the host saying it dropped events
-// and the caller should re-read rather than trust the list. One subscription to the bridge
-// serves every caller; a subscriber that throws is logged and the others still run.
+// `fn({ changes: [{ kind, path, to? }], lost?, rescan? })`. `lost` is the host saying the vault
+// itself went away; `rescan` is the host saying it may have missed events (the OS watcher
+// overflowed, or restarted after an error) and the caller should re-read what it shows rather
+// than trust the list. One subscription to the bridge serves every caller; a subscriber that
+// throws is logged and the others still run.
 
 import { bridge } from './bridge/index.js';
 import { clean } from './paths.js';
@@ -28,21 +30,21 @@ function wire() {
       const changes = s.folders
         ? payload.changes.filter((c) => s.folders.some((f) => under(c.path, f) || (c.to && under(c.to, f))))
         : payload.changes;
-      // A `lost` notice reaches everybody: it is about the watcher, not about a path, and a
-      // caller that filters folders still has to re-read its own.
-      if (!changes.length && !payload.lost) continue;
-      try { s.fn({ changes, lost: payload.lost }); } catch (e) { console.error('[watch]', e); }
+      // A `lost` or `rescan` notice reaches everybody: it is about the watcher, not about a
+      // path, and a caller that filters folders still has to re-read its own.
+      if (!changes.length && !payload.lost && !payload.rescan) continue;
+      try { s.fn({ changes, lost: payload.lost, rescan: payload.rescan }); } catch (e) { console.error('[watch]', e); }
     }
   });
 }
 
-/** The host has spoken several shapes over the batches; every one becomes {changes, lost}. */
+/**
+ * The host's one shape, `{ changes, lost?, rescan? }` (docs/HOST.md "Events"). The host and
+ * the kernel ship in the same executable, so the older shapes are not read any more (M47).
+ */
 function normalize(data) {
-  if (!data) return { changes: [], lost: false };
-  if (Array.isArray(data)) return { changes: data.filter(Boolean), lost: false };
-  const changes = Array.isArray(data.changes) ? data.changes.filter(Boolean)
-    : (data.path ? [{ kind: data.kind || 'change', path: data.path, to: data.to }] : []);
-  return { changes, lost: !!data.lost };
+  const changes = data && Array.isArray(data.changes) ? data.changes.filter((c) => c && c.path) : [];
+  return { changes, lost: !!(data && data.lost), rescan: !!(data && data.rescan) };
 }
 
 export function watch(a, b) {

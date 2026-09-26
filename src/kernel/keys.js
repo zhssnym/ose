@@ -12,6 +12,7 @@
 // code block or a table.
 import { commands, allCommands, commandsRevision } from './registry.js';
 import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.js';
+import { getFocus, exitFocus } from './focus.js';
 
 /** Cmd on macOS, Ctrl elsewhere. Read live: the shell sets `data-os` after the bridge answers. */
 export function isMac() {
@@ -363,8 +364,16 @@ function fire(id) {
   const c = commands.get(id);
   if (!c) { toast(`${id} is not available yet`, 'warn', 2200); return; }
   if (c.when && !c.when()) { toast(UNAVAILABLE[id] || `${(c.title || id).toLowerCase()}: not available here`, 'info', 2200); return; }
-  try { commands.run(id); } catch (e) { console.error('[shell] command', id, e); toast(String(e.message || e), 'err'); }
+  const failed = (e) => { console.error('[shell] command', id, e); toast(String((e && e.message) || e), 'err', 0); };
+  try {
+    // A command may answer a promise (a save): its failure is said, not left unhandled.
+    const r = commands.run(id);
+    if (r && typeof r.then === 'function') r.then(null, failed);
+  } catch (e) { failed(e); }
 }
+
+/** Where Esc is somebody's text to edit, focus mode stays: the key is the editor's there. */
+const TYPING = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .ProseMirror, .cm-editor';
 
 const inside = (e, sel) => e.target instanceof Element && !!e.target.closest(sel);
 
@@ -375,7 +384,10 @@ export function initKeys() {
       if (overlayCount() > 0) { e.preventDefault(); e.stopPropagation(); closeTopOverlay(); return; }
       // No overlay: the newest toast goes, and the key still falls through, because the
       // editor's block selection uses Esc too and both may want it (D10).
-      dismissToast();
+      if (dismissToast()) return;
+      // Then focus mode (H18): Esc leaves it from anywhere that is not somebody's text. The
+      // key still falls through, so the tree's own Esc (back to the page) happens as well.
+      if (getFocus() && !inside(e, TYPING)) exitFocus();
       return;
     }
 

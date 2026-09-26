@@ -17,7 +17,7 @@
 
 import { Prec, StateEffect } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
-import { bridge } from './host.js';
+import { bridge, pageFiles } from './host.js';
 import { choose, toast } from './deps.js';
 import { describe, indentFor, loadLanguage } from './highlight.js';
 import { createSourceView } from './source.js';
@@ -67,6 +67,11 @@ export function codeEditor(el, opts = {}) {
   // instead: the user cannot lose what they cannot type.
   let loading = !!path;
   let eol = '\n';
+  // The host's hash of the bytes the baseline came from (wave 1, M2). With it, a save is one
+  // `saveFile` call that compares and writes under the host's lock and keeps the replaced
+  // bytes as a version; without it (a kernel that has no `readFile`), the old read, compare
+  // and write below.
+  let diskHash = null;
   const onWire = (t) => (eol === '\n' ? t : t.replace(/\n/g, eol));
 
   const emit = (event, payload) => {
@@ -180,7 +185,14 @@ export function codeEditor(el, opts = {}) {
     if (!path) { await loaded; return; }
     let raw = '';
     try {
-      raw = await bridge.readText(path);
+      try {
+        const r = await pageFiles.readFile(path);
+        raw = r.text;
+        diskHash = r.hash || null;
+      } catch (e) {
+        if (!e || e.code !== 'unknown_command') throw e;
+        raw = await bridge.readText(path);
+      }
     } catch (e) {
       toast(`cannot open ${path}: ${e && e.message ? e.message : e}`, 'err');
       baseline = null;
@@ -242,7 +254,7 @@ export function codeEditor(el, opts = {}) {
     if (text === baseline) { markClean(); return true; }
 
     let outcome = true;
-    saving = (async () => {
+    saving = diskHash !== null ? compareAndWrite(text).then((ok) => { if (!ok) outcome = false; }) : (async () => {
       let onDisk = null;
       try {
         onDisk = await bridge.readText(path);
@@ -315,6 +327,82 @@ export function codeEditor(el, opts = {}) {
     // save after this one gets it, and `dirty` stays true until something does.
     if (outcome && dirty && o.explicit && !o.again) return save({ ...o, again: true });
     return outcome && !dirty;
+  }
+
+  /**
+   * The save when the host compares for us (M2): one `saveFile` against the hash the baseline
+   * came from. A conflict asks the same questions as the read-compare path above, and the
+   * answer is written against the hash of what the conflict showed, so an outside write that
+   * lands while the dialog is up is a second conflict and never lost. True when it wrote or
+   * the user took the disk text; false when the text is still only here.
+   */
+  async function compareAndWrite(text) {
+    let expectedHash = diskHash;
+    let version = 'save';
+    for (let round = 0; round < 3; round++) {
+      const r = await pageFiles.save(path, onWire(text), { expectedHash, version });
+      if (r && r.status === 'saved') {
+        diskHash = r.hash || null;
+        baseline = text;
+        // As writeOut: a keystroke that landed during the await leaves the editor dirty.
+        if (getText() === text) markClean();
+        if (typeof opts.onSave === 'function') { try { await opts.onSave(text); } catch (e) { console.error('[editor] onSave', e); } }
+        emit('saved', { path, text });
+        return true;
+      }
+      const disk = (r && r.disk) || { exists: false, text: null, hash: null };
+      if (!disk.exists) {
+        const choice = await choose({
+          title: 'No longer there',
+          body: `${path} has been deleted or moved since it was opened here. `
+            + 'Write it again with what is in the editor, or keep the text here and decide later?',
+          options: [
+            { label: 'Cancel', value: 'hold' },
+            { label: 'Write it again', value: 'write', kind: 'primary' },
+          ],
+          cancel: 'hold',
+        });
+        if (choice !== 'write') {
+          hold = true;
+          toast(`${path} is not on disk; nothing was written and your text is still here`, 'warn', 9000);
+          return false;
+        }
+        expectedHash = null;
+        version = 'none';
+        continue;
+      }
+      const canReload = typeof disk.text === 'string';
+      const choice = await choose({
+        title: 'Changed on disk',
+        body: `${path} was modified by something else since it was opened here. `
+          + (canReload
+            ? 'Keep your version and overwrite the file, or reload the file and lose your edits?'
+            : 'Keep your version and overwrite the file? What is on disk is not text this editor can show.'),
+        options: [
+          { label: 'Cancel', value: 'cancel' },
+          ...(canReload ? [{ label: 'Reload from disk', value: 'reload' }] : []),
+          { label: 'Keep mine', value: 'keep', kind: 'primary' },
+        ],
+        cancel: 'cancel',
+      });
+      emit('conflict', { path, choice: choice || 'cancel' });
+      if (choice === 'reload' && canReload) {
+        eol = endingOf(disk.text);
+        baseline = normalize(disk.text);
+        diskHash = disk.hash || null;
+        // One undoable edit, as in the read-compare path (A, finding 12).
+        view.setText(baseline);
+        markClean();
+        return true;
+      }
+      if (choice !== 'keep') { hold = true; return false; }
+      // The host keeps the bytes being replaced as a `conflict` version.
+      expectedHash = disk.hash;
+      version = 'conflict';
+    }
+    hold = true;
+    toast(`${path} keeps changing on disk; nothing was written and your text is still here`, 'warn', 9000);
+    return false;
   }
 
   async function writeOut(text) {

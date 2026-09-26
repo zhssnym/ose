@@ -21,8 +21,20 @@ export { render } from './render.js';
 export { renderMath } from './math.js';
 
 /**
- * The page-level commands (`page.new`, `page.save`, `page.rename`…) without a page mounted, so
+ * The page-level commands (`page.new`, `page.save`, `page.save-as`…) without a page mounted, so
  * the shell can offer "New page" on its start surface. Answers the function that gives the
  * reference back; a mounted page holds one of its own either way.
  */
 export { acquireCommands as holdPageCommands } from './page.js';
+
+/**
+ * The two halves of a rename, a move, a trash or a copy, for every mounted page at or under
+ * the path (C6). The shell's page host hands them on to `ose.fileops`:
+ *
+ *   beforePathChange({kind, from, to})      -> Promise<{ok, reason?}>  flush, or refuse
+ *   afterPathChange({kind, from, to, ok})   -> Promise<void>           follow, or stay
+ *
+ * `saveAll({explicit, closing})` saves every mounted page and answers false when any of them
+ * could not be saved.
+ */
+export { beforePathChange, afterPathChange, saveAll } from './page.js';

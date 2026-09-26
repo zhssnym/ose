@@ -1,5 +1,5 @@
 //! `<root>/.ose/state.json`: the UI's whole persisted state plus the two keys the host owns,
-//! `window` (bounds) and `theme` (first paint colour). Writes are atomic: temp file, rename.
+//! `window` (bounds) and `theme` (first paint colour). Writes are atomic: `vault::write_atomic`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,10 @@ use crate::Ctx;
 
 /// Serialises read-modify-write cycles so a `setState` and a host patch cannot interleave.
 static GATE: Mutex<()> = Mutex::new(());
+
+/// How long a refused rename of the state file is tried again. Short: the close handshake
+/// writes it on the main thread.
+const STATE_BUDGET_MS: u64 = 100;
 
 pub fn state_path(root: &Path) -> PathBuf {
     root.join(".ose").join("state.json")
@@ -55,14 +59,19 @@ fn write_locked(root: &Path, value: &Value) -> Result<(), String> {
     } else {
         json!({})
     };
+    // A vault folder that is gone is not recreated for its state file (a ghost vault).
+    crate::vault::require_vault(root)?;
     let path = state_path(root);
     let dir = path.parent().ok_or("no state folder")?;
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
     let text = serde_json::to_string_pretty(&obj).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, text.as_bytes()).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+    // The host's atomic writer (C3), no delete first, in its mode for a file the app owns: the
+    // UI holds the same data, so a rename refused for longer than a moment removes the temp
+    // file rather than leaving `.ose/state.unsaved-*.json` for a synced vault to carry, and the
+    // window's close never waits seconds on a scanner.
+    crate::vault::write_atomic_owned(&path, text.as_bytes(), STATE_BUDGET_MS)
+        .map_err(|f| f.message(".ose/state.json", Some(root)))
 }
 
 /// Read, merge one key, write. The host uses it for `window` and `theme` so it never clobbers
@@ -164,8 +173,10 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
     if !matches!(cmd, "getState" | "setState") {
         return None;
     }
-    // The state file lives inside the vault, so there is none to read without one.
-    let root = match ctx.st.require_root() {
+    // The state file lives inside the vault, so there is none to read without one. A `setState`
+    // naming an epoch other than the open one is the old vault's state, sent late, and is
+    // refused (`[stale_vault]`) instead of replacing the new vault's.
+    let root = match crate::root_for(ctx.st, cmd, args) {
         Ok(r) => r,
         Err(e) => return Some(Err(e)),
     };
@@ -199,5 +210,15 @@ mod tests {
         assert!(usable(b, &[(0, 0, 1920, 1080)]));
         let barely = Bounds { x: 1900, ..b };
         assert!(!usable(barely, &[(0, 0, 1920, 1080)]));
+    }
+
+    /// A vault folder that is gone is not recreated for its state file.
+    #[test]
+    fn a_lost_vault_gets_no_state_file() {
+        let root = std::env::temp_dir().join(format!("ose-state-lost-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        assert!(set(&root, &json!({ "a": 1 })).unwrap_err().starts_with("[no_vault]"));
+        assert!(patch(&root, "window", json!({})).unwrap_err().starts_with("[no_vault]"));
+        assert!(!root.exists());
     }
 }

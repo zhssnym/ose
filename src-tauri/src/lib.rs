@@ -2,18 +2,26 @@
 //! window control is done by the adapter through Tauri's own window API and never reaches here.
 //!
 //! Each file below exposes `handle(ctx, cmd, args) -> Option<Result<Value, String>>`, where
-//! `None` means "not mine", and `rpc` tries them in order. A name none of them claims is
-//! answered with `null` rather than an error (`gone`).
+//! `None` means "not mine", and `rpc` tries them in order. A name none of them claims is an
+//! error, `[unknown_command] <cmd>`; only the names a past version retired still answer `null`
+//! (`gone`).
+//!
+//! Every error a command sends back is a string of the form `[code] message` (docs/HOST.md
+//! "Errors"), so the page can tell "the file is gone" from "the disk said no" without reading
+//! prose.
 
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
 pub mod args;
+pub mod drafts;
+pub mod files;
 pub mod platform;
 pub mod print;
 pub mod protocol;
@@ -26,7 +34,30 @@ pub mod versions;
 pub mod watcher;
 
 /// The error every command that touches files returns while no vault is open.
-pub const NO_VAULT: &str = "no vault is open";
+pub const NO_VAULT: &str = "[no_vault] no vault is open";
+
+/// `[code] message`: the one shape of every error a command answers (docs/HOST.md "Errors").
+pub fn coded(code: &str, message: impl std::fmt::Display) -> String {
+    format!("[{code}] {message}")
+}
+
+/// An I/O error on the vault path `rel`, with the code the page can act on: a missing file is
+/// `not_found`, everything else is `io`.
+pub fn io_error(rel: &str, e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => coded("not_found", format!("{rel}: {e}")),
+        _ => coded("io", format!("{rel}: {e}")),
+    }
+}
+
+/// An error string that already carries a code keeps it; a bare one becomes `[io]`.
+pub fn with_code(e: String) -> String {
+    if e.starts_with('[') {
+        e
+    } else {
+        coded("io", e)
+    }
+}
 
 /// Where the open root came from, for `vaultInfo` and the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +120,14 @@ pub type FileSaver = fn(
 /// `vault` protocol alike.
 pub struct AppState {
     root: RwLock<Option<Root>>,
+    /// Which vault the page is talking about (docs/HOST.md "Epoch"). 1 at startup, one more on
+    /// every `adopt`. A mutating command that names another epoch is refused with
+    /// `[stale_vault]`, so the last save of a page from the vault that was just left can never
+    /// land in the one that replaced it.
+    epoch: AtomicU64,
+    /// The per-machine app data folder (drafts live under it), set in `setup` once the app
+    /// knows it. `None` in tests that do not set one, and on a platform without one.
+    data_dir: RwLock<Option<PathBuf>>,
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
@@ -108,6 +147,8 @@ impl AppState {
     ) -> Self {
         Self {
             root: RwLock::new(root),
+            epoch: AtomicU64::new(1),
+            data_dir: RwLock::new(None),
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
             picker,
@@ -144,8 +185,50 @@ impl AppState {
         self.root().ok_or_else(|| NO_VAULT.to_string())
     }
 
+    /// The open root, for a command that said which epoch it belongs to. `None` is a caller that
+    /// did not say (every read, and an old page), and is let through. The root and the epoch are
+    /// read under one lock, so a command can never pair the new root with the old epoch.
+    pub fn require_root_at(&self, epoch: Option<u64>) -> Result<PathBuf, String> {
+        let guard = self.root.read().unwrap_or_else(|p| p.into_inner());
+        if let Some(asked) = epoch {
+            let now = self.epoch.load(Ordering::SeqCst);
+            if asked != now {
+                return Err(coded(
+                    "stale_vault",
+                    format!("this page belongs to vault epoch {asked}, the open vault is epoch {now}"),
+                ));
+            }
+        }
+        guard.as_ref().map(|r| r.path.clone()).ok_or_else(|| NO_VAULT.to_string())
+    }
+
+    /// The current epoch (docs/HOST.md "Epoch").
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    /// The root found at startup (the remembered one): the page has not seen any other yet, so
+    /// the epoch stays where it is.
     pub fn set_root(&self, path: PathBuf, source: Source) {
         *self.root.write().unwrap_or_else(|p| p.into_inner()) = Some(Root { path, source });
+    }
+
+    /// A vault adopted while the app runs: the root changes and the epoch goes up by one, both
+    /// under the write lock.
+    pub fn adopt_root(&self, path: PathBuf, source: Source) -> u64 {
+        let mut guard = self.root.write().unwrap_or_else(|p| p.into_inner());
+        let next = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        *guard = Some(Root { path, source });
+        next
+    }
+
+    /// The per-machine app data folder, when the app has told us.
+    pub fn data_dir(&self) -> Option<PathBuf> {
+        self.data_dir.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    pub fn set_data_dir(&self, dir: PathBuf) {
+        *self.data_dir.write().unwrap_or_else(|p| p.into_inner()) = Some(dir);
     }
 
     /// (Re)starts the watcher on `root`. Dropping the previous handle stops its thread.
@@ -161,10 +244,61 @@ pub struct Ctx<'a> {
     pub st: &'a AppState,
 }
 
-/// Appends one timestamped line to the `--log` file, and mirrors it to stderr so a console
-/// build and CI see it too. Never fails: logging must not break a command.
+// ---- the log ---------------------------------------------------------------
+
+/// How much a line matters. The persistent log keeps every level; the page picks one for its
+/// own lines (`log(text, level)`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    Error,
+    Warn,
+    Info,
+    Debug,
+}
+
+impl Level {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Level::Error => "error",
+            Level::Warn => "warn",
+            Level::Info => "info",
+            Level::Debug => "debug",
+        }
+    }
+
+    /// The page's word for a level; anything else is `info`.
+    pub fn parse(s: &str) -> Level {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "error" | "err" => Level::Error,
+            "warn" | "warning" => Level::Warn,
+            "debug" | "trace" => Level::Debug,
+            _ => Level::Info,
+        }
+    }
+}
+
+/// One timestamped line into every log there is: the persistent one in the app's log folder
+/// (M54: it exists in every build, without a flag), the `--log` file when one was named, and
+/// stderr for a console build and CI. Never fails: logging must not break a command.
 pub fn log_line(st: &AppState, s: &str) {
-    let line = format!("{}  {}\n", stamp(), s);
+    log_at(st, Level::Info, s);
+}
+
+/// `log_line` at a chosen level.
+pub fn log_at(st: &AppState, level: Level, s: &str) {
+    let line = format!("{} {} {}\n", stamp(), level.as_str(), s);
+    persist(&line);
+    to_flag_log(st, &line);
+}
+
+/// A line for the `--log` file and stderr only: the name of every rpc, which is what a person
+/// debugging with `--log` wants and what would drown the persistent log in noise.
+pub fn trace_line(st: &AppState, s: &str) {
+    let line = format!("{} debug {}\n", stamp(), s);
+    to_flag_log(st, &line);
+}
+
+fn to_flag_log(st: &AppState, line: &str) {
     eprint!("{line}");
     let Some(file) = &st.log else { return };
     // A poisoned log mutex still holds a usable File; a panic while logging must not
@@ -175,6 +309,145 @@ pub fn log_line(st: &AppState, s: &str) {
     };
     let _ = guard.write_all(line.as_bytes());
     let _ = guard.flush();
+}
+
+/// Rotated at this size, keeping `ose.log`, `ose.1.log` and `ose.2.log`.
+const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
+const LOG_KEEP: usize = 3;
+/// Lines written before the log folder is known (the first lines of `main`) wait here, and are
+/// written first once it is. Capped, so a log that never opens cannot grow memory.
+const LOG_EARLY_CAP: usize = 500;
+
+struct Persistent {
+    dir: PathBuf,
+    file: Option<File>,
+    size: u64,
+}
+
+impl Persistent {
+    fn path(&self, n: usize) -> PathBuf {
+        if n == 0 {
+            self.dir.join("ose.log")
+        } else {
+            self.dir.join(format!("ose.{n}.log"))
+        }
+    }
+
+    fn open(&mut self) {
+        let path = self.path(0);
+        self.file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok();
+        self.size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    }
+
+    fn rotate(&mut self) {
+        self.file = None;
+        let _ = std::fs::remove_file(self.path(LOG_KEEP - 1));
+        for n in (0..LOG_KEEP - 1).rev() {
+            let _ = std::fs::rename(self.path(n), self.path(n + 1));
+        }
+        self.open();
+    }
+
+    fn write(&mut self, line: &str) {
+        if self.size + line.len() as u64 > LOG_MAX_BYTES {
+            self.rotate();
+        }
+        if let Some(f) = &mut self.file {
+            if f.write_all(line.as_bytes()).is_ok() {
+                self.size += line.len() as u64;
+            }
+        }
+    }
+}
+
+enum LogSink {
+    Early(Vec<String>),
+    Open(Persistent),
+}
+
+fn sink() -> &'static Mutex<LogSink> {
+    static SINK: OnceLock<Mutex<LogSink>> = OnceLock::new();
+    SINK.get_or_init(|| Mutex::new(LogSink::Early(Vec::new())))
+}
+
+fn persist(line: &str) {
+    let mut guard = sink().lock().unwrap_or_else(|p| p.into_inner());
+    match &mut *guard {
+        LogSink::Early(lines) => {
+            if lines.len() < LOG_EARLY_CAP {
+                lines.push(line.to_string());
+            }
+        }
+        LogSink::Open(p) => p.write(line),
+    }
+}
+
+/// Opens `<dir>/ose.log` (created with its folder), writes what was logged before it existed,
+/// and keeps every later line there. Answers the file's path, which `platform` reports.
+pub fn open_persistent_log(dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut p = Persistent { dir: dir.to_path_buf(), file: None, size: 0 };
+    p.open();
+    if p.file.is_none() {
+        return Err(format!("cannot open {}", p.path(0).display()));
+    }
+    let path = p.path(0);
+    let mut guard = sink().lock().unwrap_or_else(|p| p.into_inner());
+    if let LogSink::Early(lines) = &*guard {
+        for line in lines {
+            p.write(line);
+        }
+    }
+    *guard = LogSink::Open(p);
+    Ok(path)
+}
+
+/// The persistent log's path, or `None` before it is open.
+pub fn persistent_log_path() -> Option<PathBuf> {
+    let guard = sink().lock().unwrap_or_else(|p| p.into_inner());
+    match &*guard {
+        LogSink::Open(p) => Some(p.path(0)),
+        LogSink::Early(_) => None,
+    }
+}
+
+/// The `log` crate's records (Tauri's, notify's, the webview's) into the same persistent log,
+/// warnings and errors only. One of them is also a signal: notify's Windows backend reports a
+/// dead `ReadDirectoryChangesW` (a buffer overflow during a checkout, a network hiccup) with a
+/// `log::error!` and nothing else, and then stops watching for good (H9). The watcher reads
+/// that flag and restarts, telling the page to re-read.
+struct Records;
+
+impl log::Log for Records {
+    fn enabled(&self, meta: &log::Metadata) -> bool {
+        meta.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let level = match record.level() {
+            log::Level::Error => Level::Error,
+            _ => Level::Warn,
+        };
+        if record.level() == log::Level::Error && record.target().starts_with("notify") {
+            watcher::fault();
+        }
+        let line = format!("{} {} {}: {}\n", stamp(), level.as_str(), record.target(), record.args());
+        eprint!("{line}");
+        persist(&line);
+    }
+
+    fn flush(&self) {}
+}
+
+/// Installs `Records` as the process's `log` logger. Called once, first thing in `main`.
+pub fn install_log_records() {
+    static RECORDS: Records = Records;
+    if log::set_logger(&RECORDS).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
 }
 
 /// `2026-09-06 18:42:01.037`, UTC. Enough to correlate lines in a log; no date crate needed.
@@ -215,7 +488,8 @@ pub mod commands {
     use super::*;
     use tauri::Manager as _;
 
-    /// The whole bridge. `cmd` is the bridge method name in camelCase; errors are plain strings.
+    /// The whole bridge. `cmd` is the bridge method name in camelCase; errors are
+    /// `[code] message` strings (docs/HOST.md "Errors").
     #[tauri::command]
     pub async fn rpc(
         app: tauri::AppHandle,
@@ -226,18 +500,20 @@ pub mod commands {
         let st = app_state.inner();
         let ctx = Ctx { app: &app, st };
 
-        // `log` is the UI writing into the host log; it has no module of its own.
+        // `log` is the UI writing into the host log; it has no module of its own. The page
+        // names a level (`error`, `warn`, `info`, `debug`) and its window errors arrive here.
         if cmd == "log" {
             let text = args
                 .first()
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            log_line(st, &format!("ui: {text}"));
+            let level = Level::parse(args.get(1).and_then(Value::as_str).unwrap_or("info"));
+            log_at(st, level, &format!("ui: {text}"));
             return Ok(Value::Null);
         }
 
-        log_line(st, &format!("rpc {cmd}"));
+        trace_line(st, &format!("rpc {cmd}"));
 
         // Quitting goes through the window's close path, never around it: `close()` raises
         // CloseRequested, the adapter holds it open until the editor's last save has settled,
@@ -247,7 +523,7 @@ pub mod commands {
             return match app.get_webview_window("main") {
                 Some(w) => {
                     log_line(st, "quit requested by the UI");
-                    w.close().map(|_| Value::Null).map_err(|e| e.to_string())
+                    w.close().map(|_| Value::Null).map_err(|e| coded("io", e))
                 }
                 None => {
                     app.exit(0);
@@ -266,15 +542,25 @@ pub mod commands {
         }
 
         // The folder picker is the one command that waits on the user, so it is awaited here
-        // rather than dispatched through the synchronous module handlers.
+        // rather than dispatched through the synchronous module handlers. `{adopt:false}` only
+        // chooses: the page leaves the old vault first (saving into it) and opens the new one
+        // afterwards with `openVault`, which records it then.
         if cmd == "pickVault" {
-            let r = vault::pick_vault(&ctx).await;
+            let adopt = args
+                .first()
+                .and_then(Value::as_object)
+                .and_then(|o| o.get("adopt"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let r = vault::pick_vault(&ctx, adopt).await;
             // A vault the user chose is a vault they may want back: the recent list is written
             // here, where both the picker and `openVault` pass through.
-            if let Ok(Value::Object(o)) = &r {
-                if let Some(p) = o.get("root").and_then(Value::as_str) {
-                    if let Err(e) = vaults::record(&app, std::path::Path::new(p)) {
-                        log_line(st, &format!("recent vaults: {e}"));
+            if adopt {
+                if let Ok(Value::Object(o)) = &r {
+                    if let Some(p) = o.get("root").and_then(Value::as_str) {
+                        if let Err(e) = vaults::record(&app, std::path::Path::new(p)) {
+                            log_line(st, &format!("recent vaults: {e}"));
+                        }
                     }
                 }
             }
@@ -289,8 +575,8 @@ pub mod commands {
 
         // `search` walks every file in the vault and `tree` reads every directory: both are
         // synchronous, and on a big vault either would hold a tokio worker for the length of
-        // the walk. Each runs on a blocking worker and is awaited here, exactly as the update
-        // commands do above. Everything else in vault.rs touches one path and stays inline.
+        // the walk. Each runs on a blocking worker and is awaited here. Everything else in
+        // vault.rs touches one path and stays inline.
         if vault::BLOCKING.contains(&cmd.as_str()) {
             let root = match st.require_root() {
                 Ok(r) => r,
@@ -299,11 +585,17 @@ pub mod commands {
             let (c, a) = (cmd.clone(), args.clone());
             let r = tauri::async_runtime::spawn_blocking(move || vault::dispatch(&root, &c, &a))
                 .await
-                .unwrap_or_else(|e| Err(format!("{cmd} worker failed: {e}")));
+                .unwrap_or_else(|e| Err(coded("io", format!("{cmd} worker failed: {e}"))));
             return log_err(st, &cmd, r);
         }
 
         if let Some(r) = vault::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = files::handle(&ctx, &cmd, &args) {
+            return log_err(st, &cmd, r);
+        }
+        if let Some(r) = drafts::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
@@ -324,30 +616,81 @@ pub mod commands {
         if let Some(r) = print::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
-        Ok(gone(st, &cmd))
+        gone(st, &cmd)
     }
 
-    /// A command this host does not implement. 1.0.0 took several away at once: `riceInfo`,
-    /// `riceReady` and `riceFailed`, which are 0.5.0 command names, and every `update*`. The
-    /// page calling one is a page that has not caught up yet, not a page that is broken: it
-    /// gets `null`, which every caller already handles, instead of an error that would surface
-    /// as a toast or a dead view. The name is logged the first time it is asked for, so a call
-    /// that should have gone is still visible once in the log and never a thousand times.
-    fn gone(st: &AppState, cmd: &str) -> Value {
+    /// The names 1.0.0 took away: `riceInfo`, `riceReady` and `riceFailed` (0.5.0 command
+    /// names) and every `update*`. A page that still calls one has not caught up yet and is
+    /// not broken, so it gets `null`, which every such caller already handles.
+    pub fn retired(cmd: &str) -> bool {
+        matches!(cmd, "riceInfo" | "riceReady" | "riceFailed") || cmd.starts_with("update")
+    }
+
+    /// A command this host does not implement. A retired name answers `null`, logged the first
+    /// time it is asked for; any other name is `[unknown_command] <cmd>`, so a caller can never
+    /// mistake "this host has no such command" for success (a `null` read as "saved" is how a
+    /// page could lose text against an older host).
+    fn gone(st: &AppState, cmd: &str) -> Result<Value, String> {
         static SAID: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
         let mut guard = SAID.lock().unwrap_or_else(|p| p.into_inner());
         let seen = guard.get_or_insert_with(Default::default);
-        if seen.insert(cmd.to_string()) {
-            log_line(st, &format!("rpc {cmd}: this host has no such command any more, answering null"));
+        let first = seen.insert(cmd.to_string());
+        if retired(cmd) {
+            if first {
+                log_line(st, &format!("rpc {cmd}: this host has no such command any more, answering null"));
+            }
+            return Ok(Value::Null);
         }
-        Value::Null
+        if first {
+            log_at(st, Level::Warn, &format!("rpc {cmd}: no such command"));
+        }
+        Err(coded("unknown_command", cmd))
     }
 
     fn log_err(st: &AppState, cmd: &str, r: Result<Value, String>) -> Result<Value, String> {
-        if let Err(e) = &r {
-            log_line(st, &format!("rpc {cmd} failed: {e}"));
+        match r {
+            Err(e) => {
+                let e = with_code(e);
+                log_at(st, Level::Warn, &format!("rpc {cmd} failed: {e}"));
+                Err(e)
+            }
+            ok => ok,
         }
-        r
+    }
+
+    /// The `epoch` a mutating command carries in its trailing options object (docs/HOST.md
+    /// "Epoch"), or `None` when it names none. One table, so a handler cannot forget where its
+    /// options sit.
+    pub fn epoch_of(cmd: &str, args: &[Value]) -> Option<u64> {
+        let at = match cmd {
+            "writeText" | "appendText" | "writeBinary" | "rename" | "saveFile" | "copyFile"
+            | "appendLine" | "draftWrite" | "versionRestore" => 2,
+            // `versionKeep(path, text, opts)`: the legacy boolean `opts` is not an object, so it
+            // names no epoch and is let through.
+            "versionKeep" => 2,
+            // `setState(state, opts?)` and `draftDrop(path, opts?)`: sent late from a page of the
+            // vault that was just left, either would land in the new one.
+            "mkdir" | "trash" | "setState" | "draftDrop" => 1,
+            "replaceLine" => 4,
+            // `createNew(path, text = '', opts?)`: the text may be left out.
+            "createNew" => {
+                if args.get(1).map(Value::is_object).unwrap_or(false) {
+                    1
+                } else {
+                    2
+                }
+            }
+            _ => return None,
+        };
+        let v = args.get(at)?.as_object()?.get("epoch")?;
+        v.as_u64()
+            .or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64))
+    }
+
+    /// The open root for `cmd`, refused with `[stale_vault]` when the command names an epoch
+    /// that is no longer the open one.
+    pub fn root_for(st: &AppState, cmd: &str, args: &[Value]) -> Result<PathBuf, String> {
+        st.require_root_at(epoch_of(cmd, args))
     }
 
     // ---- argument helpers, shared by the module handlers -----------------------
@@ -356,7 +699,7 @@ pub mod commands {
     pub fn arg_str(args: &[Value], i: usize) -> Result<String, String> {
         match args.get(i) {
             Some(Value::String(s)) => Ok(s.clone()),
-            _ => Err(format!("argument {i} must be a string")),
+            _ => Err(coded("bad_arg", format!("argument {i} must be a string"))),
         }
     }
 
@@ -389,7 +732,7 @@ pub mod commands {
 }
 
 pub use commands::rpc;
-pub use commands::{arg_str, arg_str_or, opt_field_str, opt_field_i64};
+pub use commands::{arg_str, arg_str_or, epoch_of, opt_field_i64, opt_field_str, root_for};
 
 #[cfg(test)]
 mod tests {
@@ -426,6 +769,71 @@ mod tests {
         );
         // The one that matters most, spelled out so a future merge cannot quietly drop it.
         assert_eq!(mac.get("dragDropEnabled"), Some(&Value::Bool(false)));
+    }
+
+    /// A write from a page of the vault that was just left is refused, never landed in the new
+    /// one (docs/HOST.md "Epoch").
+    #[test]
+    fn a_stale_epoch_is_refused() {
+        let st = AppState::new(
+            Some(Root { path: PathBuf::from("/one"), source: Source::Arg }),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(st.epoch(), 1);
+        assert_eq!(st.require_root_at(Some(1)).unwrap(), PathBuf::from("/one"));
+        assert_eq!(st.adopt_root(PathBuf::from("/two"), Source::Picked), 2);
+        let e = st.require_root_at(Some(1)).unwrap_err();
+        assert!(e.starts_with("[stale_vault]"), "{e}");
+        assert_eq!(st.require_root_at(Some(2)).unwrap(), PathBuf::from("/two"));
+        // A caller that names no epoch (a read, an old page) is let through.
+        assert_eq!(st.require_root_at(None).unwrap(), PathBuf::from("/two"));
+
+        // Where each command carries it.
+        let o = serde_json::json!({ "epoch": 1 });
+        assert_eq!(epoch_of("saveFile", &[Value::from("a"), Value::from("t"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("trash", &[Value::from("a"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("createNew", &[Value::from("a"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("createNew", &[Value::from("a"), Value::from(""), o.clone()]), Some(1));
+        assert_eq!(
+            epoch_of("replaceLine", &[Value::from("a"), Value::from(0), Value::from("x"), Value::from("y"), o.clone()]),
+            Some(1)
+        );
+        assert_eq!(epoch_of("setState", &[serde_json::json!({}), o.clone()]), Some(1));
+        assert_eq!(epoch_of("draftDrop", &[Value::from("a"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("versionKeep", &[Value::from("a"), Value::from("t"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("versionKeep", &[Value::from("a"), Value::from("t"), Value::from(true)]), None);
+        assert_eq!(epoch_of("setState", &[serde_json::json!({})]), None);
+        assert_eq!(epoch_of("readFile", &[Value::from("a"), o]), None);
+    }
+
+    #[test]
+    fn a_page_level_is_parsed_and_defaults_to_info() {
+        assert_eq!(Level::parse("error"), Level::Error);
+        assert_eq!(Level::parse("WARN"), Level::Warn);
+        assert_eq!(Level::parse("debug"), Level::Debug);
+        assert_eq!(Level::parse("loud"), Level::Info);
+    }
+
+    #[test]
+    fn the_persistent_log_rotates() {
+        let dir = std::env::temp_dir().join(format!("ose-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = Persistent { dir: dir.clone(), file: None, size: 0 };
+        p.open();
+        let line = format!("{}\n", "x".repeat(1023));
+        for _ in 0..(3 * 2048 + 10) {
+            p.write(&line);
+        }
+        assert!(dir.join("ose.log").is_file());
+        assert!(dir.join("ose.1.log").is_file());
+        assert!(dir.join("ose.2.log").is_file());
+        assert!(!dir.join("ose.3.log").exists(), "three files kept, no more");
+        assert!(std::fs::metadata(dir.join("ose.1.log")).unwrap().len() <= LOG_MAX_BYTES);
+        drop(p);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

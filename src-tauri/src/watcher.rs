@@ -7,6 +7,12 @@
 //! them (verified on Windows with notify 8), so the two are paired by arrival order. And the
 //! raw kind is only a first guess: the kind that goes out is decided at flush time from the
 //! raw kind plus whether the path still exists.
+//!
+//! "You may have missed something" is said too (H9): notify's Rescan flag, a Windows
+//! `ReadDirectoryChangesW` that died (a buffer overflow during a checkout: notify only logs it,
+//! and `lib.rs` turns that record into `fault()`), and every restart after an error send
+//! `{changes: [], rescan: true}`, and the page re-reads what it shows. A rename paired here moves
+//! the file's history and drafts with it, as a rename through the app does.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -19,7 +25,7 @@ use std::time::{Duration, Instant};
 use notify::event::{ModifyKind, RenameMode};
 use notify::{EventKind, RecursiveMode, Watcher};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager as _};
 
 /// Quiet period before a batch goes out.
 const DEBOUNCE: Duration = Duration::from_millis(150);
@@ -29,6 +35,22 @@ const POLL: Duration = Duration::from_millis(25);
 const MAX_PENDING: usize = 2000;
 /// How often the watcher asks whether the vault folder is still there (S29).
 const LIVENESS: Duration = Duration::from_secs(1);
+
+/// Set by `fault()` when notify reports, through the `log` crate, that it stopped watching. The
+/// running watcher sees it within a poll and restarts.
+static FAULT: AtomicBool = AtomicBool::new(false);
+
+/// notify said it gave up on the watch (lib.rs `Records`): restart, and tell the page to re-read.
+pub fn fault() {
+    FAULT.store(true, Ordering::SeqCst);
+}
+
+/// "You may have missed events: re-read what you show."
+fn send_rescan(app: &AppHandle) {
+    if let Err(e) = app.emit("fs", json!({ "changes": [], "rescan": true })) {
+        eprintln!("fs event dropped: {e}");
+    }
+}
 
 /// Stops the watcher thread when dropped.
 pub struct Handle {
@@ -57,6 +79,8 @@ pub fn start(app: AppHandle, root: PathBuf) -> Handle {
             // with an empty tree and a toast per failed call. It is said once, as a fact about
             // the vault rather than about the watcher, and once more when it comes back (S29).
             let mut lost = false;
+            // Set by a watcher that failed; the next one to start says `rescan` once it is up.
+            let mut missed = false;
             while !flag.load(Ordering::Relaxed) {
                 // Asked before the watcher is (re)built, so the folder coming back is noticed
                 // in the same breath as the watch that succeeds on it.
@@ -73,9 +97,12 @@ pub fn start(app: AppHandle, root: PathBuf) -> Handle {
                         eprintln!("fs event dropped: {e}");
                     }
                 }
-                match run(&app, &root, &flag) {
+                match run(&app, &root, &flag, &mut missed) {
                     Ok(()) => break,
-                    Err(e) => eprintln!("watcher error: {e}; restarting"),
+                    Err(e) => {
+                        missed = true;
+                        eprintln!("watcher error: {e}; restarting");
+                    }
                 }
                 // a second of backoff, still responsive to the stop flag
                 for _ in 0..40 {
@@ -94,7 +121,9 @@ pub fn start(app: AppHandle, root: PathBuf) -> Handle {
 }
 
 /// One watcher's life. `Ok(())` means "asked to stop", `Err` means "restart me".
-fn run(app: &AppHandle, root: &Path, stop: &AtomicBool) -> Result<(), String> {
+fn run(app: &AppHandle, root: &Path, stop: &AtomicBool, missed: &mut bool) -> Result<(), String> {
+    // A fault from the watcher being replaced is not this one's.
+    FAULT.store(false, Ordering::SeqCst);
     let (tx, rx) = channel::<notify::Result<notify::Event>>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let _ = tx.send(res);
@@ -103,6 +132,9 @@ fn run(app: &AppHandle, root: &Path, stop: &AtomicBool) -> Result<(), String> {
     watcher
         .watch(root, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
+    if std::mem::take(missed) {
+        send_rescan(app);
+    }
 
     let mut batch = Batch::default();
     let mut last = Instant::now();
@@ -111,6 +143,9 @@ fn run(app: &AppHandle, root: &Path, stop: &AtomicBool) -> Result<(), String> {
     loop {
         if stop.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        if FAULT.swap(false, Ordering::SeqCst) {
+            return Err("notify stopped watching".to_string());
         }
         // The vault folder can go away without notify saying a word: on Windows the backend
         // holds a handle to the directory and simply stops reporting when the drive is
@@ -125,6 +160,9 @@ fn run(app: &AppHandle, root: &Path, stop: &AtomicBool) -> Result<(), String> {
         }
         match rx.recv_timeout(POLL) {
             Ok(Ok(ev)) => {
+                if ev.need_rescan() {
+                    batch.rescan = true;
+                }
                 batch.queue(root, &ev);
                 last = Instant::now();
             }
@@ -203,6 +241,8 @@ struct Batch {
     seen: HashSet<String>,
     /// A `From` waiting for its `To`.
     rename_from: Option<String>,
+    /// notify flagged an event with Rescan: the batch goes out with `rescan: true`.
+    rescan: bool,
 }
 
 impl Batch {
@@ -282,7 +322,8 @@ impl Batch {
     }
 
     fn ready(&self, last: Instant) -> bool {
-        !self.pending.is_empty() && (last.elapsed() >= DEBOUNCE || self.pending.len() >= MAX_PENDING)
+        (self.rescan || !self.pending.is_empty())
+            && (last.elapsed() >= DEBOUNCE || self.pending.len() >= MAX_PENDING)
     }
 }
 
@@ -291,6 +332,7 @@ impl Batch {
 fn flush(app: &AppHandle, root: &Path, batch: &mut Batch) {
     batch.settle();
     let changes = std::mem::take(&mut batch.pending);
+    let rescan = std::mem::take(&mut batch.rescan);
     batch.seen.clear();
 
     let mut out: Vec<Value> = Vec::new();
@@ -298,6 +340,7 @@ fn flush(app: &AppHandle, root: &Path, batch: &mut Batch) {
     for c in &changes {
         if let Some(to) = c.to.as_deref() {
             if emitted.insert(format!("rename|{}|{to}", c.path)) {
+                follow_rename(app, root, &c.path, to);
                 out.push(json!({ "path": c.path, "kind": "rename", "to": to }));
             }
             continue;
@@ -315,11 +358,40 @@ fn flush(app: &AppHandle, root: &Path, batch: &mut Batch) {
         }
     }
 
-    if out.is_empty() {
+    if out.is_empty() && !rescan {
         return;
     }
-    if let Err(e) = app.emit("fs", json!({ "changes": out })) {
+    let payload = if rescan {
+        json!({ "changes": out, "rescan": true })
+    } else {
+        json!({ "changes": out })
+    };
+    if let Err(e) = app.emit("fs", payload) {
         eprintln!("fs event dropped: {e}");
+    }
+}
+
+/// A rename made outside the app: the history and the drafts of `from` move to `to`, as they do
+/// for a rename through the app (vault.rs). Only a real move counts — `from` gone and `to`
+/// there — so an editor that renames the file aside and writes a new one in its place (a
+/// backup-then-write save) keeps its history where it was. A rename through the app arrives here
+/// too, after the fact, and finds nothing left to move.
+fn follow_rename(app: &AppHandle, root: &Path, from: &str, to: &str) {
+    // An atomic save (ours, an outside editor's, a sync client's `.syncthing.*.tmp`) is a
+    // rename from a hidden temp file onto the page: nothing has history or a draft under a
+    // hidden name, and re-keying would read every draft of the vault after every save.
+    if hidden(from) {
+        return;
+    }
+    if root.join(from).exists() || !root.join(to).exists() {
+        return;
+    }
+    if let Err(e) = crate::versions::move_history(root, from, to) {
+        eprintln!("history: {from} -> {to}: {e}");
+    }
+    let st = app.state::<crate::AppState>();
+    if let Err(e) = crate::drafts::rekey(st.inner(), root, from, to) {
+        eprintln!("drafts: {from} -> {to}: {e}");
     }
 }
 

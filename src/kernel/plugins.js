@@ -163,11 +163,14 @@ export function makeFacade(ose, entry) {
       ...ose.vault,
       get root() { return ose.vault.root; },
       get name() { return ose.vault.name; },
+      get epoch() { return ose.vault.epoch; },
       onChange: (fn) => keep(ose.vault.onChange(fn)),
+      onChangeRequested: (fn) => keep(ose.vault.onChangeRequested(fn)),
     },
     window: {
       ...ose.window,
       onClose: (fn) => keep(ose.window.onClose(fn)),
+      onLeave: (fn) => keep(ose.window.onLeave(fn)),
       onMaximize: (fn) => keep(ose.window.onMaximize(fn)),
     },
     route: {
@@ -268,7 +271,7 @@ export async function load(ose) {
       entry.error = error;
       entry.state = 'disabled';
       console.error(`[plugin:${id}]`, e);
-      try { toast(`plugin ${id} is disabled: ${error}`, 'err', 6000); } catch { /* no DOM */ }
+      try { toast(`plugin ${id} is disabled: ${error}`, 'err', 0); } catch { /* no DOM */ }
     }
   }));
   return list();

@@ -124,7 +124,7 @@ fn list_value(ctx: &Ctx) -> Value {
 fn open(ctx: &Ctx, path: &str) -> Result<Value, String> {
     let dir = PathBuf::from(path);
     if !dir.is_dir() {
-        return Err(format!("not a folder: {}", dir.display()));
+        return Err(crate::coded("not_found", format!("not a folder: {}", dir.display())));
     }
     let info = vault::adopt(ctx, &dir, Source::Picked)?;
     if let Err(e) = record(ctx.app, &dir) {
@@ -138,7 +138,7 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
         "recentVaults" => Some(Ok(list_value(ctx))),
         "openVault" => match args.first().and_then(Value::as_str) {
             Some(p) if !p.trim().is_empty() => Some(open(ctx, p)),
-            _ => Some(Err("openVault needs a path".to_string())),
+            _ => Some(Err(crate::coded("bad_arg", "openVault needs a path"))),
         },
         // With a path: drop that one recent entry. Without: not ours — vault.rs deletes the
         // remembered-root file, which is what `forgetVault()` has always meant.

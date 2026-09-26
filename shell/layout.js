@@ -6,11 +6,11 @@
 // the element this file builds, and from there the router draws into it.
 
 import { ose } from 'ose:kernel';
-import { isHost, canResizeWindow, resizeWindow, onVaultChange } from './host.js';
+import { isHost, canResizeWindow, resizeWindow, onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
 import { initSidebar } from './sidebar.js';
 import { initStatusbar } from './statusbar.js';
-import { vaultLost, vaultFound, reloadIntoVault } from './vault.js';
+import { vaultLost, vaultFound, vaultRequested } from './vault.js';
 
 const { bus, store, commands } = ose;
 
@@ -264,8 +264,8 @@ function guardWindowDrops() {
  * The folder the whole window is open on can stop existing (S29): renamed in Explorer,
  * unmounted, deleted. The watcher says so once — a `lost` notice — instead of failing every
  * call with a toast of its own, and says so again when it comes back. The other half is a
- * second launch naming a different folder, which the host adopts; the page reloads into it,
- * because every plugin read its world at boot.
+ * second launch naming a different folder: the host only asks now, and the switch is the same
+ * one Change vault… makes, after the open page has been saved (C5, shell/vault.js).
  */
 function watchVault() {
   ose.watch((d) => {
@@ -273,7 +273,7 @@ function watchVault() {
     if (d.lost) vaultLost();
     else vaultFound();
   });
-  onVaultChange(() => reloadIntoVault());
+  onVaultChangeRequested(vaultRequested);
 }
 
 /* --------------------------------------------------- the browser underneath */
@@ -290,11 +290,14 @@ function watchVault() {
 // capture phase, so the web view's Open-file dialog never gets a chance either way. A key this
 // guard swallows must be one nothing in the app wants.
 //
-// Ctrl+R is **not** in the set: it is the app's own reload (edit a plugin, press
-// Ctrl+R, see the change), bound in keys.json to `app.reload`, which saves the open page
-// first. F5 and the rest are the web view's, and they throw the buffer away without asking.
+// Ctrl+R and Ctrl+Shift+R are in the set now (D8, C5). Ctrl+R used to be the app's own reload,
+// and a reload typed a moment after a keystroke lost that keystroke; the host also switches the
+// web view's accelerators off, and this guard holds either way. `app.reload` ("Reload
+// plugins") stays in the palette with no chord, and it leaves through the save gate. The
+// keyboard's own Back and Forward keys are the web view's history, which is not the app's.
 const BROWSER_KEYS = new Set([
-  'f5', 'ctrl+f5', 'shift+f5', 'ctrl+u', 'f7',
+  'f5', 'ctrl+f5', 'shift+f5', 'ctrl+shift+f5', 'ctrl+r', 'ctrl+shift+r', 'ctrl+u', 'f7',
+  'browserback', 'browserforward', 'browserrefresh',
 ]);
 
 function guardBrowserKeys() {
@@ -328,15 +331,13 @@ function guardContextMenu() {
 /* ------------------------------------------------------------------ reload */
 
 /**
- * Ctrl+R (docs/PLUGINS.md). A plugin is files on disk: edit one, reload, see it. A reload
- * gives the editor neither the `closing` notice it saves on nor a chance to ask about a
- * conflict, so the open page is saved and the state file flushed first — the same order the
- * vault change takes.
+ * Reload plugins (docs/PLUGINS.md). A plugin is files on disk: edit one, reload, see it.
+ * `ose.reload()` leaves through the kernel's gate first (C5): the open page is saved and the
+ * state file flushed, and a page that cannot be saved keeps the window, with the reason on
+ * screen. Nothing here saves on its own any more.
  */
 async function reloadApp() {
-  try { await commands.run('page.save'); } catch (e) { console.warn('[shell] save before reload', e); }
-  await sidebarState.flush();
-  void ose.reload();
+  try { await ose.reload(); } catch (e) { console.error('[shell] reload', e); }
 }
 
 /* ------------------------------------------------------------------ build */
@@ -417,10 +418,11 @@ export function mountShell(rootEl) {
     run: () => { ose.window.quit().catch((e) => console.error('[shell] quit', e)); },
   });
   // A plugin is files on disk: edit one, reload, see it (docs/PLUGINS.md). The page comes
-  // back and every plugin is imported again; in the browser it is F5 by another name.
+  // back and every plugin is imported again, once the open page has been saved. No chord:
+  // Ctrl+R is gone (D8), and the palette has it.
   commands.register({
-    id: 'app.reload', title: 'Reload plugins', group: 'app', hint: 'the page, and every plugin from disk',
-    run: () => void reloadApp(),
+    id: 'app.reload', title: 'Reload plugins', group: 'app', hint: 'saves the page, then every plugin from disk',
+    run: () => reloadApp(),
   });
 
   watchMainWidth(els.main);

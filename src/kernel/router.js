@@ -12,10 +12,14 @@ import { bridge } from './bridge/index.js';
 // registers whoever draws a page through `setPageHost` (./pagehost.js).
 import { pageHost, headingLineIn } from './pagehost.js';
 import { patchState, stateCache, flushState } from './state.js';
-import { titleOf, clean, dirName } from './paths.js';
+import { titleOf, clean, dirName, baseName } from './paths.js';
 import { toast } from './dialog.js';
 import { shortcutFor } from './keys.js';
 import { loadingOverlay } from './loading.js';
+// "Create it" is a file operation like any other (H12, M4): exclusive, any extension, never a
+// markdown heading written into a `.json`. Circular with ./fileops.js, which re-points the
+// history through `repoint` below; both only call each other at run time.
+import { create as createFile } from './fileops.js';
 
 const MAX_RECENT = 40;
 // How many recent pages the empty surface lists (D7). Enough to find yesterday, not a dashboard.
@@ -38,6 +42,33 @@ const scrollMemory = new Map();
 // and handed it on the way in; it ignores what it does not understand.
 const caretMemory = new Map();
 let closed = [];
+
+/*
+ * The history as it was before the oldest navigation that has not been let through yet (C1).
+ * `navigate`, `back`, `forward`, `clearRoute` and `reopenClosed` change the stack before the
+ * page on screen has been asked whether it can be left; when it says no, `rollback` puts the
+ * stack, the index and the closed list back exactly as they were. A navigation that is
+ * superseded by a newer one leaves the snapshot where it is, so the newer one, if refused,
+ * rolls back past both.
+ */
+let pending = null;
+
+/** Take the snapshot, unless an earlier navigation still in flight already holds one. */
+function begin() {
+  if (!pending) pending = { stack: stack.slice(), index, closed: closed.slice() };
+}
+
+/** The page refused: the history goes back to the snapshot. */
+function rollback() {
+  if (!pending) return;
+  ({ stack, index, closed } = pending);
+  stack = stack.slice();
+  closed = closed.slice();
+  pending = null;
+}
+
+/** The page let go: what the stack says now is the history. */
+function commit() { pending = null; }
 
 export function currentRoute() { return current; }
 export function routeKey(r) {
@@ -225,7 +256,7 @@ export function initRouter(el, { start = true } = {}) {
     return undefined;
   });
 
-  // Ctrl+R (`app.reload`) and the update loop never raise `closing`: the host navigates the web
+  // A reload (`ose.reload`, after the leave gate) never raises `closing`: the host navigates the web
   // view back to the app's index.html and a browser reloads the document, and both of those
   // are `pagehide` — the same event `state.js` and `kernel.js` already hang their own teardown
   // on. Nothing here can be awaited (the document is going), so the unmount's synchronous half
@@ -374,28 +405,39 @@ async function callUnmount(view, where) {
   }
 }
 
+/**
+ * The page on screen goes. Answers false when the page host's `close()` answered false: the
+ * page is still mounted and nothing was torn down, so the column must not be cleared (C1). A
+ * `close()` that throws has already been let go by `canLeave` and is logged, not obeyed.
+ */
 async function teardown() {
-  if (!current) return;
+  if (!current) return true;
   rememberScroll();
   if (current.type === 'page') {
     const host = pageHost();
-    if (host) { try { await host.close(); } catch (e) { console.warn('[router] close page:', e.message || e); } }
+    if (host) {
+      try {
+        if ((await host.close()) === false) return false;
+      } catch (e) { console.warn('[router] close page:', e.message || e); }
+    }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
     await callUnmount(mountedView, 'view unmount');
   }
   mountedView = null;
+  return true;
 }
 
 /**
- * The window is going away (a close request, Ctrl+R, the update's relaunch): the view or owned
+ * The window is going away (a close request, a reload, a change of vault): the view or owned
  * route on screen is unmounted, so its clock is banked and its children are stopped exactly as
- * they would be on a navigation. The editor is left alone — it has a `closing` subscriber of
- * its own that saves and may veto (batch 9), and running its close twice would ask the
- * changed-on-disk question against its own write. Everything is best effort: on `pagehide` only
+ * they would be on a navigation. The editor is left alone — it answers the leave gate
+ * (`ose.window.onLeave`, ./leave.js), saving and possibly vetoing, and running its close twice
+ * would ask the changed-on-disk question against its own write. The gate awaits this for a
+ * reload and a vault change; the `closing` handler above runs it for a close. Everything is best effort: on `pagehide` only
  * the synchronous half of an `unmount` can still run, which is why a plugin banks on a timer as
  * well (docs/PLUGINS.md).
  */
-async function unmountOnUnload() {
+export async function unmountOnUnload() {
   if (!current || current.type === 'page') return;
   if (mountedView && typeof mountedView.unmount === 'function') {
     await callUnmount(mountedView, 'unload unmount');
@@ -466,7 +508,12 @@ async function mountPage(scroll, route) {
     scroll.appendChild(box);
     return;
   }
-  if (!st.exists) {
+  // A path the page host draws itself when it is missing (a media file, whose own miss says
+  // more than "page not found") goes straight to it (M4).
+  const pages = pageHost();
+  let claimed = false;
+  try { claimed = !!(pages && typeof pages.claims === 'function' && pages.claims(path)); } catch { claimed = false; }
+  if (!st.exists && !claimed) {
     const box = emptyState(`
       <div class="miss">
         <div class="miss-title">page not found</div>
@@ -474,7 +521,16 @@ async function mountPage(scroll, route) {
         <button class="btn primary" data-act="create">create it</button>
       </div>`);
     box.querySelector('[data-act="create"]').addEventListener('click', async () => {
-      await bridge.writeText(path, `# ${titleOf(path)}\n`);
+      // Exclusive: a file that arrived since the stat is opened, never written over. A `.md`
+      // gets its H1 and anything else starts empty (ose.fileops.create).
+      try {
+        await createFile(dirName(path), baseName(path), {});
+      } catch (e) {
+        if (!e || e.code !== 'exists') {
+          toast(`could not create ${path}: ${(e && e.message) || e}`, 'err', 0);
+          return;
+        }
+      }
       navigate({ type: 'page', path }, { replace: true, force: true });
     });
     scroll.appendChild(box);
@@ -489,12 +545,11 @@ async function mountPage(scroll, route) {
   try {
     // The third argument is the route's line (C7). The editor is free to ignore it, and does
     // until it learns to scroll to a line; passing it now is what lets that land editor-side.
-    const pages = pageHost();
     if (pages) await pages.open(host, path, { line, col, query, selection });
     mounted = host.childElementCount > 0;
   } catch (e) {
     console.error('[router] open page', e);
-    toast('could not open ' + path + ': ' + (e.message || e), 'err');
+    toast('could not open ' + path + ': ' + (e.message || e), 'err', 0);
   }
 
   // No page host, or one that drew nothing: show the file as text so navigation is visibly
@@ -662,10 +717,54 @@ function setWindowTitle(route) {
   try { void bridge.setTitle(text); } catch (e) { console.warn('[shell] setTitle', e); }
 }
 
+/**
+ * Ask the page on screen whether it can be left (C1). Answers true when there is no page, no
+ * page host or no `canLeave`; a `canLeave` that throws is a no, because the one thing that must
+ * never happen is a buffer thrown away because its save threw.
+ */
+async function pageLets() {
+  if (!current || current.type !== 'page') return true;
+  const host = pageHost();
+  if (!host || typeof host.canLeave !== 'function') return true;
+  try {
+    return (await host.canLeave('navigate')) !== false;
+  } catch (e) {
+    console.error('[router] canLeave', e);
+    return false;
+  }
+}
+
+/**
+ * Put `route` on the column. Answers false, and changes nothing that anybody can see, when the
+ * page on screen refuses to be left or a newer `show` took over; true once the new route is up.
+ *
+ * Nothing happens before the veto: no `route` event, no store change, no DOM change. A refused
+ * navigation leaves the column, the tab strip and the title bar exactly as they were, and the
+ * history goes back to the snapshot the navigation took (`rollback`).
+ */
 async function show(route, opts = {}) {
+  begin();
   const my = ++seq;
-  await teardown();
-  if (my !== seq) return;
+  const ok = await pageLets();
+  // Superseded: the newer show decides, and holds the snapshot if it must roll back.
+  if (my !== seq) return false;
+  if (!ok) {
+    rollback();
+    bus.emit('route:refused', { from: current, to: route });
+    return false;
+  }
+  const left = await teardown();
+  if (!left) {
+    // `close()` said no after `canLeave` said yes: undo the freeze, keep everything.
+    try { pageHost()?.stay?.(); } catch (e) { console.error('[router] stay', e); }
+    if (my === seq) {
+      rollback();
+      bus.emit('route:refused', { from: current, to: route });
+    }
+    return false;
+  }
+  if (my !== seq) return false;
+  commit();
 
   mainEl.textContent = '';
   const scroll = document.createElement('div');
@@ -680,7 +779,7 @@ async function show(route, opts = {}) {
     setWindowTitle(null);
     bus.emit('route', null);
     await renderStart(scroll, my, opts);
-    return;
+    return true;
   }
 
   current = route;
@@ -698,40 +797,56 @@ async function show(route, opts = {}) {
   } else {
     await renderView(scroll, route.name, my);
   }
-  if (my !== seq) return;
+  if (my !== seq) return true;
   restoreScroll(scroll, routeKey(route));
   // `focus: false` is for callers that navigate while the user is somewhere else on purpose
   // (a tree previewing on arrow keys would be one); every ordinary open lands the caret.
   if (opts.focus !== false) settleFocus(scroll);
+  return true;
 }
 
-/** navigate(route, { replace, force, focus }) — `focus: false` leaves focus where it is. */
+/**
+ * navigate(route, { replace, force, focus }) -> Promise<boolean>. `focus: false` leaves focus
+ * where it is. False when the page on screen refused to be left (its banner says why); the
+ * history is then exactly what it was.
+ */
 export function navigate(route, opts = {}) {
   const r = normalize(route);
-  if (!r) return Promise.resolve();
+  if (!r) return Promise.resolve(false);
 
   const same = !!current && routeKey(current) === routeKey(r);
   // The open page asked for again with a line or a heading (a second search hit in the same
   // file, an anchor into it): the request must still reach the editor, so it is shown as if
   // forced, but it is the same page and gets no second history entry; the current entry just
-  // learns where to land (C7, N3).
+  // learns where to land (C7, N3). The page is not left, so it is not asked.
   if (same && !opts.force && (r.line || r.heading)) {
+    // Only a snapshot this jump took is this jump's to settle: one that an earlier navigation
+    // still in flight holds stays with it.
+    const took = !pending;
+    begin();
     if (index >= 0) stack[index] = r;
     // The editor scrolls its mounted page in place; a remount would lose the caret and the
     // undo history for a jump within the same file.
     return (async () => {
       const line = r.line || (await resolveHeading(r));
+      let shown = true;
       if (!line) {
         if (r.heading) toast(`no heading “${r.heading}” on this page`, 'info', 2600);
-      } else if (!(pageHost() && pageHost().scrollToLine(line, r.col))) {
-        await show({ ...r, line }, opts);
+        if (took) commit();
+      } else if (pageHost() && typeof pageHost().scrollToLine === 'function' && pageHost().scrollToLine(line, r.col)) {
+        if (took) commit();
+      } else {
+        // The page could not jump in place, so it is remounted, and that does leave it.
+        shown = await show({ ...r, line }, opts);
       }
       // Landed or not, the jump is spent: the entry is the page, nothing more (defect 3).
       spend(r);
+      return shown;
     })();
   }
-  if (same && !opts.force) return Promise.resolve();
+  if (same && !opts.force) return Promise.resolve(true);
 
+  begin();
   if (opts.replace && index >= 0) stack[index] = r;
   else { stack = stack.slice(0, index + 1); stack.push(r); index = stack.length - 1; }
   if (stack.length > 100) { stack = stack.slice(-100); index = stack.length - 1; }
@@ -739,16 +854,20 @@ export function navigate(route, opts = {}) {
   return show(r, opts);
 }
 
+/** Back one entry. False when there is none or the page refused to be left. */
 export function back() {
-  if (index <= 0) return;
+  if (index <= 0) return Promise.resolve(false);
+  begin();
   index -= 1;
-  show(stack[index]);
+  return show(stack[index]);
 }
 
+/** Forward one entry. False when there is none or the page refused to be left. */
 export function forward() {
-  if (index < 0 || index >= stack.length - 1) return;
+  if (index < 0 || index >= stack.length - 1) return Promise.resolve(false);
+  begin();
   index += 1;
-  show(stack[index]);
+  return show(stack[index]);
 }
 
 export function canBack() { return index > 0; }
@@ -757,9 +876,10 @@ export function canForward() { return index >= 0 && index < stack.length - 1; }
 /**
  * Back to the empty surface: nothing drawn in the main column, no route. This is the state
  * the app boots into, and where trashing the open page lands when there is nothing to show
- * in its place.
+ * in its place. -> Promise<boolean>, false when the page refused to be closed.
  */
 export function clearRoute(opts = {}) {
+  begin();
   // What was closed can be reopened (N43): the route goes on a small stack that Ctrl+Shift+T
   // pops. Only a real route, and never the same one twice in a row.
   if (current && (!closed.length || routeKey(closed[0]) !== routeKey(current))) {
@@ -772,19 +892,97 @@ export function clearRoute(opts = {}) {
 
 /** `app.reopen-closed` (Ctrl+Shift+T): the last route Ctrl+W dropped, back where it was. */
 export function reopenClosed() {
+  if (!closed.length) { toast('nothing to reopen', 'info', 2000); return Promise.resolve(false); }
+  begin();
   const r = closed.shift();
-  if (!r) { toast('nothing to reopen', 'info', 2000); return Promise.resolve(); }
   return navigate(r, { force: true });
 }
 
 export function canReopenClosed() { return closed.length > 0; }
 
 /**
- * The route on screen, mounted again. Used by the sidebar after a rename or a trash of the open
- * page, and by `ose.paths` once a path a view was missing has been chosen. It is the ordinary
- * teardown-and-draw path, so the unmount is awaited exactly as a navigation awaits it; the
+ * The route on screen, mounted again. Used by `ose.paths` once a path a view was missing has
+ * been chosen, and by a media page that follows its file. It is the ordinary teardown-and-draw
+ * path, so the page is asked and the unmount is awaited exactly as a navigation awaits it; the
  * promise is answered so a caller can wait for the new mount.
  */
 export function reopenCurrent() {
-  return current ? show(current) : Promise.resolve();
+  return current ? show(current) : Promise.resolve(true);
+}
+
+/* ------------------------------------------------------------------- re-pointing (C6) */
+
+/** `path` mapped through `moves`, or null when none of them covers it. */
+function mapPath(path, moves) {
+  const p = clean(path);
+  for (const { from, to } of moves) {
+    if (p === from) return to;
+    if (p.startsWith(from + '/')) return to + p.slice(from.length);
+  }
+  return null;
+}
+
+/** A Map keyed by route key, with every key under a move renamed; the order is kept. */
+function rekey(map, moves) {
+  const entries = [...map.entries()];
+  map.clear();
+  for (const [key, value] of entries) {
+    const next = key.startsWith('page:') ? mapPath(key.slice(5), moves) : null;
+    map.set(next === null ? key : 'page:' + next, value);
+  }
+}
+
+/**
+ * A file or a folder moved on disk and the page that shows it followed it (C6): every page
+ * route at `from`, or under `from/`, now says `to`. Nothing is unmounted and nothing is
+ * mounted, so the editor keeps its buffer and its undo history, and no `route` event goes out;
+ * `route:repointed` `{ moves, current }` does, for the tab strip and whoever else keeps paths.
+ *
+ * Updates the current route, every history entry, the closed stack, the recent list, the
+ * scroll and caret memories, the store's `route`, the status bar's path and the window title.
+ * @param {Array<{from: string, to: string}>} moves
+ */
+export function repoint(moves) {
+  const list = (moves || [])
+    .map((m) => ({ from: clean(m && m.from), to: clean(m && m.to) }))
+    .filter((m) => m.from && m.to && m.from !== m.to);
+  if (!list.length) return;
+
+  // One new object per old one, so an entry that is the same object as `current` (the history
+  // holds the routes it shows) stays the same object after.
+  const seen = new Map();
+  const remap = (r) => {
+    if (!r || r.type !== 'page') return r;
+    if (seen.has(r)) return seen.get(r);
+    const to = mapPath(r.path, list);
+    const next = to === null ? r : { ...r, path: to };
+    seen.set(r, next);
+    return next;
+  };
+
+  const before = current;
+  current = remap(current);
+  stack = stack.map(remap);
+  closed = closed.map(remap);
+  if (pending) {
+    pending.stack = pending.stack.map(remap);
+    pending.closed = pending.closed.map(remap);
+  }
+  rekey(scrollMemory, list);
+  rekey(caretMemory, list);
+
+  const recent = recentFiles();
+  const nextRecent = [];
+  for (const p of recent) {
+    const q = mapPath(p, list) ?? p;
+    if (!nextRecent.includes(q)) nextRecent.push(q);
+  }
+  if (nextRecent.length !== recent.length || nextRecent.some((p, i) => p !== recent[i])) patchState({ recent: nextRecent });
+
+  if (current !== before) {
+    store.set('route', current);
+    status.set('path', routeLabel(current));
+    setWindowTitle(current);
+  }
+  bus.emit('route:repointed', { moves: list, current });
 }

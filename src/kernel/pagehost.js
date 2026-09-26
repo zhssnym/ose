@@ -7,13 +7,25 @@
 // router still works and falls back to showing the file as text, which is exactly what it did
 // before the editor bundle existed.
 //
-//   setPageHost({ open, close, scrollToLine, selection?, headingLine? })
+//   setPageHost({ open, canLeave?, stay?, close?, scrollToLine?, selection?, headingLine?,
+//                 beforePathChange?, afterPathChange?, claims? })
 //
 //   open(el, path, { line, col, query, selection })  -> Promise, draws the page into `el`
-//   close()                        -> Promise, the page's last save; may reject, never hangs
+//   canLeave('navigate')           -> Promise<boolean>; false keeps the page (its banner says
+//                                     why) and the router changes nothing (C1). True leaves
+//                                     the page frozen until `close` or `stay`
+//   stay()                         -> undo the freeze a true `canLeave` left
+//   close()                        -> Promise<boolean>; false: still mounted, nothing torn down
 //   scrollToLine(line, col)        -> boolean, true when it jumped inside the mounted page
 //   selection()                    -> { from, to } | null, the caret to restore on back
 //   headingLine(text, heading)     -> 1-based line of that heading, or 0
+//   beforePathChange({kind, from, to}) -> Promise<{ok, reason?}>; ok:false and the file
+//                                     operation touches nothing (./fileops.js, C6)
+//   afterPathChange({kind, from, to, ok}) -> Promise, whether the host call succeeded or not
+//   claims(path)                   -> boolean, true when the host draws a missing path itself
+//
+// `kind` is 'rename' | 'move' | 'trash' | 'copy'; `to` is null for a trash. Every method but
+// `open` is optional, and a missing one means "yes" or "nothing to do".
 //
 // Only one host at a time; the call answers a function that removes it again.
 

@@ -51,8 +51,47 @@ export const rewriteInbound = (from, to) => ose.links.rewriteMoved([[from, to]])
 /** `path/to/a-page.md` -> `a-page`. The backlinks box labels a row with it. */
 export const titleOf = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop().replace(/\.md$/i, '');
 
-/** The window is closing: the handler's answer is awaited, and `false` keeps the window (B2). */
-export const onWindowClose = (fn) => ose.window.onClose(fn);
+/**
+ * The window is about to go — closed, reloaded, or switched to another vault — and `fn` is
+ * awaited first: `false` keeps it (docs/KERNEL.md `ose.window.onLeave`, C5). A kernel from
+ * before the leave gate only knows the close, so that is all that is heard there.
+ */
+export const onWindowLeave = (fn) => (typeof ose.window.onLeave === 'function'
+  ? ose.window.onLeave(fn)
+  : ose.window.onClose(() => fn({ reason: 'close' })));
+
+/**
+ * Say where a page went without mounting anything (`ose.route.repoint`, C6): the tab, the
+ * breadcrumb, back and forward and the window title follow a rename the page made itself.
+ */
+export const repointRoute = (moves) => {
+  const fn = ose.route && ose.route.repoint;
+  return typeof fn === 'function' ? fn(moves) : undefined;
+};
+
+/** Where the router is, or null. */
+export const currentRoute = () => { try { return ose.route.current(); } catch { return null; } };
+
+/**
+ * The one implementation of create and rename (`ose.fileops`, H12/H13): the editor names a
+ * file and never builds a path into the host. Null on a kernel that does not have it yet.
+ */
+export const fileops = () => ose.fileops || null;
+/** `ose.names`: split, check and the free-name search, or null. */
+export const names = () => ose.names || null;
+
+/** One line in the app's log (`ose.log`, M54), mirrored to the console. Never throws. */
+export function log(text, level = 'info') {
+  const line = String(text);
+  try {
+    const out = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+    out('[editor] ' + line);
+  } catch { /* no console */ }
+  try {
+    const r = typeof ose.log === 'function' ? ose.log(line, level) : null;
+    if (r && typeof r.catch === 'function') r.catch(() => {});
+  } catch { /* a log that cannot be written is not an error of the page */ }
+}
 
 /** The chord a command answers to, as the menus print it. The key engine is the kernel's. */
 export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
@@ -103,10 +142,50 @@ export const bridge = {
   openPath: (path) => ose.files.open(path),
   openExternal: (url) => ose.openExternal(url),
   assetUrl: (path) => ose.files.assetUrl(path),
-  versionKeep: (path, text, force) => ose.files.versions.keep(path, text, force),
+  // `opts` is `{force, reason}`, or the old boolean `force` (docs/HOST.md "Versions").
+  versionKeep: (path, text, opts) => ose.files.versions.keep(path, text, opts),
   versionList: (path) => ose.files.versions.list(path),
   versionRead: (path, id) => ose.files.versions.read(path, id),
   versionRestore: (path, id) => ose.files.versions.restore(path, id),
+};
+
+// ---------------------------------------------------------------------------
+// the page's own reads and writes (wave 1: C2, C4, M2)
+//
+// A page reads with the hash of what it read and writes against that hash, in one host call
+// that compares and writes under one lock (`saveFile`); the host keeps the replaced bytes as a
+// version. The hash is the host's: this side carries it and compares it by equality, nothing
+// more. The epoch that stops a write landing in the wrong vault is added by the kernel.
+
+/** Call `obj[key](...args)`, or reject `[unknown_command]` on a kernel that lacks it. */
+async function hose(obj, key, name, args) {
+  const fn = obj && obj[key];
+  if (typeof fn !== 'function') {
+    const e = new Error(`${name} is not available in this kernel`);
+    e.code = 'unknown_command';
+    e.cmd = name;
+    throw e;
+  }
+  return fn.apply(obj, args);
+}
+
+const drafts = () => ose.files.drafts;
+
+export const pageFiles = {
+  /** `{text, hash, mtime, size}` of a vault file. */
+  readFile: (path) => hose(ose.files, 'readFile', 'readFile', [path]),
+  /** `SaveOutcome`: `{status:'saved', hash, mtime, unchanged?}` or `{status:'conflict', disk}`. */
+  save: (path, text, opts) => hose(ose.files, 'save', 'saveFile', [path, text, opts]),
+  /** `{path, hash}`; refuses with `[exists]`, never overwrites. */
+  createNew: (path, text) => hose(ose.files, 'createNew', 'createNew', [path, text]),
+  /** A version of `path` holding `text`: `opts` is `{force, reason}`. */
+  keepVersion: (path, text, opts) => hose(ose.files.versions, 'keep', 'versionKeep', [path, text, opts]),
+  drafts: {
+    write: (path, draft) => hose(drafts(), 'write', 'draftWrite', [path, draft]),
+    read: (path) => hose(drafts(), 'read', 'draftRead', [path]),
+    drop: (path, opts) => hose(drafts(), 'drop', 'draftDrop', [path, opts]),
+    list: () => hose(drafts(), 'list', 'draftList', []),
+  },
 };
 
 // ---------------------------------------------------------------------------

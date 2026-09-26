@@ -296,6 +296,8 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .ov.ov-dim { background: var(--scrim); }
 .ov.ov-at { align-items: flex-start; justify-content: flex-start; }
 .ov-box { max-height: 76vh; display: flex; flex-direction: column; overflow: hidden; }
+/* The box holds the focus between opening and its own field taking it (dialog.js openOverlay). */
+.ov-box:focus-visible { outline: none; }
 .ov-at .ov-box { position: fixed; }
 
 /* palette. The input row is the one taller bar (--barhead-h); the foot is a labelled bar
@@ -391,6 +393,14 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 }
 .toast.err { color: var(--err); border-color: var(--err); }
 .toast.warn { color: var(--warn); border-color: var(--warn); }
+/* A toast with buttons (an action, or the close of a sticky one) is a row: the text, then the
+   buttons, which keep the chrome's own colours so they read as controls, not as the message. */
+.toast.has-actions, .toast.sticky { display: flex; align-items: center; gap: var(--sp-3); }
+.toast.sticky.err { background: var(--err-soft); color: var(--err-ink); }
+.toast.sticky.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.toast-text { flex: 1 1 auto; min-width: 0; }
+.toast-actions { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
+.toast-act, .toast-close { font-size: var(--fs-chrome-sm); padding: var(--sp-half) var(--sp-2); }
 
 /* A short window gives the overlay a little more of it; the page column gives up some of
    its top air in the shell's own stylesheet. */

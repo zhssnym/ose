@@ -20,21 +20,21 @@ import '@milkdown/crepe/theme/common/table.css';
 import '@milkdown/crepe/theme/common/top-bar.css';
 import '@milkdown/crepe/theme/common/diff.css';
 import '@milkdown/crepe/theme/common/ai.css';
-import { editorViewCtx, parserCtx, prosePluginsCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
+import { editorViewCtx, prosePluginsCtx } from '@milkdown/kit/core';
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
-import { remarkInlineLinkPlugin, remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark';
 import { indentPlugin } from '@milkdown/kit/plugin/indent';
 import { trailingPlugin } from '@milkdown/kit/plugin/trailing';
-import { configureStringify, postProcess, reconcile } from './stringify.js';
-import { docWithoutPad, remarkSpace } from './space.js';
+import { postProcess, reconcile } from './stringify.js';
+import { docWithoutPad } from './space.js';
 import { slashPlugin } from './slash.js';
-import { blockKeysPlugin } from './blocks.js';
+import { blockKeysPlugin, htmlBlockPlugin } from './blocks.js';
 import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.js';
 import { dropPlugin } from './drop.js';
 import { extensionPlugins, extensionFeatureConfigs } from './extensions.js';
-import { extendCodeBlock, extendLink, definitionSchema, remarkResolveReferences } from './fidelity.js';
 import { mathSchemas } from './math-node.js';
+import { configureMarkdown, engineOver } from './engine.js';
+import * as guard from './guard.js';
 
 // A token read at construction time, for the one Crepe option that takes a colour string and
 // not a CSS variable. The fallback is the text colour, never a literal (CLAUDE.md: no hex
@@ -104,14 +104,37 @@ export async function makeCrepe(o) {
     }),
   });
 
-  configureStringify(crepe.editor);
   await installExtras(crepe.editor, o);
   if (o.slashCommands !== false) { installSlash(crepe.editor); installBlockKeys(crepe.editor); }
   if (o.onChange) watchDoc(crepe.editor, o.onChange);
   if (o.on) crepe.on(o.on);
 
   await crepe.create();
+  dropStaleTransactions(crepe);
   return crepe;
+}
+
+/**
+ * A transaction built on a document the view has since left is dropped, not applied.
+ *
+ * Milkdown's table block selects the cell under a click from a `requestAnimationFrame` (or a
+ * 20 ms timeout) with the state it read at mousedown. A key typed inside that frame moves the
+ * document on, and ProseMirror refuses the old transaction with an uncaught `RangeError:
+ * Applying a mismatched transaction`, which lands in the log at error level for a selection
+ * change nobody would miss. ProseMirror would throw it away anyway; this only asks first. The
+ * view binds `dispatch` in its constructor, and every caller reads it off the view at call time.
+ */
+function dropStaleTransactions(crepe) {
+  const view = editorView(crepe);
+  if (!view || typeof view.dispatch !== 'function') return;
+  const dispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    if (tr && tr.before && !tr.before.eq(view.state.doc)) {
+      console.debug('[editor] dropped a transaction built on an older document');
+      return;
+    }
+    dispatch(tr);
+  };
 }
 
 /**
@@ -128,12 +151,9 @@ async function installExtras(editor, o) {
   if (typeof o.attachFile === 'function') first.push(dropPlugin({ attach: o.attachFile, pagePath: o.pagePath || (() => null) }));
   editor.config((ctx) => {
     // The batch-12 module plugins (extensions.js) come after ours and before Milkdown's keymap,
-    // which is appended after this whole list, so a table keymap can answer Enter first.
-    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin(), ...extensionPlugins(ctx, o)]);
-    // M13/M11: a fence keeps the part of its info string past the language, and the link mark
-    // learns the reference form (fidelity.js).
-    extendCodeBlock(ctx);
-    extendLink(ctx);
+    // which is appended after this whole list, so a table keymap can answer Enter first. The
+    // html rule (H2, blocks.js) keeps an html block in a paragraph of its own after every edit.
+    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), findPlugin(), htmlBlockPlugin(), ...extensionPlugins(ctx, o)]);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);
@@ -144,32 +164,16 @@ async function installExtras(editor, o) {
   // Only the shortcut goes: `indent` is `[indentConfig, indentPlugin]`, and Crepe's own builder
   // configures `indentConfig` at create time, so taking the ctx slice away throws there.
   await editor.remove(indentPlugin);
-  // M3: `remark-preserve-empty-line` visits the parsed tree and splices out *every* html node
-  // whose value is a `<br>`, so `line one<br>line two` in a file came back as `line oneline
-  // two` — the editor deleting a character sequence the vault is allowed to contain. Its
-  // purpose was the other direction: an empty paragraph is written as `<br />` so it survives
-  // a round trip. Without it an empty paragraph is simply not written, which is what Obsidian
-  // does and what the vault contains, and `<br>` is an ordinary inline html node again.
-  await editor.remove(remarkPreserveEmptyLinePlugin);
   // The landing pad after a table or a code block is kept, but by space.js instead, because it
   // has to be told from an empty paragraph the file itself contains and no plugin state of
   // Milkdown's says which is which. Only the prose plugin goes; `trailingConfig` is a ctx slice
   // Crepe's builder reads at create time and taking it away would throw there.
   await editor.remove(trailingPlugin);
-  // M11: `remark-inline-links` rewrites `[text][ref]` into `[text](url)` and deletes the
-  // definition, at parse time, before anything downstream can see either. Out it goes, and
-  // `definition` becomes a node of its own (fidelity.js) so the block has somewhere to live.
-  await editor.remove(remarkInlineLinkPlugin);
-  editor.use(definitionSchema);
-  editor.use(remarkResolveReferences);
-  // Maths: the remark plugin that carries the pandoc `$` rule both ways, and the two nodes the
-  // formulas become. The node views, the input rules and the keys are ProseMirror plugins and
-  // come through extensions.js with the rest.
-  for (const plugin of mathSchemas) editor.use(plugin);
-  // Space: the blank lines of the file, read back as the empty paragraphs they are (space.js).
-  // It runs on the parsed tree, so it is the last remark plugin and reads the positions the
-  // ones before it left alone.
-  editor.use(remarkSpace);
+  // Everything that decides how a page reads and writes: the stringify options, the removals
+  // (`remark-preserve-empty-line`, M3; `remark-inline-links`, M11), the definition node, the
+  // maths nodes and the space reader, which has to be the last remark plugin. One list, in
+  // engine.js, which the headless engine the tests run reads as well (CONTRACT 7.4).
+  await configureMarkdown(editor, { nodes: mathSchemas });
 }
 
 /** The slash menu, as a plain ProseMirror plugin so it holds the editor ctx it needs. */
@@ -215,97 +219,116 @@ function watchDoc(editor, onChange) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// reading the page back as markdown
+
+const ENGINES = new WeakMap();
+
 /**
- * Body markdown as it would be written to disk.
+ * The parse/serialize pipeline of this instance, as an engine (engine.js `MdEngine`): the same
+ * functions the headless engine the tests run gives, over this editor's own parser and
+ * serializer. One per instance.
  *
- * `original` is the text currently in the file. The canonical serialisation is reconciled
- * against it so untouched lines, blank lines and tables keep the shape Hassan wrote, and the
- * result is then verified: it is only used if re-parsing it gives back the same document.
- * That verification is what makes the reconciliation safe rather than merely plausible.
+ * @param {import('@milkdown/crepe').Crepe} crepe
+ * @returns {import('./guard.js').MdEngine & { canonicalise: (md: string) => string, roundTrip: Function }}
+ */
+export function engineOf(crepe) {
+  let engine = ENGINES.get(crepe);
+  if (!engine) { engine = engineOver(crepe.editor); ENGINES.set(crepe, engine); }
+  return engine;
+}
+
+/**
+ * The open document, as it is written: without the landing pad (space.js), which is the
+ * editor's furniture rather than the file's. Null when there is no view.
+ */
+function liveDoc(crepe) {
+  const view = editorView(crepe);
+  if (!view) return null;
+  return docWithoutPad(view.state) || view.state.doc;
+}
+
+/**
+ * What to write for the page body, and whether it is safe to (C8, guard.js). Never throws.
+ *
+ *   ok        write `text`
+ *   fellBack  write `text`: the meaning is exact, untouched blocks may be restyled
+ *   unsafe    write nothing; `text` is the best effort, to open as text for the user to check
+ *
+ * `original` is the body currently on disk: untouched blocks keep its bytes.
+ *
+ * @param {import('@milkdown/crepe').Crepe} crepe
+ * @param {string} original
+ * @returns {import('./guard.js').WriteCheck}
+ */
+export function readMarkdownChecked(crepe, original) {
+  try {
+    const doc = liveDoc(crepe);
+    if (!doc) return { status: 'unsafe', text: null, reason: 'the editor is gone' };
+    return guard.checkWrite(engineOf(crepe), doc, original);
+  } catch (e) {
+    return { status: 'unsafe', text: null, reason: `the guard failed: ${String((e && e.message) || e).split('\n')[0]}` };
+  }
+}
+
+/**
+ * Did the rich view keep everything `body` says (C10, guard.js `checkOpen`)? Asked right after
+ * the page mounts. Never throws: a check that cannot run answers `ok: false`, and the page
+ * opens as text.
+ *
+ * @param {import('@milkdown/crepe').Crepe} crepe
+ * @param {string} body   the markdown the editor was built from
+ * @returns {import('./guard.js').OpenCheck}
+ */
+export function openCheck(crepe, body) {
+  try {
+    const view = editorView(crepe);
+    if (!view) return { ok: false, reason: 'the editor is gone', missing: [] };
+    return guard.checkOpen(engineOf(crepe), body, view.state.doc);
+  } catch (e) {
+    return { ok: false, reason: `the check failed: ${String((e && e.message) || e).split('\n')[0]}`, missing: [] };
+  }
+}
+
+/**
+ * Body markdown as it would be written to disk: `readMarkdownChecked`'s text. For callers that
+ * want a string and nothing else (copying, the harness); the page asks `readMarkdownChecked`,
+ * because an `unsafe` text must never be written. With no view at all, Crepe's own markdown.
+ *
+ * @param {import('@milkdown/crepe').Crepe} crepe
+ * @param {string} original
+ * @returns {string}
  */
 export function readMarkdown(crepe, original) {
-  return verify(crepe, postProcess(currentMarkdown(crepe)), original);
+  const r = readMarkdownChecked(crepe, original);
+  if (r.text !== null && r.text !== undefined) return r.text;
+  try { return crepe.getMarkdown(); } catch { return ''; }
 }
 
 /**
- * The open document as markdown, without the landing pad.
- *
- * The pad is the empty paragraph space.js keeps after a block one cannot type after, and it is
- * the editor's furniture rather than the file's: writing it would add a blank line to the end
- * of every page that finishes with a table. Every other empty paragraph is written, because
- * every other one is space the user put there.
+ * Batch 9's engine — line-keyed reconcile, string-level verify, all or nothing. Nothing in the
+ * app asks for it; the harness does, so the before and after of batch 12 are one measurement by
+ * one instrument over one vault.
  */
-function currentMarkdown(crepe) {
-  const view = editorView(crepe);
-  const doc = view ? docWithoutPad(view.state) : null;
-  if (!doc) return crepe.getMarkdown();
-  return crepe.editor.action((ctx) => ctx.get(serializerCtx)(doc));
-}
-
-/**
- * The reconcile pass asks, for every block of the file on disk, what the editor would write
- * for that block on its own; a block whose answer is what the editor is writing now is a
- * block the user did not touch, and it keeps its bytes. That is one parse per block, so the
- * answers are memoised: the same blocks come back on every save of the same page.
- *
- * The whole-file check at the end is the guarantee, unchanged since batch 9: nothing is
- * written unless re-reading it gives back the document that is on screen. Each block was
- * already verified on its own, so it holds except where two restorations changed each other's
- * meaning — which the block boundaries make impossible, and which is measured at 0 over the
- * vault. If it ever does happen, the canonical text is written instead.
- */
-function verify(crepe, canonical, original, legacy) {
+function legacyRoundTrip(crepe, markdown, original) {
+  const engine = engineOf(crepe);
+  const canonical = guard.canonicalise(engine, markdown);
   if (!original) return canonical;
-  const canon = memo(crepe);
-  // `legacy` is batch 9's engine — line-keyed reconcile, whole-file verify, all or nothing.
-  // Nothing in the app asks for it; the harness does, so the before and after of batch 12 are
-  // one measurement by one instrument over one vault.
-  if (legacy) {
-    for (const opt of [{ lines: true }, { lines: false }]) {
-      const candidate = reconcile(canonical, original, opt);
-      if (candidate === canonical) return canonical;
-      if (canon(candidate) === canonical) return candidate;
-    }
-    return canonical;
+  for (const opt of [{ lines: true }, { lines: false }]) {
+    const candidate = reconcile(canonical, original, opt);
+    if (candidate === canonical) return canonical;
+    if (guard.canonicalise(engine, candidate) === canonical) return candidate;
   }
-  // Reconciliation only ever improves on the canonical text; it must never stand between the
-  // user and a save. If it throws, the canonical text is the page, unreconciled.
-  let candidate;
-  try {
-    candidate = reconcile(canonical, original, { canon });
-  } catch (e) {
-    console.error('[editor] reconcile failed, writing the canonical text', e);
-    return canonical;
-  }
-  if (candidate === canonical) return canonical;
-  try {
-    return canon(candidate) === canonical ? candidate : canonical;
-  } catch (e) {
-    console.error('[editor] verify failed, writing the canonical text', e);
-    return canonical;
-  }
+  return canonical;
 }
 
-const CANON_CACHE = new WeakMap();
-const CANON_MAX = 8000;
-
-function memo(crepe) {
-  let cache = CANON_CACHE.get(crepe);
-  if (!cache) { cache = new Map(); CANON_CACHE.set(crepe, cache); }
-  return (md) => {
-    const hit = cache.get(md);
-    if (hit !== undefined) return hit;
-    const out = canonicalise(crepe, md);
-    if (cache.size >= CANON_MAX) cache.clear();
-    cache.set(md, out);
-    return out;
-  };
-}
-
-/** Parse a markdown string and serialise it straight back, with no view involved. */
+/**
+ * Parse a markdown string and serialise it straight back, with no view involved.
+ * @param {import('@milkdown/crepe').Crepe} crepe
+ * @param {string} markdown
+ */
 export function canonicalise(crepe, markdown) {
-  return crepe.editor.action((ctx) =>
-    postProcess(ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown))));
+  return guard.canonicalise(engineOf(crepe), markdown);
 }
 
 /**
@@ -314,9 +337,12 @@ export function canonicalise(crepe, markdown) {
  * `original` is the text the reconcile pass is allowed to put back, and defaults to `markdown`
  * itself, which is the open-and-save case. The harness passes the two apart to ask the other
  * question: given the file on disk and a document with one line edited, what gets written?
+ * The answer goes through the write guard like a save; an `unsafe` one is the best effort,
+ * which a save would not write.
  */
 export function roundTrip(crepe, markdown, original = markdown, opt = {}) {
-  return verify(crepe, canonicalise(crepe, markdown), original, opt.legacy);
+  if (opt.legacy) return legacyRoundTrip(crepe, markdown, original);
+  return guard.roundTrip(engineOf(crepe), markdown, original);
 }
 
 /**
@@ -325,10 +351,9 @@ export function roundTrip(crepe, markdown, original = markdown, opt = {}) {
  * to map a source line onto a block (C7); nothing is written from here.
  */
 export function blockMarkdown(crepe, node) {
-  return crepe.editor.action((ctx) => {
-    const doc = ctx.get(schemaCtx).nodes.doc.create(null, node);
-    return postProcess(ctx.get(serializerCtx)(doc));
-  });
+  const engine = engineOf(crepe);
+  const doc = engine.schema.nodes.doc.create(null, node);
+  return postProcess(engine.serialize(doc), { mdast: engine.mdast });
 }
 
 export function editorView(crepe) {

@@ -60,7 +60,57 @@
 }
 .ed-add-title:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-3); }
 
-.ed .page-meta { user-select: none; }
+.ed .page-meta { user-select: none; align-items: baseline; }
+
+/* ---------------------------------------------------------------- Rich | Source (H14)
+
+   Which view the page is in, on screen: two small buttons at the end of the meta line, one
+   pressed. They are the palette's `page.view-rich` / `page.view-source`, reachable with Tab. */
+.ed-mode {
+  display: inline-flex; flex: none;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.ed-mode-btn {
+  font: inherit; color: var(--fg-3); background: transparent;
+  border: 0; border-radius: 0; padding: 0 var(--sp-2); cursor: pointer;
+}
+.ed-mode-btn + .ed-mode-btn { border-left: 1px solid var(--border); }
+.ed-mode-btn:hover { color: var(--fg); background: var(--bg-3); }
+.ed-mode-btn[aria-pressed="true"] { color: var(--fg); background: var(--bg-3); }
+.ed-mode-btn:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* ---------------------------------------------------------------- the banner (H8)
+
+   One sticky box at the top of the column while the page needs the user: not saved, changed
+   or deleted on disk, recovered changes, opened as text. It stays until what it says is
+   over; the buttons are commands (page.save, page.save-as, …). Errors in the err tokens, the
+   rest in the warn ones. */
+.ed-banner {
+  position: sticky; top: 0; z-index: 25;
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--font-ui); font-size: var(--fs-ui);
+  background: var(--bg-2); color: var(--fg);
+}
+.ed-banner[hidden] { display: none; }
+.ed-banner-err { background: var(--err-soft); border-color: var(--err); color: var(--err-ink); }
+.ed-banner-warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn-ink); }
+.ed-banner-text { flex: 1 1 20ch; min-width: 0; }
+.ed-banner-acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+/* Milkdown's button reset does not reach here (the banner is outside the body), but the same
+   rule as the image box keeps the surface explicit in both themes. */
+.ed-banner .btn { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); transition: none; }
+.ed-banner .btn:hover { background-color: var(--bg-3); }
+.ed-banner .btn:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* ---------------------------------------------------------------- frozen (H1)
+
+   While a leave, a mode switch or a path change composes the page, every input is read-only;
+   the pointer says so. No dimming: a clean page is frozen for the instant before every
+   navigation, and a flash on each one would be noise. */
+.ed.ed-frozen .ed-body { cursor: progress; }
 
 /* ---------------------------------------------------------------- find bar (C1) */
 

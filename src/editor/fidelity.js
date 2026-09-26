@@ -6,10 +6,14 @@
 // construct the vault is allowed to contain and the editor is not allowed to delete, so each
 // one gets what it needs here — an attribute, a plugin left out, a node — and nothing else.
 //
-// Everything in this file is registered from crepe.js `installExtras`, before `create()`.
+// Everything in this file is registered from engine.js `configureMarkdown`, before `create()`,
+// which the page (crepe.js) and the headless engine both run. Two more live here that are not
+// losses at parse time but at write time: the hard break (M6) and the dead reference (M8).
 
-import { codeBlockSchema, linkAttr, linkSchema, sanitizeLinkHref } from '@milkdown/kit/preset/commonmark';
+import { codeBlockSchema, hardbreakSchema, inlineCodeSchema, linkAttr, linkSchema, sanitizeLinkHref } from '@milkdown/kit/preset/commonmark';
+import { Transform } from '@milkdown/kit/prose/transform';
 import { $nodeSchema, $remark } from '@milkdown/kit/utils';
+import { definitionInScope } from './stringify.js';
 
 /**
  * M13. A fence is written ```` ```js title="a.js" {1,3} ````; mdast splits that into `lang`
@@ -38,6 +42,51 @@ export function extendCodeBlock(ctx) {
             lang: node.attrs.language,
             meta: node.attrs.meta || null,
           });
+        },
+      },
+    };
+  });
+}
+
+/**
+ * M6. A hard break goes to the serializer as a break node whatever it was in the file, with
+ * `data.isInline` saying it was a plain newline there (`remarkLineBreak`). Milkdown writes
+ * that kind as a newline in a text node, where no handler sees it: two in a row were a blank
+ * line and ended the paragraph, and one at the end of a paragraph was a blank line of space.
+ * stringify.js `writeBreak` spells both kinds, in the file's own style.
+ */
+export function extendHardbreak(ctx) {
+  ctx.update(hardbreakSchema.key, (prev) => (c) => {
+    const base = prev(c);
+    return {
+      ...base,
+      toMarkdown: {
+        match: (node) => node.type.name === 'hardbreak',
+        runner: (state, node) => {
+          state.addNode('break', undefined, undefined, node.attrs.isInline ? { data: { isInline: true } } : {});
+        },
+      },
+    };
+  });
+}
+
+/**
+ * A code mark on something that is not text (a hard break inside a range made code with the
+ * toolbar, a formula, an image). Milkdown writes it as an empty code span in place of the node,
+ * so the break was lost and two stray backticks were written. A code span can only hold text:
+ * the mark is left off everything else, which is then written on its own.
+ */
+export function extendInlineCode(ctx) {
+  ctx.update(inlineCodeSchema.key, (prev) => (c) => {
+    const base = prev(c);
+    return {
+      ...base,
+      toMarkdown: {
+        match: (mark) => mark.type.name === 'inlineCode',
+        runner: (state, mark, node) => {
+          if (!node.isText) return false;
+          state.withMark(mark, 'inlineCode', node.text || '');
+          return true;
         },
       },
     };
@@ -159,6 +208,10 @@ export const remarkResolveReferences = $remark('os-resolve-references', () => ()
  * reference while `href` still equals it. Edit the target in the link tooltip and the two part
  * company, so the link is written as an ordinary inline one — the user's edit lands in the file
  * instead of being quietly dropped on the way out.
+ *
+ * The same happens when the definition itself is gone from the page (M8). `[docs][d]` with no
+ * `[d]: …` anywhere is not a link at all: it reads back as the brackets, and the url is lost.
+ * Which definitions the page still holds is the serialisation's context (stringify.js).
  */
 export function extendLink(ctx) {
   ctx.update(linkSchema.key, (prev) => (c) => {
@@ -196,7 +249,7 @@ export function extendLink(ctx) {
         match: (mark) => mark.type.name === 'link',
         runner: (state, mark) => {
           const { identifier, label, referenceType, refUrl, href, title } = mark.attrs;
-          if (identifier && refUrl === href) {
+          if (identifier && refUrl === href && definitionInScope(identifier)) {
             state.withMark(mark, 'linkReference', undefined, {
               identifier, label: label || identifier, referenceType: referenceType || 'full',
             });
@@ -207,4 +260,149 @@ export function extendLink(ctx) {
       },
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// An html block is a block (H2).
+//
+// Milkdown keeps an html block as an inline atom alone in a paragraph, so the caret can sit
+// beside it and typing lands in the same paragraph. The file cannot say that: a line that
+// starts with `<!--`, `<div>` or any of CommonMark's block tags opens an html block that runs
+// on, and ` zz` typed after a comment was written `<!-- comment --> zz` and read back as part
+// of the comment, gone from view. Text typed in front of a multi-line `<div>` did the opposite
+// and turned the div's inner lines into prose. So an html node that would open a block where it
+// stands is written in a paragraph of its own, and what was typed beside it in the paragraph
+// before or after: the editor does it as it happens (blocks.js `htmlBlockPlugin`), and the
+// write guard does it to the document it writes (guard.js), so neither can disagree.
+
+/** CommonMark html block starts 1 to 6: they open a block whatever follows on the line. */
+const HTML_BLOCK_START = /^(?:<(?:script|pre|style|textarea)(?:\s|>|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\[|<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$))/i;
+/** Start 7: one complete tag, which opens a block only when it is alone on its line. */
+const HTML_LONE_TAG = /^(?:<[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?\/?>|<\/[A-Za-z][A-Za-z0-9-]*\s*>)\s*$/;
+
+const isBlankLeaf = (n) => n.type.name === 'hardbreak' || (n.isText && !/\S/.test(n.text));
+
+/**
+ * The index of the html child of `para` that cannot share its paragraph, or -1.
+ * @param {import('@milkdown/kit/prose/model').Node} para
+ */
+function strayHtml(para) {
+  if (para.type.name !== 'paragraph' || para.childCount < 2) return -1;
+  let lineStart = true;
+  let paraStart = true;
+  for (let i = 0; i < para.childCount; i++) {
+    const child = para.child(i);
+    if (child.type.name === 'html') {
+      const value = String(child.attrs.value ?? '');
+      const next = i + 1 < para.childCount ? para.child(i + 1) : null;
+      const lineEnd = !next || next.type.name === 'hardbreak';
+      const opens = value.includes('\n')
+        || (lineStart && HTML_BLOCK_START.test(value))
+        // A lone tag cannot interrupt a paragraph: it opens a block only where one starts.
+        || (paraStart && lineEnd && HTML_LONE_TAG.test(value));
+      // Anything else in the paragraph, a bare break included: a break in front of the html
+      // is a line the html then interrupts.
+      if (opens) return i;
+    }
+    const blank = isBlankLeaf(child);
+    paraStart = paraStart && blank;
+    lineStart = child.type.name === 'hardbreak' || (lineStart && blank);
+  }
+  return -1;
+}
+
+/**
+ * `para` cut into up to three paragraphs around its html child `i`: what came before it, the
+ * html alone, what came after it. The breaks and spaces at the cut go, because a paragraph
+ * cannot start or end with them.
+ */
+function splitAround(para, i) {
+  const kids = [];
+  para.forEach((c) => kids.push(c));
+  const trim = (list, fromEnd) => {
+    const out = list.slice();
+    while (out.length && isBlankLeaf(fromEnd ? out[out.length - 1] : out[0])) (fromEnd ? out.pop() : out.shift());
+    if (!fromEnd && out.length && out[0].isText) {
+      const t = out[0].text.replace(/^[ \t]+/, '');
+      out[0] = t ? out[0].type.schema.text(t, out[0].marks) : null;
+      if (!out[0]) out.shift();
+    }
+    return out;
+  };
+  const before = trim(kids.slice(0, i), true);
+  const after = trim(kids.slice(i + 1), false);
+  const make = (list) => para.type.create(para.attrs, list);
+  return [...(before.length ? [make(before)] : []), make([kids[i]]), ...(after.length ? [make(after)] : [])];
+}
+
+/**
+ * Put every stray html block of `tr.doc` between `from` and `to` in a paragraph of its own.
+ * Works on a Transaction as on a bare Transform. Answers whether it changed anything.
+ *
+ * @param {import('@milkdown/kit/prose/transform').Transform} tr
+ * @param {number} [from]
+ * @param {number} [to]
+ */
+export function splitStrayHtml(tr, from = 0, to = tr.doc.content.size) {
+  const found = [];
+  tr.doc.nodesBetween(Math.max(0, from), Math.min(to, tr.doc.content.size), (node, pos) => {
+    if (node.type.name === 'paragraph') {
+      if (strayHtml(node) >= 0) found.push(pos);
+      return false;
+    }
+    return !node.isTextblock;
+  });
+  for (let k = found.length - 1; k >= 0; k--) {
+    let pos = found[k];
+    let node = tr.doc.nodeAt(pos);
+    // One html node at a time, the last pieces first: a paragraph can hold several.
+    for (let guard = 0; guard < 64 && node; guard++) {
+      const i = strayHtml(node);
+      if (i < 0) break;
+      const parts = splitAround(node, i);
+      tr.replaceWith(pos, pos + node.nodeSize, parts);
+      // What follows the html is the only piece that can still hold another stray one.
+      const last = parts[parts.length - 1];
+      if (parts.length < 2 || last.childCount < 1 || last.child(0).type.name === 'html') break;
+      let size = 0;
+      for (let p = 0; p < parts.length - 1; p++) size += parts[p].nodeSize;
+      pos += size;
+      node = tr.doc.nodeAt(pos);
+    }
+  }
+  return found.length > 0;
+}
+
+/** The whole document with every stray html block on its own (for tests and the harness). */
+export function htmlEndsBlock(doc) {
+  const tr = new Transform(doc);
+  return splitStrayHtml(tr) ? tr.doc : doc;
+}
+
+/**
+ * The document with no mark on a hard break. Bold or a link over a selection that crosses a
+ * line break marks the break as well, and a mark carried across a newline is written
+ * `**e\n**line`, whose closing `**` opens a line and so closes nothing. A mark on a break shows
+ * nothing either way; written off it, the run is closed before the newline and opened again after.
+ *
+ * @param {import('@milkdown/kit/prose/model').Node} doc
+ * @returns {import('@milkdown/kit/prose/model').Node}
+ */
+export function unmarkBreaks(doc) {
+  const at = [];
+  doc.descendants((n, pos, parent, index) => {
+    if (n.type.name !== 'hardbreak' || !n.marks.length || !parent) return true;
+    // A mark that goes on past the break is an ordinary run over two lines (`_one\ntwo_`) and
+    // stays; only one that stops or starts at the break is taken off it.
+    const before = index > 0 ? parent.child(index - 1) : null;
+    const after = index + 1 < parent.childCount ? parent.child(index + 1) : null;
+    for (const m of n.marks) {
+      if (!(before && m.isInSet(before.marks) && after && m.isInSet(after.marks))) at.push([pos, m]);
+    }
+    return true;
+  });
+  if (!at.length) return doc;
+  const tr = new Transform(doc);
+  for (const [pos, m] of at) tr.removeMark(pos, pos + 1, m);
+  return tr.doc;
 }

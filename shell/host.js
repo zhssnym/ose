@@ -38,8 +38,17 @@ export function onMaximize(fn) {
   return off;
 }
 
-/** A second launch named another folder and the host adopted it: the shell starts over on it. */
-export const onVaultChange = (fn) => ose.vault.onChange(fn);
+/**
+ * A second launch named another folder (docs/HOST.md "Single instance"). The host no longer
+ * adopts it on its own: it asks, with `{root, name}`, and the shell switches the way Change
+ * vault does, after the open page has been saved (C5). A kernel without the hose answers a
+ * no-op unsubscribe.
+ */
+export function onVaultChangeRequested(fn) {
+  const v = ose.vault;
+  if (!v || typeof v.onChangeRequested !== 'function') return () => {};
+  return v.onChangeRequested((d) => { if (d && d.root) fn(d); });
+}
 
 /**
  * Where the executable sits, for the first-run chooser's `suggested:` line. Empty string when

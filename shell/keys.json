@@ -1,5 +1,8 @@
 {
-  "mod+r": "app.reload",
-  "mod+shift+j": "journal.new",
-  "mod+shift+p": "page.export-pdf"
+  "mod+p": "app.quickopen",
+  "mod+shift+p": "app.palette",
+  "mod+alt+p": "page.export-pdf",
+  "mod+alt+n": "file.new",
+  "f2": "file.rename",
+  "mod+shift+j": "journal.new"
 }

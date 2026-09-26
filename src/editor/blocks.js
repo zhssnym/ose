@@ -22,6 +22,7 @@
 import { AllSelection, NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import { slashMenuOpen } from './slash.js';
+import { splitStrayHtml } from './fidelity.js';
 
 export const BLOCK_KEY = new PluginKey('os-block-keys');
 
@@ -381,6 +382,43 @@ export function blockKeysPlugin() {
           .map(({ node, pos }) => Decoration.node(pos, pos + node.nodeSize, { class: 'os-block-sel' }));
         return decos.length ? DecorationSet.create(state.doc, decos) : null;
       },
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// an html block is a block (H2)
+//
+// Text typed beside an html block goes in a paragraph of its own as it is typed, so what is on
+// screen is what the file will say (the rule and its reasons: fidelity.js `splitStrayHtml`).
+
+/** The ProseMirror plugin: after every change, the paragraphs it touched are checked. */
+export function htmlBlockPlugin() {
+  return new Plugin({
+    key: new PluginKey('os-html-block'),
+    appendTransaction(trs, _old, state) {
+      if (!trs.some((t) => t.docChanged)) return null;
+      let from = Infinity;
+      let to = -Infinity;
+      trs.forEach((t, n) => {
+        t.mapping.maps.forEach((map, m) => {
+          map.forEach((_a, _b, start, end) => {
+            // Into the final document: through the rest of this transaction and the ones after.
+            let s = start;
+            let e = end;
+            for (let r = m + 1; r < t.mapping.maps.length; r++) { s = t.mapping.maps[r].map(s, -1); e = t.mapping.maps[r].map(e, 1); }
+            for (let q = n + 1; q < trs.length; q++) { s = trs[q].mapping.map(s, -1); e = trs[q].mapping.map(e, 1); }
+            from = Math.min(from, s);
+            to = Math.max(to, e);
+          });
+        });
+      });
+      if (!(to >= from)) return null;
+      const $from = state.doc.resolve(Math.max(0, Math.min(from, state.doc.content.size)));
+      const $to = state.doc.resolve(Math.max(0, Math.min(to, state.doc.content.size)));
+      const tr = state.tr;
+      if (!splitStrayHtml(tr, $from.start(Math.min(1, $from.depth)) - 1, $to.end(Math.min(1, $to.depth)) + 1)) return null;
+      return tr;
     },
   });
 }

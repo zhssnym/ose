@@ -20,8 +20,11 @@ import './render.css';
 
 // A note is prose, not a web page: no raw HTML blocks are honoured (DOMPurify would keep the
 // harmless ones, but a note that draws its own layout stops being a note), and a single
-// newline is a newline, exactly as the block editor treats it.
-const OPTIONS = { gfm: true, breaks: false, pedantic: false };
+// newline is a newline, exactly as the block editor treats it (M6): the editor reads a plain
+// newline inside a paragraph as a line break and writes one back as a plain newline (stringify.js
+// `writeBreak`), so a card or a tile that joined those lines showed a different note. `breaks`
+// is marked's switch for exactly that; two trailing spaces and a trailing `\` still break too.
+const OPTIONS = { gfm: true, breaks: true, pedantic: false };
 
 // An instance of marked of our own, never the module-level one: `use` is global on that one and
 // a note is not the only thing in this bundle that parses markdown. The maths extension is the

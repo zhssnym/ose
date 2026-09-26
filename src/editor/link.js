@@ -9,7 +9,7 @@
 // file never imports the editor back (slash.js -> link.js -> index.js would be a cycle, and the
 // round-trip harness would pull the whole shell in with it).
 
-import { allPages, bridge, esc, highlight, icon, openOverlay, pageItems } from './host.js';
+import { allPages, bridge, esc, highlight, icon, openOverlay, pageFiles, pageItems } from './host.js';
 import { pickPage } from './deps.js';
 import * as P from './paths.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
@@ -183,12 +183,33 @@ function markLink(view, range, href) {
   return true;
 }
 
-/** `<folder>/<base>.md`, numbered when taken. Mirrors index.js `freePath`. */
-async function freePath(folder, base) {
+/**
+ * Create `<folder>/<base>.md` holding `text`, numbered (`<base> 2.md` …) when the name is
+ * taken, and answer the path it created. The name is claimed by the host's exclusive create
+ * (`ose.files.createNew`), so a file that arrived a moment ago is never overwritten: the old
+ * probe-then-write could (wave 1, M4). A kernel without `createNew` gets the old probe.
+ * @param {string} folder
+ * @param {string} base
+ * @param {string} text
+ * @returns {Promise<string>}
+ */
+export async function createFreePage(folder, base, text) {
   const dir = folder ? folder + '/' : '';
-  let candidate = `${dir}${base}.md`;
-  for (let n = 2; await bridge.exists(candidate); n++) candidate = `${dir}${base} ${n}.md`;
-  return candidate;
+  const nth = (n) => (n < 2 ? `${dir}${base}.md` : `${dir}${base} ${n}.md`);
+  for (let n = 1; n < 500; n++) {
+    const candidate = nth(n);
+    try {
+      await pageFiles.createNew(candidate, text);
+      return candidate;
+    } catch (e) {
+      if (e && e.code === 'exists') continue;
+      if (!e || e.code !== 'unknown_command') throw e;
+      if (await bridge.exists(candidate)) continue;
+      await bridge.writeText(candidate, text);
+      return candidate;
+    }
+  }
+  throw new Error(`no free name for ${dir}${base}.md`);
 }
 
 /** A file name that survives every tool: no separators, no reserved characters. */
@@ -230,8 +251,7 @@ export async function linkCommand(view) {
       const folder = from && from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
       const name = sanitise(choice.name);
       if (!name) { view.focus(); return null; }
-      target = await freePath(folder, name);
-      await bridge.writeText(target, `# ${name}\n`);
+      target = await createFreePage(folder, name, `# ${name}\n`);
     }
     href = hrefFor(pagePath(), target);
     if (!text) text = await pageTitle(target);

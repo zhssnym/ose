@@ -68,15 +68,17 @@ export function openOverlay(opts = {}) {
   document.body.appendChild(el);
 
   if (at) {
-    // Place at a point, flipped back inside the viewport.
-    box.style.visibility = 'hidden';
+    // Place at a point, flipped back inside the viewport. Transparent rather than hidden until
+    // then: a `visibility: hidden` box cannot take the focus, and a menu opened from the
+    // keyboard must have it before the first frame (see below).
+    box.style.opacity = '0';
     requestAnimationFrame(() => {
       const r = box.getBoundingClientRect();
       const x = Math.max(4, Math.min(at.x, window.innerWidth - r.width - 4));
       const y = Math.max(4, Math.min(at.y, window.innerHeight - r.height - 4));
       box.style.left = x + 'px';
       box.style.top = y + 'px';
-      box.style.visibility = '';
+      box.style.opacity = '';
     });
   } else if (top) {
     el.style.alignItems = 'flex-start';
@@ -97,6 +99,17 @@ export function openOverlay(opts = {}) {
   // list of buttons is arrow-keyed, not tabbed (D4). Enter and Space are the buttons' own.
   if (/\bmenu\b/.test(className)) bindMenuKeys(box);
 
+  // The keyboard leaves the page the moment an overlay is in the document, not a task later.
+  // Keys typed right after a chord that opens a prompt were read by the page behind it while
+  // the prompt's input waited for its timer: Ctrl+A and a file name went into the open code
+  // editor and autosave wrote them over the file. Input events outrun timers, so nothing
+  // deferred is soon enough. The box holds the focus until the caller puts it on its own
+  // field (`focusField`), which the dialogs here do in the same task.
+  try { box.focus({ preventScroll: true }); } catch { /* a detached body: nothing to guard */ }
+  if (prevFocus && prevFocus !== document.body && document.activeElement === prevFocus && typeof prevFocus.blur === 'function') {
+    prevFocus.blur();
+  }
+
   let closed = false;
   function close() {
     if (closed) return;
@@ -111,6 +124,32 @@ export function openOverlay(opts = {}) {
   }
 
   return entry;
+}
+
+/**
+ * Put the focus on `el`, a field of the overlay `box`, now: the node is in the document as
+ * soon as `openOverlay` answers, and the focus has to be there before the next key is read.
+ * `then()` runs after each focus (a prompt selects its text). One more attempt follows after a
+ * task, for a window that would not take the focus yet (ADV-N: backgrounded, minimised, a
+ * hidden web view); it only acts when the focus is not already on a field of the box, so it
+ * never undoes what the user typed or where they tabbed in the meantime.
+ * @param {HTMLElement} box
+ * @param {HTMLElement|null} el
+ * @param {() => void} [then]
+ */
+export function focusField(box, el, then) {
+  if (!el) return;
+  const go = () => {
+    if (!el.isConnected) return;
+    try { el.focus({ preventScroll: true }); } catch { return; }
+    if (then && document.activeElement === el) { try { then(); } catch (e) { console.error(e); } }
+  };
+  go();
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (a === el || (a && a !== box && box.contains(a))) return;
+    go();
+  }, 0);
 }
 
 /**
@@ -166,7 +205,12 @@ function dialogShell(box, { title, danger }) {
   };
 }
 
-export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'OK', body = '' } = {}) {
+/**
+ * A one-line question. Answers the trimmed value, or null on cancel or an empty answer.
+ * `select: [start, end]` is the input's selection once it has focus (a rename selects the stem
+ * and leaves the extension alone); the default is the whole value.
+ */
+export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'OK', body = '', select = null } = {}) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
@@ -182,12 +226,16 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); finish(input.value.trim() || null); }
     });
-    // A timer, not `requestAnimationFrame`: a window that is not compositing — backgrounded,
-    // minimised, or a hidden web view — never runs the frame callback, and the dialog then
-    // comes up with the focus still on whatever opened it, so the first thing typed into a
-    // rename prompt goes nowhere (ADV-N). The delay is only to let the node be in the document;
-    // a task does that as well as a frame does, and it runs whether or not anything is painted.
-    setTimeout(() => { input.focus(); input.select(); }, 0);
+    // Now, not after a timer or a frame: the keys typed right after the chord that opened
+    // this are the name, and they must land here, not in the page behind (focusField).
+    focusField(ov.box, input, () => {
+      if (Array.isArray(select) && select.length === 2) {
+        const len = input.value.length;
+        const a = Math.max(0, Math.min(len, Number(select[0]) || 0));
+        const b = Math.max(a, Math.min(len, Number(select[1]) || 0));
+        try { input.setSelectionRange(a, b); } catch { input.select(); }
+      } else input.select();
+    });
   });
 }
 
@@ -204,7 +252,7 @@ export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger 
     // On the OK button only: on the whole box this fired with Cancel focused too, which
     // turned Enter-to-dismiss into Enter-to-delete.
     parts.ok.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
-    setTimeout(() => parts.ok.focus(), 0);
+    focusField(ov.box, parts.ok);
   });
 }
 
@@ -395,7 +443,7 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
     });
 
     build();
-    setTimeout(() => input.focus(), 0);
+    focusField(ov.box, input);
   });
 }
 
@@ -529,7 +577,7 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
     });
 
     build();
-    setTimeout(() => input.focus(), 0);
+    focusField(ov.box, input);
   });
 }
 
@@ -609,9 +657,9 @@ export function contextMenu(x, y, items) {
     frag.appendChild(row);
   }
   ov.box.appendChild(frag);
-  // A task rather than a frame, for the reason `prompt` gives above: a menu opened from a
-  // keyboard gesture in a window that is not painting must still take the focus.
-  setTimeout(() => ov.box.querySelector('.menu-row')?.focus(), 0);
+  // Now, for the reason `prompt` gives above: a menu opened from a keyboard gesture must take
+  // the focus before the next key, painted or not.
+  focusField(ov.box, ov.box.querySelector('.menu-row'));
   return ov;
 }
 
@@ -621,8 +669,24 @@ export function contextMenu(x, y, items) {
 // a screen reader hears a save error the way a sighted user sees it (D10).
 let toastHost = null;
 
-/** Transient message above the status bar. Errors surface here instead of being swallowed. */
-export function toast(text, kind = 'info', ms = 4500) {
+/**
+ * A message above the status bar (docs/KERNEL.md `ose.toast`, H8). Errors surface here instead
+ * of being swallowed. Answers the kill function.
+ *
+ * - `ms` is how long it stays. `0` is sticky: no timer, a click on the text does nothing, and
+ *   the toast carries a close button; it goes when that button, an action or the caller's kill
+ *   says so. A save that failed must not be a message that vanished before it was read.
+ * - `opts.actions`: `[{ label, run }]`, drawn as buttons, reachable with Tab. Running one
+ *   closes the toast; `run` may return a promise and its failure is logged, not thrown.
+ * - `kind === 'err'` gives the toast `role="alert"`, so a screen reader interrupts for it.
+ *
+ * @param {string} text
+ * @param {'info'|'ok'|'warn'|'err'} [kind]
+ * @param {number} [ms]
+ * @param {{actions?: Array<{label: string, run: () => any}>}} [opts]
+ * @returns {() => void}
+ */
+export function toast(text, kind = 'info', ms = 4500, opts = {}) {
   if (!toastHost) {
     toastHost = document.createElement('div');
     toastHost.className = 'toasts';
@@ -630,29 +694,72 @@ export function toast(text, kind = 'info', ms = 4500) {
     toastHost.setAttribute('aria-live', 'polite');
     document.body.appendChild(toastHost);
   }
+  const sticky = !(ms > 0);
+  const actions = Array.isArray(opts && opts.actions) ? opts.actions.filter((a) => a && a.label && typeof a.run === 'function') : [];
   const t = document.createElement('div');
-  t.className = 'toast surface ' + kind;
-  t.textContent = String(text);
-  toastHost.appendChild(t);
+  t.className = 'toast surface ' + kind + (sticky ? ' sticky' : '') + (actions.length ? ' has-actions' : '');
+  if (kind === 'err') t.setAttribute('role', 'alert');
+  const line = document.createElement('span');
+  line.className = 'toast-text';
+  line.textContent = String(text);
+  t.appendChild(line);
+  let timer = null;
   const kill = () => {
     clearTimeout(timer);
     t.remove();
     if (toastHost && !toastHost.childElementCount) { toastHost.remove(); toastHost = null; }
   };
   t.__kill = kill;
+  t.__sticky = sticky;
+  if (actions.length || sticky) {
+    const row = document.createElement('span');
+    row.className = 'toast-actions';
+    for (const a of actions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn toast-act';
+      b.textContent = String(a.label);
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        kill();
+        try { Promise.resolve(a.run()).catch((err) => console.error('[toast] action', a.label, err)); }
+        catch (err) { console.error('[toast] action', a.label, err); }
+      });
+      row.appendChild(b);
+    }
+    if (sticky) {
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'btn ghost toast-close';
+      x.setAttribute('aria-label', 'Dismiss');
+      x.title = 'Dismiss';
+      x.textContent = '×';
+      x.addEventListener('click', (e) => { e.stopPropagation(); kill(); });
+      row.appendChild(x);
+    }
+    t.appendChild(row);
+  }
+  toastHost.appendChild(t);
+  if (sticky) return kill;
   // Hovering pauses the clock: a message being read must not vanish under the pointer. On
-  // leave it gets what was left, and never less than a second to finish the line.
-  let timer = setTimeout(kill, ms);
+  // leave it gets what was left, and never less than a second to finish the line. A toast
+  // with actions is not killed by a click on its text: the click may be aiming at a button.
+  timer = setTimeout(kill, ms);
   let left = ms, since = Date.now();
   t.addEventListener('mouseenter', () => { clearTimeout(timer); left = Math.max(0, left - (Date.now() - since)); });
   t.addEventListener('mouseleave', () => { since = Date.now(); timer = setTimeout(kill, Math.max(1000, left)); });
-  t.addEventListener('click', kill);
+  t.addEventListener('focusin', () => { clearTimeout(timer); });
+  if (!actions.length) t.addEventListener('click', kill);
   return kill;
 }
 
 /** Esc with no overlay open (keys.js): drop the newest toast. True when there was one. */
 export function dismissToast() {
-  const t = toastHost && toastHost.lastElementChild;
+  // A sticky toast is not Esc's to take: Esc also reaches the editor's block selection, and a
+  // "not saved" notice must not go with a keystroke meant for something else. Its own close
+  // button, or its action, is the way.
+  const all = toastHost ? [...toastHost.children] : [];
+  const t = all.reverse().find((n) => !n.__sticky);
   if (!t) return false;
   t.__kill();
   return true;

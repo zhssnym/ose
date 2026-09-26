@@ -20,3 +20,6 @@ graphify-out/
 
 # The vault state folder an exe writes when the repo itself is opened as a vault.
 .ose/
+
+# copies of real notes for the serializer tests: kept local, never published
+tests/fixtures/corpus/

@@ -106,13 +106,17 @@ export async function create() {
       try { j = JSON.parse(text); } catch {
         throw new Error(`bridge returned non-JSON for ${cmd} (HTTP ${r.status}): ${text.slice(0, 200)}`);
       }
-      if (!j || j.ok !== true) throw new Error(j?.error || `bridge error (${cmd}, HTTP ${r.status})`);
+      // `[code] message`, as the host words it; the facade (./index.js) splits it.
+      if (!j || j.ok !== true) throw new Error(j?.error || `[io] bridge error (${cmd}, HTTP ${r.status})`);
       return j.result;
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     // In a browser the window title is the tab title, and there is nothing else to set (S13).
     win: {
       setTitle: (text) => { try { document.title = String(text ?? ''); } catch { /* none */ } },
+      // A browser tab is not ours to destroy; `window.close()` works only on a tab a script
+      // opened, and otherwise does nothing, which is the honest answer here.
+      destroy: () => { try { window.close(); } catch { /* not allowed */ } return null; },
     },
     close() { closed = true; clearTimeout(timer); timer = null; try { es?.close(); } catch { } es = null; },
   };

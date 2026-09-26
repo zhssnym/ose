@@ -701,4 +701,77 @@ html.maximized .edge { display: none; }
 .st-left .st-item.err { color: var(--err); }
 .st-left .st-item.warn { color: var(--warn); }
 .st-left .st-item.ok { color: var(--ok); }
+.st-left .st-item.accent { color: var(--accent); }
 .st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
+
+/* ------------------------------------------------------------------ save state (H8) */
+
+/* A page that could not be written, or changed on disk under unsaved text: the dot turns into
+   the error mark, a square in --err, in the same place in the reading order. A square and not
+   a red dot, so it does not depend on telling two colours apart. The tooltip carries the
+   editor's own sentence. */
+.tab-err, .tb-dirty.err {
+  width: 0.4375rem; height: 0.4375rem; flex: none;
+  border-radius: 0; background: var(--err);
+}
+.tab.err .tab-name { color: var(--err-ink); }
+.tab.err.on { box-shadow: inset 0 -2px 0 var(--err); }
+
+/* New file… (H12): one more of the title bar's own buttons, beside back and forward. */
+.tb-new { flex: none; margin-left: var(--sp-1); align-self: stretch; }
+
+/* Focus mode's chip (H18): whenever a folder is in focus, in the bar, whether or not the
+   sidebar is open. The same words the sidebar's focus label says; pressing it leaves focus. */
+.tb-focus {
+  flex: none; align-self: center; max-width: 14rem;
+  display: flex; align-items: center; gap: var(--sp-1);
+  margin-left: var(--sp-2); padding: var(--sp-half) var(--sp-2);
+  font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  background: var(--accent-soft); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-focus[hidden] { display: none; }
+.tb-focus:hover { color: var(--fg); background: var(--bg-3); }
+.tb-focus:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.tb-focus-key { color: var(--accent-ink); }
+.tb-focus-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-focus svg {
+  width: 0.5625rem; height: 0.5625rem; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round;
+}
+
+/* ------------------------------------------------------------------ recovered changes (C4) */
+
+/* The sheet of drafts: the vault chooser's row, name, folder and time. A draft whose file is
+   gone says so in the one colour that owns it, and offers Save as… instead of Open. */
+.rec .dlg-body { padding-bottom: var(--sp-2); }
+.rec-list { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--sp-3)); }
+.rec-row { width: 100%; text-align: left; cursor: default; }
+.rec-name { flex: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+.rec-path { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+.rec-row .pal-hint.gone { color: var(--err); }
+
+/* ------------------------------------------------------------------ boot error (M38) */
+
+/* The page a failed boot leaves instead of a blank window. The kernel's stylesheet may be the
+   very thing that did not arrive, so every token here has the system colour behind it and the
+   page still reads in both themes. */
+.boot-err {
+  max-width: 44rem; margin: 0 auto; padding: var(--sp-7, 3rem) var(--sp-5, 1.5rem);
+  display: flex; flex-direction: column; gap: var(--sp-3, 0.75rem);
+  font-family: var(--font-ui, system-ui, sans-serif); font-size: var(--fs-ui, 0.8125rem);
+  color: var(--fg, CanvasText); background: var(--bg, Canvas);
+}
+.boot-err-title { margin: 0; font-size: var(--fs-content, 0.9375rem); font-weight: 600; color: var(--err, CanvasText); }
+.boot-err-text { margin: 0; line-height: 1.55; color: var(--fg-2, CanvasText); }
+.boot-err-msg, .boot-err-stack {
+  margin: 0; padding: var(--sp-3, 0.75rem);
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+  background: var(--bg-2, Canvas); border: 1px solid var(--border, GrayText); border-radius: var(--radius, 2px);
+}
+.boot-err-msg { color: var(--err-ink, CanvasText); background: var(--err-soft, Canvas); }
+.boot-err-stack { max-height: 16rem; overflow: auto; color: var(--fg-2, CanvasText); }
+.boot-err-path { user-select: text; word-break: break-all; }
+.boot-err-summary { cursor: default; color: var(--fg-3, GrayText); }
+.boot-err-actions { display: flex; gap: var(--sp-2, 0.5rem); margin-top: var(--sp-2, 0.5rem); }
+.boot-err-copy { position: fixed; left: -100vw; top: 0; opacity: 0; }

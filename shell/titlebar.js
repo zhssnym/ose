@@ -22,6 +22,7 @@ let dirtyEl = null;
 let maxBtn = null;
 let foldEl = null;
 let navEls = null;
+let focusEl = null;
 let maximized = false;
 
 // A real window: WebView2 or Tauri. The browser has its own frame and no window control.
@@ -93,8 +94,10 @@ export function initTitlebar(node) {
       <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
       <button class="tb-nav-btn" data-nav="forward" type="button">${icon('forward')}</button>
     </div>
+    <button class="tb-nav-btn tb-new" type="button">${icon('plus')}</button>
     <nav class="tb-crumbs mono" aria-label="location"></nav>
-    <span class="tb-dirty" title="unsaved changes" hidden></span>
+    <span class="tb-dirty" role="img" aria-label="unsaved changes" title="unsaved changes" hidden></span>
+    <button class="tb-focus mono" type="button" hidden></button>
     <div class="tb-drag"></div>
     <div class="tb-win${HOST() ? '' : ' dim'}">
       <button class="tb-btn" data-w="min" title="Minimize" aria-label="Minimize">${glyph('min')}</button>
@@ -133,6 +136,28 @@ export function initTitlebar(node) {
   }
   updateNav();
 
+  // New file… (H12): the one toolbar button for it, beside back and forward. It runs the same
+  // command Ctrl+Alt+N and the tree's menu run (shell/fileops.js), so there is one New file.
+  const newBtn = el.querySelector('.tb-new');
+  // Its chord comes from keys.json, which is read after the bar is built: the title is written
+  // again once the boot is done.
+  const titleNew = () => {
+    const chord = shortcutFor('file.new');
+    newBtn.title = chord ? `New file… (${chord})` : 'New file…';
+  };
+  titleNew();
+  bus.on('booted', titleNew);
+  newBtn.setAttribute('aria-label', 'New file…');
+  newBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+  newBtn.addEventListener('click', () => commands.run('file.new'));
+
+  // Focus mode's chip (H18): whenever a folder is in focus the bar says so, whether or not the
+  // sidebar is open, and pressing it leaves focus. Nothing enters focus but its own command.
+  focusEl = el.querySelector('.tb-focus');
+  focusEl.addEventListener('mousedown', (e) => e.stopPropagation());
+  focusEl.addEventListener('click', () => commands.run('app.focus-exit'));
+  renderFocus();
+
   el.querySelectorAll('.tb-btn').forEach((b) => {
     // Drawn dim and inert in the browser, so not tab stops there either.
     if (!HOST()) b.tabIndex = -1;
@@ -148,23 +173,56 @@ export function initTitlebar(node) {
 
   el.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold, .tb-focus')) return;
     if (!HOST()) return;
     dragWindow();
   });
 
   el.addEventListener('dblclick', (e) => {
-    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold')) return;
+    if (e.target.closest('.tb-btn, .tb-crumb, .tb-fold, .tb-focus, .tb-nav-btn')) return;
     if (!HOST()) return;
     ose.window.maximize();
   });
 
   onMaximize(setMaximized);
 
-  bus.on('route', (r) => { renderCrumbs(r); updateNav(); setDirty(false); });
-  bus.on('focus', () => renderCrumbs(currentRoute()));
-  bus.on('doc:dirty', (d) => setDirty(d && d.dirty));
-  bus.on('doc:saved', () => setDirty(false));
+  bus.on('route', (r) => { renderCrumbs(r); updateNav(); setState(null); });
+  bus.on('route:repointed', (d) => { renderCrumbs(d ? d.current : currentRoute()); });
+  bus.on('focus', () => { renderCrumbs(currentRoute()); renderFocus(); });
+  // The mark follows the page in front only: the tabs carry every other page's (H8).
+  const mine = (d) => {
+    const r = currentRoute();
+    return !!d && !!r && r.type === 'page' && clean(d.path) === clean(r.path);
+  };
+  bus.on('doc:dirty', (d) => { if (mine(d)) setDirty(d.dirty); });
+  bus.on('doc:saved', (d) => { if (!d || mine(d)) setDirty(false); });
+  bus.on('doc:state', (d) => { if (mine(d)) setState(d); });
+}
+
+/** The focus chip: `focus · <folder>` while a folder is in focus, off screen otherwise. */
+function renderFocus() {
+  if (!focusEl) return;
+  const f = focus.get();
+  focusEl.hidden = !f;
+  if (!f) return;
+  focusEl.innerHTML = `<span class="tb-focus-key">focus</span><span class="tb-focus-name">${esc(baseName(f))}</span>${icon('close')}`;
+  focusEl.title = `Focus: ${f}. Leave focus`;
+  focusEl.setAttribute('aria-label', `Leave focus on ${f}`);
+}
+
+/**
+ * The page's save state beside the breadcrumb (H8): the dot while it is dirty, the error mark
+ * when it could not be written or changed on disk under it, with the editor's sentence as the
+ * tooltip. `null` is a page just opened, which is clean until the editor says otherwise.
+ */
+function setState(d) {
+  if (!dirtyEl) return;
+  const bad = !!d && (d.status === 'not-saved' || d.status === 'conflict' || (d.status === 'deleted' && d.dirty));
+  dirtyEl.classList.toggle('err', bad);
+  const what = bad ? (d.status === 'deleted' ? 'deleted on disk, not saved' : 'not saved') : 'unsaved changes';
+  dirtyEl.title = bad && d.message ? `${what}: ${d.message}` : what;
+  dirtyEl.setAttribute('aria-label', what);
+  dirtyEl.hidden = !(bad || (d && d.dirty));
 }
 
 /** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
@@ -177,7 +235,10 @@ function setSidebarShown(shown) {
   foldEl.setAttribute('aria-expanded', shown ? 'true' : 'false');
 }
 
-export function setDirty(v) { if (dirtyEl) dirtyEl.hidden = !v; }
+export function setDirty(v) {
+  if (!dirtyEl || dirtyEl.classList.contains('err')) return;
+  dirtyEl.hidden = !v;
+}
 
 /** Disabled when there is nowhere to go: the buttons say what only the chords knew before. */
 export function updateNav() {

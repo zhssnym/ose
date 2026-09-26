@@ -59,10 +59,10 @@ function sizeText(bytes) {
 
 /**
  * The kernel's "page not found" box, re-lettered for a file the user cannot write by typing
- * (QA-5 finding 4). `page.js` calls this on the box the router drew, so it keeps the kernel's
- * own `.miss` shape and place in the column and loses only the button — a `.pdf` that is not
- * there is not a page to create, and the stub `Create it` writes is a markdown file wearing a
- * media extension.
+ * (QA-5 finding 4). `mediaMissingPage` below fills a `.miss` box with it, so the page keeps
+ * the kernel's own shape and place in the column and has no button — a `.pdf` that is not
+ * there is not a page to create, and a stub would be a markdown file wearing a media
+ * extension.
  */
 export function mediaMiss(box, path) {
   if (!box) return false;
@@ -343,10 +343,25 @@ export function mediaPage(el, path) {
   return {
     path: () => path,
     kind,
+    media: true,
     get ready() { return ready; },
     focus: () => root.focus({ preventScroll: true }),
+    // Nothing here is ever unsaved, so the page is always free to go (docs/SHELL.md "The page
+    // seam"): the same three answers the editor gives, with nothing behind them.
+    canLeave: async () => true,
+    stay() {},
+    /**
+     * Let go of the file without tearing the page down: a rename, a move or a trash of it is
+     * about to happen, and a PDF viewer left attached keeps the file open on Windows, where
+     * the host call would then fail. The page host mounts it again afterwards, at whichever
+     * path the file ended up at.
+     */
+    release() {
+      if (frame) frame.removeAttribute('src');
+      if (img) img.removeAttribute('src');
+    },
     async close() {
-      if (closed) return;
+      if (closed) return true;
       closed = true;
       window.removeEventListener('blur', onWindowBlur);
       document.removeEventListener('focusin', onFocusIn);
@@ -358,9 +373,49 @@ export function mediaPage(el, path) {
       el.classList.remove('media-host');
       status('path', null);
       status('doc', null);
+      return true;
     },
     // No lines, no caret: the page host contract says a host may answer "not me", and the
     // router then scrolls the column instead of jumping inside the page.
+    goToLine: () => false,
+    selection: () => null,
+  };
+}
+
+/**
+ * A media route whose file is not there. The page host claims every media path
+ * (`claims(path)`, docs/SHELL.md "The page seam"), so the router hands this one over instead
+ * of drawing its own "page not found" with a **Create it** that has no business near a `.pdf`;
+ * this draws the kernel's own `.miss` box, re-lettered by `mediaMiss`, in the kernel's own
+ * place in the column. It answers the same handle as a real media page.
+ *
+ * @param {HTMLElement} el   the router's `.page-host`
+ * @param {string} path      a vault path that does not exist
+ */
+export function mediaMissingPage(el, path) {
+  addStyles();
+  const col = document.createElement('div');
+  col.className = 'page-col';
+  const box = document.createElement('div');
+  box.className = 'miss';
+  col.appendChild(box);
+  mediaMiss(box, path);
+  el.appendChild(col);
+  try { ose.status.set('path', path); } catch { /* no bar */ }
+  return {
+    path: () => path,
+    kind: 'missing',
+    media: true,
+    ready: Promise.resolve(),
+    focus: () => {},
+    canLeave: async () => true,
+    stay() {},
+    release() {},
+    async close() {
+      col.remove();
+      try { ose.status.set('path', null); } catch { /* no bar */ }
+      return true;
+    },
     goToLine: () => false,
     selection: () => null,
   };

@@ -8,23 +8,81 @@
 // editor) all assume a vault. Same classes, so it is pixel for pixel the app's own bar.
 // See docs/HOST.md "The vault root".
 import { ose } from 'ose:kernel';
-import { esc, glyph, openOverlay } from 'ose:ui';
-import { isHost, dragWindow, onMaximize, exeDir } from './host.js';
+import { esc, glyph, openOverlay, confirm, toast } from 'ose:ui';
+import { isHost, dragWindow, onMaximize, exeDir, onVaultChangeRequested } from './host.js';
 
 const { store } = ose;
 const HOST = isHost;
 
 /**
- * After `pickVault` the whole app boots again against the new root. `replace(pathname)` is a
- * reload that also drops the page query, which is how the dev flag `?novault=1` is cleared
- * (http.js); in the host the path is the app's own and this is a plain reload.
+ * Boot again on the vault the host has open now. Only for a window with nothing in it to leave
+ * — the first-run surface — or one that has already been let go (`switchVault`): the leave
+ * gate is skipped. In the host the kernel reloads the window it is in; in the browser
+ * `replace(pathname)` is a reload that also drops the page query, which is how the dev flag
+ * `?novault=1` is cleared (the dev bridge).
  */
 export function reloadIntoVault() {
-  // In the host the kernel reloads the window it is in, which brings the shell back up.
-  // In the browser `replace(pathname)` is a reload that also drops the
-  // page query, which is how the dev flag `?novault=1` is cleared (the dev bridge).
-  if (isHost()) { void ose.reload(); return; }
+  if (isHost()) { void ose.reload({ skipLeave: true }); return; }
   location.replace(location.pathname);
+}
+
+/** Two roots name the same folder: Windows and macOS compare paths without case. */
+function sameRoot(a, b) {
+  const n = (x) => String(x || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  return ose.platform === 'linux' ? n(a) === n(b) : n(a).toLowerCase() === n(b).toLowerCase();
+}
+
+let switching = null;
+
+/**
+ * Change the vault this window is open on (C5). One order, whoever asks — Change vault…, the
+ * lost-vault dialog, a second launch naming another folder:
+ *
+ * 1. `ose.window.leave('vault-change')`: the open page is saved into the vault it came from,
+ *    and a page that cannot be saved keeps the window (the kernel says so, with [Show]).
+ * 2. `ose.vault.open(root)` adopts the folder. If it cannot, the window is handed back
+ *    (`ose.window.stay()`) and the reason is said.
+ * 3. The window boots again on it, without asking a second time.
+ *
+ * `anyway` is for the lost vault only: its pages cannot be saved where they came from, so a
+ * refused leave asks once whether to switch all the same. Their text is kept on this machine
+ * as a draft and offered again when that vault is open (docs/SHELL.md "Recovered changes").
+ * One switch at a time; a second call answers the first one's promise.
+ *
+ * @param {string} root  an absolute folder
+ * @param {{anyway?: boolean}} [opts]
+ * @returns {Promise<boolean>} false when the window stayed where it was
+ */
+export function switchVault(root, { anyway = false } = {}) {
+  if (switching) return switching;
+  switching = (async () => {
+    if (!root) return false;
+    if (ose.vault.root && sameRoot(root, ose.vault.root)) {
+      toast('that vault is already open', 'info', 2600);
+      return false;
+    }
+    let left = false;
+    try { left = await ose.window.leave('vault-change'); } catch (e) { console.error('[shell] leave', e); left = false; }
+    if (!left) {
+      if (!anyway) return false;
+      const ok = await confirm({
+        title: 'Switch without saving?',
+        body: 'A page could not be saved into the vault that is gone. Its text stays on this machine and is offered again when that vault is open.',
+        ok: 'Switch anyway', danger: true,
+      });
+      if (!ok) return false;
+    }
+    try {
+      await ose.vault.open(root);
+    } catch (e) {
+      if (left) ose.window.stay();
+      toast(`could not open ${root}: ${String(e && e.message ? e.message : e)}`, 'err', 0);
+      return false;
+    }
+    reloadIntoVault();
+    return true;
+  })().finally(() => { switching = null; });
+  return switching;
 }
 
 /* ------------------------------------------------------------------ recent vaults */
@@ -73,14 +131,20 @@ function bindRowKeys(box, { onForget }) {
 }
 
 /**
- * `Change vault…` and the first-run surface both come here: the vaults this machine has
- * opened before, then the native folder picker. Resolves to `{root, name}` once a vault is
- * adopted (the host has already remembered and started watching it), or `null` when the user
- * backed out. With nothing to remember, it is the folder picker and no dialog at all (S46).
+ * `Change vault…` and the lost-vault dialog come here: the vaults this machine has opened
+ * before, then the native folder picker. With nothing to remember, it is the folder picker and
+ * no dialog at all (S46). Resolves to `{root, name}`, or `null` when the user backed out.
+ *
+ * `adopt` (default true) says whether the choice is opened as it is made. A window with a page
+ * in it passes `false`: the folder is only chosen, and `switchVault` adopts it once the page
+ * has been saved where it belongs (C5).
+ *
+ * @param {{adopt?: boolean}} [opts]
  */
-export async function chooseVault() {
+export async function chooseVault({ adopt = true } = {}) {
+  const pick = () => ose.vault.pick({ adopt });
   const list = (await recentVaults()).filter((v) => !v.current);
-  if (!list.length) return ose.vault.pick();
+  if (!list.length) return pick();
 
   return new Promise((resolve) => {
     let done = false;
@@ -110,11 +174,19 @@ export async function chooseVault() {
     ov.box.addEventListener('click', async (e) => {
       if (e.target.closest('[data-act="cancel"]')) { finish(null); return; }
       if (e.target.closest('[data-act="pick"]')) {
-        try { finish(await ose.vault.pick()); } catch (err) { finish(null); console.error('[shell] pickVault', err); }
+        try { finish(await pick()); } catch (err) { finish(null); console.error('[shell] pickVault', err); }
         return;
       }
       const row = e.target.closest('.vault-row');
       if (!row) return;
+      const v = items[+row.dataset.i];
+      if (!adopt) {
+        // Only chosen: the switch adopts it. A folder this machine says is missing is not
+        // offered as an answer; the row says so and the dialog stays.
+        if (v && v.exists === false) { row.classList.add('gone'); row.title = 'This folder is missing.'; return; }
+        finish({ root: row.dataset.path, name: (v && v.name) || '' });
+        return;
+      }
       try {
         finish(await ose.vault.open(row.dataset.path));
       } catch (err) {
@@ -144,9 +216,10 @@ let lostOv = null;
 
 /**
  * The vault folder itself stopped existing: renamed, unmounted, deleted (S29). One dialog,
- * once — not a toast per failed call — with the two answers there are. `Retry` reloads the
- * app when the folder is back, because every plugin read its world from that folder at boot.
- * The watcher saying the vault is back closes it by itself.
+ * once — not a toast per failed call — with the two answers there are. `Retry` closes it when
+ * the folder is back, and so does the watcher saying so. Nothing reloads: the window, the open
+ * page and its unsaved text are all still here, and the watcher's `rescan` brings the tree up
+ * to date (C5).
  */
 export function vaultLost(root) {
   if (lostOv) return;
@@ -170,23 +243,40 @@ export function vaultLost(root) {
     retry.disabled = true;
     let back = false;
     try { const st = await ose.files.stat(''); back = !!(st && st.exists); } catch { back = false; }
-    if (back) { reloadIntoVault(); return; }
+    if (back) { closeLost(); return; }
     retry.disabled = false;
     retry.focus();
   });
   ov.box.querySelector('[data-act="change"]').addEventListener('click', async () => {
-    const picked = await chooseVault().catch(() => null);
-    if (picked && picked.root) reloadIntoVault();
+    const picked = await chooseVault({ adopt: false }).catch(() => null);
+    if (picked && picked.root) await switchVault(picked.root, { anyway: true });
   });
   requestAnimationFrame(() => retry.focus());
 }
 
-/** The watcher found the folder again: drop the dialog and start over on it. */
-export function vaultFound() {
+function closeLost() {
   if (!lostOv) return;
-  lostOv.close();
+  const ov = lostOv;
   lostOv = null;
-  reloadIntoVault();
+  ov.close();
+}
+
+/**
+ * The watcher found the folder again: the dialog goes, and that is all. The page on screen
+ * never left, and a reload here would throw away whatever it holds that is not on disk yet.
+ */
+export function vaultFound() {
+  closeLost();
+}
+
+/**
+ * A second launch named another folder (the host's `vault` event with `requested`): the
+ * same switch Change vault… makes, the open page saved first.
+ * @param {{root: string, name?: string}} d
+ */
+export function vaultRequested(d) {
+  if (!d || !d.root) return;
+  void switchVault(d.root);
 }
 
 /* ------------------------------------------------------------------ the first run */
@@ -265,6 +355,22 @@ export async function mountVaultChooser(rootEl) {
       if (opened && opened.root) { reloadIntoVault(); return; }
     } catch (e2) {
       fail(e2);
+    }
+    busy = false;
+  });
+
+  // A second launch naming a folder while this surface is up: the host does not adopt it on
+  // its own (it asks, so a window with a page open can save first), and here there is nothing
+  // to leave, so the folder is opened straight away, as a recent row would be.
+  onVaultChangeRequested(async ({ root }) => {
+    if (busy) return;
+    busy = true;
+    err.hidden = true;
+    try {
+      const opened = await ose.vault.open(root);
+      if (opened && opened.root) { reloadIntoVault(); return; }
+    } catch (e) {
+      fail(e);
     }
     busy = false;
   });

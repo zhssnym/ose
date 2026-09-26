@@ -3,6 +3,7 @@
 // Merge is shallow at the top level: pass the whole sub-object for a key you own.
 import { bridge } from './bridge/index.js';
 import { toast } from './dialog.js';
+import { logLine } from './log.js';
 
 let cache = {};
 let loaded = false;
@@ -31,7 +32,7 @@ export async function loadState() {
     console.warn('[shell] state load failed:', e.message || e);
     cache = {};
     loaded = false;
-    try { toast(`could not read the state file: ${e.message || e}. Nothing will be saved this session.`, 'err', 8000); } catch { /* no DOM */ }
+    try { toast(`could not read the state file: ${e.message || e}. Nothing will be saved this session.`, 'err', 0); } catch { /* no DOM */ }
   }
   return cache;
 }
@@ -55,7 +56,7 @@ async function refreshHostKeys() {
 function write({ host = true } = {}) {
   const send = async () => {
     if (host) await refreshHostKeys();
-    try { await bridge.setState(cache); } catch (e) { console.warn('[shell] state write failed:', e.message || e); }
+    try { await bridge.setState(cache); } catch (e) { console.warn('[shell] state write failed:', e.message || e); logLine(`state write failed: ${e.message || e}`, 'warn'); }
   };
   writing = (writing || Promise.resolve()).then(send, send);
   return writing;
