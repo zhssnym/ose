@@ -1,3 +1,4 @@
+// @ts-nocheck
 // `render(markdown, opts)` (docs/KERNEL.md `ose:editor`): markdown as read-only DOM.
 //
 // A view that wants to *show* a note rather than edit it (the folder view's README, the

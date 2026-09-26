@@ -12,6 +12,7 @@
 // built into the app that registers through the same seams the shell does (views, commands,
 // settings sections).
 
+/// <reference path="./globals.d.ts" />
 import { bus, store, commands, views, status, uid, debounce, esc } from './registry.js';
 import { bridge, setEpoch, currentEpoch, HostError } from './bridge/index.js';
 import * as router from './router.js';
@@ -33,6 +34,8 @@ import { local, loadLocal, flushLocal, migrateLocal } from './local.js';
 import * as journal from './journal.js';
 import * as focusLib from './focus.js';
 import { toast, confirm } from './dialog.js';
+import { initOpens } from './opens.js';
+import { clean, isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
@@ -49,48 +52,56 @@ const VERSION = {
   date: typeof __OSE_DATE__ === 'string' ? __OSE_DATE__ : '',
 };
 
-/* ------------------------------------------------------------------------------ the origins */
+/* ------------------------------------------------------------------------------- the assets */
 
-// The one place in the whole JavaScript side that holds an origin, and it is told one by the
-// host rather than spelling it (docs/KERNEL.md "Origins"). Until `ready` resolves, an asset
-// URL falls back to the page's own origin, which is right in the browser dev server.
-let origins = { kernel: '', app: '', vault: '' };
-
+// The kernel's assets are served beside the page (docs/KERNEL.md "Where the app is served"):
+// Tauri's own origin in the app, the dev server's in a browser. No origin is spelled here.
 const assets = {
+  /** @param {string} name */
   url(name) {
-    const base = origins.kernel || (typeof location !== 'undefined' ? location.origin : '');
+    const base = typeof location !== 'undefined' ? location.origin : '';
     return `${base}/${String(name || '').replace(/^\/+/, '')}`;
   },
-  origins: () => ({ ...origins }),
 };
 
 /* ---------------------------------------------------------------------------------- bytes */
 
-const B64 = typeof atob === 'function';
-
+/**
+ * Base64 from the host as bytes; bytes or an array of numbers are taken as they are.
+ * @param {unknown} v
+ * @returns {Uint8Array}
+ */
 function toBytes(v) {
   if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) return Uint8Array.from(v);
   if (typeof v !== 'string') return new Uint8Array(0);
-  if (!B64) return new Uint8Array(0);
   const bin = atob(v);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 
+/**
+ * Bytes (or an ArrayBuffer, or an array of numbers) as the base64 the host takes; a string is
+ * taken to be base64 already.
+ * @param {string | Uint8Array | ArrayBuffer | number[]} v
+ */
 function toBase64(v) {
-  if (typeof v === 'string') return v;                 // already base64
-  const bytes = v instanceof Uint8Array ? v : new Uint8Array(v);
-  let bin = '';
-  // In chunks: `String.fromCharCode(...bytes)` blows the argument limit on anything large.
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
+  if (typeof v === 'string') return v;
+  return fileops.bytesToBase64(v instanceof Uint8Array ? v : new Uint8Array(v));
 }
 
 /* --------------------------------------------------------------------------------- booting */
 
+/** @type {{ root: string | null, name: string | null }} */
 let vaultInfo = { root: null, name: null };
+
+/** 'windows', 'macos' or 'linux', from the host at boot (`ose.platform`). */
+let platformName = 'windows';
+
+/** What the host said about itself at boot; `dragIcon` is the picture a drag out carries. */
+/** @type {{ dragIcon: string | null }} */
+let hostInfo = { dragIcon: null };
 
 /**
  * The vault the host has open, and its epoch (docs/HOST.md "Epoch"). Read once at boot; after
@@ -107,12 +118,70 @@ async function readRoot() {
   return vaultInfo;
 }
 
-/** After a pick or an open: take the new vault's epoch only when none was open (see above). */
+/**
+ * After a pick or an open: take the new vault's epoch only when none was open (see above).
+ * @template T
+ * @param {T} answer
+ * @returns {Promise<T>}
+ */
 async function adopted(answer) {
-  if (answer && answer.root && !vaultInfo.root) {
+  const a = /** @type {{ root?: unknown } | null | undefined} */ (answer);
+  if (a && a.root && !vaultInfo.root) {
     try { await readRoot(); } catch (e) { console.warn('[kernel] rootInfo', e); }
   }
   return answer;
+}
+
+/**
+ * `ose.vault.open(path)`: the vault adopted in this window, or, when another window already has
+ * it open, that window brought forward and `{ focused: true, label }` (X6). There are never two
+ * windows on one vault.
+ * @param {string} path
+ */
+async function openVault(path) {
+  const r = await bridge.openVault(path);
+  if (r && r.status === 'focused') return { focused: true, label: r.label };
+  return adopted(r);
+}
+
+/**
+ * The native absolute path of a vault path or an `abs:` one, for the OS (drag out): the vault
+ * root and the path joined with the platform's separator. Null when there is no vault.
+ * @param {string} path
+ * @returns {string | null}
+ */
+function nativePath(path) {
+  if (isOutside(path)) return absOf(path);
+  const root = vaultInfo.root;
+  if (!root) return null;
+  const sep = platformName === 'windows' ? '\\' : '/';
+  const rel = clean(path).split('/').filter(Boolean).join(sep);
+  const base = root.replace(/[\\/]+$/, '');
+  return rel ? `${base}${sep}${rel}` : base;
+}
+
+/**
+ * `ose.files.openOutside(path, opts)`: a file anywhere on the machine, in a tab. The host
+ * registers it for this window (X7) and answers where it is: a file inside this vault opens as
+ * the vault file it is, a file elsewhere as an `abs:` page marked "outside vault", and a folder
+ * outside the vault opens as a vault, in its own window (X6). `path` is a native absolute path
+ * or an `abs:` one. -> Promise<boolean>, whether something opened.
+ * @param {string} path
+ * @param {{ line?: number, activate?: boolean }} [opts]
+ * @returns {Promise<boolean>}
+ */
+async function openOutside(path, opts = {}) {
+  const r = await bridge.outsideOpen(path);
+  if (!r || !r.path) return false;
+  if (r.kind === 'dir' && !r.inside) {
+    await bridge.openVaultWindow(absOf(r.path));
+    return true;
+  }
+  /** @type {import('./types.js').Route} */
+  const route = r.kind === 'dir' ? { type: 'folder', path: r.path } : { type: 'page', path: r.path };
+  if (route.type === 'page' && typeof opts.line === 'number' && opts.line > 0) route.line = opts.line;
+  const t = await router.openTab(route, { reuse: true, activate: opts.activate !== false });
+  return !!t.id;
 }
 
 // Every error nobody caught goes to the host log (M54), from the first line the kernel runs.
@@ -125,15 +194,11 @@ const ready = (async () => {
   try {
     const info = await bridge.platformInfo();
     if (info) {
-      if (info.os) ose.platform = info.os === 'win' ? 'windows' : info.os === 'mac' ? 'macos' : info.os;
-      origins = {
-        kernel: String(info.kernelOrigin || '').replace(/\/+$/, ''),
-        app: String(info.appOrigin || '').replace(/\/+$/, ''),
-        vault: String(info.vaultOrigin || '').replace(/\/+$/, ''),
-      };
+      if (info.os) platformName = info.os === 'win' ? 'windows' : info.os === 'mac' ? 'macos' : String(info.os);
+      hostInfo = { dragIcon: typeof info.dragIcon === 'string' && info.dragIcon ? info.dragIcon : null };
     }
   } catch (e) { console.warn('[kernel] platform', e); }
-  journal.setPlatform(ose.platform);
+  journal.setPlatform(platformName);
   try { await loadState(); } catch (e) { console.warn('[kernel] state', e); }
   // The per-machine store (W5), and the one-time copy of what used to live in the synced state
   // file and belongs to the machine now: recent files, the sidebar, the reading settings.
@@ -142,6 +207,8 @@ const ready = (async () => {
   session.initSession();
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[kernel] focus', e); }
   try { await readRoot(); } catch (e) { console.warn('[kernel] rootInfo', e); }
+  // What the OS asks this window to open: taken once the first surface is up (./opens.js).
+  initOpens();
 })();
 
 /* ------------------------------------------------------------------------ leaving (C5) */
@@ -229,10 +296,11 @@ function withHidden(opts) {
 
 export const ose = {
   version: VERSION,
-  platform: 'windows',
+  /** 'windows', 'macos' or 'linux': what the host said at boot, 'windows' until then. */
+  get platform() { return platformName; },
   ready,
 
-  /** 'tauri' | 'webview' | 'browser': whether the window buttons, quit and drag are live. */
+  /** 'tauri' | 'browser': whether quit, drag out and native opens are live. */
   host: bridge.kind === 'http' ? 'browser' : bridge.kind,
 
   vault: {
@@ -269,11 +337,47 @@ export const ose = {
      */
     pick: (opts) => bridge.pickVault(opts).then(adopted),
     recent: () => bridge.recentVaults(),
-    open: (path) => bridge.openVault(path).then(adopted),
+    /**
+     * Adopt `path` in this window, as before; or `{ focused: true, label }` when another window
+     * has that vault open, which the host brought forward instead (X6).
+     */
+    open: (path) => openVault(path),
     forget: (path) => bridge.forgetVault(path),
   },
 
+  /** Windows (X6, docs/KERNEL.md `ose.windows`): one per vault, never two on one. */
+  windows: {
+    /**
+     * A window for the vault at `vaultPath` (a native folder path), or a new window with no
+     * vault, which opens on the chooser. The window that already has the vault is brought
+     * forward instead. -> `{ label, created }`
+     * @param {string} [vaultPath]
+     */
+    open: (vaultPath) => bridge.openVaultWindow(vaultPath),
+  },
+
   files: {
+    /** True for an `abs:` path: a file outside the vault, opened where it is (X7). */
+    isOutside: (path) => isOutside(path),
+    openOutside: (path, opts) => openOutside(path, opts),
+    /** The native open-file dialog: a native absolute path, or null when cancelled. */
+    pick: (opts) => bridge.pickFile(opts),
+    /**
+     * A registered file outside the vault, copied byte for byte to the vault path `to`,
+     * create-only (`[exists]`). -> { path, hash }
+     */
+    importOutside: (from, to) => bridge.importOutside(from, to),
+    /**
+     * Files and folders dragged out of the window, as copies (X8): vault paths or `abs:` ones.
+     * Answers false where there is no drag out (a browser), true once the drag has started.
+     * The files themselves are never moved or deleted by it.
+     * @param {string[]} paths
+     */
+    dragOut: (paths) => {
+      const natives = (Array.isArray(paths) ? paths : []).map(nativePath).filter((p) => typeof p === 'string' && p !== '');
+      if (!natives.length) return Promise.resolve(false);
+      return bridge.dragOut(/** @type {string[]} */ (natives), hostInfo.dragIcon);
+    },
     read: (path) => bridge.readText(path),
     write: (path, text) => bridge.writeText(path, text),
     append: (path, text) => bridge.appendText(path, text),
@@ -297,7 +401,7 @@ export const ose = {
     trash: (path) => bridge.trash(path, { mode: settingsCore.trashMode() }),
     /** -> `{ where: 'system' | 'vault' }`: where `trash` would put `path`, for honest wording (M18). */
     trashWhere: (path) => bridge.trashWhere(path, { mode: settingsCore.trashMode() }),
-    /** -> TrashItem[], newest first; a host without the command answers [] */
+    /** -> TrashItem[], newest first */
     trashList: () => fileops.trashList(),
     /** A file or a whole folder, bytes, create-only (`[exists]`). -> `{ path, files }` */
     copyPath: (from, to) => bridge.copyPath(from, to),
@@ -309,16 +413,27 @@ export const ose = {
     // under one lock, keeps the replaced bytes as a version, and answers a SaveOutcome; the
     // kernel adds the vault epoch to every mutating call. The hash is the host's: JavaScript
     // carries it from `readFile` to `save` and never computes one.
-    /** -> { text, hash, mtime, size } */
-    readFile: (path) => bridge.readFile(path),
     /**
-     * `opts { expectedHash: string|null, version?: 'save'|'conflict'|'none' }` -> SaveOutcome:
+     * -> `{ text, hash, mtime, size, encoding, bom, lossy }`. A file that is not UTF-8 is
+     * decoded from its own encoding (`encoding`, a WHATWG label); `lossy` says the decoding
+     * would not write the same bytes back, and such a text must not be saved. `opts.encoding`
+     * forces a decoding (X10).
+     */
+    readFile: (path, opts) => bridge.readFile(path, opts),
+    /**
+     * `opts { expectedHash: string|null, version?: 'save'|'conflict'|'none', encoding? }`, the
+     * `encoding` `readFile` answered, so the file is written back in it -> SaveOutcome:
      * `{status:'saved', hash, mtime, unchanged?}` or `{status:'conflict', disk:{exists, text, hash}}`.
      * `expectedHash: null` means "the file must not exist yet". A conflict writes nothing.
      */
     save: (path, text, opts) => saveThrough(path, text, opts),
     /** Exclusive create, parent folders made; never overwrites (`[exists]`). -> { path, hash } */
     createNew: (path, text = '') => bridge.createNew(path, text),
+    /**
+     * The same exclusive create, written with its bytes in one call, so a failure leaves no
+     * empty file behind. `bytes` as for `writeBinary`. -> { path, hash }
+     */
+    createNewBinary: (path, bytes) => bridge.createNewBinary(path, toBase64(bytes)),
     /** A byte copy under the same create-only rule. -> { path, hash } */
     copy: (from, to) => bridge.copyFile(from, to),
     /** One line at the end, with the separator and line ending the file needs. -> { hash } */
@@ -345,8 +460,8 @@ export const ose = {
     },
 
     versions: {
-      /** `opts`: `{ force?, reason? }`, or a boolean, the old `force`. -> { kept, id } */
-      keep: (path, text, opts = false) => bridge.versionKeep(path, text, opts),
+      /** `opts`: `{ force?, reason? }`. -> { kept, id } */
+      keep: (path, text, opts) => bridge.versionKeep(path, text, opts),
       /** -> VersionInfo[] `{id, at, bytes, reason, session}`, newest first */
       list: (path) => bridge.versionList(path),
       read: (path, id) => bridge.versionRead(path, id),
@@ -371,6 +486,11 @@ export const ose = {
     restore: (ids) => fileops.restore(ids),
     trashList: () => fileops.trashList(),
     duplicate: (path) => fileops.duplicate(path),
+    /**
+     * What the shell gathered from an OS drop, copied in byte for byte, one undo step (§5.5).
+     * -> `{ created, failed, files, entry }`
+     */
+    importEntries: (entries, folder, opts) => fileops.importEntries(entries, folder, opts),
     /** The undo journal of file operations (M17): session memory, newest first. */
     journal: {
       list: () => journal.list(),
@@ -392,6 +512,19 @@ export const ose = {
 
   watch,
   assets,
+
+  /**
+   * What a file is by its name (docs/KERNEL.md `ose.paths`): the one list of markdown and text
+   * extensions the editor, the tree, the folder view, the palette and backlinks agree on.
+   */
+  paths: {
+    markdownExts: MARKDOWN_EXTS,
+    textExts: TEXT_EXTS,
+    /** @param {string} path */
+    isMarkdown: (path) => isMarkdownPath(path),
+    /** @param {string} path */
+    isText: (path) => isTextPath(path),
+  },
 
   route: {
     current: () => router.currentRoute(),
@@ -470,18 +603,24 @@ export const ose = {
    * planner's paths, vault settings), one key per concern, written debounced. A dotted key is
    * a path into the object. What belongs to this machine is `ose.local`.
    */
+  /** @param {string} key */
   state(key) {
     const path = String(key).split('.').filter(Boolean);
-    const readAt = () => path.reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), stateCache());
+    /** @returns {unknown} */
+    const readAt = () => path.reduce((/** @type {any} reason: a walk into untyped JSON */ o, k) => (o && typeof o === 'object' ? o[k] : undefined), stateCache());
     return {
       get: () => readAt(),
+      /** @param {unknown} value */
       set(value) {
-        if (path.length === 1) { patchState({ [path[0]]: value }); return; }
-        const rootKey = path[0];
+        const [rootKey, ...rest] = path;
+        if (rootKey === undefined) return;
+        if (!rest.length) { patchState({ [rootKey]: value }); return; }
+        /** @type {Record<string, any>} */
         const next = { ...(stateCache()[rootKey] || {}) };
         let at = next;
-        for (let i = 1; i < path.length - 1; i++) { at[path[i]] = { ...(at[path[i]] || {}) }; at = at[path[i]]; }
-        at[path[path.length - 1]] = value;
+        const last = /** @type {string} */ (rest.pop());
+        for (const k of rest) { at[k] = { ...(at[k] || {}) }; at = at[k]; }
+        at[last] = value;
         patchState({ [rootKey]: next });
       },
       flush: () => flushState(),
@@ -564,17 +703,9 @@ export const ose = {
 
   window: {
     title: (text) => bridge.setTitle(text),
-    minimize: () => bridge.win.minimize(),
-    maximize: () => bridge.win.maximize(),
+    /** This window, through its close path: the `closing` handlers run, as for the OS button. */
     close: () => bridge.win.close(),
     quit: () => bridge.quit(),
-    isMaximized: () => bridge.win.isMaximized(),
-    /** The frameless window's own title bar: start a native move. */
-    drag: () => bridge.win.startDrag(),
-    /** One of top right bottom left topleft topright bottomleft bottomright. */
-    resize: (edge) => bridge.win.startResize(edge),
-    /** The maximised half of the window event, for the button's glyph. */
-    onMaximize: (fn) => bridge.on('window', (d) => (d && typeof d.maximized === 'boolean' ? fn(d.maximized) : undefined)),
     /**
      * The window is closing. `fn()` may return a promise and the host **awaits it** before the
      * window is destroyed, so the open page's last save finishes; resolving `false` keeps the
@@ -599,28 +730,19 @@ export const ose = {
    * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Log").
    * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
    */
+  /** @param {string} text @param {'error' | 'warn' | 'info' | 'debug'} [level] */
   log: (text, level = 'info') => { logLine(text, level); return Promise.resolve(null); },
   /**
    * `ose.reload()` (`app.reload`, "Reload window"; no chord since D8): the page again. It
    * leaves the window first (`window.leave('reload')`):
    * a page that cannot be saved keeps the window, and this answers false. `{skipLeave:true}`
    * is for a caller that has already left (Change vault). Answers true once the reload is on
-   * its way.
-   *
-   * In the host the window is navigated back to the app's index.html, which is the host's job
-   * because only it knows where that is (`reloadShell`). In a browser the document reloads
-   * itself, and it does too if the host could not.
+   * its way. The app is served from where the window loaded it (X4), so the document reloads
+   * itself, in the host as in a browser.
+   * @param {{ skipLeave?: boolean }} [opts]
    */
   async reload(opts = {}) {
     if (!(opts && opts.skipLeave) && !(await leaveWindow('reload'))) return false;
-    if (ose.host !== 'browser') {
-      try {
-        await bridge.reloadShell();
-        return true;
-      } catch (e) {
-        logLine(`reloadShell failed, reloading the document: ${(e && e.message) || e}`, 'warn');
-      }
-    }
     location.reload();
     return true;
   },
@@ -636,6 +758,7 @@ export const ose = {
    * `start: false` mounts the router without drawing the empty surface, for a shell that opens
    * on a surface of its own and would otherwise flash the kernel's on every boot.
    */
+  /** @param {{ page?: HTMLElement, keys?: boolean, theme?: boolean, start?: boolean }} [o] */
   init({ page, keys = true, theme = true, start = true } = {}) {
     if (theme) initTheme();
     if (keys) initKeys();

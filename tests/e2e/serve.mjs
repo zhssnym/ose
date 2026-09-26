@@ -5,7 +5,7 @@
 
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { APPDATA, PORT, REPO, ROOT } from './env.js';
+import { APPDATA, OUTSIDE, PORT, REPO, ROOT } from './env.js';
 
 const env = {
   ...process.env,
@@ -14,6 +14,7 @@ const env = {
   OSE_APPDATA: APPDATA,
   OSE_DEV_APPDATA: APPDATA,
   OSE_DEV_FAULTS: '1',
+  OSE_E2E_OUTSIDE: OUTSIDE,
   OSE_E2E: '1',
 };
 

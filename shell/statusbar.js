@@ -1,17 +1,19 @@
 // Status bar. It says something only when there is something worth saying (M27).
 //
 // Left: the fields `ose.status.all()` answers, in the bar's own order, joined by ' · ' — the
-// page's Rich/Source switch, its word count, the focus chip, and a save state *when it is bad*
+// page's editing mode, its word count, the focus chip, and a save state *when it is bad*
 // (not saved, changed on disk, deleted). A page that saved fine says nothing here: the tab's
 // dot is the whole story of an ordinary edit. Each field is a button when it carries an
-// `onClick` and coloured when it carries a `kind`.
+// `onClick` and coloured when it carries a `kind`. A field that carries `choices` (the
+// editing mode: Rich, Live, Source) is a button that opens a menu of them, the current one
+// checked; the arrows walk it, Enter picks, Esc closes, and a pick calls its `onChoose`.
 // Right: the zoom while it is not 100 %, and nothing else.
 //
 // What the bar no longer draws, on purpose: the file's path (the address bar has it), `watch
 // on`, the theme, the host kind and a settings hint. Those were facts about the machinery,
 // and the bar is for the page.
 import { ose } from 'ose:kernel';
-import { esc } from 'ose:ui';
+import { esc, icon, contextMenu } from 'ose:ui';
 import { zoomLabel } from './settings.js';
 
 const { bus, status, commands } = ose;
@@ -33,6 +35,10 @@ function renderLeft() {
   const all = status.all().filter(shown);
   leftEl.innerHTML = all.map((s) => {
     const cls = `st-item${s.kind ? ' ' + esc(s.kind) : ''}`;
+    if (hasChoices(s)) {
+      const what = s.title || s.key;
+      return `<button type="button" class="${cls} st-click st-choose" data-key="${esc(s.key)}" aria-haspopup="menu" aria-label="${esc(`${what}: ${s.text}`)}" title="${esc(what)}">${esc(s.text)}${icon('chevron')}</button>`;
+    }
     return s.onClick
       ? `<button type="button" class="${cls} st-click" data-key="${esc(s.key)}">${esc(s.text)}</button>`
       : `<span class="${cls}">${esc(s.text)}</span>`;
@@ -48,6 +54,41 @@ function renderRight() {
   rightEl.innerHTML = zoom
     ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button>`
     : '';
+}
+
+/** A field that offers a choice between values (§4.5), rather than one action. */
+const hasChoices = (s) => Array.isArray(s.choices) && s.choices.length > 0 && typeof s.onChoose === 'function';
+
+/**
+ * The menu of a field's choices, above its button: the context menu, with each row a radio
+ * item and the current value checked and focused, so Enter on the button and Enter again
+ * keeps what was there.
+ */
+function openChoices(item, button) {
+  const r = button.getBoundingClientRect();
+  const ov = contextMenu(Math.round(r.left), Math.round(r.top), item.choices.map((c) => ({
+    label: c.label,
+    iconSvg: `<span class="st-mark" aria-hidden="true">${c.value === item.value ? icon('dot') : ''}</span>`,
+    run: () => {
+      if (c.value === item.value) return;
+      try { item.onChoose(c.value); } catch (err) { console.error('[shell] status choice', err); }
+    },
+  })));
+  if (!ov || !ov.box) return;
+  ov.box.setAttribute('aria-label', item.title || item.key);
+  const rows = [...ov.box.querySelectorAll('.menu-row')];
+  rows.forEach((row, i) => {
+    row.setAttribute('role', 'menuitemradio');
+    row.setAttribute('aria-checked', item.choices[i] && item.choices[i].value === item.value ? 'true' : 'false');
+  });
+  // Opened from the bottom of the window, the menu sits above its button rather than over
+  // it: after the overlay's own placement, which runs in the next frame.
+  requestAnimationFrame(() => {
+    const h = ov.box.getBoundingClientRect().height;
+    if (h && r.top - h - 4 > 0) ov.box.style.top = `${Math.round(r.top - h - 4)}px`;
+  });
+  const on = rows.find((row) => row.getAttribute('aria-checked') === 'true');
+  if (on) on.focus();
 }
 
 /**
@@ -66,6 +107,7 @@ export function initStatusbar(node) {
     const b = e.target.closest('.st-click');
     if (!b) return;
     const item = status.all().find((s) => s.key === b.dataset.key);
+    if (item && hasChoices(item)) { openChoices(item, b); return; }
     if (item && item.onClick) { try { item.onClick(); } catch (err) { console.error('[shell] status', err); } }
   });
   bus.on('settings', renderRight);

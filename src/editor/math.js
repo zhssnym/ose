@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Maths: what makes a `$` a formula, and what turns a formula into a picture.
 //
 // Nothing here knows about Milkdown or ProseMirror. Three surfaces need exactly these pieces:

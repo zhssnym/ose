@@ -14,7 +14,8 @@
 
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 /// What the rule says about one path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,17 +56,25 @@ const EXCLUDED_AT_ROOT: &[&str] = &[
     "os-update-tmp",
 ];
 
-/// The name of the app's own entry at the root of the open vault, lowercased: the running
-/// executable, or the `.app` bundle it runs from, when that entry sits directly in the vault
-/// root. `None` when the executable lives anywhere else: `D:\os\notes.exe` stays listed when
-/// `D:\os` is opened with `--root` from `C:\Tools\notes.exe`, and a root folder called `ose` (the
-/// repository inside the vault) is never taken for the Mac binary `Ose.app/Contents/MacOS/ose`.
-static OWN_ENTRY: RwLock<Option<String>> = RwLock::new(None);
+/// The name of the app's own entry at the root of each vault, lowercased, by the vault's folded
+/// root: the running executable, or the `.app` bundle it runs from, when that entry sits directly
+/// in the vault root. `None` when the executable lives anywhere else: `D:\os\notes.exe` stays
+/// listed when `D:\os` is opened with `--root` from `C:\Tools\notes.exe`, and a root folder called
+/// `ose` (the repository inside the vault) is never taken for the Mac binary
+/// `Ose.app/Contents/MacOS/ose`. Worked out once per vault: several windows, several vaults.
+static OWN_ENTRY: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
 
-/// Called whenever the vault root is set or changes (lib.rs `AppState`).
-pub fn set_root(root: Option<&Path>) {
-    let name = root.and_then(|r| std::env::current_exe().ok().and_then(|exe| own_entry(&exe, r)));
-    *OWN_ENTRY.write().unwrap_or_else(|p| p.into_inner()) = name;
+/// The app's own entry at the root of `root`, if any.
+pub fn own_entry_of(root: &Path) -> Option<String> {
+    let key = fold(root);
+    let mut guard = OWN_ENTRY.lock().unwrap_or_else(|p| p.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    if let Some(known) = map.get(&key) {
+        return known.clone();
+    }
+    let name = std::env::current_exe().ok().and_then(|exe| own_entry(&exe, root));
+    map.insert(key, name.clone());
+    name
 }
 
 /// The name `exe` puts at the root of `root`, if any: the bundle (`X.app`) when the executable
@@ -105,13 +114,6 @@ fn fold(p: &Path) -> String {
     }
 }
 
-fn own_name_is(seg: &str) -> bool {
-    OWN_ENTRY
-        .read()
-        .unwrap_or_else(|p| p.into_inner())
-        .as_deref()
-        .is_some_and(|own| own == seg.to_lowercase())
-}
 
 /// `.<name>.<pid>.<n>.tmp`: the atomic writer's temp file (vault.rs `write_atomic_with`).
 fn is_atomic_temp(name: &str) -> bool {
@@ -141,14 +143,15 @@ fn is_temp(name: &str) -> bool {
     is_atomic_temp(name) || is_case_temp(name) || name.starts_with("~$") || (name.starts_with(".~lock.") && name.ends_with('#'))
 }
 
-/// One segment of a vault path, at `depth` (0 = a child of the root).
-fn segment_excluded(seg: &str, depth: usize) -> bool {
+/// One segment of a vault path, at `depth` (0 = a child of the root); `own` is the app's own
+/// entry at that root.
+fn segment_excluded(seg: &str, depth: usize, own: Option<&str>) -> bool {
     if EXCLUDED_ANYWHERE.iter().any(|x| x.eq_ignore_ascii_case(seg)) || is_temp(seg) {
         return true;
     }
     depth == 0
         && (EXCLUDED_AT_ROOT.iter().any(|x| x.eq_ignore_ascii_case(seg))
-            || own_name_is(seg))
+            || own.is_some_and(|o| o == seg.to_lowercase()))
 }
 
 /// The segments of a vault path: forward or back slashes, empty ones and `.` skipped.
@@ -159,8 +162,14 @@ fn segments(rel: &str) -> impl Iterator<Item = &str> {
 /// Is `rel` (vault-relative) excluded? True when any of its segments is: a file inside `.git`
 /// is as excluded as `.git` itself. The vault bin's sidecars (`.trash/.info`) are the app's
 /// bookkeeping, like `.ose`: never listed, searched or reported, whatever the page asks.
-pub fn excluded(rel: &str) -> bool {
-    segments(rel).enumerate().any(|(depth, seg)| segment_excluded(seg, depth)) || bin_info(rel)
+pub fn excluded(root: &Path, rel: &str) -> bool {
+    excluded_with(own_entry_of(root).as_deref(), rel)
+}
+
+/// `excluded` with the app's own entry at the root already worked out (`own_entry_of`), for a
+/// caller that asks for many paths of one vault.
+pub fn excluded_with(own: Option<&str>, rel: &str) -> bool {
+    segments(rel).enumerate().any(|(depth, seg)| segment_excluded(seg, depth, own)) || bin_info(rel)
 }
 
 /// Inside the vault's own bin, `.trash` at the root (trashbin.rs): hidden, listed with Show
@@ -210,8 +219,12 @@ pub fn os_hidden(_meta: &Metadata) -> bool {
 /// The rule for one entry: `rel` is its vault path, `meta` its own metadata (not followed
 /// through a link) when the caller has it. Hidden is judged by the entry's own name and flag,
 /// so listing the inside of a dotfolder the page asked for by name shows what is in it.
-pub fn classify(rel: &str, meta: Option<&Metadata>) -> Visibility {
-    if excluded(rel) {
+pub fn classify(root: &Path, rel: &str, meta: Option<&Metadata>) -> Visibility {
+    classify_with(own_entry_of(root).as_deref(), rel, meta)
+}
+
+fn classify_with(own: Option<&str>, rel: &str, meta: Option<&Metadata>) -> Visibility {
+    if excluded_with(own, rel) {
         return Visibility::Excluded;
     }
     let name = segments(rel).last().unwrap_or("");
@@ -260,6 +273,7 @@ pub fn canonical_root(root: &Path) -> PathBuf {
 /// and nothing deeper than `max_depth` below `dir` is read. The `ignore` crate's own filters
 /// (`.gitignore`, `.ignore`, its hidden-file rule) are all off.
 pub fn walker(root: &Path, dir: &Path, hidden: bool, max_depth: usize) -> ignore::Walk {
+    let own = own_entry_of(root);
     let root = root.to_path_buf();
     ignore::WalkBuilder::new(dir)
         .standard_filters(false)
@@ -270,7 +284,7 @@ pub fn walker(root: &Path, dir: &Path, hidden: bool, max_depth: usize) -> ignore
                 return true;
             }
             let rel = crate::vault::relative(&root, e.path());
-            match classify(&rel, e.metadata().ok().as_ref()) {
+            match classify_with(own.as_deref(), &rel, e.metadata().ok().as_ref()) {
                 Visibility::Excluded => false,
                 Visibility::Hidden => hidden,
                 Visibility::Shown => true,
@@ -293,35 +307,40 @@ pub fn error_path(e: &ignore::Error) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    /// A vault root the test harness does not sit in.
+    fn r() -> &'static Path {
+        Path::new(if cfg!(windows) { r"Z:\no-vault" } else { "/no-vault" })
+    }
+
     /// The contract's own list (docs/HOST.md "What is listed"): nothing by name but the app's.
     #[test]
     fn only_the_app_s_own_names_are_excluded() {
         for shown in ["app", "App", "2-nsi/app/index.md", "node_modules", "dist", "_Archive/old.md", "ose.md", "ose"] {
-            assert_eq!(classify(shown, None), Visibility::Shown, "{shown}");
+            assert_eq!(classify(r(), shown, None), Visibility::Shown, "{shown}");
         }
         for gone in [".git", ".git/config", ".ose", ".OSE/state.json", "sub/.git/HEAD", "a/b/.ose"] {
-            assert_eq!(classify(gone, None), Visibility::Excluded, "{gone}");
+            assert_eq!(classify(r(), gone, None), Visibility::Excluded, "{gone}");
         }
         for hidden in [".obsidian", ".trash", "notes/.draft.md", ".env", ".claude"] {
-            assert_eq!(classify(hidden, None), Visibility::Hidden, "{hidden}");
+            assert_eq!(classify(r(), hidden, None), Visibility::Hidden, "{hidden}");
         }
         // The bin's sidecars are bookkeeping; a `.info` anywhere else is somebody's dotfolder.
         for gone in [".trash/.info", ".Trash/.INFO/1700-a.md.json"] {
-            assert_eq!(classify(gone, None), Visibility::Excluded, "{gone}");
+            assert_eq!(classify(r(), gone, None), Visibility::Excluded, "{gone}");
         }
-        assert_eq!(classify("notes/.trash/.info", None), Visibility::Hidden);
+        assert_eq!(classify(r(), "notes/.trash/.info", None), Visibility::Hidden);
         assert!(in_bin(".trash/1700-a.md") && !in_bin("notes/.trash/x.md"));
         // A `.unsaved-*` copy is an ordinary file a person must see (C3).
-        assert_eq!(classify("page.unsaved-20260925-101500.md", None), Visibility::Shown);
+        assert_eq!(classify(r(), "page.unsaved-20260925-101500.md", None), Visibility::Shown);
     }
 
     #[test]
     fn the_executable_is_excluded_at_the_root_only() {
         for name in ["ose.exe", "OSE.EXE", "Ose.app", "Ose.app/Contents/MacOS/ose", "WebView2Loader.dll", "os.exe", "os-update-tmp"] {
-            assert!(excluded(name), "{name} at the root");
+            assert!(excluded(r(), name), "{name} at the root");
         }
-        assert!(!excluded("tools/ose.exe"), "a copy three folders down is content");
-        assert!(!excluded("backup/WebView2Loader.dll"));
+        assert!(!excluded(r(), "tools/ose.exe"), "a copy three folders down is content");
+        assert!(!excluded(r(), "backup/WebView2Loader.dll"));
     }
 
     /// The running executable (or its bundle) is excluded only when it sits at the vault root:
@@ -345,8 +364,8 @@ mod tests {
         // The test harness does not sit in any vault: its name is content, and so is `ose`.
         let me = std::env::current_exe().unwrap();
         let me = me.file_name().unwrap().to_string_lossy().to_string();
-        assert!(!excluded(&me));
-        assert!(!excluded("ose"));
+        assert!(!excluded(r(), &me));
+        assert!(!excluded(r(), "ose"));
     }
 
     #[test]
@@ -358,10 +377,10 @@ mod tests {
             "~$report.docx",
             "docs/.~lock.report.odt#",
         ] {
-            assert!(excluded(name), "{name}");
+            assert!(excluded(r(), name), "{name}");
         }
         for name in [".tmp", "a.tmp", ".x.tmp", ".page.md.abc.0.tmp", "tmp/.keep", ".case"] {
-            assert!(!excluded(name), "{name} is not one of ours");
+            assert!(!excluded(r(), name), "{name} is not one of ours");
         }
     }
 

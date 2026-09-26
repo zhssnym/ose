@@ -23,7 +23,7 @@ import { bridge } from './bridge/index.js';
 import { pageHost, folderHost, headingLineIn } from './pagehost.js';
 import { flushState } from './state.js';
 import { local } from './local.js';
-import { clean, dirName, baseName } from './paths.js';
+import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.js';
 import { display } from './names.js';
 import { toast } from './dialog.js';
 import { shortcutFor } from './keys.js';
@@ -40,7 +40,13 @@ const START_RECENT = 8;
 // Caret positions kept per route key (N44). The caret belongs to the file, not to a tab.
 const MAX_CARET_MEMORY = 50;
 
+/** @typedef {import('./types.js').Route} Route */
+/** @typedef {import('./types.js').TabRecord} TabRecord */
+/** @typedef {{ focus?: boolean, park?: boolean, reason?: string }} ShowOpts */
+
+/** @type {HTMLElement | null} */
 let mainEl = null;
+/** @type {HTMLElement | null} */
 let scrollEl = null;
 let current = null;       // the route on screen: the same object as its tab's entry
 let mountedTab = null;    // the record that route belongs to
@@ -52,6 +58,7 @@ let claim = null;
 // The leave phase (ask, then tear down) of the newest show, while it runs. A newer show waits
 // for it before it asks or tears down itself, so a yes the older one got can be undone (`stay`)
 // on the page that gave it, not on a page already parked.
+/** @type {Promise<void> | null} */
 let leaving = null;
 // routeKey -> {from, to}, the caret the page was left with, so back and forward put it back
 // where it was rather than at the top (N44, N21). The editor is asked for it on the way out
@@ -71,16 +78,21 @@ export function routeKey(r) {
 /** What a toast calls a route: the path, the folder (or `/` for the root), or the view's title. */
 export function routeLabel(r) {
   if (!r) return '';
-  if (r.type === 'page') return clean(r.path);
+  if (r.type === 'page') return isOutside(r.path) ? outsideLabel(r.path) : clean(r.path);
   if (r.type === 'folder') return clean(r.path) || '/';
   const v = views.get(r.name);
   return (v && v.title) || r.name;
 }
 
-/** A route in its one shape, or null when it is not one. */
+/**
+ * A route in its one shape, or null when it is not one.
+ * @param {any} route  reason: anything a caller hands over, checked field by field below
+ * @returns {Route | null}
+ */
 export function normalize(route) {
   if (!route || typeof route !== 'object') return null;
   if (route.type === 'page' && route.path) {
+    /** @type {import('./types.js').PageRoute} */
     const r = { type: 'page', path: clean(route.path) };
     // Only a real line survives: a 0, a float or a string would make the editor guess (C7).
     if (Number.isInteger(route.line) && route.line > 0) r.line = route.line;
@@ -93,11 +105,13 @@ export function normalize(route) {
     return r;
   }
   if (route.type === 'folder' && typeof route.path === 'string') {
+    /** @type {import('./types.js').FolderRoute} */
     const r = { type: 'folder', path: clean(route.path) };
     if (typeof route.select === 'string' && route.select) r.select = route.select;
     return r;
   }
   if (route.type === 'view' && route.name) {
+    /** @type {import('./types.js').ViewRoute} */
     const r = { type: 'view', name: String(route.name) };
     if (typeof route.arg === 'string' && route.arg) r.arg = route.arg;
     return r;
@@ -234,15 +248,16 @@ export function initRouter(el, { start = true } = {}) {
 export function focusMain() {
   if (!mainEl) return false;
   const title = mainEl.querySelector('.page-title');
-  const pick = mainEl.querySelector('.ProseMirror')
+  const found = mainEl.querySelector('.ProseMirror')
     // A code page is an editor too: without this the caret landed on the body after every
     // open of a .py, .json or .jsonl file and typing went nowhere.
     || mainEl.querySelector('.cm-content')
-    || (title && title.isContentEditable ? title : null)
+    || (title instanceof HTMLElement && title.isContentEditable ? title : null)
     || mainEl.querySelector('.view-root')
     || mainEl.querySelector('.start-row')
     || mainEl.querySelector('.miss .btn');   // "Create it" / "Retry": Enter should reach it
-  if (!pick) return false;
+  if (!(found instanceof HTMLElement)) return false;
+  const pick = found;
   // Views set tabindex=-1 on their root; a page title without an H1 is a plain div. Neither
   // is our DOM, so only the one attribute that makes `focus()` work is touched.
   if (!pick.isContentEditable && !pick.hasAttribute('tabindex') && pick.tagName !== 'BUTTON') pick.tabIndex = -1;
@@ -315,7 +330,9 @@ const UNMOUNT_MS = 5000;
  * always proceeds; an `unmount` that never settles is named in a toast and left behind.
  */
 async function callUnmount(view, where) {
-  let timer = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** @type {Promise<void>} */
   const late = new Promise((resolve) => {
     timer = setTimeout(() => {
       const what = (current && routeLabel(current)) || 'A page';
@@ -397,6 +414,34 @@ async function mountPage(scroll, route, my) {
   if (route.heading && !line) toast(`No heading “${route.heading}” in ${path}`, 'info', 2600);
   // The caret the page was left with, when the caller has not asked for a line instead (N44).
   const selection = route.selection || (line ? null : caretMemory.get(routeKey(route)) || null);
+  // A file outside the vault (X7) is registered with the host before anything reads it, every
+  // time it mounts: so a restored session, Recent and back or forward all work, and a path the
+  // host finds inside this vault after all is shown as the vault file it is.
+  if (isOutside(path)) {
+    let reg = null;
+    try { reg = await bridge.outsideOpen(path); } catch (e) {
+      console.error('[router] outsideOpen', path, e);
+      if (my !== seq) return;
+      const box = emptyState(`
+        <div class="miss">
+          <div class="miss-title">Could not open this file</div>
+          <div class="miss-path mono">${esc(outsideLabel(path))}</div>
+          <div class="miss-why">${esc((e && /** @type {Error} */ (e).message) || String(e))}</div>
+          <button class="btn" data-act="retry">Retry</button>
+        </div>`);
+      box.querySelector('[data-act="retry"]')?.addEventListener('click', () => {
+        void navigate({ type: 'page', path }, { replace: true, force: true });
+      });
+      scroll.appendChild(box);
+      return;
+    }
+    if (my !== seq) return;
+    if (reg && reg.inside && reg.path) {
+      const inside = reg.path;
+      queueMicrotask(() => { void navigate({ type: reg.kind === 'dir' ? 'folder' : 'page', path: inside }, { replace: true, force: true }); });
+      return;
+    }
+  }
   let st = null;
   // A stat that throws is not the same thing as a file that is not there: the first is a
   // locked file or a bridge fault and must never be offered "Create it", because that button
@@ -410,8 +455,8 @@ async function mountPage(scroll, route, my) {
         <div class="miss-why">${esc(e.message || String(e))}</div>
         <button class="btn" data-act="retry">Retry</button>
       </div>`);
-    box.querySelector('[data-act="retry"]').addEventListener('click', () => {
-      navigate({ type: 'page', path }, { replace: true, force: true });
+    box.querySelector('[data-act="retry"]')?.addEventListener('click', () => {
+      void navigate({ type: 'page', path }, { replace: true, force: true });
     });
     scroll.appendChild(box);
     return;
@@ -427,6 +472,16 @@ async function mountPage(scroll, route, my) {
   const pages = pageHost();
   let claimed = false;
   try { claimed = !!(pages && typeof pages.claims === 'function' && pages.claims(path)); } catch { claimed = false; }
+  if (!st.exists && !claimed && isOutside(path)) {
+    // Nothing is created outside the vault: the file went, and the box says where it was.
+    scroll.appendChild(emptyState(`
+      <div class="miss">
+        <div class="miss-title">Not found</div>
+        <div class="miss-path mono">${esc(outsideLabel(path))}</div>
+        <div class="miss-why">outside the vault</div>
+      </div>`));
+    return;
+  }
   if (!st.exists && !claimed) {
     const box = emptyState(`
       <div class="miss">
@@ -434,7 +489,7 @@ async function mountPage(scroll, route, my) {
         <div class="miss-path mono">${esc(path)}</div>
         <button class="btn primary" data-act="create">Create it</button>
       </div>`);
-    box.querySelector('[data-act="create"]').addEventListener('click', async () => {
+    box.querySelector('[data-act="create"]')?.addEventListener('click', async () => {
       // Exclusive: a file that arrived since the stat is opened, never written over. A `.md`
       // gets its H1 and anything else starts empty (ose.fileops.create).
       try {
@@ -554,12 +609,15 @@ async function renderStart(scroll, my, opts) {
   scroll.appendChild(box);
 
   const candidates = recentFiles().slice(0, START_RECENT * 2);
-  const alive = await Promise.all(candidates.map((p) => bridge.exists(p).catch(() => false)));
+  // A file outside the vault is not asked about: the host answers only for a file this window
+  // registered, and registering one just to list it would open its folder to the media origin.
+  const alive = await Promise.all(candidates.map((p) => (isOutside(p) ? true : bridge.exists(p).catch(() => false))));
   if (my !== seq) return;
   const list = candidates.filter((_, i) => alive[i]).slice(0, START_RECENT);
   if (!list.length) return;
 
   const host = box.querySelector('.start-recent');
+  if (!(host instanceof HTMLElement)) return;
   const label = document.createElement('div');
   label.className = 'section-label';
   label.textContent = 'Recent';
@@ -569,18 +627,20 @@ async function renderStart(scroll, my, opts) {
     row.type = 'button';
     row.className = 'row start-row';
     row.dataset.path = p;
-    row.innerHTML = `<span class="grow">${esc(display(p))}</span>` + (dirName(p) ? `<span class="hint">${esc(dirName(p))}</span>` : '');
+    const where = isOutside(p) ? `outside vault · ${outsideLabel(dirName(p))}` : dirName(p);
+    row.innerHTML = `<span class="grow">${esc(display(p))}</span>` + (where ? `<span class="hint">${esc(where)}</span>` : '');
     row.addEventListener('click', () => navigate({ type: 'page', path: p }));
     host.appendChild(row);
   }
   // Up/Down walk the list so Enter opens without a Tab per row.
   host.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const rows = [...host.querySelectorAll('.start-row')];
-    const at = rows.indexOf(document.activeElement);
+    const rows = [...host.querySelectorAll('.start-row')].filter((n) => n instanceof HTMLElement);
+    const at = rows.findIndex((n) => n === document.activeElement);
     if (at < 0) return;
     e.preventDefault();
-    rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+    const to = rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+    if (to instanceof HTMLElement) to.focus();
   });
   if (opts.focus !== false) settleFocus(scroll);
 }
@@ -591,10 +651,12 @@ async function renderStart(scroll, my, opts) {
  * A page is named by its file, never by its H1 (M13).
  */
 function setWindowTitle(route) {
-  if (typeof bridge.setTitle !== 'function') return;
   const vault = (store.get('root') && store.get('root').name) || 'Ose';
   let text = vault;
-  if (route && route.type === 'page') {
+  if (route && route.type === 'page' && isOutside(route.path)) {
+    // A file outside the vault says so in the title bar, and says it instead of the vault (X7).
+    text = `${display(route.path)} — outside vault`;
+  } else if (route && route.type === 'page') {
     text = `${display(route.path)} · ${vault}`;
   } else if (route && route.type === 'folder') {
     text = `${route.path ? baseName(route.path) : vault} · ${vault}`;
@@ -641,8 +703,10 @@ async function pageLets(mode) {
 }
 
 /** An older show's leave phase, waited for no longer than an unmount (a save that hangs). */
+/** @param {Promise<unknown>} p @returns {Promise<unknown>} */
 function bounded(p) {
-  let timer = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
   return Promise.race([
     Promise.resolve(p).catch(() => {}),
     new Promise((resolve) => { timer = setTimeout(resolve, UNMOUNT_MS); }),
@@ -657,7 +721,11 @@ function before(rec) {
   return { rec, before: { stack: rec.stack.slice(), index: rec.index } };
 }
 
-/** The edit made: `c` from `before()`, completed with what `rec` holds now. */
+/**
+ * The edit made: `c` from `before()`, completed with what `rec` holds now.
+ * @param {{ rec: TabRecord, before: { stack: Route[], index: number } }} c
+ * @param {Route | null} [route]
+ */
 function made(c, route = null) {
   return { ...c, after: { stack: c.rec.stack.slice(), index: c.rec.index }, route };
 }
@@ -697,6 +765,11 @@ function overtake(c) {
  * opts: { focus, park, reason }. `park`: the page on screen stays alive for the tab that still
  * shows it. `reason` rides on the `tabs` event.
  */
+/**
+ * @param {ShowOpts} [opts]
+ * @param {{ rec: TabRecord, before: { stack: Route[], index: number }, after: { stack: Route[], index: number }, route: Route | null } | null} [own]
+ * @returns {Promise<boolean>}
+ */
 async function show(opts = {}, own = null) {
   T.beginChange();
   const my = ++seq;
@@ -706,20 +779,32 @@ async function show(opts = {}, own = null) {
   if (claim) { overtake(claim); claim = null; }
   claim = own ? { ...own, my } : null;
   const earlier = leaving;
+  /** @type {() => void} */
   let release = () => {};
-  leaving = new Promise((resolve) => { release = resolve; });
-  const phase = leaving;
+  /** @type {Promise<void>} */
+  const phase = new Promise((resolve) => { release = () => resolve(); });
+  leaving = phase;
   const done = () => { release(); if (leaving === phase) leaving = null; };
   const settle = () => { if (claim && claim.my === my) claim = null; };
   if (earlier) await bounded(earlier);
   if (my !== seq) { done(); return false; }
   const mode = leaveMode(opts);
+  // The page this show asks: only it may be handed back if the answer comes too late.
+  const asked = current;
   const ok = await pageLets(mode);
   // Superseded: the newer show decides, and holds the snapshot if it must roll back. A yes
   // froze the page, and this navigation will not happen: the page is handed back now, before
   // the newer show (which waits for this) parks it or asks it again.
+  //
+  // The newer show waits for this one at most UNMOUNT_MS (`bounded`). When a slow save made it
+  // stop waiting, it has already moved on, and the page on screen may be another one, perhaps
+  // frozen by the newer show's own question: `stay` goes only to the page that was asked, while
+  // it is still the page on screen. A page the newer show parked in the meantime is thawed by
+  // the editor when it comes back (`reattach`), since nothing holds its leave any more.
   if (my !== seq) {
-    if (ok && mode !== 'park') { try { pageHost()?.stay?.(); } catch (e) { console.error('[router] stay', e); } }
+    if (ok && mode !== 'park' && current === asked) {
+      try { pageHost()?.stay?.(); } catch (e) { console.error('[router] stay', e); }
+    }
     done();
     return false;
   }
@@ -750,11 +835,14 @@ async function show(opts = {}, own = null) {
   // Read again: the model is what it is now, after anything a superseded show left behind.
   const tab = T.activeRecord();
   const next = T.currentOf(tab);
+  // Only `initRouter` gives the router a column; a show before it has nowhere to draw.
+  const main = mainEl;
+  if (!main) return false;
 
-  mainEl.textContent = '';
+  main.textContent = '';
   const scroll = document.createElement('div');
   scroll.className = 'main-scroll';
-  mainEl.appendChild(scroll);
+  main.appendChild(scroll);
   scrollEl = scroll;
   scroll.addEventListener('scroll', () => bus.emit('route:scroll'), { passive: true });
 
@@ -922,6 +1010,11 @@ function onlyHome(rec) {
  * or a heading the route carries still lands in it. A tab opened with `activate: false` is
  * drawn in the strip and mounts nothing until it is brought forward.
  */
+/**
+ * @param {unknown} route
+ * @param {{ activate?: boolean, index?: number, reuse?: boolean, focus?: boolean }} [opts]
+ * @returns {Promise<{ id: string | null, shown: boolean }>}
+ */
 export async function openTab(route, { activate = true, index, reuse = true, focus } = {}) {
   const r = normalize(route);
   if (!r) return { id: null, shown: false };
@@ -950,6 +1043,11 @@ export async function openTab(route, { activate = true, index, reuse = true, foc
 }
 
 /** `ose.tabs.activate(id)` -> Promise<boolean>. The page it leaves is parked, never asked. */
+/**
+ * @param {string} id
+ * @param {{ focus?: boolean }} [opts]
+ * @returns {Promise<boolean>}
+ */
 export function activateTab(id, { focus } = {}) {
   const rec = T.recordOf(id);
   if (!rec) return Promise.resolve(false);
@@ -965,6 +1063,11 @@ export function activateTab(id, { focus } = {}) {
  * to Home instead of disappearing, or to the empty surface when there is no Home. A background
  * tab whose page no other tab shows: that page is released (saved and destroyed) first, and a
  * page that cannot be saved keeps its tab. False: nothing changed.
+ */
+/**
+ * @param {string} id
+ * @param {{ focus?: boolean }} [opts]
+ * @returns {Promise<boolean>}
  */
 export async function closeTab(id, { focus } = {}) {
   const rec = T.recordOf(id);
@@ -1045,6 +1148,12 @@ export function reopenCurrent() {
  * Session restore (./session.js): replace the whole model with `recs` and show the active one.
  * Only the active tab mounts; the rest are rows in the strip until they are brought forward.
  * False when the page on screen refused to be left (nothing changed then).
+ */
+/**
+ * @param {TabRecord[]} recs
+ * @param {string} activeId
+ * @param {{ focus?: boolean }} [opts]
+ * @returns {Promise<boolean>}
  */
 export function restoreTabs(recs, activeId, { focus } = {}) {
   if (!recs.length) return Promise.resolve(false);

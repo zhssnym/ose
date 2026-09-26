@@ -93,14 +93,12 @@ export function detectedHtml() {
 }
 
 /**
- * Open Settings › Planner: in a tab of its own when the kernel has tabs, else in this one.
- * @param {object} ose
+ * Open Settings › Planner, in a tab of its own (a tab already on Settings is reused).
+ * @param {import('ose:kernel').ose} ose
  * @returns {Promise<unknown>}
  */
 export function openPlannerSettings(ose) {
-  const route = { type: 'view', name: 'settings', arg: 'planner' };
-  if (ose.tabs && typeof ose.tabs.open === 'function') return ose.tabs.open(route);
-  return ose.route.navigate(route);
+  return ose.tabs.open({ type: 'view', name: 'settings', arg: 'planner' });
 }
 
 /**
@@ -119,7 +117,7 @@ export function bindLinks(root, ose) {
     ev.preventDefault();
     const route = { type: 'page', path: link.dataset.path };
     if (link.dataset.line) route.line = Number(link.dataset.line);
-    if (newTab && ose.tabs && typeof ose.tabs.open === 'function') ose.tabs.open(route, { reuse: false });
+    if (newTab) ose.tabs.open(route, { reuse: false });
     else ose.route.navigate(route);
     return true;
   };
@@ -134,13 +132,12 @@ export function bindLinks(root, ose) {
 }
 
 /**
- * The display name of a vault path: `ose.names.display` when the kernel has it, else the last
- * segment.
- * @param {object} ose
+ * The display name of a vault path (`ose.names.display`: the real name, `.md` hidden only with
+ * the setting).
+ * @param {import('ose:kernel').ose} ose
  * @param {string} path
  * @returns {string}
  */
 export function displayName(ose, path) {
-  try { if (ose.names && typeof ose.names.display === 'function') return ose.names.display(path); } catch { /* the plain name below */ }
-  return String(path || '').split('/').pop();
+  return ose.names.display(path);
 }

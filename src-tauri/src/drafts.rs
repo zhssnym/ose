@@ -4,7 +4,8 @@
 //!
 //! One JSON file per page at `<app local data>/drafts/<vaultKey>/<pathKey>.json`, where
 //! `vaultKey` is the hash of the vault's absolute root (lowercased on Windows and macOS, whose
-//! filesystems fold case) and `pathKey` the hash of the page's vault path. The file carries
+//! filesystems fold case) and `pathKey` the hash of the page's vault path. The draft of a file
+//! outside every vault (`abs:…`) is filed under the key `outside`, by its `abs:` path. The file carries
 //! `v: 1`, the vault's root and the page's path, so a folder of drafts explains itself. Never
 //! synced, never in the vault: a draft is this machine's memory of what was typed here.
 //!
@@ -19,7 +20,7 @@ use std::sync::Mutex;
 
 use serde_json::{json, Map, Value};
 
-use crate::{arg_str, coded, vault, AppState, Ctx};
+use crate::{coded, vault};
 
 /// One draft command at a time. Drafts are small and rare; one lock for all of them is simpler
 /// than one per file and costs nothing.
@@ -52,13 +53,44 @@ fn vault_dir(data: &Path, root: &Path) -> PathBuf {
     data.join("drafts").join(vault_key(root))
 }
 
+/// Where a draft is filed: a vault's folder, or the one folder of the outside files.
+#[derive(Clone, Copy, Debug)]
+pub enum Scope<'a> {
+    Vault(&'a Path),
+    Outside,
+}
+
+fn scope_dir(data: &Path, scope: Scope) -> PathBuf {
+    match scope {
+        Scope::Vault(root) => vault_dir(data, root),
+        Scope::Outside => data.join("drafts").join("outside"),
+    }
+}
+
+/// What a stored draft says about where it came from.
+fn scope_label(scope: Scope) -> String {
+    match scope {
+        Scope::Vault(root) => vault::normalize(root).to_string_lossy().to_string(),
+        Scope::Outside => "outside".to_string(),
+    }
+}
+
 /// A vault path as drafts key it: forward slashes, no leading or trailing slash.
 fn clean(rel: &str) -> String {
     rel.replace('\\', "/").trim().trim_matches('/').to_string()
 }
 
 fn file_for(data: &Path, root: &Path, rel: &str) -> PathBuf {
-    vault_dir(data, root).join(format!("{}.json", vault::hash(clean(rel).as_bytes())))
+    file_in(data, Scope::Vault(root), rel)
+}
+
+fn file_in(data: &Path, scope: Scope, rel: &str) -> PathBuf {
+    let key = match scope {
+        Scope::Vault(_) => clean(rel),
+        // An `abs:` path keys as it is: its slashes are its own.
+        Scope::Outside => rel.to_string(),
+    };
+    scope_dir(data, scope).join(format!("{}.json", vault::hash(key.as_bytes())))
 }
 
 fn read_json(file: &Path) -> Option<Map<String, Value>> {
@@ -95,6 +127,11 @@ fn write_json(file: &Path, value: &Value) -> Result<(), String> {
 /// `draftWrite(path, draft)` -> `{at}`. `draft` is `{text, baselineHash, mode, exact, rev}`; the
 /// host sets `at`.
 pub fn write(data: &Path, root: &Path, rel: &str, draft: &Value, now: i64) -> Result<Value, String> {
+    write_in(data, Scope::Vault(root), rel, draft, now)
+}
+
+/// `write` into `scope`.
+pub fn write_in(data: &Path, scope: Scope, rel: &str, draft: &Value, now: i64) -> Result<Value, String> {
     let d = draft.as_object().ok_or_else(|| coded("bad_arg", "a draft is an object"))?;
     let text = d
         .get("text")
@@ -106,12 +143,17 @@ pub fn write(data: &Path, root: &Path, rel: &str, draft: &Value, now: i64) -> Re
     };
     let mode = match d.get("mode").and_then(Value::as_str) {
         Some("source") => "source",
+        Some("live") => "live",
         _ => "rich",
+    };
+    let path = match scope {
+        Scope::Vault(_) => clean(rel),
+        Scope::Outside => rel.to_string(),
     };
     let stored = json!({
         "v": 1,
-        "vault": vault::normalize(root).to_string_lossy(),
-        "path": clean(rel),
+        "vault": scope_label(scope),
+        "path": path,
         "text": text,
         "baselineHash": baseline,
         "mode": mode,
@@ -120,15 +162,31 @@ pub fn write(data: &Path, root: &Path, rel: &str, draft: &Value, now: i64) -> Re
         "at": now,
     });
     let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
-    write_json(&file_for(data, root, rel), &stored)?;
+    write_json(&file_in(data, scope, rel), &stored)?;
     Ok(json!({ "at": now }))
 }
 
 /// `draftList()` -> `DraftInfo[]` of the open vault, newest first: a draft without its text,
 /// with `bytes`, the text's size.
 pub fn list(data: &Path, root: &Path) -> Value {
+    list_in(data, &[Scope::Vault(root)])
+}
+
+/// `list` over several scopes, merged, newest first: a window's vault and the outside files.
+pub fn list_in(data: &Path, scopes: &[Scope]) -> Value {
     let mut out: Vec<Value> = Vec::new();
-    if let Ok(read) = fs::read_dir(vault_dir(data, root)) {
+    for scope in scopes {
+        list_one(data, *scope, &mut out);
+    }
+    out.sort_by(|a, b| {
+        let at = |v: &Value| v["at"].as_f64().unwrap_or(0.0);
+        at(b).partial_cmp(&at(a)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Value::Array(out)
+}
+
+fn list_one(data: &Path, scope: Scope, out: &mut Vec<Value>) {
+    if let Ok(read) = fs::read_dir(scope_dir(data, scope)) {
         for e in read.flatten() {
             let path = e.path();
             if !is_draft_name(&e.file_name().to_string_lossy()) {
@@ -144,16 +202,16 @@ pub fn list(data: &Path, root: &Path) -> Value {
             out.push(info);
         }
     }
-    out.sort_by(|a, b| {
-        let at = |v: &Value| v["at"].as_f64().unwrap_or(0.0);
-        at(b).partial_cmp(&at(a)).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    Value::Array(out)
 }
 
 /// `draftRead(path)` -> `Draft`, or `null` when there is none.
 pub fn read(data: &Path, root: &Path, rel: &str) -> Value {
-    read_json(&file_for(data, root, rel))
+    read_in(data, Scope::Vault(root), rel)
+}
+
+/// `read` from `scope`.
+pub fn read_in(data: &Path, scope: Scope, rel: &str) -> Value {
+    read_json(&file_in(data, scope, rel))
         .map(|o| to_draft(&o))
         .unwrap_or(Value::Null)
 }
@@ -161,7 +219,12 @@ pub fn read(data: &Path, root: &Path, rel: &str) -> Value {
 /// `draftDrop(path, {ifRev})` -> `{dropped}`. With `if_rev`, only a draft written at that edit
 /// or before it goes: a newer one holds typing the caller has not seen saved.
 pub fn drop(data: &Path, root: &Path, rel: &str, if_rev: Option<f64>) -> Result<Value, String> {
-    let file = file_for(data, root, rel);
+    drop_in(data, Scope::Vault(root), rel, if_rev)
+}
+
+/// `drop` from `scope`.
+pub fn drop_in(data: &Path, scope: Scope, rel: &str, if_rev: Option<f64>) -> Result<Value, String> {
+    let file = file_in(data, scope, rel);
     let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
     let Some(o) = read_json(&file) else {
         // Nothing readable there. A file that is not a draft of ours is left alone.
@@ -234,51 +297,10 @@ pub fn rekey_in(data: &Path, root: &Path, from: &str, to: &str) -> Result<(), St
 }
 
 /// `rekey_in` for the open app: nothing to do without a data folder.
-pub fn rekey(st: &AppState, root: &Path, from: &str, to: &str) -> Result<(), String> {
-    match st.data_dir() {
-        Some(data) => rekey_in(&data, root, from, to),
+pub fn rekey(data: Option<&Path>, root: &Path, from: &str, to: &str) -> Result<(), String> {
+    match data {
+        Some(data) => rekey_in(data, root, from, to),
         None => Ok(()),
-    }
-}
-
-// ---- dispatch --------------------------------------------------------------
-
-const COMMANDS: &[&str] = &["draftWrite", "draftList", "draftRead", "draftDrop"];
-
-/// `None` means "not mine", like every module handler.
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    if !COMMANDS.contains(&cmd) {
-        return None;
-    }
-    let root = match crate::root_for(ctx.st, cmd, args) {
-        Ok(r) => r,
-        Err(e) => return Some(Err(e)),
-    };
-    let data = ctx.st.data_dir();
-    Some(dispatch(data.as_deref(), &root, cmd, args))
-}
-
-fn dispatch(data: Option<&Path>, root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
-    let need = || data.ok_or_else(|| coded("io", "this machine has no app data folder for drafts"));
-    match cmd {
-        "draftWrite" => {
-            let draft = args.get(1).cloned().unwrap_or(Value::Null);
-            write(need()?, root, &arg_str(args, 0)?, &draft, crate::versions::now_ms())
-        }
-        "draftList" => Ok(data.map(|d| list(d, root)).unwrap_or_else(|| json!([]))),
-        "draftRead" => {
-            let rel = arg_str(args, 0)?;
-            Ok(data.map(|d| read(d, root, &rel)).unwrap_or(Value::Null))
-        }
-        "draftDrop" => {
-            let rel = arg_str(args, 0)?;
-            let if_rev = args.get(1).and_then(|o| o.get("ifRev")).and_then(Value::as_f64);
-            match data {
-                Some(d) => drop(d, root, &rel, if_rev),
-                None => Ok(json!({ "dropped": false })),
-            }
-        }
-        _ => Err(coded("unknown_command", cmd)),
     }
 }
 

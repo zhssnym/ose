@@ -45,7 +45,8 @@ function spend() {
 export function describeError(err) {
   if (err instanceof Error) {
     const head = `${err.name || 'Error'}: ${err.message}`;
-    const code = err.code ? ` [${err.code}${err.cmd ? ' ' + err.cmd : ''}]` : '';
+    const coded = /** @type {Error & { code?: string, cmd?: string }} */ (err);
+    const code = coded.code ? ` [${coded.code}${coded.cmd ? ' ' + coded.cmd : ''}]` : '';
     // V8 and WebKit both start the stack with the message line; the frames are what matter.
     const frames = String(err.stack || '').split('\n').filter((l) => /^\s*at\s|@/.test(l)).join('\n');
     return head + code + (frames ? `\n${frames}` : '');

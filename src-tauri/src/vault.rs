@@ -14,11 +14,11 @@ use serde_json::{json, Value};
 
 use tauri::Manager as _;
 
-use crate::{arg_str, arg_str_or, opt_field_i64, Ctx, Source};
+use crate::Source;
 
 const MAX_DEPTH: usize = 24;
 /// Files, not lines (N34): the answer says "showing N of M files" when it cut the list.
-const DEFAULT_SEARCH_LIMIT: usize = 100;
+pub const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SNIPPET: usize = 240;
 
 // ---- root resolution -------------------------------------------------------
@@ -61,11 +61,13 @@ pub fn resolve_root(explicit: Option<&str>) -> Option<(PathBuf, Source)> {
     None
 }
 
-/// The nearest ancestor of `exe` that looks like a vault, the executable's own folder first.
+/// The nearest ancestor of `exe` that looks like a vault, the executable's own folder first. A
+/// filesystem root (`D:`, `/`) is never one: a stray `.ose` at the top of a drive would make every
+/// executable on it open the whole disk.
 fn root_above(exe: &Path) -> Option<PathBuf> {
     let mut dir = exe.parent().map(normalize);
     while let Some(d) = dir {
-        if looks_like_vault(&d) {
+        if d.parent().is_some() && looks_like_vault(&d) {
             return Some(d);
         }
         dir = d.parent().map(Path::to_path_buf);
@@ -136,87 +138,28 @@ pub fn forget(app: &tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-fn is_remembered(app: &tauri::AppHandle) -> bool {
+pub fn is_remembered(app: &tauri::AppHandle) -> bool {
     remembered_file(app).map(|f| f.is_file()).unwrap_or(false)
 }
 
 // ---- choosing a vault ------------------------------------------------------
 
-/// Makes `dir` the open vault: validated, remembered, set in the state, watched, and the epoch
-/// moved on (docs/HOST.md "Epoch"), so a late write from a page of the previous vault is
-/// refused instead of landing here. Everything after the picker itself, so the picker stays
-/// the only platform-specific line.
-pub fn adopt(ctx: &Ctx, dir: &Path, source: Source) -> Result<Value, String> {
+/// Makes `dir` the vault of window `win`: validated, remembered, set, watched, and the window's
+/// epoch moved on (docs/HOST.md "Epoch"), so a late write from a page of the previous vault is
+/// refused instead of landing here. Answers the normalised root and the new epoch.
+pub fn adopt(app: &tauri::AppHandle, host: &crate::Host, win: &crate::Win, dir: &Path, source: Source) -> Result<(PathBuf, u64), String> {
     let full = normalize(dir);
     if !full.is_dir() {
         return Err(crate::coded("not_found", format!("not a folder: {}", full.display())));
     }
-    remember(ctx.app, &full).map_err(|e| crate::coded("io", e))?;
-    let epoch = ctx.st.adopt_root(full.clone(), source);
-    ctx.st.watch(ctx.app, full.clone());
+    remember(app, &full).map_err(|e| crate::coded("io", e))?;
+    let epoch = win.adopt_root(full.clone(), source);
+    win.watch(app, full.clone());
     crate::log_line(
-        ctx.st,
-        &format!("vault root: {} (from {}, epoch {epoch})", full.display(), source.as_str()),
+        host,
+        &format!("{}: vault root {} (from {}, epoch {epoch})", win.label, full.display(), source.as_str()),
     );
-    let mut info = root_info(&full);
-    info["epoch"] = json!(epoch);
-    Ok(info)
-}
-
-/// `pickVault(opts)`: the native folder picker (supplied by the binary, see
-/// `crate::FolderPicker`), opened in the executable's folder. `null` on cancel. With `adopt`
-/// (the default) the choice is adopted and answered as `{root, name, epoch}`; without, it is
-/// only chosen and answered as `{root, name}`, normalised and absolute, so the page can leave
-/// the old vault before it opens the new one. The picker calls back from a thread of its own;
-/// awaiting a channel keeps the async runtime free and never blocks the main thread.
-pub async fn pick_vault(ctx: &Ctx<'_>, adopt_it: bool) -> Result<Value, String> {
-    let picker = ctx
-        .st
-        .picker
-        .ok_or_else(|| crate::coded("io", "this build has no folder picker"))?;
-    let start = exe_dir().filter(|d| d.is_dir());
-
-    let (tx, mut rx) = tauri::async_runtime::channel::<Option<PathBuf>>(1);
-    picker(
-        ctx.app,
-        start,
-        Box::new(move |picked| {
-            let _ = tx.try_send(picked);
-        }),
-    );
-
-    match rx.recv().await.flatten() {
-        None => Ok(Value::Null),
-        Some(path) if adopt_it => adopt(ctx, &path, Source::Picked),
-        Some(path) => {
-            let full = normalize(&path);
-            if !full.is_dir() {
-                return Err(crate::coded("not_found", format!("not a folder: {}", full.display())));
-            }
-            Ok(root_info(&full))
-        }
-    }
-}
-
-/// `vaultInfo`: the open root, whether a remembered-root file exists on this machine, and the
-/// source the root came from. Root, name and source are null while no vault is open.
-pub fn vault_info(ctx: &Ctx) -> Value {
-    match ctx.st.root_info() {
-        Some(r) => json!({
-            "root": r.path.to_string_lossy(),
-            "name": root_name(&r.path),
-            "remembered": is_remembered(ctx.app),
-            "source": r.source.as_str(),
-            "epoch": ctx.st.epoch(),
-        }),
-        None => json!({
-            "root": null,
-            "name": null,
-            "remembered": is_remembered(ctx.app),
-            "source": null,
-            "epoch": ctx.st.epoch(),
-        }),
-    }
+    Ok((full, epoch))
 }
 
 /// Absolute and lexically clean, without `canonicalize`: on Windows that returns a `\\?\`
@@ -236,6 +179,28 @@ pub fn normalize(p: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// A name or a path the host sends out, in NFC on macOS (M49): APFS hands back the NFD a Finder
+/// rename wrote, and a link typed on the keyboard is NFC, so the two would never compare equal.
+/// Paths coming in are used as given, since APFS lookups ignore normalisation. Everywhere else
+/// the string is returned untouched.
+pub fn nfc(s: String) -> String {
+    if cfg!(target_os = "macos") {
+        to_nfc(s)
+    } else {
+        s
+    }
+}
+
+/// `s` in Unicode Normalization Form C, on every platform (the pure half of `nfc`, tested
+/// everywhere though only macOS uses it).
+pub fn to_nfc(s: String) -> String {
+    use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization as _};
+    if is_nfc_quick(s.chars()) == IsNormalized::Yes {
+        return s;
+    }
+    s.nfc().collect()
 }
 
 pub fn root_name(root: &Path) -> String {
@@ -298,12 +263,13 @@ fn redirected_on_windows(seg: &str) -> bool {
             && matches!(stem.as_bytes()[3], b'1'..=b'9'))
 }
 
-/// The inverse: an absolute path back to its vault-relative form.
+/// The inverse: an absolute path back to its vault-relative form, NFC on macOS (`nfc`).
 pub fn relative(root: &Path, full: &Path) -> String {
-    match full.strip_prefix(root) {
+    let rel = match full.strip_prefix(root) {
         Ok(rest) => rest.to_string_lossy().replace('\\', "/"),
         Err(_) => full.to_string_lossy().replace('\\', "/"),
-    }
+    };
+    nfc(rel)
 }
 
 fn ms(t: Option<SystemTime>) -> i64 {
@@ -321,8 +287,8 @@ fn mtime_of(meta: &fs::Metadata) -> i64 {
 /// One entry of a listing or of the tree (docs/HOST.md "Entry"). `kind` is what a link points
 /// at when the entry is a link; `link` says it is one and what kind; `readable: false` marks a
 /// folder the host could not open; `children` is filled by `tree` alone, never under a link.
-#[derive(Serialize, Debug)]
-pub struct Node {
+#[derive(Serialize, Debug, specta::Type)]
+pub struct Entry {
     pub name: String,
     pub path: String,
     pub kind: &'static str,
@@ -331,21 +297,24 @@ pub struct Node {
     pub size: u64,
     pub hidden: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
     pub link: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
     pub readable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<Node>>,
+    #[specta(optional)]
+    pub children: Option<Vec<Entry>>,
 }
 
 /// The node for `full`, whose own metadata (never followed through a link) is `own`. A link is
 /// described by its target when the target is there (`hide::link_kind`); a broken one by the
 /// link itself.
-fn node_of(root: &Path, root_canon: &Path, full: &Path, own: &fs::Metadata) -> Node {
-    let name = full
+fn node_of(root: &Path, root_canon: &Path, full: &Path, own: &fs::Metadata) -> Entry {
+    let name = nfc(full
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .unwrap_or_default());
     let (link, target) = if own.file_type().is_symlink() {
         let (kind, meta) = crate::hide::link_kind(root_canon, full);
         (Some(kind), meta)
@@ -354,7 +323,7 @@ fn node_of(root: &Path, root_canon: &Path, full: &Path, own: &fs::Metadata) -> N
     };
     let meta = target.as_ref().unwrap_or(own);
     let is_dir = meta.is_dir();
-    Node {
+    Entry {
         ext: if is_dir {
             String::new()
         } else {
@@ -374,7 +343,7 @@ fn node_of(root: &Path, root_canon: &Path, full: &Path, own: &fs::Metadata) -> N
     }
 }
 
-fn sort(nodes: &mut [Node]) {
+fn sort(nodes: &mut [Entry]) {
     nodes.sort_by(|a, b| {
         if a.kind != b.kind {
             return if a.kind == "dir" {
@@ -444,8 +413,8 @@ pub fn root_info(root: &Path) -> Value {
 }
 
 /// A vault path the rule excludes is not there as far as a listing is concerned.
-fn refuse_excluded(rel: &str) -> Result<(), String> {
-    if crate::hide::excluded(rel) {
+fn refuse_excluded(root: &Path, rel: &str) -> Result<(), String> {
+    if crate::hide::excluded(root, rel) {
         return Err(crate::coded("not_found", format!("not listed: {rel}")));
     }
     Ok(())
@@ -455,8 +424,8 @@ fn refuse_excluded(rel: &str) -> Result<(), String> {
 /// Excluded entries never appear; hidden ones only with `hidden`. A folder reached through a
 /// link is listed only when the link's target is inside the vault (`[escapes_vault]`
 /// otherwise). A child folder that cannot be opened says `readable: false`.
-pub fn list(root: &Path, rel: &str, hidden: bool) -> Result<Vec<Node>, String> {
-    refuse_excluded(rel)?;
+pub fn list(root: &Path, rel: &str, hidden: bool) -> Result<Vec<Entry>, String> {
+    refuse_excluded(root, rel)?;
     let dir = resolve(root, rel)?;
     match fs::metadata(&dir) {
         Ok(m) if m.is_dir() => {}
@@ -475,7 +444,7 @@ pub fn list(root: &Path, rel: &str, hidden: bool) -> Result<Vec<Node>, String> {
         let full = entry.path();
         let child = relative(root, &full);
         let Ok(own) = entry.metadata() else { continue };
-        match crate::hide::classify(&child, Some(&own)) {
+        match crate::hide::classify(root, &child, Some(&own)) {
             crate::hide::Visibility::Excluded => continue,
             crate::hide::Visibility::Hidden if !hidden => continue,
             _ => {}
@@ -490,11 +459,11 @@ pub fn list(root: &Path, rel: &str, hidden: bool) -> Result<Vec<Node>, String> {
     Ok(nodes)
 }
 
-type ByParent = std::collections::HashMap<PathBuf, Vec<(PathBuf, Node)>>;
+type ByParent = std::collections::HashMap<PathBuf, Vec<(PathBuf, Entry)>>;
 
 /// `tree({hidden})`: the whole vault as one node named after it, walked by the `ignore` crate
 /// under the one rule (hide.rs `walker`), never into a link, at most `MAX_DEPTH` folders deep.
-pub fn tree(root: &Path, hidden: bool) -> Result<Node, String> {
+pub fn tree(root: &Path, hidden: bool) -> Result<Entry, String> {
     let meta = fs::metadata(root).map_err(|e| crate::coded("io", format!("cannot read the vault root: {e}")))?;
     let root_canon = crate::hide::canonical_root(root);
     // Every entry under the folder that holds it, and the folders that could not be read.
@@ -520,7 +489,7 @@ pub fn tree(root: &Path, hidden: bool) -> Result<Node, String> {
         }
     }
     let children = assemble(root, &mut by_parent, &unreadable);
-    Ok(Node {
+    Ok(Entry {
         name: root_name(root),
         path: String::new(),
         kind: "dir",
@@ -535,7 +504,7 @@ pub fn tree(root: &Path, hidden: bool) -> Result<Node, String> {
 }
 
 /// The nodes under `dir`, each folder (not a link) given its own, sorted at every level.
-fn assemble(dir: &Path, by_parent: &mut ByParent, unreadable: &std::collections::HashSet<PathBuf>) -> Vec<Node> {
+fn assemble(dir: &Path, by_parent: &mut ByParent, unreadable: &std::collections::HashSet<PathBuf>) -> Vec<Entry> {
     let mut out = Vec::new();
     for (full, mut node) in by_parent.remove(dir).unwrap_or_default() {
         if node.kind == "dir" && node.link.is_none() {
@@ -553,18 +522,6 @@ fn assemble(dir: &Path, by_parent: &mut ByParent, unreadable: &std::collections:
 /// How many bytes `stat(path, {sniff})` looks at.
 const SNIFF_BYTES: usize = 8192;
 
-/// Text, by content: no NUL in the first 8 KB and valid UTF-8 there (a byte-order mark is
-/// UTF-8 too). A character cut in two by the 8 KB edge does not count against the file.
-pub fn sniff_text(head: &[u8]) -> bool {
-    if head.contains(&0) {
-        return false;
-    }
-    match std::str::from_utf8(head) {
-        Ok(_) => true,
-        Err(e) => e.error_len().is_none() && head.len() >= SNIFF_BYTES,
-    }
-}
-
 fn read_head(full: &Path) -> Option<Vec<u8>> {
     use std::io::Read as _;
     let f = fs::File::open(full).ok()?;
@@ -573,9 +530,10 @@ fn read_head(full: &Path) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-/// `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?}`. A link is
-/// described by its target and says what kind of link it is. `text` only with `sniff`, for a
-/// file: whether it reads as text (`sniff_text`).
+/// `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?, encoding?}`. A link
+/// is described by its target and says what kind of link it is. `text` only with `sniff`, for a
+/// file: whether it reads as text in some encoding, and `encoding` which one
+/// (encoding.rs `sniff`).
 pub fn stat(root: &Path, rel: &str, sniff: bool) -> Result<Value, String> {
     let full = resolve(root, rel)?;
     let Ok(own) = fs::symlink_metadata(&full) else {
@@ -588,15 +546,46 @@ pub fn stat(root: &Path, rel: &str, sniff: bool) -> Result<Value, String> {
         "kind": node.kind,
         "mtime": node.mtime,
         "size": node.size,
-        "hidden": crate::hide::classify(rel, Some(&own)) != crate::hide::Visibility::Shown,
+        "hidden": crate::hide::classify(root, rel, Some(&own)) != crate::hide::Visibility::Shown,
     });
     if let Some(link) = node.link {
         out["link"] = json!(link);
     }
     if sniff && node.kind == "file" {
-        out["text"] = json!(read_head(&full).map(|h| sniff_text(&h)).unwrap_or(false));
+        add_sniff(&mut out, &full);
     }
     Ok(out)
+}
+
+/// `text` and `encoding` of a file, from its first 8 KB.
+fn add_sniff(out: &mut Value, full: &Path) {
+    let head = read_head(full).unwrap_or_default();
+    match crate::encoding::sniff(&head, head.len() >= SNIFF_BYTES) {
+        Some(enc) => {
+            out["text"] = json!(true);
+            out["encoding"] = json!(enc);
+        }
+        None => out["text"] = json!(false),
+    }
+}
+
+/// `stat` of a file outside the vault (`abs:`), which no hide rule covers.
+pub fn stat_outside(full: &Path, sniff: bool) -> Value {
+    let Ok(meta) = fs::metadata(full) else {
+        return json!({ "exists": false, "kind": null, "mtime": 0, "size": 0, "hidden": false });
+    };
+    let is_dir = meta.is_dir();
+    let mut out = json!({
+        "exists": true,
+        "kind": if is_dir { "dir" } else { "file" },
+        "mtime": mtime_of(&meta),
+        "size": if is_dir { 0 } else { meta.len() },
+        "hidden": false,
+    });
+    if sniff && !is_dir {
+        add_sniff(&mut out, full);
+    }
+    out
 }
 
 pub fn exists(root: &Path, rel: &str) -> Result<bool, String> {
@@ -1644,137 +1633,6 @@ fn allowed(q: &Query, rel: &str, name: &str) -> bool {
         && (q.files.is_empty() || q.files.iter().any(|f| name.contains(f)))
 }
 
-// ---- dispatch --------------------------------------------------------------
-
-const COMMANDS: &[&str] = &[
-    "rootInfo",
-    "vaultInfo",
-    "forgetVault",
-    "tree",
-    "list",
-    "stat",
-    "exists",
-    "readText",
-    "writeText",
-    "appendText",
-    "writeBinary",
-    "readBinary",
-    "mkdir",
-    "rename",
-    "copyPath",
-    "search",
-];
-
-/// The commands that may take a while: the two that walk the whole vault, and a copy of a
-/// whole folder. `rpc` (lib.rs) sends these to a blocking worker instead of running them inline
-/// on a tokio worker thread; the dispatch below is the same either way.
-pub const BLOCKING: &[&str] = &["tree", "search", "copyPath"];
-
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    if !COMMANDS.contains(&cmd) {
-        return None;
-    }
-    // The three that answer without a vault; everything else reads the root at call time.
-    match cmd {
-        "rootInfo" => {
-            let mut info = match ctx.st.root() {
-                Some(root) => root_info(&root),
-                None => json!({ "root": null, "name": null }),
-            };
-            info["epoch"] = json!(ctx.st.epoch());
-            return Some(Ok(info));
-        }
-        "vaultInfo" => return Some(Ok(vault_info(ctx))),
-        "forgetVault" => return Some(forget(ctx.app).map(|_| Value::Null).map_err(crate::with_code)),
-        _ => {}
-    }
-    // A mutating command that names an epoch other than the open one is refused here, before
-    // it touches anything (`[stale_vault]`).
-    let root = match crate::root_for(ctx.st, cmd, args) {
-        Ok(r) => r,
-        Err(e) => return Some(Err(e)),
-    };
-    let r = dispatch(&root, cmd, args);
-    // A page's drafts follow it to its new name, as its history already did in `dispatch`.
-    if cmd == "rename" && r.is_ok() {
-        if let (Ok(from), Ok(to)) = (arg_str(args, 0), arg_str(args, 1)) {
-            if let Err(e) = crate::drafts::rekey(ctx.st, &root, &from, &to) {
-                crate::log_at(ctx.st, crate::Level::Warn, &format!("drafts: {from} -> {to}: {e}"));
-            }
-        }
-    }
-    Some(r)
-}
-
-/// The synchronous half of `handle`, for a caller that already has the root and wants to run
-/// the command somewhere else (lib.rs's blocking worker).
-pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
-    let ok = Ok(Value::Null);
-    match cmd {
-        // `{hidden}` in the trailing options: hidden items are listed only when asked for.
-        "tree" => to_value(tree(root, opt_bool(args, 0, "hidden"))?),
-        "list" => to_value(list(root, &arg_str_or(args, 0, ""), opt_bool(args, 1, "hidden"))?),
-        "stat" => stat(root, &arg_str(args, 0)?, opt_bool(args, 1, "sniff")),
-        "exists" => Ok(Value::Bool(exists(root, &arg_str(args, 0)?)?)),
-        "readText" => Ok(Value::String(read_text(root, &arg_str(args, 0)?)?)),
-        "writeText" => {
-            write_text(root, &arg_str(args, 0)?, &arg_str_or(args, 1, ""))?;
-            ok
-        }
-        "appendText" => {
-            append_text(root, &arg_str(args, 0)?, &arg_str_or(args, 1, ""))?;
-            ok
-        }
-        "writeBinary" => {
-            write_binary(root, &arg_str(args, 0)?, &arg_str(args, 1)?)?;
-            ok
-        }
-        "readBinary" => Ok(Value::String(read_binary(root, &arg_str(args, 0)?)?)),
-        "mkdir" => {
-            mkdir(root, &arg_str(args, 0)?)?;
-            ok
-        }
-        "rename" => {
-            let (from, to) = (arg_str(args, 0)?, arg_str(args, 1)?);
-            rename(root, &from, &to)?;
-            // The history moves with the file, or with every file of a folder (H10). A history
-            // that cannot move is not a failed rename: the file is where it was asked to be.
-            if let Err(e) = crate::versions::move_history(root, &from, &to) {
-                eprintln!("history: {from} -> {to}: {e}");
-            }
-            ok
-        }
-        "copyPath" => copy_path(root, &arg_str(args, 0)?, &arg_str(args, 1)?),
-        "search" => {
-            // `limit: 0` is "no cap", which the rename pass asks for so it finds every inbound
-            // link (N20); a negative number is nonsense and takes the default.
-            let limit = opt_field_i64(args, 1, "limit", DEFAULT_SEARCH_LIMIT as i64);
-            let limit = if limit < 0 {
-                DEFAULT_SEARCH_LIMIT
-            } else {
-                limit as usize
-            };
-            let chan = args
-                .get(1)
-                .and_then(|v| v.get("chan"))
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            Ok(search(root, &arg_str(args, 0)?, limit, chan.as_deref(), opt_bool(args, 1, "hidden")))
-        }
-        _ => Err(format!("unknown command: {cmd}")),
-    }
-}
-
-/// A boolean field of the options object at `i`; anything else is false.
-fn opt_bool(args: &[Value], i: usize, key: &str) -> bool {
-    args.get(i).and_then(|o| o.get(key)).and_then(Value::as_bool).unwrap_or(false)
-}
-
-fn to_value<T: Serialize>(v: T) -> Result<Value, String> {
-    serde_json::to_value(v).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1875,7 +1733,10 @@ mod tests {
         assert_eq!(text("notes"), true);
         assert_eq!(text("bom.txt"), true);
         assert_eq!(text("blob.bin"), false);
-        assert_eq!(text("latin1.txt"), false);
+        // Not UTF-8, but windows-1252 that decodes and encodes back to the same bytes (M52).
+        assert_eq!(text("latin1.txt"), true);
+        assert_eq!(stat(root, "latin1.txt", true).unwrap()["encoding"], "windows-1252");
+        assert_eq!(stat(root, "notes", true).unwrap()["encoding"], "UTF-8");
         assert_eq!(text("long.md"), true);
         assert!(stat(root, "notes", false).unwrap().get("text").is_none(), "only with sniff");
         assert_eq!(stat(root, ".hidden.md", false).unwrap()["hidden"], true);
@@ -2331,7 +2192,9 @@ mod tests {
         let root = &t.0;
         write_text(root, "a.md", "# a\n").unwrap();
         crate::versions::keep(root, "a.md", b"# before\n", true, crate::versions::Reason::Save).unwrap();
-        dispatch(root, "rename", &[json!("a.md"), json!("b.md")]).unwrap();
+        // What the `rename` command does: the file, then its history.
+        rename(root, "a.md", "b.md").unwrap();
+        crate::versions::move_history(root, "a.md", "b.md").unwrap();
         assert_eq!(crate::versions::list(root, "a.md").unwrap(), json!([]));
         assert_eq!(crate::versions::list(root, "b.md").unwrap().as_array().unwrap().len(), 1);
     }
@@ -2386,5 +2249,37 @@ mod tests {
         assert_eq!(natural_compare("b", "A"), Ordering::Greater);
         assert_eq!(natural_compare("a", "a"), Ordering::Equal);
         assert_eq!(natural_compare("a", "ab"), Ordering::Less);
+    }
+
+    /// M49: the decomposed name a Finder rename writes becomes the composed one a keyboard types.
+    #[test]
+    fn nfd_becomes_nfc() {
+        let nfd = "Cafe\u{301} de\u{301}ja\u{300}.md".to_string();
+        let nfc = "Café déjà.md";
+        assert_ne!(nfd, nfc);
+        assert_eq!(to_nfc(nfd.clone()), nfc);
+        assert_eq!(to_nfc(nfc.to_string()), nfc, "already composed: untouched");
+        if cfg!(target_os = "macos") {
+            assert_eq!(nfc_of(&nfd), nfc);
+        } else {
+            assert_eq!(nfc_of(&nfd), nfd, "only macOS normalises what it sends out");
+        }
+    }
+
+    fn nfc_of(s: &str) -> String {
+        nfc(s.to_string())
+    }
+
+    /// On macOS a listing sends NFC names and paths whatever the disk holds.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_listing_is_nfc_on_macos() {
+        let t = Tmp::new("nfc");
+        let root = &t.0;
+        fs::write(root.join("Cafe\u{301}.md"), "x").unwrap();
+        let names: Vec<String> = list(root, "", false).unwrap().into_iter().map(|n| n.path).collect();
+        assert_eq!(names, vec!["Café.md".to_string()]);
+        // A path coming in is used as given: APFS finds the file under either form.
+        assert!(exists(root, "Café.md").unwrap() && exists(root, "Cafe\u{301}.md").unwrap());
     }
 }

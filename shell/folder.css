@@ -127,3 +127,10 @@
   margin: 0 calc(-1 * var(--sp-3)) var(--sp-2) 0; color: var(--fg-3);
 }
 .fv-readme-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------------ drops */
+
+/* A drop from the OS or a row dragged in the app lands on a folder row, or on the list's own
+   background for this folder: the same accent wash and bar the tree's drop target wears. */
+.fv-row.drop-on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.fv.drop-on { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }

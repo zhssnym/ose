@@ -1,10 +1,15 @@
 # The shell
 
-The shell is the whole interface: the title bar with its address bar, the tab strip, the
+The shell is the whole interface: the toolbar with its address bar, the tab strip, the
 sidebar's one tree, the folder view, Home, the palette and Go to file, the search panel, the
 status bar, the Settings page, the Trash view and the vault chooser. It is plain ES modules and
 CSS, no bundler, and it travels inside `ose.exe`, served on the `app` origin (docs/HOST.md). It
 is not the kernel: it draws, and it calls the hoses of `docs/KERNEL.md` like anything else.
+
+The window around it is the platform's own (X9, D11): Windows draws the title bar with its
+minimise, maximise (Snap Layouts included) and close buttons, macOS its traffic lights, and both
+move and resize the window. The shell draws no window button, no resize edge and no drag region;
+its top row is a plain toolbar. The window is at least 480 by 360.
 
 The planner (Day, Week, Month, Journal) is not in the shell either. It is `src/planner`, one
 bundle `ose:planner` that ships inside the exe beside the kernel and the editor, and the shell
@@ -14,16 +19,16 @@ loads it at boot. Its file formats are `docs/FORMATS.md`.
 
 ```
 shell/
-  index.html        the page: the stylesheets in cascade order (below) and two module
-                    scripts, first-paint.js then main.js. Every path in it is relative and flat
-                    (`./main.js`), because the app origin serves `shell/<path>`. The CSP allows
-                    no inline script.
+  index.html        the page: the import map, the stylesheets in cascade order (below) and two
+                    module scripts, first-paint.js then main.js. Every path in it is relative
+                    and flat (`./main.js`), because the build copies `shell/` into `dist/`
+                    as it is. The CSP allows no inline script but the import map.
   first-paint.js    theme and platform onto <html> before the first paint
   main.js           the entry: imports boot.js, and puts boot-error.js up when anything throws
   boot.js           the boot, below
   boot-error.js     the page a failed boot leaves (imports nothing)
-  layout.js         the frame: title bar, sidebar, page column, side panel, status bar
-  titlebar.js       back, forward, the address bar, the window buttons
+  layout.js         the frame: toolbar, sidebar, page column, side panel, status bar
+  titlebar.js       the toolbar: the sidebar's fold, back, forward, New file, the address bar
   tabs.js           the strip, drawn from the kernel's tabs
   sidebar.js        the one tree
   folder.js         the folder view (and its compact form on Home)
@@ -33,32 +38,36 @@ shell/
   pins.js           pins, in `.ose/state.json`
   trash.js          the Trash view
   fileops.js        New file…, New folder, Rename…, Move to…, Duplicate, trash, cut, copy,
-                    paste, undo: the one UI for them
+                    paste, undo, Open file…, Copy into the vault…: the one UI for them
+  drag.js           drag in from the OS and drag out to it, for the tree and the folder view
   page.js           the page seam (text, images, PDFs, binary files)   media.js  media.css
   palette.js        the command palette and Go to file
   search.js         search, in the side panel
   settings.js       the Settings page
   statusbar.js      the status bar
   recover.js        the Recovered changes sheet
-  vault.js          the vault chooser and the change-vault dialogs
-  order.js  host.js  paths.js
+  vault.js          the vault chooser, the change-vault dialogs, New window
+  host.js           is this a real window, and the one window hose left
+  paths.js          path helpers, and the shared vaultName, errorOf and keyOf
+  order.js
   shell.css         the frame, overlays, the vault chooser, the status bar, search, settings,
                     Go to file, the empty and miss boxes, the boot error page
   tree.css          the tree
-  places.css        the title bar, the address bar, the tabs, the page column, the resizers
+  places.css        the toolbar, the address bar, the tabs, the page column, the resizers
   folder.css        the folder view
   theme.css         token overrides; empty on purpose
   keys.json         the shell's chords, below
   logo.png
 ```
 
-`index.html` links the stylesheets in this order, so every later sheet wins over an earlier one
-and `theme.css` wins over everything:
+`index.html` carries the import map and then links the stylesheets in this order, so every later
+sheet wins over an earlier one and `theme.css` wins over everything:
 
 ```html
-<link data-ose="ui" rel="stylesheet" href="">
-<link data-ose="editor" rel="stylesheet" href="">
-<link data-ose="planner" rel="stylesheet" href="">
+<script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
+<link rel="stylesheet" href="./ose/ui.css">
+<link rel="stylesheet" href="./ose/editor.css">
+<link rel="stylesheet" href="./ose/planner.css">
 <link rel="stylesheet" href="./shell.css">
 <link rel="stylesheet" href="./tree.css">
 <link rel="stylesheet" href="./places.css">
@@ -66,9 +75,11 @@ and `theme.css` wins over everything:
 <link rel="stylesheet" href="./theme.css">
 ```
 
-The three `data-ose` links are filled by the host on the way out (docs/HOST.md), so no file of
-the shell names an origin. On a plain file server (the browser dev server) they arrive empty and
-`boot.js` fills each one with `ose.assets.url('<name>.css')` after `ose.ready`.
+The build copies `shell/` verbatim into `dist/`, beside the kernel's four bundles in `dist/ose/`,
+and Tauri serves `dist/` from its own asset protocol. The import map is the one inline script of
+the page; Tauri hashes it into the CSP of `tauri.conf.json` at build time. In the browser dev
+server the map is inert, because Vite rewrites every `ose:*` import itself, and the dev server
+answers `/ose/*.css`. No file of the shell names an origin.
 
 ## How it loads
 
@@ -97,7 +108,10 @@ ose.ready -> settings.apply -> vault chooser | mountShell
    registers its four views, its commands and its section of Settings itself. A planner that
    fails to load is logged and said in one error toast, and the boot goes on without it.
 7. `startSurface()` (start.js): with `restoreSession` on and a usable session, the last session's
-   tabs come back (`ose.session.restore()`), only the active one mounted; otherwise Home.
+   tabs come back (`ose.session.restore()`), only the active one mounted; otherwise Home. The
+   files the OS asked this window to open (a double click, Open with, a path on the command
+   line) then open over them, each in a tab of its own, the last one in front: that is the
+   kernel's (`opens.js`, docs/KERNEL.md), and the shell does nothing for it.
 8. `ose.bus.emit('booted')`, then `offerRecovered()`: the Recovered changes sheet, when there are
    drafts.
 9. Once per vault on this machine, when the vault still has a `.ose/plugins` folder from before
@@ -160,13 +174,16 @@ and forward. One route is mounted in the one page column: the active tab's curre
 - A route that already has a tab is brought to the front rather than duplicated, by its route
   key.
 - Back and forward (Alt+Left and Alt+Right, Cmd+[ and Cmd+] on a Mac, the mouse's buttons 4 and
-  5, and the two arrows in the title bar) act on the active tab.
+  5, and the two arrows in the toolbar) act on the active tab.
 - Closing the last tab sends it to Home, so the strip is never empty. One tab is no strip: it
   appears at two.
 - Switching tabs does not tear a page down: the editor parks it, buffer, undo and all, and the
   page comes back as it was left (M12, M24).
 - A tab's label is the file's name (`ose.names.display`), a folder's name, or a view's title,
   with the full path as its tooltip. The dirty dot and the error mark come from `doc:state`.
+- A tab whose file is outside the vault wears the word "outside vault" after its name, has
+  the file's whole absolute path in its tooltip, and says "outside vault" in its accessible
+  name (below, "Files outside the vault").
 - A page that is trashed turns into its folder, with the file's name selected, in every tab
   that was showing it.
 
@@ -179,8 +196,9 @@ turns it off, and then the app opens on Home.
 **Home** (`dashboard.js`, the view `home`, `app.home`) is, top to bottom, with whitespace between
 the groups and no cards: the planner row (one button per view whose `section` is `planner`, in
 `order`, each with its chord), Pins (a missing pin greyed with "missing"), Recent (up to eight
-files, name and folder), and the vault root listing in compact form with a link to the full
-folder view.
+files, name and folder; a file outside the vault wears the same "outside vault" mark as its
+tab, with its absolute folder), and the vault root listing in compact form with a link to the
+full folder view.
 
 **The folder view** (H15, `folder.js`). A folder route draws the folder's name and item count, a
 toolbar (New file…, New folder, Paste, Undo, the sort, Show hidden items; each also a command),
@@ -192,13 +210,19 @@ opens (a folder as a folder route, a file as a page); Ctrl+Enter opens in a new 
 goes to the parent; F2 renames; Delete trashes; Ctrl+X, C and V cut, copy and paste; Ctrl+Z
 undoes the last file operation; Shift and Ctrl clicks select several. `folder.up` (Alt+Up, not
 while the caret is in the editor) goes to the parent folder from anywhere, and from a page to its
-folder with the file selected.
+folder with the file selected. With the mouse, a row dragged onto a folder row (here or in the
+tree) moves, a drop from Explorer or Finder on a folder row or on the list's background is
+copied in, and Alt+drag takes the rows out as a copy ("Drag in and out", below).
 
 **The address bar** (M21, `titlebar.js`). At rest it is the active place as segments: the vault's
 name, each folder, the file's name, each segment a button to that folder. `app.address` (Ctrl+L,
 Alt+D) turns it into an input holding the vault-relative path, with completion over the typed
 folder's children (Tab accepts, Up and Down move). Enter goes to the folder or opens the file; a
 path that is not there says so under the input and leaves it open. Esc puts the segments back.
+A full path pasted from Explorer or Finder that is inside the vault goes there; one outside the
+vault opens that file in a tab marked "outside vault" (`ose.files.openOutside`), or, for a file
+inside another Ose vault, in that vault's window. A page outside the vault reads, at rest,
+"Outside the vault › its folder › its name", and only the name is a place.
 
 ## The sidebar: one tree
 
@@ -231,9 +255,13 @@ each command with the row under the pointer. Nothing enters focus mode but its o
 `app.focus-enter` (Focus folder); while a folder is in focus the status bar carries a chip that
 leaves it.
 
-The sidebar folds with `app.sidebar` (Ctrl+\) or the chevron in the title bar's left corner, can
-be widened up to 60 % of the window, and hides itself under 640px of window. Its width and open
-state are this machine's (`ose.local('sidebar')`). `app.full-width` flips Settings' full width.
+The sidebar folds with `app.sidebar` (Ctrl+\) or the chevron in the toolbar's left corner, can
+be widened up to 60 % of the window, and hides itself under 640px of window, so a window at its
+480px minimum is the toolbar, the page and the status bar. Its width and open state are this
+machine's (`ose.local('sidebar')`). `app.full-width` flips Settings' full width.
+
+A row dragged onto a folder row moves (the selection drags together); a drop from the OS on a
+folder row is copied in; Alt+drag takes the rows out as a copy ("Drag in and out", below).
 
 ## The side panel and search
 
@@ -278,11 +306,13 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
 
 - a PDF or an image goes to `media.js` (below);
 - anything else is asked about first, `ose.files.stat(path, { sniff: true })`: a file whose first
-  8 KB are text (no NUL, valid UTF-8) goes to the editor, which gives `.md`, `.markdown`,
-  `.mdown` and `.mkd` the Rich / Source switch and opens every other text file, extensionless
-  ones included, as plain source, keeping its line endings and BOM;
+  8 KB are text (no NUL, valid UTF-8, or an encoding the host recognises) goes to the editor,
+  which gives `.md`, `.markdown`, `.mdown` and `.mkd` the Rich / Live / Source switch and opens
+  every other text file, extensionless ones included, as plain source, keeping its line endings
+  and BOM;
 - a file that is not text gets a box with its name, size and type, and **Open with default
-  app**, **Show in folder** and **Reveal in Explorer**.
+  app**, **Show in folder** (for a file outside the vault, **Copy into the vault…**) and
+  **Reveal in Explorer**.
 
 | method | what the shell does |
 |---|---|
@@ -298,9 +328,11 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
 
 The editor draws two things of its own in the page column: a banner at the top whenever the page
 is not on disk as shown (not saved, changed on disk, deleted, recovered, merged), whose buttons
-are commands, and the **Rich | Source** switch in the page meta line. A change made on disk by
-another program is merged into an open page when it can be (H7), with a banner that closes by
-itself; only when the edits overlap does the page stop and ask.
+are commands, and the **Rich | Live | Source** switch in the page meta line, with its **Read**
+toggle (the Reading view). A change made on disk by another program is merged into an open page
+when it can be (H7), with a banner that closes by itself; only when the edits overlap does the
+page stop and ask. Live and the Reading view are the editor's (docs/LIVE.md); the shell only
+draws the mode menu in the status bar and the default in Settings.
 
 **Media pages.** A PDF is an `<iframe>` on the vault origin, drawn by the web view's own viewer;
 an image is an `<img>` capped to the column, where a click or Enter toggles fit and actual size.
@@ -329,6 +361,8 @@ pasting files, and every one of them ends at `ose.fileops`, the kernel's one imp
 | `file.cut` / `file.copy` / `file.paste` | Cut / Copy / Paste | Ctrl+X, C, V in the tree and the folder view | a cut row is dimmed until the paste; pasting into the same folder copies as `name 2` |
 | `file.undo` | Undo last file operation | Ctrl+Z in the tree and the folder view | the journal, below |
 | `file.trash` | Move to the Recycle Bin, the Trash, or .trash | Delete in the tree and the folder view | see below |
+| `file.open` | Open file… | — | the system's file dialog, then the file in a tab (below) |
+| `file.copy-into-vault` | Copy into the vault… | — | a folder picker, then a byte copy of the outside file on screen, which opens |
 
 - **A name is literal.** What is typed is what is written: any extension or none, nothing
   appended, nothing cleaned away. A name no file system can hold brings the prompt back with the
@@ -345,12 +379,50 @@ pasting files, and every one of them ends at `ose.fileops`, the kernel's one imp
   button. `file.undo` undoes the newest one. An undo goes back through the same operations, so
   open pages follow and links are rewritten back; a file created or copied that has changed since
   is left in place and the toast says so. The journal is this session's only; there is no redo.
-- **Trash says where** (M18). The confirm and the toast name the real destination, as the host
-  reports it for that path: "Move to the Recycle Bin" (Windows), "Move to the Trash" (macOS),
-  "Move to .trash in this vault" (the setting, or a drive with no recycle bin). Nothing is ever
-  deleted outright. A single item is trashed with the Undo toast and no dialog; several ask once.
+- **Trash says where** (M18). The command's own title, in the palette and in every context
+  menu, names the real bin as the host reports it for the vault (`ose.files.trashWhere`, asked
+  at boot and again when the setting changes): "Move to the Recycle Bin" (Windows), "Move to the
+  Trash" (macOS), "Move to .trash in this vault" (the setting, or a drive with no recycle bin).
+  The confirm and the toast name the destination the same way, per path. Nothing is ever deleted
+  outright. A single item is trashed with the Undo toast and no dialog; several ask once.
+- **A file outside the vault** is never renamed, moved, copied, duplicated or trashed from
+  here: those commands are not offered for it. Copy into the vault… is.
 - **The open page** (and every page under a renamed or moved folder) is saved first. When it
   cannot be, nothing on disk changes and a sticky error toast says why.
+
+### Files outside the vault
+
+A file anywhere on the machine can be opened in a tab (X7): **Open file…** (`file.open`, the
+system's dialog), a full path typed in the address bar, or the OS (Open with, a double click, a
+path on the command line; the kernel's `opens.js`). A file inside this vault opens as the vault
+page it is. Any other is an `abs:` page (`abs:D:/Notes/todo.md`): its tab, its Home row and its
+address say "outside vault" with the whole path, it is read, edited, saved in place, kept as a
+draft and merged like a vault page, and it has no versions, no links or backlinks and no
+attachments. **Copy into the vault…** (`file.copy-into-vault`) asks for a folder and copies it
+there byte for byte under a free name, create-only, with Undo; the copy opens and the outside
+tab stays. In the browser, Open file… says it needs the app.
+
+### Drag in and out
+
+`drag.js`, for the tree and the folder view (X8, §5.5 of the wave-3 contract).
+
+- **In.** A drop from Explorer or Finder on a tree folder row, a folder-view folder row or the
+  folder view's background (that folder) is copied in. The entries are taken from the drop at
+  once (`webkitGetAsEntry()`), folders walked with their children read in batches, and handed
+  to `ose.fileops.importEntries`: every file lands as its bytes through the create-only
+  `createNewBinary` (a byte-order mark or another encoding arrives as it was), a taken name gets
+  a free one for its whole subtree, and the drop is one undo step ("Copied 3 items into
+  Notes", with Undo). Above 20 items a toast says the copy has started. A file over 64 MB is
+  refused: "too large to copy by drop; copy it in Explorer" (Finder on a Mac). What did not come
+  in is listed in one sticky toast. A drop on the editor is the editor's (Rich: its image drop;
+  Live: its paste handler), and any other drop is ignored.
+- **Out.** Alt+drag on a row of the tree or the folder view takes the row, or the whole selection
+  it is part of, out of the app as a copy (`ose.files.dragOut`, the host's native drag): onto the
+  desktop, into Explorer or Finder, into a mail. The vault's files are never moved or deleted
+  by it. In the browser a toast says "Drag out needs the app". The keyboard's way to the same
+  place is Reveal in Explorer.
+- **Within.** A plain drag of a row onto a folder row, in either list, is a move through Move
+  to…'s rules (never into itself, never where it already is), with its Undo.
 
 **The Trash view** (`trash.js`, `app.trash`, the view `trash`). Every item that can be restored:
 the vault's `.trash`, and the system bin on Windows and Linux, only items that came from this
@@ -368,8 +440,20 @@ window when it cannot:
 - **Reload window** (`app.reload`, no chord) is `ose.reload()`, which leaves first.
 - **Change vault…** chooses a folder without adopting it, then `switchVault(root)` in `vault.js`:
   leave (stop on false: the kernel has said why), `ose.vault.open(root)`, reload. The page's last
-  save lands in the vault it came from.
-- **A second launch** naming another folder runs the same `switchVault`.
+  save lands in the vault it came from. When that vault is already open in another window, the
+  host brings that window forward instead (X6), this window stays as it was, and a toast says
+  "That vault is open in another window".
+- **A second launch** naming another folder runs the same `switchVault` until windows per vault
+  take over (gate G3); then it opens, or focuses, a window of its own and this handler goes.
+
+## Windows
+
+One window per vault, never two on one (X6). **New window** (`app.new-window`, no chord) opens a
+window with no vault, on the chooser. In the Change vault… dialog and on the first-run chooser,
+Shift+Enter or Shift+click on a recent vault, or the **Open in new window** button, opens that
+vault in a window of its own and leaves this one as it was; with no row chosen the button asks
+for the folder first. A vault that is already open is focused instead, and the toast says so.
+Each window has its own tabs, session and epoch; closing one keeps the others.
 - **The vault is gone**: the lost dialog. **Retry** closes it when the folder is back, and so does
   the watcher saying so. **Change vault…** there asks once whether to switch anyway; the text
   stays on this machine as a draft.
@@ -392,12 +476,19 @@ end of the boot, a sticky toast with **Show** stands in for the sheet.
 ## The status bar
 
 It says something only when there is something worth saying (M27). Left, joined by `·`: the
-page's **Rich | Source** switch (`mode`), its word count (`doc`), the focus chip, and the save
-state only when it is bad — "Not saved", "Not saved · changed on disk", "Deleted on disk", each a
-button that shows the problem. Right: the zoom while it is not 100 %, as a button back to 100 %.
-There is no path (the address bar has it), no `watch on`, no theme, no host kind and no settings
-hint. Any other field set through `ose.status.set` is drawn on the left, a button when it carries
-an `onClick` and coloured when it carries a `kind`.
+page's editing mode (`mode`), its word count (`doc`), the focus chip, and the save state only
+when it is bad — "Not saved", "Not saved · changed on disk", "Deleted on disk", each a button
+that shows the problem. Right: the zoom while it is not 100 %, as a button back to 100 %. There
+is no path (the address bar has it), no `watch on`, no theme, no host kind and no settings hint.
+Any other field set through `ose.status.set` is drawn on the left, a button when it carries an
+`onClick` and coloured when it carries a `kind`.
+
+**The mode menu.** A field set with `choices` (the editor's `mode`: Rich, Live, Source, with
+`value` and `onChoose`, §4.5) is a button with a small chevron. It opens a menu of the choices,
+the current one checked with a dot and focused: Up and Down walk it, Enter picks, Esc closes, and
+a pick calls `onChoose`. The menu opens above the bar. A plain text file sets `Text` with no
+choices, which is plain text. The same modes are palette commands (`page.mode-rich`,
+`page.mode-live`, `page.mode-source`, `page.mode-next`) and Ctrl+E still toggles Source.
 
 ## Settings
 
@@ -411,8 +502,10 @@ the rows); the section's rows are on the right. Every change applies at once.
 
 - **Appearance**: theme (System, Light, Dark; System is the default and follows the computer),
   zoom, text size, line height, page face, page layout, full width.
-- **Editor**: spellcheck, and "Name new pages after their heading" (`titleSync`, off by default:
-  a file keeps the name it was given).
+- **Editor**: "Open markdown files in" Rich, Live or Source (`editorMode`, Rich by default: the
+  mode a markdown file opens in the first time; a file you switch keeps its own mode, and a plain
+  text file is always Source), spellcheck, and "Name new pages after their heading" (`titleSync`,
+  off by default: a file keeps the name it was given).
 - **Files**: where deleted files go, with a second line saying what really happens (a drive with
   no Recycle Bin, the macOS Trash that cannot be listed); where attachments go; Show hidden
   items; Restore tabs at start; Hide .md in names.
@@ -432,6 +525,7 @@ The values are the kernel's (`ose.settings`), and the kernel knows where each on
 | `showHidden` | this machine | off |
 | `restoreSession` | this machine | on |
 | `hideMdExt` | this machine | off |
+| `editorMode` | this machine | `rich` |
 | `trash` | the vault | the system bin |
 | `attachments` | the vault | beside the page |
 | `titleSync` | the vault | off |

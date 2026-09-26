@@ -5,24 +5,22 @@
 // Depends on: planner (src/planner/plans.js, dates.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const present = exists('src/planner/plans.js', 'src/planner/dates.js');
-const p = present ? await import('../../src/planner/plans.js') : {};
+const p = await import('../../src/planner/plans.js');
 
 const day = (y, m, dd) => new Date(y, m - 1, dd);
 const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 const EVERY = new Set([0, 1, 2, 3, 4, 5, 6]);
 const jsonl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 
-describe.skipIf(!present)('planPath', () => {
+describe('planPath', () => {
   it('is <reports>/<year>/<YYYY-MM>.md', () => {
     expect(p.planPath(day(2026, 9, 26), 'reports')).toBe('reports/2026/2026-09.md');
     expect(p.planPath(day(2027, 1, 1), '3-execution/reports/')).toBe('3-execution/reports/2027/2027-01.md');
   });
 });
 
-describe.skipIf(!present)('lossDays', () => {
+describe('lossDays', () => {
   const sys = { name: 'Read', days: EVERY };
   const today = day(2026, 9, 20);
 
@@ -72,7 +70,7 @@ describe.skipIf(!present)('lossDays', () => {
   });
 });
 
-describe.skipIf(!present || typeof p.checkRecord !== 'function')('checkRecord', () => {
+describe('checkRecord', () => {
   it('is one JSON line for appendLine (M30): no newline in it', () => {
     const r = p.checkRecord(day(2026, 9, 26), 'Read', true, new Date(Date.UTC(2026, 8, 26, 8, 0)));
     expect(r).toEqual({ date: '2026-09-26', system: 'Read', done: true, at: '2026-09-26T08:00:00.000Z' });

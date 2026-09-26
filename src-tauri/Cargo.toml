@@ -6,8 +6,8 @@ authors = ["Hassan Shahir"]
 edition = "2021"
 rust-version = "1.85"
 
-# The library holds every module; the binary is a thin entry point so `generate_handler!`
-# can name commands by path (`ose::rpc`).
+# The library holds every module and every command (commands.rs); the binary is a thin entry
+# point that registers them through the tauri-specta builder (bindings.rs).
 [lib]
 name = "ose"
 path = "src/lib.rs"
@@ -46,15 +46,28 @@ trash = "5"
 opener = "0.7"
 percent-encoding = "2"
 base64 = "0.22"
-# The sha256 of the import map the host injects into the page, which is how the CSP names that
-# one inline script without allowing every other one (shell.rs). Pure Rust, and already in the
-# tree as a transitive dependency of tauri, so it is no extra download.
-sha2 = "0.10"
 # The `log` facade, so Tauri's and notify's own records reach the persistent log (lib.rs
 # `Records`) and notify's silent Windows unwatch becomes a watcher restart (H9). Already in the
 # tree under tauri; naming it is no extra download. The rotation is ours (lib.rs), which is why
 # tauri-plugin-log is not here.
 log = "0.4"
+# Typed host commands (L9, wave 3): one `#[tauri::command]` per operation, and the TypeScript
+# bindings the kernel imports (`src/kernel/bridge/bindings.ts`) generated from the Rust types by
+# `bindings::builder()`. A beta: pinned with `=`, as tauri-specta's own documentation requires.
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
+specta-typescript = "=0.0.12"
+# The one error type every command answers (`HostError`, error.rs).
+thiserror = "2"
+# Drag out (wave 3, §5.5): a vault file dragged onto the desktop or a folder, copy only.
+tauri-plugin-drag = "2"
+# NFC names on macOS (M49): APFS hands back the NFD a Finder rename wrote, and a link typed on
+# the keyboard is NFC; without one form the two never compare equal.
+unicode-normalization = "0.1"
+# Text in any encoding (M52): encoding_rs decodes and encodes the WHATWG encodings, chardetng
+# guesses which one a file without a byte-order mark is in. Both Mozilla's, both pure Rust.
+encoding_rs = "0.8"
+chardetng = "1"
 
 # Printing is WebView2's own (print.rs): `ICoreWebView2_7::PrintToPdf` writes the PDF and
 # `ICoreWebView2_16::ShowPrintUI` opens the system dialog. Both crates are already in the tree

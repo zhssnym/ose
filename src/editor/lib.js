@@ -57,3 +57,9 @@ export { beforePathChange, afterPathChange, saveAll } from './page.js';
  *                                        are rewritten in the editor, not on disk (H5)
  */
 export { releasePage, parkedPaths, rewriteLinksIn } from './page.js';
+
+/**
+ * `problemPages()` -> string[]: the pages, on screen or parked, whose text could not be saved
+ * (not saved, a conflict, or deleted). PageHost.problems hands it to the leave gate.
+ */
+export { problemPages } from './page.js';

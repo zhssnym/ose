@@ -9,7 +9,8 @@
 // folder route says so in a box.
 //
 //   setPageHost({ open, canLeave?, stay?, close?, release?, rewriteLinksIn?, scrollToLine?,
-//                 selection?, headingLine?, beforePathChange?, afterPathChange?, claims? })
+//                 selection?, headingLine?, beforePathChange?, afterPathChange?, claims?,
+//                 problems? })
 //
 //   open(el, path, { line, col, query, selection })  -> Promise, draws the file into `el`;
 //                                     reuses a parked instance of `path` when there is one
@@ -35,6 +36,9 @@
 //                                     operation touches nothing (./fileops.js, C6)
 //   afterPathChange({kind, from, to, ok}) -> Promise, whether the host call succeeded or not
 //   claims(path)                   -> boolean, true when the host draws a missing path itself
+//   problems()                     -> string[], the paths of the pages that hold unsaved work
+//                                     they could not write, on screen or parked: the leave gate
+//                                     names them, and brings one no tab shows back into a tab
 //
 // `kind` is 'rename' | 'move' | 'trash' | 'copy'; `to` is null for a trash. Every method but
 // `open` is optional, and a missing one means "yes" or "nothing to do".
@@ -96,8 +100,8 @@ export function headingLineIn(text, heading) {
     if (!want) return 0;
     const lines = String(text ?? '').split('\n');
     for (let i = 0; i < lines.length; i++) {
-      const m = /^#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/.exec(lines[i]);
-      if (m && headingSlug(m[1]) === want) return i + 1;
+      const m = /^#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/.exec(lines[i] || '');
+      if (m && headingSlug(m[1] || '') === want) return i + 1;
     }
     return 0;
   }

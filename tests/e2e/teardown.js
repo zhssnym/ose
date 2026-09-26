@@ -1,4 +1,5 @@
-// Deletes the suite's temp folder (env.js BASE): the vault copy and the app-data folder.
+// Deletes the suite's temp folder (env.js BASE): the vault copy, the app-data folder and the
+// files outside the vault.
 //
 // Playwright runs the global teardown before it stops the web server, and on Windows a folder
 // the dev server's watcher holds cannot be removed while it runs. So the folder is removed now

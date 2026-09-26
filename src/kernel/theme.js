@@ -36,7 +36,7 @@ export function setTheme(next) {
 export function initTheme() {
   try {
     const saved = localStorage.getItem(KEY);
-    if (VALID.has(saved)) pref = saved;
+    if (saved !== null && VALID.has(saved)) pref = saved;
   } catch { /* private mode */ }
 
   try {

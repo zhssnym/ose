@@ -3,7 +3,7 @@
 // for non-markdown text files.
 //
 // Two things live here, both of them about the edges of the page:
-//   - the CodeMirror host (`createSourceView`) and the per-page memory of the mode, and
+//   - the CodeMirror host (`createSourceView`), and
 //   - `plugins(ctx, o)`, the ProseMirror keymap for the seam between the title and the body.
 //     It is in this file because extensions.js is the only way a module reaches the editor's
 //     plugin list, and because a caret leaving the top of the body is the same kind of
@@ -24,54 +24,10 @@ import { Plugin, Selection } from '@milkdown/kit/prose/state';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { HIGHLIGHT } from './highlight.js';
 import { commands } from './host.js';
-import { patchState, readState } from './deps.js';
 import './source.css';
 
 /** The api handed over by index.js at boot (registerExtensionCommands). */
 let api = null;
-
-// ---------------------------------------------------------------------------
-// which pages open in source mode
-
-/** Vault paths the user last left in source mode. Hydrated from `.ose/state.json` at boot. */
-let remembered = null;
-const REMEMBER_CAP = 200;
-
-async function rememberedSet() {
-  if (remembered) return remembered;
-  const state = await readState();
-  const list = Array.isArray(state.sourcePages) ? state.sourcePages : [];
-  // The newest 200, the same end `rememberSource` writes: hydrating from the *oldest* 200 threw
-  // away exactly the pages most likely to be opened again (QA F22).
-  remembered = new Set(list.filter((p) => typeof p === 'string').slice(-REMEMBER_CAP));
-  return remembered;
-}
-
-/** True when `path` was left in source mode. Awaited once per open; the set is in memory. */
-export async function wasInSource(path) {
-  if (!path) return false;
-  return (await rememberedSet()).has(path);
-}
-
-/** Remember (or forget) that `path` is in source mode. */
-export async function rememberSource(path, on) {
-  if (!path) return;
-  const set = await rememberedSet();
-  if (on === set.has(path)) return;
-  if (on) set.add(path); else set.delete(path);
-  const list = [...set].slice(-REMEMBER_CAP);
-  remembered = new Set(list);
-  await patchState({ sourcePages: list });
-}
-
-/** A rename moves the memory with the file, so a moved page does not forget its mode. */
-export async function renameRemembered(from, to) {
-  const set = await rememberedSet();
-  if (!set.has(from)) return;
-  set.delete(from);
-  set.add(to);
-  await patchState({ sourcePages: [...set].slice(-REMEMBER_CAP) });
-}
 
 // ---------------------------------------------------------------------------
 // the bytes CodeMirror does not keep (M3)
@@ -130,13 +86,31 @@ export function applyFormat(text, fmt) {
   while (p < n && A[p] === B[p]) p++;
   let s = 0;
   while (s < n - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+  // The separator after line i: its own while the line is in the untouched head or tail, the
+  // file's usual one otherwise. `own` says which, for the pass below.
+  /** @type {string[]} */
+  const seps = [];
+  /** @type {boolean[]} */
+  const own = [];
+  for (let i = 0; i < B.length - 1; i++) {
+    const j = i < p ? i : i >= B.length - s ? A.length - (B.length - i) : -1;
+    const mine = j >= 0 && j < fmt.seps.length ? fmt.seps[j] : undefined;
+    seps.push(mine || fmt.eol);
+    own.push(!!mine);
+  }
+  // A `\r`, an empty line and a `\n` read back as one CRLF: two line breaks would become one,
+  // and every line after them would move up. That only happens where an edit put two
+  // separators of different kinds side by side in a file of mixed endings; the one that is
+  // not a line's own gives way (the property tests' edit locality).
+  for (let i = 0; i + 1 < seps.length; i++) {
+    if (seps[i] !== '\r' || B[i + 1] !== '' || seps[i + 1] !== '\n') continue;
+    if (!own[i + 1]) seps[i + 1] = '\r';
+    else seps[i] = '\r\n';
+  }
   let r = '';
   for (let i = 0; i < B.length; i++) {
     r += B[i];
-    if (i === B.length - 1) break;
-    // The separator after line i: its own while the line is in the untouched head or tail.
-    const j = i < p ? i : i >= B.length - s ? A.length - (B.length - i) : -1;
-    r += (j >= 0 && j < fmt.seps.length && fmt.seps[j]) || fmt.eol;
+    if (i < seps.length) r += seps[i];
   }
   return (fmt.bom ? '\uFEFF' : '') + r;
 }
@@ -489,6 +463,28 @@ export function createSourceView(o) {
     },
     closeFind: () => { closeSearchPanel(view); },
     findOpen: () => searchPanelOpen(view.state),
+    /**
+     * The first file line (1-based) whose top is in view: what the Reading view opens at when it
+     * takes the place of this editor (wave 3, X3). The editor's own scroller when it has one,
+     * else the page's, is what "in view" is measured against.
+     */
+    topLine() {
+      try {
+        const rect = view.scrollDOM.getBoundingClientRect();
+        let top = Math.max(0, rect.top);
+        for (let el = view.dom.parentElement; el; el = el.parentElement) {
+          const cs = getComputedStyle(el);
+          if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight) {
+            top = Math.max(top, el.getBoundingClientRect().top);
+            break;
+          }
+        }
+        const block = view.lineBlockAtHeight(top - view.documentTop);
+        return view.state.doc.lineAt(block.from).number;
+      } catch {
+        return 1;
+      }
+    },
     /** Caret onto file line `n` (1-based), column `col` (1-based), scrolled into view. */
     goToLine(n, col) {
       const line = Math.max(1, Math.min(Math.floor(Number(n) || 1), view.state.doc.lines));
@@ -512,7 +508,7 @@ export function createSourceView(o) {
  * well and answers true when it did. Both are supplied by index.js, which owns the title strip;
  * the harness supplies neither, so the plugin does nothing there.
  */
-export function plugins(ctx, o) {
+export function plugins(_ctx, o) {
   const opts = o || {};
   if (typeof opts.onLeaveTop !== 'function' && typeof opts.onSelectAll !== 'function') return [];
 
@@ -564,11 +560,12 @@ export function plugins(ctx, o) {
 export function registerCommands(a) {
   api = a;
   // The words a person types into the palette looking for this are "source", "raw" and
-  // "markdown", so the titles carry all three (H14). The switch in the page's meta line and
-  // the status bar field run the same commands.
+  // "markdown", so the title carries all three (H14). The three modes have commands of their
+  // own (page.js: `page.mode-rich`, `page.mode-live`, `page.mode-source`); this chord goes
+  // between Source and the mode the page was in before it (wave 3, §4.5).
   commands.register({
     id: 'page.source-toggle',
-    title: 'Switch between rich view and source (raw markdown)',
+    title: 'Switch between source (raw markdown) and the editing view',
     group: 'page',
     shortcut: 'Ctrl+E',
     // `hasPage` only: a file that is not markdown has one mode, and `toggleSource` says so in
@@ -576,19 +573,5 @@ export function registerCommands(a) {
     // chord fell through to the shell's generic "not available here" instead (QA F20).
     when: () => !!(api && api.hasPage()),
     run: () => (api && api.toggleSource ? api.toggleSource() : undefined),
-  });
-  commands.register({
-    id: 'page.view-source',
-    title: 'Show source (raw markdown text)',
-    group: 'page',
-    when: () => !!(api && api.hasPage() && !api.isSource()),
-    run: () => (api && api.setMode ? api.setMode('source') : undefined),
-  });
-  commands.register({
-    id: 'page.view-rich',
-    title: 'Show rich view',
-    group: 'page',
-    when: () => !!(api && api.hasPage() && api.isSource() && api.isMarkdown()),
-    run: () => (api && api.setMode ? api.setMode('rich') : undefined),
   });
 }

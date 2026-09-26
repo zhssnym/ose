@@ -5,14 +5,12 @@
 // Depends on: planner (src/planner/dates.js). Skipped until that file exists.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const present = exists('src/planner/dates.js');
-const d = present ? await import('../../src/planner/dates.js') : {};
+const d = await import('../../src/planner/dates.js');
 
 const day = (y, m, dd) => new Date(y, m - 1, dd);
 
-describe.skipIf(!present)('isoWeekParity', () => {
+describe('isoWeekParity', () => {
   it('follows the ISO week number', () => {
     expect(d.isoWeekParity(day(2026, 9, 26))).toBe('odd');   // week 39, a Saturday
     expect(d.isoWeekParity(day(2026, 9, 21))).toBe('odd');   // week 39, its Monday
@@ -30,7 +28,7 @@ describe.skipIf(!present)('isoWeekParity', () => {
   });
 });
 
-describe.skipIf(!present)('blockApplies', () => {
+describe('blockApplies', () => {
   const odd = day(2026, 9, 24);   // week 39
   const even = day(2026, 10, 1);  // week 40
 
@@ -56,7 +54,7 @@ describe.skipIf(!present)('blockApplies', () => {
   });
 });
 
-describe.skipIf(!present)('blockMinutes', () => {
+describe('blockMinutes', () => {
   it('is the length of a block', () => {
     expect(d.blockMinutes(9 * 60, 10 * 60 + 30)).toBe(90);
     expect(d.blockMinutes(17 * 60 + 30, 19 * 60 + 30)).toBe(120);
@@ -73,7 +71,7 @@ describe.skipIf(!present)('blockMinutes', () => {
   });
 });
 
-describe.skipIf(!present)('titles and the journal file', () => {
+describe('titles and the journal file', () => {
   it('the Day title names the weekday, the date and the year (L16)', () => {
     expect(d.dayTitle(day(2026, 9, 26))).toBe('Saturday 26 September 2026');
     expect(d.dayTitle(day(2027, 1, 4))).toBe('Monday 4 January 2027');
@@ -92,7 +90,7 @@ describe.skipIf(!present)('titles and the journal file', () => {
   });
 });
 
-describe.skipIf(!present)('isQ1Week (anchor)', () => {
+describe('isQ1Week (anchor)', () => {
   it('alternates by whole weeks from the anchor, across a 53-week year', () => {
     const anchor = '2026-09-21';                                   // a Q1 week (ISO 39)
     expect(d.isQ1Week(day(2026, 9, 27), anchor)).toBe(true);       // its Sunday

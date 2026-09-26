@@ -59,7 +59,7 @@ export async function create() {
     };
     source.onmessage = (m) => {
       let msg;
-      try { msg = JSON.parse(m.data); } catch (e) { console.error('[bridge] bad event frame', m.data); return; }
+      try { msg = JSON.parse(m.data); } catch { console.error('[bridge] bad event frame', m.data); return; }
       if (!msg || typeof msg !== 'object' || !msg.event) return;
       if (msg.event === 'bridge') return; // transport-level hello, not an app event
       fanout(msg);
@@ -84,7 +84,7 @@ export async function create() {
   }
 
   return {
-    async call(cmd, args) {
+    async invoke(cmd, args) {
       let r;
       try {
         // `keepalive`: a write started from an unmount on `pagehide` (a page banking its

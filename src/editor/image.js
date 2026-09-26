@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Images: alt text kept verbatim, size written as `![alt|300](src)`, a missing image that
 // names its file, web images downloaded on paste.
 //
@@ -405,7 +406,7 @@ export function registerCommands(a) {
   api = a;
   commands.register({
     id: 'image.open', title: 'Open image', group: 'image', when: hasImage,
-    run: withImage((view, hit) => {
+    run: withImage((_view, hit) => {
       const src = String(hit.node.attrs.src || '');
       const target = vaultPathOf(src);
       if (!target) { if (src) void bridge.openExternal(src); return; }
@@ -415,7 +416,7 @@ export function registerCommands(a) {
   });
   commands.register({
     id: 'image.copy-path', title: 'Copy image path', group: 'image', when: hasImage,
-    run: withImage(async (view, hit) => {
+    run: withImage(async (_view, hit) => {
       const src = String(hit.node.attrs.src || '');
       const text = vaultPathOf(src) || src;
       if (!text) { toast('this image has no path', 'info'); return; }

@@ -1,9 +1,9 @@
 // What the shell needs to know about the window it is drawn in: is this a real window or a
-// browser tab, and the four window hoses the batch-12 shell used to read off the bridge
-// (drag, resize by an edge, the maximised state, a vault change). All of them are `ose` now.
+// browser tab, and the one window hose left (a vault a second launch asked for). The window's
+// frame, its buttons, moving and resizing it are the platform's own (X9): nothing here draws
+// or drives them any more.
 //
-// One file knows; everybody else calls it. A shell for another kind of window — a decorated
-// one, a kiosk — replaces this file and nothing else.
+// One file knows; everybody else calls it.
 
 import { ose } from 'ose:kernel';
 
@@ -13,36 +13,12 @@ export const isHost = () => ose.host !== 'browser';
 /** What the status bar and the settings dialog print for "who is answering". */
 export const hostKind = () => ose.host;
 
-/** Move the window by its title bar. A browser tab has its own frame and needs none. */
-export function dragWindow() {
-  if (!isHost()) return;
-  try { ose.window.drag(); } catch (e) { console.warn('[shell] drag', e); }
-}
-
-/** Resize the frameless window by one of its eight edges. */
-export function resizeWindow(edge) {
-  if (!isHost()) return;
-  try { ose.window.resize(edge); } catch (e) { console.warn('[shell] resize', e); }
-}
-
-/** No real window, no edge divs drawn. */
-export const canResizeWindow = () => isHost();
-
 /**
- * The maximised state, now and on every change. `fn(true|false)` runs at least once, so the
- * button has the right glyph on the first frame as well as after every toggle.
- */
-export function onMaximize(fn) {
-  const off = ose.window.onMaximize((v) => fn(!!v));
-  if (isHost()) ose.window.isMaximized().then((v) => fn(!!v)).catch(() => { /* no answer, no glyph change */ });
-  return off;
-}
-
-/**
- * A second launch named another folder (docs/HOST.md "Single instance"). The host no longer
- * adopts it on its own: it asks, with `{root, name}`, and the shell switches the way Change
- * vault does, after the open page has been saved (C5). A kernel without the hose answers a
- * no-op unsubscribe.
+ * A second launch named another folder (docs/HOST.md "Single instance"). The host does not
+ * adopt it on its own: it asks, with `{root, name}`, and the shell switches the way Change
+ * vault does, after the open page has been saved (C5). Kept until windows per vault (X6, gate
+ * G3) take over, when a second launch opens a window of its own and the host stops asking; a
+ * kernel that has dropped the hose by then answers a no-op unsubscribe here.
  */
 export function onVaultChangeRequested(fn) {
   const v = ose.vault;

@@ -7,7 +7,8 @@
 //   OSE_E2E_BASE   the temp folder (default <os tmp>/ose-e2e-<port>)
 //
 // The vault is `<base>/vault`, a copy of work/vault without `.claude` and `.git` plus the
-// synthetic `e2e/` folder (serve.mjs). Drafts and the per-machine store are `<base>/appdata`.
+// synthetic `e2e/` folder (serve.mjs). Drafts and the per-machine store are `<base>/appdata`,
+// and `<base>/outside` holds the synthetic files outside the vault.
 // Nothing here ever names a real vault.
 
 import { tmpdir } from 'node:os';
@@ -19,6 +20,9 @@ export const PORT = Number(process.env.OSE_E2E_PORT || 5190);
 export const BASE = path.resolve(process.env.OSE_E2E_BASE || path.join(tmpdir(), `ose-e2e-${PORT}`));
 export const ROOT = path.join(BASE, 'vault');
 export const APPDATA = path.join(BASE, 'appdata');
+// A folder beside the vault, for the files outside it (outside.spec.js): the dev bridge registers
+// outside files only under `OSE_E2E_OUTSIDE`, which the config sets to this.
+export const OUTSIDE = path.join(BASE, 'outside');
 export const PIDS = path.join(BASE, 'server.pids.json');
 export const URL_BASE = `http://127.0.0.1:${PORT}`;
 

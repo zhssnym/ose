@@ -4,9 +4,6 @@
 // switch the no-loss suite uses, and `run` gone. The host's Rust twin is tested by `cargo test`
 // (src-tauri/src/hide.rs and friends); this is the Node side, which must answer the same.
 //
-// A command the bridge does not have yet answers `[unknown_command]`; its tests are skipped
-// until it does, so `npm test` stays green while the wave is built.
-//
 // Depends on: host (dev/bridge-plugin.mjs, dev/files.mjs).
 
 import { EventEmitter } from 'node:events';
@@ -94,23 +91,6 @@ async function ok(cmd, ...args) {
   return r.result;
 }
 
-/** Whether the bridge has a command yet (a probe with harmless arguments). */
-async function hasCmd(cmd, ...probe) {
-  const r = await call(cmd, ...probe);
-  return !(r.ok === false && /^\[unknown_command\]/.test(r.error || ''));
-}
-
-const HAS = {
-  hide: (await call('list', '')).ok && (await ok('list', '')).every((e) => 'hidden' in e),
-  stat: (await call('stat', 'a.md', { sniff: true })).ok && 'text' in ((await ok('stat', 'a.md', { sniff: true })) || {}),
-  copyPath: await hasCmd('copyPath', 'no-such', 'nowhere'),
-  trashList: await hasCmd('trashList'),
-  trashRestore: await hasCmd('trashRestore', [], {}),
-  trashWhere: await hasCmd('trashWhere', 'a.md'),
-  local: await hasCmd('localGet', 'app'),
-  devFault: await hasCmd('devFault', null),
-};
-
 afterAll(() => {
   http.emit('close');
   for (const k of ['OSE_ROOT', 'OSE_APPDATA', 'OSE_DEV_APPDATA', 'OSE_DEV_FAULTS']) delete process.env[k];
@@ -119,7 +99,7 @@ afterAll(() => {
 
 const names = (list) => list.map((e) => e.name);
 
-describe.skipIf(!HAS.hide)('the one hide rule (CONTRACT §3.3)', () => {
+describe('the one hide rule (CONTRACT §3.3)', () => {
   it('shows every ordinary folder, whatever its name', async () => {
     const got = names(await ok('list', ''));
     for (const n of ['app', 'App2', 'node_modules', '_Archive', 'dist', 'sub', 'a.md', 'README', 'note.unsaved-20260926-101010.md']) expect(got).toContain(n);
@@ -188,18 +168,19 @@ describe.skipIf(!HAS.hide)('the one hide rule (CONTRACT §3.3)', () => {
   });
 });
 
-describe.skipIf(!HAS.stat)('stat with a sniff (H17)', () => {
+describe('stat with a sniff (H17)', () => {
   it('knows text from binary by content, a BOM allowed', async () => {
     expect(await ok('stat', 'README', { sniff: true })).toMatchObject({ exists: true, kind: 'file', text: true });
     expect(await ok('stat', 'bom.txt', { sniff: true })).toMatchObject({ text: true });
     expect(await ok('stat', 'bin.dat', { sniff: true })).toMatchObject({ text: false });
-    expect(await ok('stat', 'latin1.txt', { sniff: true })).toMatchObject({ text: false });
+    // Not UTF-8, but text in windows-1252 (M52): the page opens it in its own encoding.
+    expect(await ok('stat', 'latin1.txt', { sniff: true })).toMatchObject({ text: true, encoding: 'windows-1252' });
     expect(await ok('stat', '.env')).toMatchObject({ exists: true, hidden: true });
     expect(await ok('stat', 'missing.md')).toMatchObject({ exists: false });
   });
 });
 
-describe.skipIf(!HAS.copyPath)('copyPath', () => {
+describe('copyPath', () => {
   it('copies a whole folder, bytes, create-only', async () => {
     expect(await ok('copyPath', 'copyme', 'copied/here')).toEqual({ path: 'copied/here', files: 2 });
     expect(readFileSync(join(root, 'copied', 'here', 'deep', 'two.md'), 'utf8')).toBe('2\n');
@@ -215,7 +196,7 @@ describe.skipIf(!HAS.copyPath)('copyPath', () => {
   });
 });
 
-describe.skipIf(!HAS.trashList || !HAS.trashRestore)('the trash, with an id and a restore (M18)', () => {
+describe('the trash, with an id and a restore (M18)', () => {
   it('a vault trash answers an id, is listed, and restores', async () => {
     const t = await ok('trash', 'trashme.md', { mode: 'vault' });
     expect(t).toMatchObject({ id: expect.any(String), where: 'vault' });
@@ -248,13 +229,13 @@ describe.skipIf(!HAS.trashList || !HAS.trashRestore)('the trash, with an id and 
   });
 });
 
-describe.skipIf(!HAS.trashWhere)('trashWhere', () => {
+describe('trashWhere', () => {
   it('says where a trash would go', async () => {
     expect(await ok('trashWhere', 'a.md')).toEqual({ where: expect.stringMatching(/^(system|vault)$/) });
   });
 });
 
-describe.skipIf(!HAS.local)('the per-machine store (W5)', () => {
+describe('the per-machine store (W5)', () => {
   it('round-trips both scopes, empty when unset', async () => {
     expect(await ok('localGet', 'vault')).toEqual({});
     // `theme` and `window` in app.json are the host's own (the theme mirror and the window
@@ -278,7 +259,7 @@ describe.skipIf(!HAS.local)('the per-machine store (W5)', () => {
   });
 });
 
-describe.skipIf(!HAS.devFault)('devFault (OSE_DEV_FAULTS=1)', () => {
+describe('devFault (OSE_DEV_FAULTS=1)', () => {
   it('fails the matching call with [code] message, counts down, and clears', async () => {
     await ok('devFault', { cmd: 'saveFile', path: 'a.md', code: 'write_failed', message: 'the disk is full', times: 1 });
     const h = (await ok('readFile', 'a.md')).hash;
@@ -302,7 +283,7 @@ describe.skipIf(!HAS.devFault)('devFault (OSE_DEV_FAULTS=1)', () => {
 });
 
 describe('the plugin runtime is gone (W2)', () => {
-  it.skipIf(!HAS.local)('run and runKill are unknown commands', async () => {
+  it('run and runKill are unknown commands', async () => {
     expect(await call('run', 'x', 'echo', [])).toEqual({ ok: false, error: '[unknown_command] run' });
     expect(await call('runKill', 'x')).toEqual({ ok: false, error: '[unknown_command] runKill' });
   });

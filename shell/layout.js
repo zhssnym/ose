@@ -1,13 +1,14 @@
-// The shell's frame: the window chrome, the sidebar-and-page body, and everything about the
-// window itself — how the columns give way, the resizer, the frameless edges, the drops and
-// the browser keys the web view would otherwise act on.
+// The shell's frame: the toolbar, the sidebar-and-page body, and everything about the window
+// itself — how the columns give way, the resizer, the drops and the browser keys the web view
+// would otherwise act on. The window's own frame (its title bar, buttons and resize edges) is
+// the platform's (X9): the host opens a decorated window, at least 480 by 360.
 //
 // This is the shell's own layout. The kernel knows none of it: `ose.init({ page })` is handed
 // the element this file builds, and from there the router draws into it.
 
 import { ose } from 'ose:kernel';
 import { icon } from 'ose:ui';
-import { isHost, canResizeWindow, resizeWindow, onVaultChangeRequested } from './host.js';
+import { isHost, onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
 import { initSidebar } from './sidebar.js';
 import { initStatusbar } from './statusbar.js';
@@ -243,33 +244,12 @@ export function focusPage() {
   return document.activeElement === pick;
 }
 
-/* ------------------------------------------------- frameless window edges */
-
-const EDGES = ['top', 'right', 'bottom', 'left', 'topleft', 'topright', 'bottomleft', 'bottomright'];
-
-function buildEdges() {
-  if (!canResizeWindow()) return;         // a browser tab has a real frame
-  if (ose.platform === 'macos') return;   // decorated window: the OS owns the resize edges
-  const frag = document.createDocumentFragment();
-  for (const edge of EDGES) {
-    const d = document.createElement('div');
-    d.className = 'edge edge-' + edge;
-    d.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      if (document.documentElement.classList.contains('maximized')) return;
-      e.preventDefault();
-      resizeWindow(edge);
-    });
-    frag.appendChild(d);
-  }
-  document.body.appendChild(frag);
-}
-
 /* --------------------------------------------------------------- file drops */
 
 // A file dropped anywhere but a real target would otherwise navigate the whole window to it,
-// which in the host means the app is gone. Anything already handled (the sidebar's folder
-// rows, the editor's image drop) has called preventDefault by the time this runs.
+// which in the host means the app is gone. Anything already handled (the tree's folder rows,
+// the folder view, the editor's own drop) has called preventDefault by the time this runs;
+// what is left is ignored (docs/SHELL.md "Drag in and out").
 const EDITABLE = '[contenteditable="true"], .ProseMirror, .milkdown, input, textarea';
 
 // The editor accepts dropped images through Milkdown's own uploader, which relies on the
@@ -556,7 +536,6 @@ export function mountShell(rootEl) {
   initTitlebar(els.titlebar);
   initSidebar(els.sidebar);
   initStatusbar(els.statusbar);
-  buildEdges();
   guardWindowDrops();
   guardBrowserKeys();
   guardContextMenu();

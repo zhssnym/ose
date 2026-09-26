@@ -1,13 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Window control for the frameless main window. Everything else goes through the `rpc` command, which is app-defined and therefore not permission-gated.",
-  "windows": ["main"],
+  "description": "Every window of the app: `main` and the windows made per vault (`w2`, `w3`, …). The host's own commands are app-defined and so not permission-gated; this lists Tauri's window API the page uses (title, theme, the close handshake, geometry), its events, and the drag-out plugin.",
+  "windows": ["main", "w*"],
   "permissions": [
     "core:default",
     "core:event:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-start-resize-dragging",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-maximize",
@@ -18,6 +16,7 @@
     "core:window:allow-set-theme",
     "core:window:allow-set-title",
     "core:window:allow-set-size",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "drag:default"
   ]
 }

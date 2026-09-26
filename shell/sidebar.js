@@ -29,7 +29,8 @@ import {
   focusOrigin, retargetFocusOrigin, overlayCount,
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
-import { clean, join, baseName, dirName, extOf, titleOf, segments } from './paths.js';
+import { clean, join, baseName, dirName, extOf, titleOf, segments, vaultName as nameOfVault, errorOf } from './paths.js';
+import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, dragOut, setDragged, dragged } from './drag.js';
 import { openSearch } from './search.js';
 import { openInNewTab } from './tabs.js';
 import {
@@ -310,8 +311,9 @@ function currentOf() {
   };
 }
 
+/** The root row's name: the tree's own answer, else the kernel's. */
 function vaultName() {
-  return (tree && tree.name) || (ose.vault && ose.vault.name) || 'Vault';
+  return (tree && tree.name) || nameOfVault();
 }
 
 function renderTree() {
@@ -692,12 +694,20 @@ function scrollToCurrent() {
 
 /* ------------------------------------------------------------------ data load */
 
-const isGone = (e) => /os error 2|no such file|cannot find the path|not a directory/i.test(String((e && e.message) || e));
-const codeOf = (e) => {
-  if (e && e.code) return e.code;
-  const m = /^\[(\w+)\]/.exec(String((e && e.message) || e || ''));
-  return m ? m[1] : null;
-};
+const codeOf = (e) => errorOf(e).code;
+
+/**
+ * Whether the vault folder itself is gone. `tree` answers `io` for a root it cannot read, so the
+ * root is listed once more: a missing folder answers `not_found` there, as every listing does.
+ */
+async function vaultGone(e) {
+  const code = codeOf(e);
+  if (code === 'no_vault' || code === 'not_found') return true;
+  try { await files.list('', { hidden: false }); return false; } catch (again) {
+    const c = codeOf(again);
+    return c === 'not_found' || c === 'no_vault';
+  }
+}
 
 let treeLoad = null;
 
@@ -717,7 +727,7 @@ export async function refreshTree() {
       // A read that fails because the folder itself is gone is not a tree bug, and a toast per
       // failed call is noise on top of a vault that has been unplugged (S29): the shell has
       // one dialog for it, and `vaultLost` is idempotent while that dialog is up.
-      if (codeOf(e) === 'no_vault' || isGone(e)) { vaultLost(); return; }
+      if (await vaultGone(e)) { vaultLost(); return; }
       toast('Could not read the vault: ' + (e.message || e), 'err');
       return;
     }
@@ -739,7 +749,7 @@ async function relistOne(path) {
   let entries;
   try { entries = await files.list(path, { hidden: showHidden() }); } catch (e) {
     const code = codeOf(e);
-    if ((code === 'not_found' || isGone(e)) && path) { pendingDirs.add(dirName(path)); return null; }
+    if (code === 'not_found' && path) { pendingDirs.add(dirName(path)); return null; }
     if (code === 'no_vault') { vaultLost(); return null; }
     console.warn('[shell] list', path, e);
     return null;
@@ -1073,11 +1083,11 @@ export function revealFolder(path) {
 /* ------------------------------------------------------------- drag and drop */
 
 // Internal drags carry the vault paths (a JSON list: a selection drags together, C17) in a
-// private type; `dragPaths` mirrors it because dataTransfer.getData is unreadable during
-// dragover, and the self/descendant guard has to run there, for every item, to decide
-// whether the row may light up at all.
-const DRAG_TYPE = 'application/x-os-path';
-const TEXT_IMPORT = new Set(['md', 'txt']);
+// private type (drag.js `DRAG_TYPE`); `dragPaths` mirrors it because dataTransfer.getData is
+// unreadable during dragover, and the self/descendant guard has to run there, for every item,
+// to decide whether the row may light up at all. A drag with Alt held is not a move: it is the
+// platform's own drag of the files out of the app, as a copy (drag.js `dragOut`). A drop from
+// Explorer or Finder is copied in, folders and all, through drag.js `importDropped`.
 
 let dragPaths = null;
 let dropEl = null;
@@ -1109,62 +1119,7 @@ function setDropEl(node) {
   if (dropEl) dropEl.classList.add('drop-on');
 }
 
-function endDrag() { dragPaths = null; setDropEl(null); }
-
-/**
- * `<dir>/name.ext`, numbered when taken, so an import never overwrites a vault file. The name
- * is claimed with the host's exclusive create (an empty file), so a file that arrived between
- * the look and the write is never replaced (M4); the caller then writes the bytes into it.
- */
-async function claimFreeName(dir, name) {
-  const dot = name.lastIndexOf('.');
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot) : '';
-  for (let n = 1; n < 500; n++) {
-    const p = n < 2 ? join(dir, name) : join(dir, `${base} ${n}${ext}`);
-    try {
-      await files.createNew(p, '');
-      return p;
-    } catch (e) {
-      if (codeOf(e) === 'exists') continue;
-      throw e;
-    }
-  }
-  throw new Error(`no free name for ${join(dir, name)}`);
-}
-
-function base64Of(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let out = '';
-  const CHUNK = 0x8000; // apply() has an argument limit; 32k at a time stays under it
-  for (let i = 0; i < bytes.length; i += CHUNK) out += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  return btoa(out);
-}
-
-/**
- * Files dragged in from Explorer. Text goes through writeText, everything else as base64.
- * The parameter is `dropped`, not `files`: that name is `ose.files` in this module.
- */
-async function importFiles(dropped, dir) {
-  const list = [...dropped];
-  if (!list.length) return;
-  let done = 0;
-  let last = null;
-  for (const f of list) {
-    try {
-      const path = await claimFreeName(clean(dir), f.name || 'file');
-      if (TEXT_IMPORT.has(extOf(path))) await files.write(path, await f.text());
-      else await files.writeBinary(path, base64Of(await f.arrayBuffer()));
-      done++;
-      last = path;
-    } catch (e) {
-      toast('Could not import ' + (f.name || 'a file') + ': ' + (e.message || e), 'err');
-    }
-  }
-  if (!done) return;
-  if (last) onReveal({ path: last, focus: false });
-  toast(`Imported ${done} file${done === 1 ? '' : 's'}`, 'info', 2600);
-}
+function endDrag() { dragPaths = null; setDragged(null); setDropEl(null); }
 
 function bindDnd(host) {
   host.addEventListener('dragstart', (e) => {
@@ -1172,7 +1127,11 @@ function bindDnd(host) {
     if (!row || row.dataset.root === '1') { e.preventDefault(); return; }
     // A row inside a selection of several drags the whole selection; any other row, itself.
     const batch = batchFor({ path: row.dataset.path, kind: row.dataset.kind });
-    dragPaths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
+    const paths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
+    // Alt: out of the app, as a copy. The move below never starts.
+    if (e.altKey) { dragOut(e, paths); return; }
+    dragPaths = paths;
+    setDragged(paths);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(dragPaths));
     e.dataTransfer.setData('text/plain', dragPaths.join('\n'));
@@ -1181,13 +1140,14 @@ function bindDnd(host) {
   host.addEventListener('dragend', endDrag);
 
   host.addEventListener('dragover', (e) => {
-    const types = e.dataTransfer ? [...e.dataTransfer.types] : [];
-    const internal = !!dragPaths || types.includes(DRAG_TYPE);
-    const external = types.includes('Files');
+    // A row dragged from a folder view is internal too: its paths are drag.js's.
+    const moving = dragPaths || dragged();
+    const internal = !!moving || isInternal(e.dataTransfer);
+    const external = !internal && hasOsFiles(e.dataTransfer);
     if (!internal && !external) { setDropEl(null); return; }
     const t = dropTargetOf(e.target);
     // Every dragged item has to be able to land there, or the folder does not light up.
-    if (!t || (internal && !(dragPaths || []).every((p) => canDropInto(p, t.dir)))) {
+    if (!t || (internal && !(moving || []).every((p) => canDropInto(p, t.dir)))) {
       setDropEl(null);
       e.preventDefault();                       // still ours: no browser navigation
       e.dataTransfer.dropEffect = 'none';
@@ -1205,12 +1165,13 @@ function bindDnd(host) {
   host.addEventListener('drop', (e) => {
     e.preventDefault();
     const t = dropTargetOf(e.target);
-    const from = dragPaths || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
-    const dropped = e.dataTransfer ? e.dataTransfer.files : null;
+    const from = dragPaths || dragged() || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
+    // The drop's items are readable only now, inside the event: taken before anything awaits.
+    const dropped = !(from && from.length) && t && hasOsFiles(e.dataTransfer) ? takeDropped(e.dataTransfer) : null;
     endDrag();
     if (!t) return;
     if (from && from.length) void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
-    else if (dropped && dropped.length) void importFiles(dropped, t.dir);
+    else if (dropped) void importDropped(dropped, clean(t.dir));
   });
 }
 
@@ -1364,6 +1325,7 @@ const TREE_COMMANDS = [
     applies: () => true, run: () => setAllExpanded(false) },
   { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(true) },
+  // The title the menus draw is the registered command's, which names the real bin (fileops.js).
   { id: 'file.trash', title: 'Move to the trash', icon: 'trash', group: 'file', danger: true, own: false,
     applies: (t) => !!t.path, run: (t) => void trashPaths(batchFor(t) || [t]) },
 ];
@@ -1452,7 +1414,7 @@ function multiMenu(batch) {
     if (id === null) { items.push({ sep: true }); continue; }
     const local = TREE_COMMANDS.find((x) => x.id === id);
     if (!local || !local.applies(target)) continue;
-    const it = menuItem(id, target, `${local.title} (${batch.length})`);
+    const it = menuItem(id, target, `${(commands.get(id) || local).title} (${batch.length})`);
     if (it) items.push(it);
   }
   return tidy(items);

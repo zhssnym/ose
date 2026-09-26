@@ -1,5 +1,5 @@
-// `npm run test:e2e`: the no-loss suite (CONTRACT §14, H11), Playwright against the browser dev
-// server. Headless Chromium drives the real shell, kernel and editor over the Node host
+// `npm run test:e2e`: the no-loss suite (CONTRACT §14, H11), the Live scenarios and the files
+// outside the vault (wave 3, §8.2), Playwright against the browser dev server. Headless Chromium drives the real shell, kernel and editor over the Node host
 // (dev/bridge-plugin.mjs), and every scenario checks the bytes on disk, not only the screen.
 //
 // The server runs on a temp copy of the throwaway vault, never a real one (tests/e2e/env.js,
@@ -11,7 +11,7 @@
 // (and in CI before the step).
 
 import { defineConfig, devices } from '@playwright/test';
-import { APPDATA, BASE, PORT, ROOT, URL_BASE } from './tests/e2e/env.js';
+import { APPDATA, BASE, OUTSIDE, PORT, ROOT, URL_BASE } from './tests/e2e/env.js';
 
 // The workers are forked from this process and inherit its environment, so they resolve the
 // same base even when it came from the default.
@@ -30,6 +30,9 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
+  // One folder per port, so two runs on one machine (OSE_E2E_PORT) never delete each other's
+  // traces and screenshots.
+  outputDir: `test-results/e2e-${PORT}`,
   globalSetup: './tests/e2e/setup.js',
   globalTeardown: './tests/e2e/teardown.js',
   use: {
@@ -55,6 +58,8 @@ export default defineConfig({
       // The name the dev bridge read before wave 2; harmless once it reads OSE_APPDATA.
       OSE_DEV_APPDATA: APPDATA,
       OSE_DEV_FAULTS: '1',
+      // Where files outside the vault may be opened from (outside.spec.js, dev/bridge-plugin.mjs).
+      OSE_E2E_OUTSIDE: OUTSIDE,
       // No hot reload under a scenario (vite.config.js).
       OSE_E2E: '1',
     },

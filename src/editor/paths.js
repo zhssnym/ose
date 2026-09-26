@@ -6,6 +6,7 @@
 // of them; it is the same list of names now, from one place, so a fix to `resolveHref` or
 // `linkTarget` cannot land in only half the app.
 export * from '../kernel/href.js';
+import { normalize as normalizePath } from '../kernel/href.js';
 
 /**
  * The extensions that make a file markdown to the editor (wave 2, H17): these open in the rich
@@ -20,4 +21,21 @@ export const isMarkdown = (p) => {
   const base = String(p ?? '').replace(/\\/g, '/').split('/').pop() || '';
   const dot = base.lastIndexOf('.');
   return dot > 0 && MARKDOWN_EXTS.has(base.slice(dot + 1).toLowerCase());
+};
+
+/**
+ * Files outside the vault (wave 3, X7): `abs:` and the absolute path with forward slashes. The
+ * kernel owns the form (`src/kernel/paths.js`); the editor only asks which kind a path is and
+ * how to show it.
+ */
+export { ABS, isOutside, outsideLabel } from '../kernel/paths.js';
+
+/**
+ * `normalize` for a path of either kind: a vault path is collapsed, an `abs:` path is kept as
+ * the kernel wrote it (collapsing would turn the `//` of a share into one slash).
+ * @param {string} p
+ */
+export const pagePath = (p) => {
+  const s = String(p ?? '');
+  return s.startsWith('abs:') ? s : normalizePath(s);
 };

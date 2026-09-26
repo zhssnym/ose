@@ -263,7 +263,7 @@ function mathInputRules(ctx) {
         if (!type || !state.doc.resolve(start).parent.type.spec.content) return null;
         return state.tr.replaceWith(start, end, type.create({ value: match[1] }));
       }),
-      new InputRule(BLOCK_RULE, (state, match, start) => {
+      new InputRule(BLOCK_RULE, (state, _match, start) => {
         const $start = state.doc.resolve(start);
         // Only on a line of its own: `$$` at the end of a sentence stays two dollars.
         if (!$start.parent.isTextblock || $start.parent.type.name !== 'paragraph') return null;

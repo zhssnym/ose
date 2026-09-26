@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The dialogs the editor asks for, and the two state calls, over the kernel (`ose:ui`,
 // `ose.state`) through `host.js`.
 //

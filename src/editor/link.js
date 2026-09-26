@@ -187,7 +187,7 @@ function markLink(view, range, href) {
  * Create `<folder>/<base>.md` holding `text`, numbered (`<base> 2.md` …) when the name is
  * taken, and answer the path it created. The name is claimed by the host's exclusive create
  * (`ose.files.createNew`), so a file that arrived a moment ago is never overwritten: the old
- * probe-then-write could (wave 1, M4). A kernel without `createNew` gets the old probe.
+ * probe-then-write could (wave 1, M4).
  * @param {string} folder
  * @param {string} base
  * @param {string} text
@@ -203,10 +203,7 @@ export async function createFreePage(folder, base, text) {
       return candidate;
     } catch (e) {
       if (e && e.code === 'exists') continue;
-      if (!e || e.code !== 'unknown_command') throw e;
-      if (await bridge.exists(candidate)) continue;
-      await bridge.writeText(candidate, text);
-      return candidate;
+      throw e;
     }
   }
   throw new Error(`no free name for ${dir}${base}.md`);

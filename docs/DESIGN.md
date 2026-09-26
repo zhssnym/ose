@@ -4,7 +4,7 @@ Read this before writing any UI. The app, the shell, the editor and the planner 
 they were made by one hand.
 
 **Vocabulary.** The **app** is `ose.exe`, the whole thing. The **shell** is the interface inside
-it: title bar, address bar, tabs, sidebar, folder view, palette, search, settings, Home. The
+it: toolbar, address bar, tabs, sidebar, folder view, palette, search, settings, Home. The
 **planner** is Day, Week, Month and Journal, built into the app (`src/planner`). A **view** is a
 page of the app's own (Home, Settings, Trash, the planner's four) rather than a file.
 
@@ -112,7 +112,7 @@ Key tokens (see the file for the full list):
   scrollable area (see `base.css`).
 - **Tooltips.** Mono 11px, `--fg` on `--bg-3`, 1px border, no arrow, 300ms delay.
 - **Empty states.** One short sentence in `--fg-3`, sentence case, centred. No illustrations.
-- **Save marks.** Unsaved changes are a 6px `--accent` dot, on the tab and beside the breadcrumb.
+- **Save marks.** Unsaved changes are a 6px `--accent` dot, on the tab and beside the address.
   A page that could not be written, or changed on disk under unsaved text, gets the error mark
   instead: a 7px square in `--err`, square so it does not depend on telling two colours apart,
   with the editor's own sentence as the tooltip. The active tab's underline turns `--err` with it.
@@ -120,13 +120,36 @@ Key tokens (see the file for the full list):
   sentence and its actions as `.btn`s, reachable with Tab. `--err-soft` ground, `--err` border and
   `--err-ink` text for a page that is not saved, with `role="alert"`; `--warn-soft`, `--warn` and
   `--warn-ink` for a notice (recovered changes, a page opened as text). Never more than one.
-- **The Rich | Source switch.** Two buttons side by side in the page meta line, `.ed-mode`: a
-  hairline `--border` around both and between them, in the meta line's face, `--fg-3`; the pressed one
-  (`aria-pressed="true"`) sits on `--bg-3` in `--fg`. Tab reaches both.
+- **The Rich | Live | Source switch.** Three buttons side by side in the page meta line,
+  `.ed-mode`: a hairline `--border` around them and between them, in the meta line's face,
+  `--fg-3`; the pressed one (`aria-pressed="true"`) sits on `--bg-3` in `--fg`. Tab reaches each.
+  The **Read** toggle beside it has the same shape.
+- **The mode menu.** In the status bar the same choice is one field, `Live ›`: a pressable
+  field in the bar's face with a small chevron. It opens the context menu above the bar, one
+  row per mode, the current one marked with the `dot` icon in the icon slot (a radio item, so a
+  reader hears "checked"). A plain text file's field is the word `Text`, not a button.
+- **Live.** Live is the file's text in the document face, with the marks drawn away wherever
+  the caret is not: the same headings, bars, frames, rules, square task boxes and tables as the
+  rich view, from the same `--doc-*` tokens (`src/editor/live/live.css`, `widgets/widgets.css`).
+  On the caret's lines the marks come back in `--fg-3`, upright and plain, so the source is
+  there but quiet. Code blocks keep the code ground and `--code-*` colours, fences dimmed. A
+  missing image is the rich view's box naming the file. Nothing in Live gets a colour or a size
+  the rich view does not already have.
+- **The Reading view.** The buffer as a document, read-only, through `render()`'s look
+  (`render.css`, `src/editor/reading/reading.css`): the frontmatter as a small key and value box
+  in the chrome face above the text, a missing wikilink dimmer and dashed, task boxes that are a
+  picture and not a control. No handle, no caret, no affordance to edit.
+- **The outside mark.** A file outside the vault is said in words, never in a colour: "outside
+  vault" after its name on its tab and its Home row, `--fs-chrome-sm` in `--fg-3`, and "Outside
+  the vault" as the first segment of the address, in `--fg-3`. Its tooltip is the whole
+  absolute path.
+- **A drop target.** A folder that will take a drop, in the tree or the folder view, wears the
+  current row's form: `--accent-soft` with the 2px `--accent` bar. The folder view's background,
+  when the drop lands in the folder itself, is `--accent-soft` inside a 1px `--accent` line.
 - **A sticky error.** An error the user has to act on (a file that was not moved, a page that
   could not be saved) is a toast with no timer, a close button and its actions as real buttons,
   `role="alert"`. An information toast still leaves on its own.
-- **The focus chip.** While a folder is in focus, a chip in the title bar: mono 11px, `--accent-soft`
+- **The focus chip.** While a folder is in focus, a chip in the toolbar: mono 11px, `--accent-soft`
   with 1px `--border`, `focus` in `--accent-ink`, the folder's name, and a ×. The whole chip is
   one button that leaves focus.
 - **The boot error page.** One column, at most 44rem: the title in `--err`, one sentence of how far
@@ -139,7 +162,7 @@ Key tokens (see the file for the full list):
   list rows; a hidden item is greyed, a link carries a small badge, folders come first whatever
   the sort. The folder's README (or `index.md`) is rendered read-only under the list, as a
   document. Home shows the vault root's list in a compact form: the same rows, fewer columns.
-- **The address bar.** In the title bar, beside back and forward: the vault's name, then each
+- **The address bar.** In the toolbar, beside back and forward: the vault's name, then each
   folder, then the file's name, each segment a flat button in `--fg-2` that lights to `--fg` on
   hover, separated by a `/` in `--fg-3`. Ctrl+L turns it into an input the height of the bar, in
   `--font-mono`, with a completion list under it on the palette's surface.
@@ -163,24 +186,31 @@ Key tokens (see the file for the full list):
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ titlebar 36px  ‹ ›  vault / folder / notes.md       ─  ☐  ✕  │
+│ the platform's title bar, its own buttons                    │
+├──────────────────────────────────────────────────────────────┤
+│ toolbar 36px  ‹ ›  +  vault › folder › notes.md              │
 ├──────────┬─────────────────────────────────┬─────────────────┤
 │ sidebar  │ tabs (from two)                 │ side panel      │
 │ 260px    │ page, folder or view            │ (search)        │
 │ resizable│                                 │ hidden until    │
 │          │                                 │ opened          │
 ├──────────┴─────────────────────────────────┴─────────────────┤
-│ statusbar 24px   Rich · 412 words                       110% │
+│ statusbar 24px   Live › · 412 words                     110% │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The window has no native frame on Windows. The title bar is ours and must feel like part of the
-app: same surface as the sidebar (`--bg-2`), bottom border, window buttons 46px wide and full
-height, glyphs drawn as 10px stroked SVG, close button hover `--err` with white glyph.
+The window's frame is the platform's (X9, D11): Windows draws its own title bar and buttons,
+with Snap Layouts on maximise, and macOS its title bar and traffic lights. The app draws no
+window button, no resize edge and no drag region. Under the frame, the toolbar is ours and must
+feel like part of the app: same surface as the sidebar (`--bg-2`), bottom border, the fold, back,
+forward and New file as flat icon buttons, then the address. The window is at least 480 by 360;
+under 640px the sidebar folds away on its own and the toolbar, the page and the status bar fit
+without overflowing, in both themes.
 
-The status bar says something only when there is something to say: the page's Rich / Source
-switch, its word count, the focus chip, a save state when it is bad (not saved, changed on
-disk, deleted), and the zoom while it is not 100 %. A page that saved fine says nothing there.
+The status bar says something only when there is something to say: the page's editing mode
+(the mode menu), its word count, the focus chip, a save state when it is bad (not saved,
+changed on disk, deleted), and the zoom while it is not 100 %. A page that saved fine says
+nothing there.
 
 ## A page as a document
 
@@ -313,5 +343,6 @@ when it is the Recycle Bin, `.trash in this vault` when it is that.
 - Both themes checked, no colour that is not a token.
 - Keyboard: every action reachable, focus visible, Esc closes what Enter opened.
 - Hover states on every interactive element, 120ms.
-- Nothing wraps or clips at 1280x800, and nothing breaks at 1024x700 or at 2560x1440.
+- Nothing wraps or clips at 1280x800, and nothing breaks at 1024x700, at 2560x1440, or at the
+  480x360 minimum window.
 - No console errors, no layout shift when data loads (reserve space, then fill).

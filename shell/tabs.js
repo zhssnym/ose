@@ -15,7 +15,7 @@
 import { ose } from 'ose:kernel';
 import { icon } from 'ose:ui';
 import { HOME } from './dashboard.js';
-import { clean, baseName, titleOf } from './paths.js';
+import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands } = ose;
 
@@ -36,7 +36,6 @@ let refocusAt = -1;
 let refocusTimer = null;
 
 const api = ose.tabs;
-const keyOf = (r) => (!r ? '' : r.type === 'view' ? 'view:' + r.name : `${r.type}:${clean(r.path)}`);
 const isHome = (r) => keyOf(r) === keyOf(HOME);
 
 /* ------------------------------------------------------------------ labels */
@@ -48,16 +47,23 @@ function labelOf(r) {
     const v = ose.views.get(r.name);
     return (v && v.title) || r.name;
   }
-  if (r.type === 'folder') return clean(r.path) ? baseName(r.path) : ((ose.vault && ose.vault.name) || 'Vault');
+  if (r.type === 'folder') return clean(r.path) ? baseName(r.path) : vaultName();
   return titleOf(r.path) || baseName(r.path);
 }
 
-/** The tooltip: the whole vault path of a file or a folder, the title of a view. */
+/** A page whose file is outside the vault (X7): its tab wears the mark. */
+const outsideOf = (r) => !!r && r.type === 'page' && isOutside(r.path);
+
+/**
+ * The tooltip: the whole vault path of a file or a folder, the title of a view. A file
+ * outside the vault shows its full absolute path, and says where it is.
+ */
 function tipOf(r) {
   if (!r) return '';
   if (r.type === 'view') return labelOf(r);
+  if (outsideOf(r)) return `${outsideLabel(clean(r.path))} (outside the vault)`;
   const p = clean(r.path);
-  return p || ((ose.vault && ose.vault.name) || 'Vault');
+  return p || vaultName();
 }
 
 /**
@@ -105,6 +111,7 @@ function render() {
     const err = !!bad && (bad.status !== 'deleted' || isDirty);
     const tip = bad && bad.message ? `${tipOf(r)}: ${bad.message}` : tipOf(r);
     const mark = err ? 'err' : isDirty ? 'dot' : '';
+    const out = outsideOf(r);
     let el = have.get(t.id);
     if (!el) {
       el = document.createElement('div');
@@ -113,7 +120,7 @@ function render() {
       el.innerHTML = '<span class="tab-name"></span>'
         + `<button type="button" class="tab-x" tabindex="-1" title="Close">${icon('close')}</button>`;
     }
-    const cls = `tab${on ? ' on' : ''}${err ? ' err' : ''}`;
+    const cls = `tab${on ? ' on' : ''}${err ? ' err' : ''}${out ? ' outside' : ''}`;
     if (el.className !== cls) el.className = cls;
     if (el.id !== domId) el.id = domId;
     setAttr(el, 'aria-selected', on ? 'true' : 'false');
@@ -122,6 +129,16 @@ function render() {
     const name = el.querySelector('.tab-name');
     if (name.textContent !== label) name.textContent = label;
     setAttr(el.querySelector('.tab-x'), 'aria-label', `Close ${label}`);
+    // The outside mark (X7): a word after the name, and the same in what a reader hears.
+    setAttr(el, 'aria-label', out ? `${label}, outside vault` : label);
+    const hadOut = el.querySelector('.tab-out');
+    if (out && !hadOut) {
+      const o = document.createElement('span');
+      o.className = 'tab-out mono-sm';
+      o.setAttribute('aria-hidden', 'true');
+      o.textContent = 'outside vault';
+      name.after(o);
+    } else if (!out && hadOut) hadOut.remove();
     const had = el.querySelector('.tab-err, .tab-dot');
     const hadMark = had ? (had.classList.contains('tab-err') ? 'err' : 'dot') : '';
     if (hadMark !== mark) {

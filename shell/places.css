@@ -1,15 +1,17 @@
-/* Places: the title bar and its address bar, the page column and its tab strip, Home, the
-   resizers and the window edges (shell-places). Copied verbatim from shell.css at the start of
-   wave 2 (docs/SHELL.md), then changed here only. Tokens only, as everywhere in the shell. */
+/* Places: the toolbar and its address bar, the page column and its tab strip, Home and the
+   resizers (shell-places). Copied verbatim from shell.css at the start of wave 2
+   (docs/SHELL.md), then changed here only. Tokens only, as everywhere in the shell. */
 
-/* ------------------------------------------------------------------ titlebar */
+/* ------------------------------------------------------------------ toolbar */
 
+/* The row under the platform's own title bar (X9): a plain toolbar, no window buttons, not a
+   drag handle. The class keeps its old name so every sheet that styles it still does. */
 .titlebar {
   height: var(--titlebar-h);
   display: flex;
   align-items: center;
   gap: 0;
-  padding-left: var(--sp-3);
+  padding: 0 var(--sp-3);
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
@@ -24,10 +26,10 @@
 .tb-mark img { width: 100%; height: 100%; display: block; }
 
 /* The address bar (M21): the place on screen as segments, and a field once it is edited. It
-   takes the room between the buttons and the drag area and gives the rest back to the drag
-   area, so a short path leaves the bar as easy to grab as it was. */
+   takes the room after the buttons, up to a readable measure; what is left of the row stays
+   empty, which is room, not a handle. */
 .tb-addr {
-  flex: 0 1 auto; min-width: 6rem; max-width: 48rem;
+  flex: 1 1 auto; min-width: 6rem; max-width: 48rem;
   height: 1.5rem; margin-left: var(--sp-3);
   display: flex; align-items: center;
   border: 1px solid transparent; border-radius: var(--radius);
@@ -56,6 +58,8 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
 /* The last segment is what is on screen: it keeps its whole name and the folders above it
    give way first. */
 .tb-crumb.cur { color: var(--fg); flex: 0 0 auto; max-width: 28rem; }
+/* A page outside the vault (X7): the first segment says so, in the faint voice of a note. */
+.tb-crumb.tb-outside { color: var(--fg-3); flex: none; }
 .tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
 .tb-addr-input { flex: 1; min-width: 0; height: 1.5rem; padding: 0 var(--sp-2); }
 .tb-addr-note { flex: none; margin-left: var(--sp-2); color: var(--err); white-space: nowrap; }
@@ -92,35 +96,11 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
   border-radius: 50%; background: var(--accent);
 }
 
-.tb-drag { flex: 1; align-self: stretch; min-width: 1rem; }
-
-.tb-win { display: flex; align-self: stretch; margin-left: auto; flex: none; }
-.tb-btn {
-  width: 2.875rem; align-self: stretch;
-  display: grid; place-items: center;
-  color: var(--fg-2);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tb-btn:hover { background: var(--bg-3); color: var(--fg); }
-.tb-btn.close:hover { background: var(--err); color: var(--accent-fg); }
-.tb-win.dim .tb-btn { opacity: .4; pointer-events: none; }
-
-/* macOS: the window keeps its decorations with an overlay title bar, so the native traffic
-   lights sit on top of ours. Leave them 78px and drop our buttons; the strip still drags. */
-html.mac .titlebar { padding-left: 78px; }
-html.mac .tb-win { display: none; }
-
-.glyph {
-  width: 0.625rem; height: 0.625rem;
-  stroke: currentColor; fill: none; stroke-width: 1;
-  shape-rendering: crispEdges;
-}
-
 /* ------------------------------------------------------- title bar: back, forward */
 
 /* Two icon buttons between the app mark and the breadcrumb, the height of the bar so they
-   read as part of the chrome and not as a floating toolbar (N45, L23). Same hover as the
-   window buttons, same 120ms, same square corners. */
+   read as part of the chrome and not as a floating toolbar (N45, L23). Same hover as every
+   chrome button, same 120ms, same square corners. */
 .tb-nav {
   display: flex;
   align-self: stretch;
@@ -264,20 +244,6 @@ body.resizing { cursor: col-resize; }
 body.resizing * { cursor: col-resize !important; }
 
 
-/* ------------------------------------------------------------------ window edges */
-
-/* 8px hit zones along the frameless window's edges; the number is a grab size, not spacing. */
-.edge { position: fixed; z-index: 300; }
-.edge-top { top: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
-.edge-bottom { bottom: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
-.edge-left { left: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
-.edge-right { right: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
-.edge-topleft { top: 0; left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-.edge-topright { top: 0; right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
-.edge-bottomleft { bottom: 0; left: 0; width: 8px; height: 8px; cursor: nesw-resize; }
-.edge-bottomright { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-html.maximized .edge { display: none; }
-
 /* ------------------------------------------------------------------ tight windows */
 
 /* a short window gives up one --sp-5 of the page's top air */
@@ -310,3 +276,11 @@ html.maximized .edge { display: none; }
 .sp-body:focus { outline: none; }
 /* The panel's resizer sits on its left edge: the same 7px grab zone as the sidebar's. */
 .rs-panel { left: auto; right: calc(var(--panel-w) - 4px); }
+
+/* ------------------------------------------------------------------ outside the vault */
+
+/* A tab, or a row of Home's Recent, whose file is outside the vault (X7): one quiet word after
+   the name, in the chrome's small mono face. Not a colour: it has to read the same in both
+   themes and to anyone who does not tell colours apart. */
+.tab-out, .home-out { flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }
+.home-out { margin-right: var(--sp-2); }

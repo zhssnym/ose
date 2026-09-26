@@ -22,17 +22,37 @@ import { bus } from './registry.js';
 import { pageHost } from './pagehost.js';
 import { repoint } from './router.js';
 import { rewriteInboundMany } from './links.js';
-import { check, split, free } from './names.js';
-import { clean, dirName, baseName, join } from './paths.js';
+import { check, split, free, sameName } from './names.js';
+import { clean, dirName, baseName, join, isOutside, segments } from './paths.js';
 import { trashMode } from './settings-core.js';
 import { logLine } from './log.js';
 import { record as journal, binName, itemsLabel, folderLabel } from './journal.js';
 
-/** An Error with a code, the shape every refusal here takes. */
+/**
+ * An Error with a code, the shape every refusal here takes.
+ * @param {string} code
+ * @param {string} message
+ * @param {Record<string, unknown>} [extra]
+ * @returns {Error & { code: string }}
+ */
 function fail(code, message, extra = {}) {
   return Object.assign(new Error(message), { code, ...extra });
 }
 
+/**
+ * A file outside the vault (X7) is opened and saved where it is, and nothing else: it cannot be
+ * renamed, moved, trashed or duplicated from here. The refusal says so, `code` and `reason`
+ * both `outside`, and touches nothing.
+ * @param {string} path
+ * @param {string} verb
+ */
+function outside(path, verb) {
+  return fail('outside', `${baseName(path)} is outside the vault and cannot be ${verb} from here`, { reason: 'outside' });
+}
+
+/** @typedef {{ files: number, links: number, failed: string[], error?: string }} LinkSum */
+
+/** @returns {LinkSum} */
 const NO_LINKS = () => ({ files: 0, links: 0, failed: [] });
 
 /** `path` is `from`, or inside the folder `from`. */
@@ -92,8 +112,14 @@ async function filePairs(from, to) {
  * moved files' own pass (`rewriteOwn`) answered for the same pairs: those files are settled,
  * and its counts are added in, so the caller sees one result for the whole move.
  */
+/**
+ * @param {{ from: string, to: string }[]} pairs
+ * @param {OwnPass[]} [own]
+ * @returns {Promise<LinkSum>}
+ */
 async function rewrite(pairs, own = []) {
   const sum = NO_LINKS();
+  /** @type {Set<string>} */
   const settled = new Set();
   for (const o of own) {
     sum.files += o.files;
@@ -124,7 +150,16 @@ async function rewrite(pairs, own = []) {
  * text as its clean baseline. `settled` is every moved file whose hrefs now say where it is,
  * for the inbound pass that follows. Never throws.
  */
+/**
+ * @typedef {{ files: number, links: number, failed: string[], rewritten: Record<string, string>, settled: string[], error?: string }} OwnPass
+ */
+
+/**
+ * @param {{ from: string, to: string }[]} pairs
+ * @returns {Promise<OwnPass>}
+ */
 async function rewriteOwn(pairs) {
+  /** @type {OwnPass} */
   const out = { files: 0, links: 0, failed: [], rewritten: {}, settled: [] };
   if (!pairs.length) return out;
   try {
@@ -221,12 +256,15 @@ export async function mkdir(folder, name) {
 export function rename(path, name) { return renameQuiet(path, name, true); }
 
 async function renameQuiet(path, name, record) {
+  if (isOutside(path)) throw outside(path, 'renamed');
   const c = check(name);
   if (!c.ok) throw fail('bad_name', c.reason);
   const from = clean(path);
   const to = join(dirName(from), c.name);
   if (to === from) return { from, to, links: NO_LINKS(), entry: null };
-  const caseOnly = to.toLowerCase() === from.toLowerCase();
+  // Case only, or the same name in another Unicode form (M49: a name typed on a Mac is NFD on
+  // disk): the host finds the file itself at `to`, so `exists` says nothing about a clash.
+  const caseOnly = sameName(to.toLowerCase(), from.toLowerCase());
   if (!caseOnly && (await bridge.exists(to))) throw fail('exists', `${baseName(to)} already exists`);
   const moved = await movePath('rename', from, to);
   bus.emit('paths:moved', { moves: [{ from, to }] });
@@ -285,6 +323,7 @@ async function moveQuiet(paths, folder, record) {
     const to = join(dest, baseName(from));
     try {
       if (!from) throw fail('bad_arg', 'nothing to move');
+      if (isOutside(from)) throw outside(from, 'moved');
       if (to === from) continue;
       if (under(dest, from)) throw fail('bad_arg', `${baseName(from)} cannot go inside itself`);
       if (await bridge.exists(to)) throw fail('exists', `${baseName(to)} already exists in ${dest || 'the vault root'}`);
@@ -364,18 +403,20 @@ async function pathPrint(path) {
   return { dir: false, ...(await fingerprint(path)) };
 }
 
-/** A byte copy of a file or a whole folder: `copyPath`, or `copyFile` on a host without it. */
-async function copyBytes(from, to, dir) {
-  try {
-    const r = await bridge.copyPath(from, to);
-    return { path: clean((r && r.path) || to) };
-  } catch (e) {
-    if (e && e.code === 'unknown_command' && !dir) {
-      const r = await bridge.copyFile(from, to);
-      return { path: clean((r && r.path) || to), hash: (r && r.hash) || null };
-    }
-    throw e;
+/**
+ * A byte copy of a file or a whole folder (`copyPath`); a file outside the vault comes in
+ * through `importOutside`, the one command that may read it for a copy.
+ * @param {string} from
+ * @param {string} to
+ * @returns {Promise<{ path: string, hash?: string | null }>}
+ */
+async function copyBytes(from, to) {
+  if (isOutside(from)) {
+    const r = await bridge.importOutside(from, to);
+    return { path: clean((r && r.path) || to), hash: (r && r.hash) || null };
   }
+  const r = await bridge.copyPath(from, to);
+  return { path: clean((r && r.path) || to) };
 }
 
 /**
@@ -407,7 +448,7 @@ export async function copy(paths, folder) {
       let done = null;
       for (let attempt = 0; attempt < 5 && !done; attempt++) {
         try {
-          done = await copyBytes(from, to, dir);
+          done = await copyBytes(from, to);
         } catch (e) {
           if (e && e.code === 'exists') { to = await free(dest, baseName(from), { dir }); continue; }
           await tellPage({ kind: 'copy', from, to, ok: false });
@@ -469,6 +510,7 @@ async function trashQuiet(paths, record, { asked = false } = {}) {
   for (const p of paths || []) {
     const from = clean(p);
     if (!from) continue;
+    if (isOutside(from)) { failed.push({ path: from, error: outside(from, 'trashed') }); continue; }
     const change = { kind: 'trash', from, to: null };
     const g = asked ? { ok: true } : await askPage(change);
     if (!g.ok) { failed.push({ path: from, error: fail('not_saved', g.reason || `${baseName(from)} could not be saved`) }); continue; }
@@ -490,7 +532,7 @@ async function trashQuiet(paths, record, { asked = false } = {}) {
   }
   const entry = record && items.length ? journal({
     verb: 'trash',
-    label: `Moved ${itemsLabel(trashed)} to ${binName(items[0].where)}`,
+    label: `Moved ${itemsLabel(trashed)} to ${binName(items[0]?.where || trashMode())}`,
     steps: items.map((i) => ({ op: 'trashed', path: i.path, id: i.id, where: i.where })),
   }) : null;
   if (trashed.length) bus.emit('paths:trashed', { paths: trashed, items });
@@ -531,16 +573,11 @@ async function restoreQuiet(ids, record) {
 
 /**
  * What can be restored: the vault's `.trash`, and the system bin where the platform lets the
- * host read it back (TrashItem[], newest first). A host without the command answers [].
+ * host read it back (TrashItem[], newest first).
  */
 export async function trashList() {
-  try {
-    const r = await bridge.trashList();
-    return Array.isArray(r) ? r : [];
-  } catch (e) {
-    if (e && e.code === 'unknown_command') return [];
-    throw e;
-  }
+  const r = await bridge.trashList();
+  return Array.isArray(r) ? r : [];
 }
 
 /**
@@ -550,6 +587,7 @@ export async function trashList() {
  * @returns {Promise<{path: string, entry: object|null}>}
  */
 export async function duplicate(path) {
+  if (isOutside(path)) throw outside(path, 'duplicated');
   const from = clean(path);
   let st = null;
   try { st = await bridge.stat(from); } catch { /* copyFile will say */ }
@@ -579,6 +617,150 @@ export async function duplicate(path) {
   }
   await tellPage({ kind: 'copy', from, to, ok: false });
   throw fail('exists', `no free name beside ${from}`);
+}
+
+/* ------------------------------------------------------------------------ importing (§5.5) */
+
+/** The largest file a drop copies in; a bigger one is copied in Explorer or Finder. */
+export const IMPORT_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Bytes as base64, in chunks: `String.fromCharCode(...bytes)` blows the argument limit on
+ * anything large.
+ * @param {Uint8Array} bytes
+ */
+export function bytesToBase64(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/**
+ * Files and folders dropped from the OS, copied into `folder` byte for byte (§5.5). `entries`
+ * is what the shell gathered from the drop: `{ path, kind, file? }`, `path` relative inside the
+ * drop (`Photos/2024/a.jpg`). Every file lands as its bytes through the create-only
+ * `createNewBinary`, so a BOM, CRLF or a file in another encoding arrives exactly as it was, and
+ * a failure leaves no empty file. A top-level name that is taken gets the next free one, and a
+ * folder keeps that new name for its whole subtree; nothing is ever written over. A file over
+ * 64 MB is refused, and so is a file whose bytes cannot be read; each refusal is listed and the
+ * rest still land.
+ *
+ * One undo step for the whole drop: its undo trashes each top-level item that is still what the
+ * drop left (a folder with the same entries, a file with the same bytes).
+ *
+ * `opts.onProgress(done, total)` is called after each file, for the shell's progress toast.
+ * -> `{ created, failed, files, entry }`: `created` the top-level paths now in `folder`, `files`
+ * how many files were written.
+ * @param {import('./types.js').ImportEntry[]} entries
+ * @param {string} folder
+ * @param {{ onProgress?: (done: number, total: number) => void }} [opts]
+ * @returns {Promise<{ created: string[], failed: { path: string, error: Error }[], files: number, entry: object | null }>}
+ */
+export async function importEntries(entries, folder, opts = {}) {
+  const dest = clean(folder);
+  /** @type {{ path: string, error: Error }[]} */
+  const failed = [];
+  if (isOutside(dest)) throw outside(dest, 'a place to copy into');
+  const list = (Array.isArray(entries) ? entries : [])
+    .map((e) => ({ ...e, path: segments(e && e.path).join('/') }))
+    .filter((e) => e.path && (e.kind === 'dir' || e.kind === 'file'));
+  // The top-level names, in the order they came, each with the free name it lands under.
+  /** @type {Map<string, { dir: boolean, to: string | null }>} */
+  const tops = new Map();
+  for (const e of list) {
+    const top = segments(e.path)[0] || '';
+    const dir = e.kind === 'dir' || e.path !== top;
+    const seen = tops.get(top);
+    if (!seen) tops.set(top, { dir, to: null });
+    else if (dir) seen.dir = true;
+  }
+  for (const [top, t] of tops) {
+    const c = check(top);
+    // A name no file can have is refused once, for the whole subtree under it.
+    if (!c.ok) { failed.push({ path: top, error: fail('bad_name', c.reason) }); continue; }
+    try { t.to = await free(dest, top, { dir: t.dir }); } catch (e) { failed.push({ path: top, error: /** @type {Error} */ (e) }); }
+  }
+  /** @param {string} rel @returns {string | null} */
+  const target = (rel) => {
+    const [top = '', ...rest] = segments(rel);
+    const t = tops.get(top);
+    if (!t || !t.to) return null;
+    return rest.length ? join(t.to, ...rest) : t.to;
+  };
+
+  // Folders first, shallow before deep, so an empty folder in the drop exists too.
+  const dirs = list.filter((e) => e.kind === 'dir').sort((a, b) => segments(a.path).length - segments(b.path).length);
+  for (const d of dirs) {
+    const to = target(d.path);
+    if (!to) continue;   // its top-level name was refused above
+    try {
+      if (!(await bridge.exists(to))) await bridge.mkdir(to);
+    } catch (e) {
+      failed.push({ path: d.path, error: /** @type {Error} */ (e) });
+    }
+  }
+
+  const files = list.filter((e) => e.kind === 'file');
+  let written = 0;
+  let done = 0;
+  /** @type {Map<string, string | null>} top-level file -> hash */
+  const hashes = new Map();
+  for (const f of files) {
+    const to = target(f.path);
+    if (!to) { done++; continue; }   // its top-level name was refused above
+    try {
+      const file = f.file;
+      if (!file) throw fail('bad_arg', 'the drop did not carry this file');
+      if (file.size > IMPORT_MAX_BYTES) throw fail('too_large', 'too large to copy by drop; copy it in Explorer/Finder');
+      const b64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      let at = to;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await bridge.createNewBinary(at, b64);
+          if (!f.path.includes('/')) hashes.set(at, (r && r.hash) || null);
+          break;
+        } catch (e) {
+          // A top-level file whose free name was taken since: the next one. Inside a folder of
+          // the drop's own, the name was free a moment ago and a clash means someone else wrote.
+          const top = !f.path.includes('/');
+          if (!(e && /** @type {{ code?: string }} */ (e).code === 'exists' && top && attempt < 5)) throw e;
+          at = await free(dest, baseName(to));
+          const t = tops.get(f.path);
+          if (t) t.to = at;
+        }
+      }
+      written++;
+    } catch (e) {
+      failed.push({ path: f.path, error: /** @type {Error} */ (e) });
+      logLine(`fileops import failed ${f.path}: ${(e && /** @type {{ code?: string }} */ (e).code) || 'io'} ${(e && /** @type {Error} */ (e).message) || e}`, 'warn');
+    }
+    done++;
+    if (typeof opts.onProgress === 'function') {
+      try { opts.onProgress(done, files.length); } catch (e) { console.error('[fileops] progress', e); }
+    }
+  }
+
+  /** @type {string[]} */
+  const created = [];
+  /** @type {object[]} */
+  const steps = [];
+  for (const [, t] of tops) {
+    if (!t.to) continue;
+    let there = false;
+    try { there = !!(await bridge.exists(t.to)); } catch { there = false; }
+    if (!there) continue;
+    created.push(t.to);
+    if (t.dir) steps.push({ op: 'copied', from: '', to: t.to, ...(await folderPrint(t.to)) });
+    else steps.push({ op: 'created', path: t.to, dir: false, hash: hashes.get(t.to) ?? null });
+  }
+  if (created.length) logLine(`fileops import ${written} files into ${dest || '/'}: ${created.join(', ')}`);
+  const entry = created.length ? journal({
+    verb: 'import',
+    label: `Copied ${itemsLabel(created)} into ${folderLabel(dest)}`,
+    steps,
+  }) : null;
+  if (created.length) bus.emit('paths:created', { paths: created });
+  return { created, failed, files: written, entry };
 }
 
 /* --------------------------------------------------------------------------------- undo */
@@ -633,6 +815,7 @@ async function trashIfSame(path, step) {
   const change = { kind: 'trash', from: path, to: null };
   const g = await askPage(change);
   if (!g.ok) throw fail('not_saved', g.reason || `${baseName(path)} could not be saved`);
+  /** @type {boolean | null} */
   let same = false;
   try { same = await stillSame(path, step); } catch { same = false; }
   if (same !== true) {
@@ -643,7 +826,8 @@ async function trashIfSame(path, step) {
       : `${baseName(path)} changed since, left in place`);
   }
   const r = await trashQuiet([path], false, { asked: true });
-  if (r.failed.length) throw r.failed[0].error;
+  const f = r.failed[0];
+  if (f) throw f.error;
 }
 
 /**
@@ -661,7 +845,8 @@ export async function undoSteps(steps) {
           await renameQuiet(step.to, baseName(step.from), false);
         } else {
           const r = await moveQuiet([step.to], dirName(step.from), false);
-          if (r.skipped.length) throw r.skipped[0].error;
+          const s = r.skipped[0];
+          if (s) throw s.error;
         }
       } else if (step.op === 'created' || step.op === 'copied' || step.op === 'restored') {
         await trashIfSame(step.op === 'copied' ? step.to : step.path, step);

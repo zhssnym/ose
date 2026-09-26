@@ -15,11 +15,10 @@ import { reset, setRestorable, vault } from './fake-bridge.js';
 vi.mock('../../src/kernel/bridge/index.js', () => import('./fake-bridge.js'));
 
 const F = await import('../../src/kernel/fileops.js');
-const J = await import('../../src/kernel/journal.js').catch(() => null);
+const J = await import('../../src/kernel/journal.js');
 const { setPageHost } = await import('../../src/kernel/pagehost.js');
 const { bus } = await import('../../src/kernel/registry.js');
 
-const ready = !!J && ['copy', 'restore', 'mkdir', 'paste'].every((k) => typeof F[k] === 'function');
 
 let unhost = () => {};
 beforeEach(() => {
@@ -37,7 +36,11 @@ afterEach(() => { unhost(); });
 
 const has = (p) => vault.files.has(p) || vault.dirs.has(p);
 
-describe.skipIf(!ready)('the undo journal', () => {
+describe('the undo journal', () => {
+  it('fileops has copy, restore, mkdir and paste', () => {
+    for (const k of ['copy', 'restore', 'mkdir', 'paste']) expect(typeof F[k], k).toBe('function');
+  });
+
   it('a rename is written down with a label that uses the real names, and undone', async () => {
     const r = await F.rename('notes/a.md', 'a.txt');
     expect(r.entry).toMatchObject({ verb: 'rename', label: 'Renamed a.md to a.txt', undone: false, undoable: true });

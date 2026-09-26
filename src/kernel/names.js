@@ -76,7 +76,7 @@ export function check(name, { folders = false } = {}) {
 export async function free(folder, name, { dir: isDir = false } = {}) {
   const first = join(folder, name);
   if (!(await bridge.exists(first))) return first;
-  const last = clean(name).split('/').pop();
+  const last = clean(name).split('/').pop() || '';
   const { stem, ext } = isDir ? { stem: last, ext: '' } : split(last);
   const dir = join(folder, clean(name).split('/').slice(0, -1).join('/'));
   for (let n = 2; n < 10000; n++) {
@@ -101,11 +101,28 @@ export function display(path) {
 }
 
 /**
- * True when the two names have different extensions, compared without case: `a.md` → `a.MD`
- * is not a change, `a.md` → `a.txt` and `a.md` → `a` are.
+ * True when the two names have different extensions, compared without case and in one Unicode
+ * form: `a.md` → `a.MD` is not a change, `a.md` → `a.txt` and `a.md` → `a` are.
  * @param {string} a
  * @param {string} b
  */
 export function extChanged(a, b) {
-  return split(a).ext.toLowerCase() !== split(b).ext.toLowerCase();
+  return nfc(split(a).ext).toLowerCase() !== nfc(split(b).ext).toLowerCase();
+}
+
+/**
+ * A name (or a path) in Unicode normal form C (M49). macOS hands a name typed in Finder over in
+ * form D, `é` as `e` and a combining accent; the host sends names out in form C, and the kernel
+ * compares in form C, so the two spellings of one name are one name.
+ * @param {string} s
+ */
+export const nfc = (s) => String(s ?? '').normalize('NFC');
+
+/**
+ * True when two names (or paths) are the same name in either Unicode form. Case counts.
+ * @param {string} a
+ * @param {string} b
+ */
+export function sameName(a, b) {
+  return a === b || nfc(a) === nfc(b);
 }

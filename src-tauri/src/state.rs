@@ -12,7 +12,6 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
-use crate::Ctx;
 
 /// Serialises read-modify-write cycles so a `setState` and a host patch cannot interleave.
 static GATE: Mutex<()> = Mutex::new(());
@@ -177,29 +176,6 @@ pub fn usable(b: Bounds, monitors: &[MonitorRect]) -> bool {
         let oh = bo.min(mb) - t.max(mt);
         ow >= 120 && oh >= 60
     })
-}
-
-// ---- dispatch --------------------------------------------------------------
-
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    if !matches!(cmd, "getState" | "setState") {
-        return None;
-    }
-    // The state file lives inside the vault, so there is none to read without one. A `setState`
-    // naming an epoch other than the open one is the old vault's state, sent late, and is
-    // refused (`[stale_vault]`) instead of replacing the new vault's.
-    let root = match crate::root_for(ctx.st, cmd, args) {
-        Ok(r) => r,
-        Err(e) => return Some(Err(e)),
-    };
-    match cmd {
-        "getState" => Some(Ok(get(&root))),
-        "setState" => {
-            let value = args.first().cloned().unwrap_or_else(|| json!({}));
-            Some(set(&root, &value).map(|_| Value::Null))
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]

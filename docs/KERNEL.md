@@ -2,7 +2,7 @@
 
 `ose.exe` is the whole app: the Rust host (docs/HOST.md), the kernel, the editor, the planner and
 the shell (docs/SHELL.md), in one file. The kernel is the JavaScript that is logic rather than
-look, built into library bundles the executable embeds and serves. It never draws and knows no
+look, built into library bundles the executable carries and serves. It never draws and knows no
 view and no file name of the shell. Everything the shell and the built-in modules do, they do
 through the hoses below, and nothing else. This file is the contract.
 
@@ -10,34 +10,34 @@ There are no plugins (W2). Day, Week, Month and Journal are `ose:planner`, a mod
 inside the executable and registers through the same seams the shell uses: views, commands and a
 settings section. The file formats they read are docs/FORMATS.md.
 
-## Origins
+## Where the app is served
+
+The standard Tauri layout (X4, docs/HOST.md). The build writes `dist/`: the shell copied verbatim
+at its root, and the four library bundles and their stylesheets under `dist/ose/`. The window
+loads `index.html` from Tauri's own asset protocol, and `npm run tauri dev` loads the same files
+from the dev server.
 
 ```
-ose.localhost     the kernel's embedded bundles: kernel.js, editor.js, planner.js, ui.js,
-                  ui.css, editor.css, planner.css. Read-only, CORS open, never cached.
-app.localhost     the app itself: `/index.html` and every other name are the shell, which
-                  travels inside the executable (or comes from `--shell <dir>`). index.html is
-                  rewritten on the way out: the import map below is inserted at the top of
-                  <head>.
-vault.localhost   the vault's files (images, PDFs).
+dist/index.html, main.js, …        the shell (shell/, copied as it is)
+dist/ose/kernel.js  editor.js  planner.js  ui.js  chunks/…
+dist/ose/ui.css  editor.css  planner.css
+vault.localhost                    the vault's files (images, PDFs, media with Range), and under
+                                   `/~abs/` the folder of a file outside the vault this window
+                                   opened. `vault://localhost` on macOS
 ```
 
-On macOS the schemes are `ose://localhost`, `app://localhost`, `vault://localhost`; the import
-map the host injects carries whichever is right, so no shell file spells an origin.
+`shell/index.html` carries a static import map, which Tauri hashes into the CSP at build time,
+and literal stylesheet links:
 
 ```html
-<script type="importmap">{"imports":{
-  "ose:kernel":  "<kernel origin>/kernel.js",
-  "ose:editor":  "<kernel origin>/editor.js",
-  "ose:planner": "<kernel origin>/planner.js",
-  "ose:ui":      "<kernel origin>/ui.js"
-}}</script>
+<script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js",
+  "ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
+<link rel="stylesheet" href="./ose/ui.css">   (and editor.css, planner.css, then the shell's own)
 ```
 
-Stylesheets: the shell links `<kernel origin>/ui.css`, `/editor.css` and `/planner.css` through
-the `<link data-ose="ui">`, `<link data-ose="editor">` and `<link data-ose="planner">` elements
-the host rewrites, so no file spells an origin there either. `ose.assets.url(name)` answers the
-absolute URL of any kernel asset.
+In the browser dev server the import map is inert: Vite rewrites the `ose:*` imports to the
+sources, and answers `/ose/*.css`. No file spells an origin. `ose.assets.url(name)` answers the
+URL of a kernel asset on the page's own origin (Tauri's in the app, the dev server's in a browser).
 
 ## `ose:kernel`
 
@@ -52,7 +52,7 @@ state file and the per-machine store are loaded. Every function that touches the
 ose.version                  { kernel, sha, short, date }   the build stamp
 ose.platform                 'windows' | 'macos' | 'linux'
 ose.ready                    Promise<void>
-ose.host                     'tauri' | 'webview' | 'browser'   whether window buttons, quit and drag are live
+ose.host                     'tauri' | 'browser'   whether quit, drag out and native opens are live
 ```
 
 ### The vault
@@ -65,20 +65,36 @@ ose.vault.epoch              the host's count of adopted vaults, as this window 
                              refused with `[stale_vault]` instead of landing in the new one
 ose.vault.onChangeRequested(fn) -> unsubscribe  fn({ root, name }): a second launch named another
                              folder. The host did not adopt it; the shell leaves the window
-                             (`ose.window.leave('vault-change')`), opens it and reloads
+                             (`ose.window.leave('vault-change')`), opens it and reloads. Kept
+                             until windows per vault pass G3: after that a second launch opens
+                             (or focuses) a window of its own, and this never fires
 ose.vault.onChange(fn)       -> unsubscribe  kept for old callers; never fires any more
 ose.vault.pick(opts?)        -> { root, name } | null  native picker. `{ adopt: false }` only chooses
                              (nothing adopted, nothing recorded); without it the choice is adopted
 ose.vault.recent()           -> [{ path, name, exists, current }]
-ose.vault.open(path)         -> { root, name }         adopt. The caller reloads, after leaving
+ose.vault.open(path)         -> { status: 'adopted', root, name, epoch }   adopt in this window.
+                             The caller reloads, after leaving. Or `{ focused: true, label }`:
+                             another window has that vault open and was brought forward instead
+                             (X6); nothing changed here
 ose.vault.forget(path)       drop one remembered vault; no path means stop remembering at all
     There is no `ose.vault.change()`. Changing vault is a dialog, and a dialog is shell.
+
+ose.windows.open(vaultPath?) -> { label, created }     a window for the vault at `vaultPath` (a
+                             native folder path), or a new window with no vault, which opens on
+                             the chooser. The window that already has that vault comes forward
+                             instead (`created: false`)
 ```
+
+**A window per vault** (X6, D14). There are never two windows on one vault. Each window has its
+own vault, its own epoch, its own watcher and its own state; the host sends each window only its
+own events. A second launch on another vault, a folder dropped on the executable, or a file
+inside another Ose vault opens (or focuses) that vault's window. "Change vault…" still adopts in
+place, unless the vault is open in another window, which is then focused.
 
 ### Files
 
 ```
-ose.files.read(path)         -> string                 UTF-8, BOM kept, endings kept
+ose.files.read(path)         -> string                 the text, BOM kept, endings kept
 ose.files.write(path, text)  -> null                   atomic; creates parents
 ose.files.append(path, text) -> null
 ose.files.readBinary(path)   -> Uint8Array
@@ -99,7 +115,8 @@ ose.files.copyPath(from, to) -> { path, files }        a file or a whole folder,
 ose.files.reveal(path)       -> null                   file manager
 ose.files.open(path)         -> null                   the platform's default app: only ever an
                                                        explicit command, never how a file opens
-ose.files.assetUrl(path)     -> string                 vault.localhost URL for an <img>
+ose.files.assetUrl(path)     -> string                 vault.localhost URL for an <img>; for an
+                                                       `abs:` path, its `/~abs/` URL
 
 Entry = { name, path, kind: 'dir' | 'file', ext, mtime, size,
           hidden,                                      a dotfile, or the OS hidden attribute
@@ -131,20 +148,34 @@ platform cannot give it back (macOS's system Trash).
 
 ```
 ose.files.versions.keep(path, text, opts?) / list(path) / read(path, id) / restore(path, id)
-                             opts: { force?, reason? } or a boolean (the old `force`).
+                             opts: { force?, reason? }; the boolean `force` is gone.
                              list -> [{ id, at, bytes, reason, session }], newest first; the files
                              live in `.ose/history/` and their names are the host's business
 
-ose.files.readFile(path)     -> { text, hash, mtime, size }   the text and the hash a save compares
-ose.files.save(path, text, { expectedHash, version? })  -> SaveOutcome
+ose.files.readFile(path, { encoding? })
+                             -> { text, hash, mtime, size, encoding, bom, lossy }   the text and
+                             the hash a save compares. A file that is not UTF-8 is detected and
+                             decoded (X10): `encoding` is its WHATWG label ('utf-8',
+                             'windows-1252', 'utf-16le', 'shift_jis', …), `bom` whether it
+                             starts with one (a UTF-8 BOM stays in `text`, as always), and
+                             `lossy` true when the decoded text would not encode back to the
+                             same bytes: such a page opens read-only and is never saved as it
+                             is. `encoding` in the options forces a decoding ("Reopen with
+                             encoding…")
+ose.files.save(path, text, { expectedHash, version?, encoding? })  -> SaveOutcome
                              One call compares and writes, under a lock per path (docs/HOST.md
                              `saveFile`). `expectedHash` is what `readFile` (or the last save)
                              answered, or null for "the file must not exist yet"; leaving it out
                              is an error. `version`: 'save' (default, tiered), 'conflict' (forced)
-                             or 'none'.
+                             or 'none'. `encoding`: the one `readFile` answered, so the file is
+                             written back in its own encoding (absent is UTF-8); a character it
+                             cannot hold is `[unencodable]` and nothing is written. Converting a
+                             file to UTF-8 is always an explicit command.
                                { status: 'saved', hash, mtime, unchanged? }
                                { status: 'conflict', disk: { exists, text, hash } }  nothing written
 ose.files.createNew(path, text = '')  -> { path, hash }   exclusive: `[exists]` rather than overwrite
+ose.files.createNewBinary(path, bytes | base64)  -> { path, hash }   the same, written with its
+                             bytes in one call: a failure leaves no empty file behind
 ose.files.copy(from, to)     -> { path, hash }         a byte copy of one file under the same rule
 ose.files.appendLine(path, line) -> { hash }           no `\n` in `line`; the separator and the
                              line ending are the file's own
@@ -158,11 +189,40 @@ ose.files.drafts.write(path, draft) / list() / read(path) / drop(path, { ifRev? 
 
     The hash is the host's (FNV-1a 64, 16 hex digits). JavaScript carries it from a read to a
     save and compares by equality; it never computes one. The kernel adds `{ epoch }` to the
-    options of every call that changes the vault. A host refusal is an `Error` whose `message`
-    is the text, `.code` the host's code (`not_found`, `exists`, `not_utf8`, `stale_vault`,
-    `no_vault`, `write_failed`, `bad_arg`, `bad_name`, `escapes_vault`, `io`,
-    `unknown_command`) and `.cmd` the call.
+    options of every call that changes the vault. A host refusal is a `HostError` whose
+    `message` is the text, `.code` the host's code (`not_found`, `exists`, `not_utf8`,
+    `unencodable`, `lossy`, `stale_vault`, `no_vault`, `write_failed`, `bad_arg`, `bad_name`,
+    `escapes_vault`, `not_registered`, `unsupported`, `io`, and `unknown_command` for a name
+    the host does not have) and `.cmd` the call.
 ```
+
+**Files outside the vault** (X7, H24, M19). A file anywhere on the machine opens in a tab of its
+own, marked "outside vault". Its path in JavaScript is `abs:` and the absolute path with forward
+slashes, the drive letter upper case, no `\\?\` prefix and NFC on macOS: `abs:D:/Notes/todo.md`,
+`abs:/Users/h/Notes/a.md`. The host registers it for the window that opened it, for the window's
+life, and refuses an `abs:` path this window did not register (`[not_registered]`).
+
+```
+ose.files.openOutside(path, { line?, activate? })  -> Promise<boolean>   a native absolute path
+                             or an `abs:` one: registered, then opened in a tab (one already on
+                             it is reused). A file inside this vault opens as the vault file it
+                             is; a folder outside the vault opens as a vault, in its own window
+ose.files.isOutside(path)    -> boolean                an `abs:` path
+ose.files.pick({ title? })   -> native path | null     the platform's open-file dialog
+ose.files.importOutside(from, to) -> { path, hash }    a registered `abs:` file copied byte for
+                             byte to the vault path `to`, create-only ("Copy into the vault…")
+ose.files.dragOut(paths)     -> Promise<boolean>       vault or `abs:` paths dragged out of the
+                             window as copies (X8); false where there is no drag out (a
+                             browser). Nothing is moved or deleted by it
+```
+
+On an `abs:` path these work: `read`, `readFile`, `save` (never keeps a version), `stat`,
+`exists`, `readBinary`, the drafts (kept under the vault key `outside`), `reveal`, `open`,
+`assetUrl` (read-only, the file's folder and below) and the watcher (the file's folder, not
+recursive). Refused: versions (`[unsupported]`), rename, move, trash, duplicate, links,
+backlinks and attachments. `paths.js` has the helpers: `ABS`, `isOutside`, `absOf` (the native
+path), `absFrom` (a native path in the `abs:` form) and `outsideLabel` (the path without the
+prefix). `clean` keeps the prefix.
 
 ### File operations and the undo journal
 
@@ -179,9 +239,30 @@ ose.fileops.paste({ mode: 'cut' | 'copy', paths }, folder)
 ose.fileops.trash(paths)         -> { trashed: [paths], items: [{path, id, where}], failed, entry }
 ose.fileops.restore(ids)         -> { restored: [{id, path}], failed: [{id, error}], entry }
                                  never overwrites: a place taken again fails `[exists]`
-ose.fileops.trashList()          -> TrashItem[]        [] from a host without the command
+ose.fileops.trashList()          -> TrashItem[]
 ose.fileops.duplicate(path)      -> { path, entry }    `stem 2.ext` beside it, bytes, any type
+ose.fileops.importEntries(entries, folder, { onProgress? })
+                                 -> { created, failed: [{path, error}], files, entry }
+                                 files and folders dropped from the OS (§5.5 of the wave-3
+                                 contract), byte for byte, one undo step
 ```
+
+**Importing a drop.** The shell turns an OS drop into `entries: [{ path, kind, file? }]`, `path`
+relative inside the drop (`Photos/2024/a.jpg`), walking folders itself. Every file lands as its
+bytes through the create-only `createNewBinary`, so a BOM, CRLF or a file in another encoding
+arrives exactly as it was, and a failure leaves no empty file. A top-level name that is taken
+gets the next free one (`x 2.ext`, `folder 2`), and a folder keeps that name for its whole
+subtree; nothing is written over. A file over 64 MB is refused ("too large to copy by drop; copy
+it in Explorer/Finder", `code: 'too_large'`), and so is a name no file can have; each refusal is
+listed and the rest still land. `onProgress(done, total)` is called after each file. `created`
+is the top-level paths now in `folder`, `files` how many files were written. The one journal
+entry ("Copied 3 items into Notes") trashes, on undo, each top-level item that is still what the
+drop left.
+
+**Outside the vault.** Rename, move, trash and duplicate refuse an `abs:` path with
+`code: 'outside'` and `reason: 'outside'`, touching nothing (move and trash list it under
+`skipped` and `failed`). `copy` of an `abs:` path into a vault folder goes through
+`importOutside`.
 
 The one create, new folder, rename, move, copy, trash, restore and duplicate; the tree, the
 folder view, the palette, the router's "Create it" and the editor all call these, and the name
@@ -215,6 +296,7 @@ ose.fileops.journal.on(fn)       -> unsubscribe        also bus `fileops:journal
 
 JournalEntry = { id, at, verb, label, steps, undone, undoable }
     verb    'create' | 'mkdir' | 'rename' | 'move' | 'copy' | 'duplicate' | 'trash' | 'restore'
+            | 'import'
     label   sentence case, real names: "Renamed notes.md to notes.txt", "Moved 3 items to
             2-learning", "Moved draft.md to the Recycle Bin"
 Step = { op: 'created', path, dir, hash }
@@ -246,7 +328,8 @@ ose.names.check(name, { folders? })  -> { ok: true, name } | { ok: false, reason
                              a trailing dot or space, CON/PRN/AUX/NUL/COM1-9/LPT1-9, over 255
 ose.names.free(folder, name, { dir? })  -> Promise<path>   the name, else `stem 2.ext`, `stem 3.ext`…
                              with `dir` the whole name is the stem (`v1.2 2`, not `v1 2.2`)
-ose.names.extChanged(a, b)   -> boolean                the extensions differ, case aside
+ose.names.extChanged(a, b)   -> boolean                the extensions differ, case and Unicode
+                                                       form aside
 ose.names.display(path)      -> string                 the name the chrome shows (W8, H20): the
                              file's real name with its extension, the same for every file. Only
                              the machine setting `hideMdExt` strips a `.md`, for display only.
@@ -254,6 +337,13 @@ ose.names.display(path)      -> string                 the name the chrome shows
 ```
 
 A window, a tab and the address bar name a file by its file name, never by its H1 (M13).
+
+**Unicode form** (M49, X11). macOS hands over a name typed in Finder in form D (`é` as `e` and a
+combining accent). The host sends every name out in form C on macOS (`list`, `tree`, `search`,
+the watcher, `trashList`, outside opens) and takes paths in as given, since APFS ignores the
+form; Windows is untouched. The kernel compares in form C: `names.js` has `nfc(s)` and
+`sameName(a, b)`, a rename that only changes the form (or the case) is a rename in place, and
+`links.js` resolves a link written in either form to the same file.
 
 ### The watcher
 
@@ -265,6 +355,10 @@ ose.watch(folders, fn)       -> unsubscribe            only changes under those 
     tree can patch one row instead of walking again. `rescan`: the host may have missed events
     (the OS watcher overflowed or restarted); re-read what you show. `lost`: the vault folder
     itself went away.
+    A file outside the vault that this window opened is watched too (its folder, not
+    recursive), and its changes arrive with its `abs:` path, a rename as a delete and a create.
+    They go to the page that shows it (the editor hears every change on the bus `fs`), never to
+    the tree: `ose.watch(fn)` leaves them out, and only `ose.watch(['abs:…'], fn)` hears them.
 ```
 
 ### Routes
@@ -280,6 +374,12 @@ restores what it was left with instead.
 
 routeKey = 'page:<path>' | 'folder:<path>' | 'view:<name>'
 ```
+
+A page route's `path` is a vault path, or an `abs:` path for a file outside the vault (X7).
+Mounting an `abs:` route first registers it with the host (`outsideOpen`, idempotent), so a
+restored session, Recent and back or forward all work; a path the host finds inside this vault
+after all is shown as the vault file it is, and a missing one gets a "Not found" box with no
+"Create it". `routeKey`, `routeLabel` and the title all take `abs:` paths.
 
 A page route opens any existing file (H17): the page host decides how, by content (the
 editor, a media page, or a box for a binary file). A page route whose path turns out to be a
@@ -316,10 +416,15 @@ column, the strip or the title, and the history is back as it was. The answer is
 bus says `route:refused` { from, to }. A newer navigation (or a tab switch) that starts while one waits
 supersedes it: the older one answers false, the entry it pushed or the step it took in its tab's
 history is taken back, and a yes its page already gave is undone (`stay()`) before the newer one
-parks or asks that page itself, which it waits for (at most 5 s). A jump to a line or a heading of the open page never asks; the same folder with a `select`,
+parks or asks that page itself, which it waits for (at most 5 s). When the newer one stopped
+waiting (a save slower than that) and has moved on, the older one's late yes is handed back only
+to the page it asked, and only while that page is still on screen: never to the page that
+replaced it, which may be frozen by the newer one's own question. A page the newer one parked in
+the meantime is thawed by the editor when it comes back. A jump to a line or a heading of the open page never asks; the same folder with a `select`,
 or the same view with an `arg`, is shown again in place.
 
-The window title is `<file name> · <vault>` for a page (`names.display`), `<folder name> ·
+The window title is `<file name> · <vault>` for a page (`names.display`), `<file name> — outside
+vault` for a file outside the vault, `<folder name> ·
 <vault>` for a folder (the vault's name at the root), `<view title> · <vault>` for a view, and the
 vault's name alone on the empty surface. The mouse's back and forward buttons (4 and 5) act on
 the active tab, in one handler, the kernel's.
@@ -434,8 +539,15 @@ ose.views.register(name, { title, mount(el, route), unmount?, refresh?, ...extra
     carries wins. An `async mount` is awaited before the caret is placed. The first registration
     of a name wins; a second keeps nothing and the console says so.
 ose.views.list() / get(name)
-ose.status.set(field, text | { text, kind, onClick }) / clear(field)
-ose.status.all()             -> [{ key, text, kind, onClick }]
+ose.status.set(field, text | { text, kind, onClick, title, choices, value, onChoose }) / clear(field)
+    `choices` [{ value, label }] makes the field a choice: the shell draws it as a button whose
+    menu lists them, the current `value` checked, and a pick calls `onChoose(value)`. `title`
+    names the field for the tooltip and a screen reader. The editing mode is one:
+      ose.status.set('mode', { text: 'Live', title: 'Editing mode', value: 'live',
+        choices: [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' },
+                  { value: 'source', label: 'Source' }], onChoose })
+    A plain text file sets `{ text: 'Text' }` and no choices.
+ose.status.all()             -> [{ key, text, kind, onClick, title?, choices?, value?, onChoose? }]
 ose.status.watch(fn)         -> unsubscribe            every change, with the whole list
     The bar's own four first (mode, focus, doc, save), then every other field in the order it
     was first set.
@@ -455,8 +567,9 @@ ose.local(key)               -> { get(), set(value), flush() }   per machine and
 ose.local.app(key)           -> { get(), set(value), flush() }   per machine, every vault
     Both loaded in `ose.ready` and written debounced (300 ms); a write sends only the keys this
     window changed, laid over what is on disk, so the host's own keys in the same file (the
-    window bounds, the theme mirror) are never reverted. A host without the store keeps an
-    in-memory copy for the session and logs one warning. `set(undefined)` removes a key.
+    window bounds, the theme mirror) are never reverted. A scope that cannot be read (for any
+    reason, an unknown command included) stays unloaded for the session: the defaults answer,
+    the failure is logged, and nothing is written over it. `set(undefined)` removes a key.
 
     ose.local (vault):  session, recent, sidebar { open, width, expanded }, folders (per-folder
                         sort, { [path]: { key, dir } }), panel { open, id, width }, notices
@@ -485,6 +598,9 @@ ose.settings.onRepaint(fn)   -> unsubscribe   a settings page open while a chord
     showHidden                                  machine   false
     restoreSession                              machine   true
     hideMdExt                                   machine   false
+    editorMode                                  machine   'rich'     ('live', 'source'): how a
+                                                                     markdown file with no
+                                                                     remembered mode opens (X1)
     trash                                       vault     'system'   ('vault' = `.trash`)
     attachments                                 vault     'beside'   (or a vault folder)
     titleSync                                   vault     false      (file name follows the H1)
@@ -515,7 +631,10 @@ ose.links.rewriteMoved(pairs)     -> { files, links, failed: [paths], rewritten 
 ose.links.planRewrite(text, filePath, pairs)  -> Promise<[{ from, to, insert }]>
     Links are found with the markdown parser the editor uses (mdast, GFM, maths): an inline
     link, an image and a reference definition, and nothing inside code, an HTML comment or a
-    maths span. Only the destination's bytes change. Only markdown files are rewritten.
+    maths span. Only the destination's bytes change. Only markdown files are rewritten
+    (`ose.paths.isMarkdown`), and only one that reads as UTF-8 with nothing lossy: a page in
+    another encoding keeps its links and is listed in `failed`, because the rewrite writes UTF-8
+    and its kept version is the decoded text, not the bytes. `inbound` reads text files only.
     A file open in the editor, on screen or parked (H5), is never touched on disk: the page
     host's `rewriteLinksIn(path, pairs)` rewrites its buffer as one undoable edit and the
     editor's autosave writes it. Every other file is read with `readFile` and written with
@@ -538,10 +657,12 @@ ose.focus.get() / set(path) / exit() / name() / isUnder(path) / defaultNewFolder
     page's folder), else the vault root ''. Focus lasts for the session and is never restored
     (H18). Esc leaves it from anywhere that is not text being edited, and while it is on the
     status bar carries a `focus` field that names the folder and leaves focus when pressed.
-ose.window.title(text) / minimize() / maximize() / close() / quit() / isMaximized()
-ose.window.drag() / resize(edge) / onMaximize(fn)   the frameless title bar's move, the eight resize
-                             edges (top right bottom left topleft topright bottomleft bottomright),
-                             and the maximised state as it changes
+ose.window.title(text) / close() / quit()
+                             The window has the platform's own title bar, buttons and edges
+                             (X9): there is no minimise, maximise, drag or resize hose any more
+                             (`minimize`, `maximize`, `isMaximized` and `onMaximize` are retired).
+                             `close()` is this window's close path, as the OS button; `quit()`
+                             closes every window, each through its own save path
 ose.window.onClose(fn)       -> unsubscribe   the host awaits `fn()` before the window goes;
                              `false` keeps it. A handler that throws counts as done
 ose.window.leave(reason)     -> Promise<boolean>   reason: 'close' | 'reload' | 'vault-change'
@@ -550,11 +671,18 @@ ose.window.onLeave(fn)       -> unsubscribe        fn({ reason }) -> boolean | P
 ose.window.stay()            a successful leave whose caller changed its mind
 ose.print.toPdf(path?, opts?) / dialog()   paper, through WebView2; null where the host cannot
 ose.openExternal(url)        an http, https or mailto link in a note; every other scheme refused
-ose.assets.url(name)         -> the absolute URL of a kernel asset
-ose.assets.origins()         -> { kernel, app, vault }      the three, as the host named them
+ose.assets.url(name)         -> the URL of a kernel asset (see "Where the app is served").
+                             `ose.assets.origins()` is retired with the app and ose origins (X4)
+ose.paths.isMarkdown(path) / isText(path) / markdownExts / textExts
+                             what a file is by its name: the one list the editor, the tree, the
+                             folder view, the palette and backlinks agree on. Markdown is md,
+                             markdown, mdown and mkd; text is markdown plus txt, text, log, csv,
+                             tsv, rst, adoc, org, tex and bib. A file not named may still read as
+                             text (`stat(path, { sniff: true })`)
 ose.log(text, level?)        into the host log, `<stamp> <level> ui: <text>`; level 'error' |
                              'warn' | 'info' (default) | 'debug'. Never rejects
-ose.reload(opts?)            -> Promise<boolean>   "Reload window": the page again. Leaves the
+ose.reload(opts?)            -> Promise<boolean>   "Reload window": the page again
+                             (`location.reload()`, in the host as in a browser). Leaves the
                              window first and answers false when a page could not be saved;
                              `{ skipLeave: true }` for a caller that has already left. No chord
 ose.bus.on(event, fn) / emit(event, payload)          app-wide events
@@ -578,7 +706,12 @@ every open page, parked ones included.
 - One handler answers false, or rejects: the window stays. The bus says `window:stay` and
   `window:refused` { reason }, a sticky error toast says "Not closed (reloaded, switched): a page
   could not be saved." with [Show] (`page.show-problem`) and, for a close, [Close anyway]
-  (`app.close-anyway`, "Close window without saving"). The answer is false.
+  (`app.close-anyway`, "Close window without saving"). The answer is false. When the page host
+  names the pages that could not let go (`problems()`), the toast names them instead of "a
+  page", and says when one is not open in any tab (a page left parked when its tab was taken
+  back by an overtaken navigation): [Show] then brings that page back into a tab of its own,
+  buffer and all, before it shows the banner. `window:stay` thaws every page, parked ones
+  included, so none is left frozen.
 - All of them let go: the session and the per-machine store are written, then for a reload or a
   vault change the view on screen is unmounted and the state file flushed (a close does both in
   the router's own `closing` handler). The bus says `window:leaving` { reason } and the answer
@@ -635,7 +768,7 @@ ose.init({ page, keys, theme, start })   the one call the shell makes once its s
 ose.setPageHost(host)             -> unregister    whoever draws a file:
     { open(el, path, opts), canLeave(reason), stay(), close({ park }?), release(path),
       rewriteLinksIn(path, pairs), scrollToLine(line, col), selection(), headingLine(text, h),
-      beforePathChange(change), afterPathChange(change), claims(path) }
+      beforePathChange(change), afterPathChange(change), claims(path), problems() }
     The router never imports `ose:editor`; the shell joins them here. With no page host the
     router shows the file as text and navigation still works. Every method but `open` is
     optional, and a missing one means "yes" or "nothing to do".
@@ -656,6 +789,9 @@ ose.setPageHost(host)             -> unregister    whoever draws a file:
                                                  this call, the hash the disk now holds
       claims(path) -> boolean                    true: a missing path is drawn by the host itself
                                                  (a media file), not by the router's "Not found"
+      problems() -> string[]                     the paths of the pages, on screen or parked, that
+                                                 hold unsaved work they could not write: the leave
+                                                 gate names them and can bring one back
 ose.setFolderHost({ open(el, path, { select, scrollTop }) -> Promise<FolderHandle> })  -> unregister
     FolderHandle = { unmount(), refresh(), selection() -> string | null }
     whoever draws a folder route; a missing or unreadable folder draws its own box
@@ -671,9 +807,8 @@ import { markdownPage, releasePage, parkedPaths, rewriteLinksIn, codeEditor, ren
 markdownPage(el, path, opts)  -> { close(), park(), save(o), canLeave(reason), stay(), path, dirty,
                                    mode, state, focus(), find(query), on(event, fn) }
     the editor for any text file the page host hands over (H17): `.md`, `.markdown`, `.mdown`
-    and `.mkd` get the block editor and the Rich | Source switch (Ctrl+E); every other text
-    file, extensionless ones included, opens as plain Source with its line endings and BOM
-    kept. Title strip, properties, autosave, the 3-way merge of changes made on disk, versions,
+    and `.mkd` get the Rich | Live | Source switch (below); every other text file,
+    extensionless ones included, opens as plain Source with its line endings and BOM kept. Title strip, properties, autosave, the 3-way merge of changes made on disk, versions,
     find and replace, drop, links, backlinks, every command.
     opts: { line, col, heading, selection, readOnly }
     **One live instance per file** (M12, M24): when a parked instance of `path` exists,
@@ -690,7 +825,7 @@ markdownPage(el, path, opts)  -> { close(), park(), save(o), canLeave(reason), s
     false. canLeave(reason) -> Promise<boolean> freezes the page and saves it if dirty; false
     leaves it editable, shows the banner and writes the draft. stay() undoes the freeze of a
     true canLeave. close() -> Promise<boolean> runs canLeave first; false keeps the page and
-    tears nothing down. mode is 'rich' | 'source'. state is the DocState below.
+    tears nothing down. mode is 'rich' | 'live' | 'source'. state is the DocState below.
     on() takes 'state', 'mode', 'recovered', 'guard', 'saved', 'dirty', 'conflict', 'title'
     and 'closed'.
 releasePage(path) -> Promise<boolean>
@@ -720,13 +855,16 @@ saveAll({ explicit, closing }) -> Promise<boolean>
     Bus events, for every mounted page: 'doc:state' DocState = { path, status: 'clean' |
     'dirty' | 'saving' | 'not-saved' | 'conflict' | 'deleted', dirty, reason, message, draft,
     mode, savedAt }; 'doc:dirty' { path, dirty } and 'doc:saved' { path } as before;
-    'doc:mode' { path, mode, forced: null | 'plain' | 'unsafe' | 'lossy-open' };
+    'doc:mode' { path, mode: 'rich' | 'live' | 'source', forced: null | 'plain' | 'unsafe' |
+    'lossy-open' };
     'doc:recovered' { path, at, applied } when a draft was found at open.
     Commands: page.save and page.close answer their promise (page.close is `ose.route.close()`:
     it closes the tab); page.save-as, page.discard-changes, page.show-problem,
-    page.recovered-compare, page.recovered-restore, page.view-source, page.view-rich,
-    page.merge-resolve ("Resolve changes made on disk") and page.merge-undo ("Undo merge");
-    page.source-toggle is 'Switch between rich view and source (raw markdown)'. The shell's
+    page.recovered-compare, page.recovered-restore, page.mode-rich, page.mode-live,
+    page.mode-source, page.mode-next, page.reading-toggle (see "Modes" below; page.view-rich
+    and page.view-source are gone), page.merge-resolve ("Resolve changes made on disk") and
+    page.merge-undo ("Undo merge"); page.source-toggle is 'Switch between source (raw
+    markdown) and the editing view'. The shell's
     file.* rename, trash and duplicate.
     The page names its file in the chrome; it still publishes its H1 on `store 'pageTitle'`, but
     nothing in the chrome reads it (M13), and the file name follows the H1 only with the vault
@@ -815,7 +953,63 @@ render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
     `breaks: true`); two trailing spaces and a trailing `\` break too.
 ```
 
-The stylesheet is `editor.css` on the kernel origin. Tokens come from `ui.css`.
+The stylesheet is `ose/editor.css`. Tokens come from `ui.css`.
+
+### Modes: Rich, Live, Source, and Reading
+
+A markdown page has three editing modes (X1), in the meta line's segmented switch and in the
+status bar's `mode` field (a menu, `ose.status.set` with `choices`):
+
+- **Rich** is the block editor (Crepe), with the fidelity layer below ("Writing"). It stays the
+  default.
+- **Live** is CodeMirror over the whole file, frontmatter and H1 included, with the markup drawn
+  off the caret line (docs/LIVE.md): headings sized, emphasis and links styled, bullets and task
+  checkboxes as widgets, quotes and callouts boxed, images through the vault origin, tables
+  rendered off the cursor and raw on it, maths with Temml, fenced code highlighted, the
+  frontmatter folded into a "Properties" block. In Live the file text is the only truth: a save
+  writes `view.state.doc.toString()` with the byte-order mark and the line separators put back
+  (`src/editor/source.js`), never a serializer, so a widget bug is a display glitch and never a
+  changed byte. A checkbox click is one transaction that changes one character. The title strip
+  and the properties strip are hidden: the text holds both. A Live view that fails to mount
+  falls back to Source.
+- **Source** is the same CodeMirror with nothing drawn.
+
+A plain text file has one mode, Source; a page the rich view cannot hold (`forced`) is Source
+too. Which mode a markdown file opens in: the mode it was last left in, per machine and per
+vault (`ose.local('pageModes')`, at most 300, `src/editor/modes.js`), else the machine setting
+`editorMode` (Settings › Editor, "Open markdown files in"), else Rich. A forced mode and a file
+outside the vault are never remembered. The wave-2 `sourcePages` list in the state file is read
+once to migrate and never written again.
+
+Commands (no new chords): `page.mode-rich` "Edit as rich text", `page.mode-live` "Edit in Live
+preview", `page.mode-source` "Edit as source", `page.mode-next` "Next editing mode" (the status
+field's click), `page.source-toggle` (Ctrl+E, unchanged: Source and back to the page's last
+other mode), `page.reading-toggle` "Reading view", `page.save-utf8` "Save as UTF-8" and
+`page.reopen-encoding` "Reopen with encoding…". In Live the format, block and follow-link
+commands go to the Live view; one it does not implement toasts "Not available in Live".
+
+Every mode keeps the same guarantees: drafts, the leave gate and its freeze, the conditional
+save, the three-way merge of changes made on disk, link rewrites as an undoable edit, parking
+with the buffer and undo history alive (one live instance per file), find, go to line, word
+count and the caret remembered per route. Switching modes passes the text through: Rich to Live
+works like Rich to Source, and Live to Rich runs the same open check that may refuse and stay.
+
+**Reading** is a view, not a fourth mode (X3): `page.reading-toggle`, or "Read" in the meta line,
+shows the buffer rendered read-only (marked with `breaks: true`, then DOMPurify: no script, no
+event handler, no iframe) in place of the editor, which stays mounted underneath. Links follow,
+images go through the vault origin, task boxes are disabled, the top line is kept both ways,
+and it re-renders when a change from disk is applied. Toggling back returns to the mode it came
+from, with a dirty buffer untouched.
+
+**Encodings** (X10). The page keeps the `encoding` `readFile` answered and saves with it. A file
+whose decoding would not write the same bytes back (`lossy`) opens read-only with a banner that
+names the encoding; a character the encoding cannot hold refuses the save with the not-saved
+banner and a "Save as UTF-8" action. The meta line shows the encoding when it is not UTF-8.
+
+**Outside the vault** (X7). A page on an `abs:` path says "Outside the vault" and the full path
+in its meta line, and keeps drafts and the merge; it has no versions (their commands toast), no
+backlinks, no link rewriting, no title sync, and no attachments (a drop or a paste toasts
+"Attachments need a file inside the vault").
 
 ### Space
 
@@ -909,7 +1103,7 @@ answers, so a key typed right after the chord that opened it never reaches the p
 once more after a task, only if it did not take); every dialog here uses it, and a surface that
 builds its own input on `openOverlay` should too.
 
-`ose:ui` is a **facade over `ose:kernel`**: the file served at `<kernel origin>/ui.js` is a list of
+`ose:ui` is a **facade over `ose:kernel`**: the file served at `ose/ui.js` is a list of
 names and no code. It has to be, because the kernel's own router, key engine and file operations
 raise these same dialogs and these same toasts, and a second copy of them in the window would be a
 second overlay stack, with Esc closing the one that is not on top. The import map line, the served
@@ -917,11 +1111,44 @@ file and everything in this section are exactly as they read; only the inside di
 
 ## The host underneath
 
-docs/HOST.md: one `rpc` command, the three origins, the vault protocol, the one hide rule, the
-watcher, file versions, drafts, the trash, the per-machine store, single instance. An unknown
-command answers `[unknown_command]`, and the kernel degrades where it can: the store keeps an
-in-memory copy, `trashList` is empty, a `trash` that answered nothing is `{ id: null }`. Nothing
-here starts a program: the app makes no network call and runs nothing.
+docs/HOST.md: one typed command per operation (X5), the vault protocol, the one hide rule, the
+watcher, file versions, drafts, the trash, the per-machine store, windows per vault, OS opens,
+files outside the vault, encodings. Nothing here starts a program: the app makes no network call
+and runs nothing.
+
+**The bridge** (`src/kernel/bridge/`). `bridge/index.js` is the facade every module calls; its
+method names are the command names and never change with the transport. Underneath it an adapter
+answers `invoke(name, args)`:
+
+- `bridge/tauri.js`, in the host, calls the function tauri-specta generated for the command in
+  `bridge/bindings.ts` (Rust `read_file` is JS `readFile`), arguments positional. It unwraps the
+  `Result`: `{ status: 'ok', data }` is the answer, `{ status: 'error', error: { code, message } }`
+  a `HostError` with that code. Tauri's own refusals are mapped too: an argument serde could not
+  read is `bad_arg`, a command that is not registered `unknown_command`, anything else `io`. A
+  name that is not in the bindings is `unknown_command` at once: a hard error, never a null. It
+  listens to `fs`, `open` and `vault` on its own window only (each event is emitted to one
+  window), and owns the window API and drag out (`@crabnebula/tauri-plugin-drag`, `mode: 'copy'`,
+  loaded on the first drag). It is the only file that imports the bindings, so a browser never
+  loads `@tauri-apps/api`.
+- `bridge/http.js`, in the browser dev server, posts `POST /__bridge/<name> {"args": [...]}` to
+  the dev bridge (dev/bridge-plugin.mjs) and reads `[code] message` refusals.
+
+Each facade method names its answer from the bindings (`RootInfo`, `Stat`, `Entry`, `Kept`, …);
+the untyped `call` answers `unknown`, so a field the host does not send is a type error. The
+facade adds the epoch to every mutating command's options struct (`setState` and `versionKeep`
+included), drops trailing absent
+arguments (an option left out is absent, not null), and turns every refusal into a `HostError`
+(`bridge/errors.js`). There is no `rpc` dispatcher, no `reloadShell`, no WebView2 adapter and no
+window drag, resize, minimise or maximise any more.
+
+**OS opens** (`src/kernel/opens.js`, §5.3). The host decides which window a path the OS hands
+over belongs to (a folder is a vault, and a file goes to the window whose vault holds it, to the
+window of the nearest ancestor with an `.ose/` folder, or else to the most recently focused
+window as a file outside the vault) and turns it into an OpenRequest `{ path, outside, kind,
+line? }`, `path` a vault path or `abs:`. A booting window takes its queue with `takeOpens` once
+its first surface is up (after session restore), and a running window gets the `open` event:
+each request opens in a tab of its own (a tab already on it is reused), a folder as a folder
+route, and the last one comes forward.
 
 ## Rules
 

@@ -6,12 +6,9 @@
 // Depends on: planner (src/planner/timetable.js, dates.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const has = (f) => exists(`src/planner/${f}`);
-const present = has('timetable.js') && has('dates.js');
-const { parseTimetable } = present ? await import('../../src/planner/timetable.js') : {};
-const { blockApplies, blockMinutes } = present ? await import('../../src/planner/dates.js') : {};
+const { parseTimetable } = await import('../../src/planner/timetable.js');
+const { blockApplies, blockMinutes } = await import('../../src/planner/dates.js');
 
 // Synthetic: the shape of a school timetable, none of anyone's real one.
 const CAL = [
@@ -36,7 +33,7 @@ const CAL = [
   '',
 ].join('\n');
 
-describe.skipIf(!present)('parseTimetable', () => {
+describe('parseTimetable', () => {
   const { events, unknown } = parseTimetable(CAL);
 
   it('reads one event per block, sorted by day then start', () => {

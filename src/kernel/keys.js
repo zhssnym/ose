@@ -148,7 +148,7 @@ const PART_LABEL = {
 /** `mod+shift+j` as the palette prints it: `Ctrl+Shift+J`, `Cmd+Shift+J` on a Mac. */
 export function comboLabel(combo) {
   return String(combo || '').split('+').filter(Boolean)
-    .map((p) => (PART_LABEL[p] ? PART_LABEL[p]() : (p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1))))
+    .map((p) => { const label = PART_LABEL[p]; return label ? label() : p.charAt(0).toUpperCase() + p.slice(1); })
     .join('+');
 }
 
@@ -340,6 +340,7 @@ const UNAVAILABLE = {
   'app.reopen-closed': 'no closed tab to reopen',
   'format.link': 'put the caret in the page first',
   'page.follow-link': 'no link under the caret',
+  'file.rename': 'Select a file to rename',
 };
 
 function fire(id) {
@@ -375,12 +376,12 @@ export function initKeys() {
 
     index();
     let entry = null;
-    let combo = null;
+    let combo = '';
     for (const c of combosOf(e)) {
       entry = byCombo.get(normalizeCombo(c));
       if (entry) { combo = c; break; }
     }
-    if (!entry) return;
+    if (!entry || !combo) return;
 
     // A chord CodeMirror owns keeps working inside a code block (Alt+Arrows move by syntax
     // node there); everywhere else in the app it is the shell's. Back and Forward only stand
@@ -390,8 +391,8 @@ export function initKeys() {
     // A chord the body keymap owns (Ctrl+0 = paragraph) falls through inside the body, and so
     // does any window binding of a chord the body binds itself: body keys win while the editor
     // has focus (Alt+Up moves the block there and is `folder.up` everywhere else).
-    if (entry.inBody && inside(e, '.ProseMirror')) return;
-    if (bodyCombos().has(normalizeCombo(combo)) && inside(e, '.ProseMirror')) return;
+    if (entry.inBody && inside(e, '.ProseMirror, .cm-live')) return;
+    if (bodyCombos().has(normalizeCombo(combo)) && inside(e, '.ProseMirror, .cm-live')) return;
 
     // A chord typed into a dialog's input that is not overlay-safe belongs to the input
     // (Ctrl+A, Ctrl+Z...): leave it entirely alone, no preventDefault, or it dies in silence.

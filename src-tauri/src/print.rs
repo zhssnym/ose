@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::{log_line, opt_field_str, vault, Ctx};
+use crate::{log_line, vault, Host};
 
 /// A4 in inches, which is the unit `ICoreWebView2PrintSettings` counts in: 210mm by 297mm.
 #[cfg(windows)]
@@ -32,67 +32,65 @@ const A4_WIDTH_IN: f64 = 8.267_716_5;
 #[cfg(windows)]
 const A4_HEIGHT_IN: f64 = 11.692_913_4;
 
-/// The synchronous half of the pair. `printToPdf` waits on a dialog and on the webview, so it
-/// is awaited in `lib.rs` beside `pickVault` instead of being answered here.
-pub fn handle(ctx: &Ctx, cmd: &str, _args: &[Value]) -> Option<Result<Value, String>> {
-    match cmd {
-        "showPrintUI" => Some(show_print_ui(ctx)),
-        _ => None,
-    }
-}
-
-/// `printToPdf(path, { name, folder })`. Answers `{ path }` with the file written, or `null`
-/// when the user cancelled the save dialog.
-pub async fn to_pdf(ctx: &Ctx<'_>, args: &[Value]) -> Result<Value, String> {
-    let given = args
-        .first()
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from);
+/// `printToPdf(path, { name, folder })` for the window that asked. Answers `{ path, bytes }`
+/// with the file written, or `{ cancelled: true }` when the user cancelled the save dialog.
+/// `root` is that window's vault, where the dialog opens.
+pub async fn to_pdf(
+    host: &Host,
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    root: Option<PathBuf>,
+    given: Option<String>,
+    name: Option<String>,
+    folder: Option<String>,
+) -> Result<Value, String> {
+    let given = given.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).map(PathBuf::from);
 
     let path = match given {
         Some(p) => p,
-        None => match ask_where(ctx, args).await? {
+        None => match ask_where(host, app, window, root, name, folder).await? {
             Some(p) => p,
             None => {
-                log_line(ctx.st, "printToPdf: cancelled");
-                // Not `null`: a host that has no such command answers `null` (`gone`), and the
-                // page has to be able to tell "the user said no" from "this host cannot".
+                log_line(host, "printToPdf: cancelled");
                 return Ok(json!({ "cancelled": true }));
             }
         },
     };
 
-    write_pdf(ctx, &path).await?;
+    write_pdf(window, &path).await?;
     let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    log_line(ctx.st, &format!("printToPdf: wrote {} ({bytes} bytes)", path.display()));
+    log_line(host, &format!("printToPdf: wrote {} ({bytes} bytes)", path.display()));
     Ok(json!({ "path": path.to_string_lossy(), "bytes": bytes }))
 }
 
 /// The native save dialog: the page's own folder in the vault, and the page's title with a
-/// `.pdf` on it. The dialog itself belongs to the binary (see `AppState::saver`), because the
+/// `.pdf` on it. The dialog itself belongs to the binary (see `Host::saver`), because the
 /// dialog plugin needs the application manifest that only a bin target carries.
-async fn ask_where(ctx: &Ctx<'_>, args: &[Value]) -> Result<Option<PathBuf>, String> {
-    let saver = ctx
-        .st
-        .saver
-        .ok_or_else(|| "this build has no save dialog".to_string())?;
+async fn ask_where(
+    host: &Host,
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    root: Option<PathBuf>,
+    name: Option<String>,
+    folder: Option<String>,
+) -> Result<Option<PathBuf>, String> {
+    let saver = host.saver.ok_or_else(|| crate::coded("unsupported", "this build has no save dialog"))?;
 
-    let name = file_name(&opt_field_str(args, 1, "name").unwrap_or_default());
-    let folder = match (ctx.st.root(), opt_field_str(args, 1, "folder")) {
+    let name = file_name(&name.unwrap_or_default());
+    let folder = match (root, folder.filter(|f| !f.trim().is_empty())) {
         (Some(root), Some(rel)) => vault::resolve(&root, &rel).ok().filter(|p| p.is_dir()).or(Some(root)),
         (root, _) => root,
     };
 
     log_line(
-        ctx.st,
+        host,
         &format!("printToPdf: asking where to save {name} (in {})", folder.as_deref().unwrap_or(Path::new("-")).display()),
     );
 
     let (tx, mut rx) = tauri::async_runtime::channel::<Option<PathBuf>>(1);
     saver(
-        ctx.app,
+        app,
+        Some(window.clone()),
         folder,
         name,
         Box::new(move |chosen| {
@@ -123,19 +121,13 @@ fn file_name(title: &str) -> String {
 // ---- the webview ------------------------------------------------------------
 
 #[cfg(windows)]
-async fn write_pdf(ctx: &Ctx<'_>, path: &Path) -> Result<(), String> {
-    use tauri::Manager as _;
+async fn write_pdf(window: &tauri::WebviewWindow, path: &Path) -> Result<(), String> {
 
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
     }
-
-    let window = ctx
-        .app
-        .get_webview_window("main")
-        .ok_or_else(|| "no window to print".to_string())?;
 
     // The COM calls below must run on the thread that owns the webview; `with_webview` hands
     // the closure to it and returns at once. The answer comes back over the channel, either
@@ -229,15 +221,9 @@ unsafe fn start_print_to_pdf(
 /// `showPrintUI()`: the Windows print dialog, which is also how "Microsoft Print to PDF" is
 /// reached. It returns as soon as the dialog is asked for; the user is not waited on.
 #[cfg(windows)]
-fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
-    use tauri::Manager as _;
+pub fn show_print_ui(host: &Host, window: &tauri::WebviewWindow) -> Result<Value, String> {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use windows_core::Interface;
-
-    let window = ctx
-        .app
-        .get_webview_window("main")
-        .ok_or_else(|| "no window to print".to_string())?;
 
     window
         .with_webview(|webview| unsafe {
@@ -252,7 +238,7 @@ fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
         })
         .map_err(|e| e.to_string())?;
 
-    log_line(ctx.st, "showPrintUI: the system print dialog");
+    log_line(host, "showPrintUI: the system print dialog");
     Ok(json!({ "shown": true }))
 }
 
@@ -261,20 +247,15 @@ fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
 /// Writing a PDF straight to a file is WebView2's own, so on macOS `Export to PDF` says so, and
 /// `Print` is the way there: the system dialog has its own PDF menu.
 #[cfg(not(windows))]
-async fn write_pdf(_ctx: &Ctx<'_>, _path: &Path) -> Result<(), String> {
-    Err("Export to PDF is Windows only; on macOS use Print, then PDF in the dialog".to_string())
+async fn write_pdf(_window: &tauri::WebviewWindow, _path: &Path) -> Result<(), String> {
+    Err(crate::coded("unsupported", "Export to PDF is Windows only; on macOS use Print, then PDF in the dialog"))
 }
 
 /// The webview's own print operation: the macOS print dialog.
 #[cfg(not(windows))]
-fn show_print_ui(ctx: &Ctx) -> Result<Value, String> {
-    use tauri::Manager as _;
-    let window = ctx
-        .app
-        .get_webview_window("main")
-        .ok_or_else(|| "no window to print".to_string())?;
+pub fn show_print_ui(host: &Host, window: &tauri::WebviewWindow) -> Result<Value, String> {
     window.print().map_err(|e| e.to_string())?;
-    log_line(ctx.st, "print: the system print dialog");
+    log_line(host, "print: the system print dialog");
     Ok(json!({ "shown": true }))
 }
 

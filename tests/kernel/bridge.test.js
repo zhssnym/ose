@@ -14,7 +14,7 @@ let answer = async () => null;
 
 vi.mock('../../src/kernel/bridge/http.js', () => ({
   create: async () => ({
-    call: (cmd, args) => { seen.push([cmd, args]); return answer(cmd, args); },
+    invoke: (cmd, args) => { seen.push([cmd, args]); return answer(cmd, args); },
     subscribe: () => {},
   }),
 }));

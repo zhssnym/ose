@@ -14,7 +14,10 @@
 
 import { bus, commands } from './registry.js';
 import { toast } from './dialog.js';
-import { unmountOnUnload, reopenCurrent, currentRoute } from './router.js';
+import { unmountOnUnload, reopenCurrent, currentRoute, openTab } from './router.js';
+import { pageHost } from './pagehost.js';
+import { records, currentOf } from './tabs.js';
+import { display } from './names.js';
 import { flushState } from './state.js';
 import { flushLocal } from './local.js';
 import { flushSession } from './session.js';
@@ -90,6 +93,7 @@ async function runHandlers(reason) {
     try { return Promise.resolve(fn({ reason })); } catch (e) { return Promise.reject(e); }
   });
   // No ceiling (S28): a save that is slow — a big file, a sync client holding it — is waited for.
+  /** @type {{ fn: (() => void) | null }} */
   const release = { fn: null };
   const notice = setTimeout(() => { release.fn = holdStillSaving(); }, NOTICE_MS);
   let settled;
@@ -102,15 +106,70 @@ async function runHandlers(reason) {
   return settled.every((r) => r.status === 'fulfilled' && r.value !== false);
 }
 
+/**
+ * The pages the page host says could not be let go (`PageHost.problems()`: vault paths), in its
+ * order. None when it does not say.
+ * @returns {string[]}
+ */
+function problemPages() {
+  const host = pageHost();
+  /** @type {unknown} */
+  let list = [];
+  try { list = host && typeof host.problems === 'function' ? host.problems() : []; } catch (e) { console.error('[leave] problems', e); }
+  return (Array.isArray(list) ? list : [])
+    .map((p) => (typeof p === 'string' ? p : p && typeof p === 'object' && typeof p.path === 'string' ? p.path : ''))
+    .filter(Boolean);
+}
+
+/**
+ * A page that holds unsaved work and that no tab shows: a background tab's page left parked
+ * when its tab was taken back by an overtaken navigation. It has to be listed by name, and
+ * "Show" has to bring it back into a tab, or it is neither saved nor reachable (wave 2, open).
+ * @param {string[]} paths
+ */
+function orphansOf(paths) {
+  const shown = new Set(records().map((rec) => {
+    const r = currentOf(rec);
+    return r && r.type === 'page' ? r.path : null;
+  }));
+  return paths.filter((p) => !shown.has(p));
+}
+
+/** "a.md", "a.md and b.md", "a.md, b.md and 2 more". @param {string[]} paths */
+function namesOf(paths) {
+  const names = paths.map((p) => display(p) || p);
+  if (names.length <= 1) return names[0] || '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
+
+/**
+ * @param {LeaveReason} reason
+ * @param {string} why
+ */
 function refuse(reason, why) {
   stayWindow();
   bus.emit('window:refused', { reason });
-  logLine(`leave ${reason} refused: ${why}`, 'warn');
-  const actions = [{ label: 'Show', run: () => commands.run('page.show-problem') }];
+  const problems = problemPages();
+  const orphans = orphansOf(problems);
+  logLine(`leave ${reason} refused: ${why}${problems.length ? ` (${problems.join(', ')})` : ''}`, 'warn');
+  // "Show" goes to the page with the problem: a page no tab shows first, brought back into a
+  // tab of its own (the editor reattaches the page it kept, buffer and all), then the banner.
+  const show = async () => {
+    const target = orphans[0];
+    if (target) {
+      try { await openTab({ type: 'page', path: target }, { reuse: true }); } catch (e) { console.error('[leave] show', e); }
+    }
+    return commands.run('page.show-problem');
+  };
+  const actions = [{ label: 'Show', run: () => { void show(); } }];
   if (reason === 'close') actions.push({ label: 'Close anyway', run: () => commands.run('app.close-anyway') });
   if (refusal) refusal();
+  const what = problems.length ? `${namesOf(problems)} could not be saved` : 'a page could not be saved';
+  const hidden = orphans.length ? ` (${orphans.length === 1 ? 'it is' : `${orphans.length} are`} not open in a tab)` : '';
   try {
-    refusal = toast(`Not ${NOT[reason] || 'left'}: a page could not be saved.`, 'err', 0, { actions });
+    refusal = toast(`Not ${NOT[reason] || 'left'}: ${what}${hidden}.`, 'err', 0, { actions });
   } catch { refusal = null; }
 }
 
@@ -189,19 +248,27 @@ export function stayWindow() {
  * @returns {Promise<(string|null)[]>}
  */
 export async function abandonWindow() {
-  let timer = 0;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** @type {Promise<{ late: true }>} */
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve({ late: true }), ABANDON_MS); });
+  /** @typedef {{ late?: true, v?: unknown, e?: unknown, failed?: true }} Answer */
   const answers = [...handlers].map((fn) => {
+    /** @type {Promise<unknown>} */
     let p;
     try { p = Promise.resolve(fn({ reason: 'abandon' })); } catch (e) { p = Promise.reject(e); }
-    return Promise.race([p.then((v) => ({ v }), (e) => ({ e })), late]);
+    /** @type {Promise<Answer>} */
+    const answer = p.then((v) => ({ v }), (e) => ({ e, failed: true }));
+    return Promise.race([answer, late]);
   });
-  let settled;
+  /** @type {Answer[]} */
+  let settled = [];
   try { settled = await Promise.all(answers); } finally { clearTimeout(timer); }
+  /** @type {(string | null)[]} */
   const lost = [];
   for (const s of settled) {
     if (s.late) { lost.push(null); continue; }
-    if (s.e) { console.error('[leave] abandon', s.e); lost.push(null); continue; }
+    if (s.failed) { console.error('[leave] abandon', s.e); lost.push(null); continue; }
     const v = s.v;
     if (v === false) lost.push(null);
     else if (typeof v === 'string') lost.push(v || null);

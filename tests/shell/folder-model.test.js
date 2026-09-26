@@ -4,10 +4,8 @@
 // Depends on: shell-places (shell/folder-model.js). Skipped until that file exists.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const present = exists('shell/folder-model.js');
-const m = present ? await import('../../shell/folder-model.js') : {};
+const m = await import('../../shell/folder-model.js');
 
 const file = (name, over = {}) => {
   const dot = name.lastIndexOf('.');
@@ -16,7 +14,7 @@ const file = (name, over = {}) => {
 const dir = (name, over = {}) => ({ name, path: `f/${name}`, kind: 'dir', ext: '', mtime: 0, size: 0, hidden: name.startsWith('.'), ...over });
 const names = (list) => list.map((e) => e.name);
 
-describe.skipIf(!present)('folder-model', () => {
+describe('folder-model', () => {
   it('names its sort keys and the default', () => {
     expect(m.SORT_KEYS).toEqual(['name', 'modified', 'size', 'type']);
     expect(m.DEFAULT_SORT).toEqual({ key: 'name', dir: 'asc' });

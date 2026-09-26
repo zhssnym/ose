@@ -23,7 +23,7 @@ export function createTodoIndex(ose) {
     try {
       const st = await ose.files.stat(path);
       if (!st || !st.exists) return { path, tasks: [], missing: true };
-      const r = ose.files.readFile ? await ose.files.readFile(path) : { text: await ose.files.read(path) };
+      const r = await ose.files.readFile(path);
       return { path, tasks: parseTasks(r.text, path), missing: false };
     } catch (e) {
       console.warn('[planner] todo read', path, e);
@@ -69,14 +69,9 @@ export function createTodoIndex(ose) {
     async toggle(t) {
       if (!t) { stale = true; await this.load({ force: true }); return 'changed'; }
       const next = toggleTaskLine(t.raw, !t.done, ymd(new Date()));
-      let r = await ose.files.replaceLine(t.path, t.line, t.raw, next);
-      // A byte-order mark is the one thing two readers may disagree about on the first line:
-      // one keeps it in the line, one does not. The same words either way are the same line.
-      if (r && r.status === 'conflict' && typeof r.actual === 'string' && t.line === 0
-        && r.actual.replace(/^﻿/, '') === t.raw.replace(/^﻿/, '')) {
-        const bom = r.actual.startsWith('﻿') ? '﻿' : '';
-        r = await ose.files.replaceLine(t.path, t.line, r.actual, bom + next.replace(/^﻿/, ''));
-      }
+      // Line 0 of a file with a byte-order mark: the host compares it without the mark and
+      // keeps the mark, as the task parser reads it (wave 3), so `t.raw` is the line as it is.
+      const r = await ose.files.replaceLine(t.path, t.line, t.raw, next);
       stale = true;
       await this.load({ force: true });
       return r && r.status === 'replaced' ? 'ok' : 'changed';

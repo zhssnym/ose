@@ -4,10 +4,6 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde_json::{json, Value};
-
-use crate::{arg_str, Ctx};
-
 // ---- what this build is ----------------------------------------------------
 
 /// The commit and day this executable was built from, stamped by CI (`OSE_BUILD_SHA`,
@@ -29,14 +25,6 @@ pub fn build_info() -> Option<BuildInfo> {
         short: sha[..7].to_string(),
         date: option_env!("OSE_BUILD_DATE").unwrap_or("").trim().to_string(),
     })
-}
-
-/// `{sha, short, date}` for `platform`, `null` for a local build.
-pub fn build_json() -> Value {
-    match build_info() {
-        Some(b) => json!({ "sha": b.sha, "short": b.short, "date": b.date }),
-        None => Value::Null,
-    }
 }
 
 /// `ose 1.0.0 (a45404e, 2026-09-15)` or `ose 1.0.0 (dev build)`: the `--version` line. The
@@ -102,55 +90,26 @@ pub fn disable_browser_keys(window: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 pub fn disable_browser_keys(_window: &tauri::WebviewWindow) {}
 
-// ---- rpc ------------------------------------------------------------------
-
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    match cmd {
-        "openExternal" => Some(cmd_open_external(args)),
-        "openPath" => Some(cmd_open_path(ctx, args)),
-        "reveal" => Some(cmd_reveal(ctx, args)),
-        "platform" => Some(Ok(platform_info(ctx))),
-        _ => None,
-    }
-}
-
-fn cmd_open_external(args: &[Value]) -> Result<Value, String> {
-    open_external(&arg_str(args, 0)?)?;
-    Ok(Value::Null)
-}
-
-fn cmd_reveal(ctx: &Ctx, args: &[Value]) -> Result<Value, String> {
-    reveal(ctx, &arg_str(args, 0)?)?;
-    Ok(Value::Null)
-}
-
-fn cmd_open_path(ctx: &Ctx, args: &[Value]) -> Result<Value, String> {
-    open_path(ctx, &arg_str(args, 0)?)?;
-    Ok(Value::Null)
-}
-
 // ---- openPath -------------------------------------------------------------
 
-/// A vault file — or folder, which lands in the file manager — in the platform's default
-/// application (N10, N24). The argument is a vault-relative path and nothing else: it is
-/// resolved through `vault::resolve`, so it can never leave the root, and `opener::open` is
-/// handed the resolved *path*, never a string the UI composed — a `file:` or `vscode:` url in
-/// the argument is a path segment here, not a scheme, which is why `openExternal` can keep
-/// refusing every scheme it does not know. The executable check below is deliberately made on
-/// folders too: a macOS `.app` bundle is a directory, and opening one runs a program.
-fn open_path(ctx: &Ctx, rel: &str) -> Result<(), String> {
-    let root = ctx.st.require_root()?;
-    let full = crate::vault::resolve(&root, rel)?;
-    let meta = std::fs::symlink_metadata(&full).map_err(|_| format!("nothing to open: {rel}"))?;
+/// A file — or folder, which lands in the file manager — in the platform's default application
+/// (N10, N24). `full` is a vault path the command resolved through `vault::resolve`, so it can
+/// never leave the root, or a registered outside file; `opener::open` is handed that resolved
+/// *path*, never a string the UI composed — a `file:` or `vscode:` url in the argument is a path
+/// segment, not a scheme, which is why `openExternal` can keep refusing every scheme it does not
+/// know. The executable check below is deliberately made on folders too: a macOS `.app` bundle is
+/// a directory, and opening one runs a program. `rel` names it in errors.
+pub fn open_path(full: &Path, rel: &str) -> Result<(), String> {
+    let meta = std::fs::symlink_metadata(full).map_err(|_| crate::coded("not_found", format!("nothing to open: {rel}")))?;
     if meta.file_type().is_symlink() {
-        return Err(format!("refusing to open a symlink: {rel}"));
+        return Err(crate::coded("bad_arg", format!("refusing to open a symlink: {rel}")));
     }
     // A link in a page must never run a program: an executable or script is revealed in the
     // file manager instead of opened, so `[x](build.bat)` is a safe thing to click.
-    if is_executable(&full) {
-        return reveal_os(&full).map_err(|e| format!("failed to reveal {rel}: {e}"));
+    if is_executable(full) {
+        return reveal_os(full).map_err(|e| format!("failed to reveal {rel}: {e}"));
     }
-    opener::open(&full).map_err(|e| format!("failed to open {rel}: {e}"))
+    opener::open(full).map_err(|e| format!("failed to open {rel}: {e}"))
 }
 
 /// Extensions the platform shells would execute rather than display.
@@ -170,7 +129,7 @@ pub(crate) fn is_executable(path: &Path) -> bool {
 
 /// http, https and mailto only, exactly like the .NET host. Anything else is refused
 /// rather than handed to the shell.
-fn open_external(url: &str) -> Result<(), String> {
+pub fn open_external(url: &str) -> Result<(), String> {
     let url = url.trim();
     if url.is_empty() || url.chars().any(char::is_control) {
         return Err(format!("not a url: {url}"));
@@ -196,13 +155,12 @@ fn open_external(url: &str) -> Result<(), String> {
 
 // ---- reveal ---------------------------------------------------------------
 
-fn reveal(ctx: &Ctx, rel: &str) -> Result<(), String> {
-    let root = ctx.st.require_root()?;
-    let full = crate::vault::resolve(&root, rel)?;
-    if std::fs::symlink_metadata(&full).is_err() {
-        return Err(format!("nothing to reveal: {rel}"));
+/// Shows `full` selected in the file manager. `rel` names it in errors.
+pub fn reveal(full: &Path, rel: &str) -> Result<(), String> {
+    if std::fs::symlink_metadata(full).is_err() {
+        return Err(crate::coded("not_found", format!("nothing to reveal: {rel}")));
     }
-    reveal_os(&full)
+    reveal_os(full)
 }
 
 #[cfg(windows)]
@@ -243,30 +201,8 @@ fn spawn_detached(mut c: Command) -> Result<(), String> {
 
 // ---- platform -------------------------------------------------------------
 
-/// `logPath` is the persistent log (`<app log dir>/ose.log`), empty before it is open.
-/// `root` is null while no vault is open. `exeDir` is the folder the chooser suggests: the
-/// executable's own, or the folder holding `Ose.app` on macOS. `build` is the CI stamp
-/// `{sha, short, date}`, null for a local build.
-///
-/// The three origins (docs/KERNEL.md) are here rather than guessed in the page, because the
-/// spelling is the platform's: `http://ose.localhost` on Windows and `ose://localhost` on
-/// macOS and Linux. Nothing in the shell or in a plugin ever writes one down.
-fn platform_info(ctx: &Ctx) -> Value {
-    json!({
-        "os": os_name(),
-        "version": env!("CARGO_PKG_VERSION"),
-        "build": build_json(),
-        "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
-        "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
-        "root": ctx.st.root().map(|p| p.display().to_string()),
-        "kernelOrigin": crate::shell::kernel_origin(),
-        "appOrigin": crate::shell::app_origin(),
-        "vaultOrigin": crate::shell::vault_origin(),
-        "logPath": crate::persistent_log_path().map(|p| p.display().to_string()).unwrap_or_default(),
-    })
-}
-
-fn os_name() -> &'static str {
+/// `windows`, `macos` or `linux`.
+pub fn os_name() -> &'static str {
     if cfg!(windows) {
         "windows"
     } else if cfg!(target_os = "macos") {

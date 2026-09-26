@@ -82,6 +82,7 @@ export function merge3(base, ours, theirs) {
   for (const r of regions) {
     if (r.ok) { parts.push(r.ok.join('')); continue; }
     const c = r.conflict;
+    if (!c) continue;
     conflicts.push({ ours: c.a.join(''), theirs: c.b.join(''), base: c.o.join(''), at: c.aIndex });
   }
   if (conflicts.length) return { clean: false, text: o, conflicts };
@@ -110,6 +111,7 @@ export function keepBoth(base, ours, theirs) {
   for (const r of regions) {
     if (r.ok) { parts.push(r.ok.join('')); continue; }
     // Lines both sides agree on at the edges of the region are written once, not twice.
+    if (!r.conflict) continue;
     const a = r.conflict.a;
     const b = r.conflict.b;
     let head = 0;

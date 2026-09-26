@@ -1,0 +1,251 @@
+/* Live: the markdown as a document, drawn by decorations over the text (docs/LIVE.md).
+
+   The look is the rich view's (editor.css), line for line where CodeMirror allows it: the
+   document face at the body size, headings as the body made bold, a quote as a bar, `>>` and a
+   callout as a frame, a task as the rich view's square. CodeMirror measures its lines, so a
+   line never takes a vertical margin here: air above a heading is padding.
+
+   Every value is a token, so both themes follow from tokens.css. The widgets' own styles are
+   in widgets/widgets.css. */
+
+/* ---------------------------------------------------------------- the column */
+
+.cm-editor.cm-live .cm-content {
+  font-family: var(--font-doc);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--fg);
+  min-height: 40vh;
+  padding-bottom: var(--sp-7);
+}
+.cm-editor.cm-live .cm-line { padding: 0; }
+
+/* Markup on a revealed line: there, and quiet. */
+.cm-live .cm-live-mark,
+.cm-live .cm-live-mark * {
+  color: var(--fg-3);
+  font-style: normal;
+  font-weight: 400;
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- headings */
+
+.cm-live .cm-line:is(.cm-live-h1, .cm-live-h2, .cm-live-h3, .cm-live-h4, .cm-live-h5, .cm-live-h6) {
+  font-family: var(--font-doc);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--fg);
+  padding-top: var(--doc-gap);
+}
+.cm-live .cm-line.cm-live-h1 { font-size: var(--fs-doc-h1); }
+.cm-live .cm-line.cm-live-h2 { font-size: var(--fs-doc-h2); }
+.cm-live .cm-line.cm-live-h3 { font-size: var(--fs-body); }
+.cm-live .cm-line:is(.cm-live-h4, .cm-live-h5, .cm-live-h6) { font-size: var(--fs-body); font-style: italic; }
+
+/* The first H1 is the page's title, drawn as the title strip is (base.css `.page-title`):
+   centred in a box with a double rule, which hugs a short title. */
+.cm-live .cm-line.cm-live-title {
+  font-size: var(--fs-doc-title);
+  line-height: 1.2;
+  text-align: center;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  border: var(--doc-title-rule) double var(--fg);
+  border-radius: 0;
+  padding: var(--doc-pad-title);
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- inline marks */
+
+.cm-live .cm-live-strong { font-weight: 700; }
+.cm-live .cm-live-em { font-style: italic; }
+.cm-live .cm-live-strike { color: var(--fg-3); text-decoration: line-through; }
+.cm-live .cm-live-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  background: var(--bg-3);
+  color: var(--fg);
+  border-radius: 0;
+}
+
+.cm-live .cm-live-link {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cm-live .cm-live-link.cm-live-follow { cursor: pointer; }
+.cm-live .cm-live-link.cm-live-follow:hover { color: var(--accent); }
+/* A wikilink to nothing: dashed, as the rich view marks a link to a missing page. */
+.cm-live .cm-live-link.cm-live-missing {
+  color: var(--fg-2);
+  text-decoration-style: dashed;
+}
+
+/* HTML and comments are shown as written, and never rendered. */
+.cm-live .cm-live-html,
+.cm-live .cm-live-html * {
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  color: var(--fg-3);
+}
+
+/* ---------------------------------------------------------------- lists and tasks */
+
+.cm-live .cm-live-bullet {
+  display: inline-block;
+  width: var(--doc-indent);
+  text-align: center;
+  vertical-align: baseline;
+}
+/* A dot the size of a full stop, drawn with a border so it prints (editor.css says why). */
+.cm-live .cm-live-bullet::before {
+  content: "";
+  display: inline-block;
+  width: .3em;
+  height: .3em;
+  border-radius: 50%;
+  border: .15em solid currentColor;
+  box-sizing: border-box;
+  vertical-align: .15em;
+}
+/* A nested list takes the hollow ring, a third level the dot again. */
+.cm-live .cm-live-bullet[data-level="2"]::before {
+  width: .4em;
+  height: .4em;
+  border: 0;
+  box-shadow: inset 0 0 0 1px currentColor;
+  vertical-align: .1em;
+}
+
+.cm-live .cm-live-listmark { font-variant-numeric: lining-nums tabular-nums; }
+
+.cm-live .cm-live-checkbox {
+  display: inline-block;
+  position: relative;
+  width: 1em;
+  height: 1em;
+  margin-right: .35em;
+  vertical-align: -.15em;
+  border: var(--doc-rule) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-sizing: border-box;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.cm-live .cm-live-checkbox:hover { border-color: var(--accent); }
+.cm-live .cm-live-checkbox.cm-live-checked { background: var(--accent); border-color: var(--accent); }
+/* the check mark: a corner turned 45 degrees, as in the rich view */
+.cm-live .cm-live-checkbox.cm-live-checked::after {
+  content: "";
+  position: absolute;
+  left: .22em;
+  top: .2em;
+  width: .45em;
+  height: .22em;
+  border-left: .12em solid var(--accent-fg);
+  border-bottom: .12em solid var(--accent-fg);
+  transform: rotate(-45deg);
+}
+.cm-live .cm-line.cm-live-done {
+  color: var(--fg-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* ---------------------------------------------------------------- quotes, frames, callouts */
+
+/* `>`: a bar in the ink down the left, the text italic (editor.css "Frames and bars"). */
+.cm-live .cm-line.cm-live-quote {
+  border-left: var(--doc-bar) solid var(--fg);
+  padding-left: var(--doc-gap-label);
+  font-style: italic;
+}
+
+/* `>>`: a square frame, upright. The outer `>` is punctuation and draws nothing. */
+.cm-live .cm-line.cm-live-frame {
+  border-left: var(--doc-frame) solid var(--fg);
+  border-right: var(--doc-frame) solid var(--fg);
+  padding: 0 .7em;
+}
+.cm-live .cm-line.cm-live-frame-first { border-top: var(--doc-frame) solid var(--fg); padding-top: .4em; }
+.cm-live .cm-line.cm-live-frame-last { border-bottom: var(--doc-frame) solid var(--fg); padding-bottom: .4em; }
+
+/* A callout is a frame with a title of its own; no colour per kind, as in the rich view. */
+.cm-live .cm-line.cm-live-callout {
+  border-left: var(--doc-rule) solid var(--fg);
+  border-right: var(--doc-rule) solid var(--fg);
+  padding: 0 .7em;
+  font-style: normal;
+}
+.cm-live .cm-line.cm-live-callout-first { border-top: var(--doc-rule) solid var(--fg); padding-top: .4em; }
+.cm-live .cm-line.cm-live-callout-last { border-bottom: var(--doc-rule) solid var(--fg); padding-bottom: .4em; }
+
+.cm-live .cm-live-callout-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.cm-live .cm-live-callout-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+  letter-spacing: .02em;
+  text-transform: lowercase;
+}
+.cm-live .cm-live-callout-title { font-weight: 700; color: var(--fg); }
+
+/* ---------------------------------------------------------------- rules */
+
+.cm-live .cm-live-rule {
+  display: inline-block;
+  width: 100%;
+  height: 0;
+  vertical-align: middle;
+  border-top: var(--doc-rule) solid var(--fg);
+}
+
+/* ---------------------------------------------------------------- code and frontmatter */
+
+/* An indented code block, a fenced one when no widget draws it, and a table shown raw: monospace,
+   that is all. */
+.cm-live .cm-line.cm-live-fence,
+.cm-live .cm-line.cm-live-table-raw,
+.cm-live .cm-line.cm-live-fm {
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+}
+.cm-live .cm-line.cm-live-fm { color: var(--fg-2); background: var(--bg-2); }
+
+/* The folded frontmatter: one quiet box, "Properties" and the first keys. */
+.cm-live .cm-live-props {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border: var(--doc-rule) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-chrome);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.cm-live .cm-live-props:hover { border-color: var(--border-strong); }
+.cm-live .cm-live-props:focus-visible { outline: none; box-shadow: var(--focus); }
+.cm-live .cm-live-props-label { color: var(--fg); font-weight: 600; }
+.cm-live .cm-live-props-keys { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The code colours of ../highlight.js inside Live: markdown punctuation is tagged like a
+   comment there, which is the dimmed markup this mode wants on a revealed line. */
+.cm-live .os-t-key { color: var(--code-key); }
+.cm-live .os-t-str { color: var(--code-str); }
+.cm-live .os-t-num { color: var(--code-num); }
+.cm-live .os-t-com { color: var(--code-com); }
+.cm-live .os-t-meta { color: var(--code-key); }

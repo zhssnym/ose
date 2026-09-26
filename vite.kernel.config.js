@@ -1,25 +1,22 @@
-// The kernel build (docs/KERNEL.md). `npm run build:kernel` emits `dist-kernel/`, which the
-// Rust host embeds:
+// The kernel build (docs/KERNEL.md). `npm run build` (the standard layout, CONTRACT X4): the
+// library bundles into `dist/ose/` and the shell beside them, verbatim, by
+// scripts/copy-shell.mjs. Tauri serves `dist/` (`frontendDist`) from its own asset protocol, and
+// `index.html` is the shell's own page:
 //
-//   kernel.js  editor.js  planner.js  ui.js         the four bundles the import map names
-//   ui.css     editor.css planner.css                 the three stylesheets the shell links
-//   shell/                                            the interface, copied verbatim from shell/
-//   index.html                                        the blank page the window opens on
-//
-// The `ose` origin serves the bundles; the `app` origin serves `shell/`. The last two come from
-// scripts/embed-shell.mjs, which the closeBundle hook below runs and which also runs by hand.
+//   dist/index.html  dist/main.js  dist/boot.js  ...          the shell, copied from shell/
+//   dist/ose/kernel.js  editor.js  planner.js  ui.js  chunks/  the four bundles the import map names
+//   dist/ose/ui.css  editor.css  planner.css                   the three stylesheets the shell links
 //
 // Not an app build: nothing here is hashed, nothing is inlined into HTML, and the entry file
-// names are part of the contract — the host's import map spells them literally.
+// names are part of the contract: the import map spells them literally.
 //
 // Who imports whom. `ose:kernel` is the base and bundles everything with state in it: the
 // registries, the bridge, the router, the tabs, the key engine and the dialogs (there must be
 // one overlay stack in a running Ose, not two). `ose:ui` is a facade that names those again
 // from `ose:kernel`; `ose:editor` imports `ose:kernel` and `ose:ui`; `ose:planner` (Day, Week,
 // Month and Journal, built in) imports `ose:ui` and, lazily, `ose:editor`, and is handed `ose`
-// by the shell. So every `ose:*`
-// specifier is **external** in every bundle, and nothing is bundled twice. date-fns is bundled
-// into planner.js, tree-shaken to what the planner uses.
+// by the shell. So every `ose:*` specifier is **external** in every bundle, and nothing is
+// bundled twice. date-fns is bundled into planner.js, tree-shaken to what the planner uses.
 
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -27,7 +24,7 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
-import { embedShell } from './scripts/embed-shell.mjs';
+import { copyShell } from './scripts/copy-shell.mjs';
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 
@@ -55,23 +52,20 @@ const ENTRIES = {
 
 const s = stamp();
 
-/** The shell into `dist-kernel/shell/`, after the bundles, so one build makes the whole exe. */
+/** The shell into the build, after the bundles, beside `dist/ose/`: one build makes the whole exe. */
 function shellIntoTheBuild() {
-  let outDir = here('dist-kernel');
+  let outDir = here('dist/ose');
   return {
-    name: 'ose-embed-shell',
+    name: 'ose-copy-shell',
     // The directory this build really writes (`--outDir` on the command line included), so a
-    // check build somewhere else never rewrites dist-kernel/shell.
+    // check build somewhere else never rewrites the real output.
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
-    closeBundle() {
-      embedShell(outDir);
-    },
+    closeBundle() { copyShell(path.dirname(outDir)); },
   };
 }
 
-export default defineConfig({
-  // Relative, because the page is served from `http://ose.localhost` on Windows and
-  // `ose://localhost` on macOS and must not care which.
+export default defineConfig(() => ({
+  // Relative: the page must not care which origin serves it.
   base: './',
   define: {
     __OSE_VERSION__: JSON.stringify(s.version),
@@ -86,7 +80,7 @@ export default defineConfig({
   // See src/editor/katex-absent.js: Crepe's unused Latex feature would drag KaTeX in.
   resolve: { alias: { katex: here('src/editor/katex-absent.js') } },
   build: {
-    outDir: 'dist-kernel',
+    outDir: 'dist/ose',
     emptyOutDir: true,
     target: 'es2022',
     sourcemap: false,
@@ -105,7 +99,7 @@ export default defineConfig({
         format: 'es',
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name]-[hash].js',
-        // `ui.css`, `editor.css` and `planner.css` are named in the host's link rewrite, so no hash here
+        // `ui.css`, `editor.css` and `planner.css` are named in the shell's links, so no hash here
         // either. Fonts and images, if a stylesheet ever pulls one in, go under assets/.
         assetFileNames: (info) => {
           const name = info.names ? info.names[0] : info.name;
@@ -114,4 +108,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

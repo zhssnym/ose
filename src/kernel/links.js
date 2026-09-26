@@ -13,6 +13,8 @@ import { bridge } from './bridge/index.js';
 import { resolveHref, relativeHref, basename } from './href.js';
 import { logLine } from './log.js';
 import { pageHost } from './pagehost.js';
+import { isOutside, isMarkdownPath, isTextPath } from './paths.js';
+import { nfc } from './names.js';
 
 // A rename has to find *every* inbound link, so this pass is the one search that runs with no
 // cap at all, hidden files included (N20; `limit: 0` means "no cap" in both bridges). The
@@ -20,10 +22,16 @@ import { pageHost } from './pagehost.js';
 // links and the toast would then report a count that is not the truth.
 const SEARCH_LIMIT = 0;
 
-/** The files whose links are markdown links, and so the only ones a rewrite edits. */
-const MARKDOWN = /\.(md|markdown)$/i;
-
+/** @param {unknown} p */
 const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+
+/**
+ * Two vault paths are one file when they are equal in Unicode form C (M49): a link typed on a
+ * Mac may hold `é` decomposed, and the host names files in form C.
+ * @param {string | null} a
+ * @param {string | null} b
+ */
+const samePath = (a, b) => a !== null && b !== null && (a === b || nfc(a) === nfc(b));
 
 /**
  * Keep the text a rewrite is about to replace (batch 12, "Versions"). This is the only write
@@ -39,7 +47,7 @@ async function keep(path, previous) {
   try {
     await bridge.versionKeep(path, previous, { force: true, reason: 'save' });
   } catch (e) {
-    // An old host has no `versionKeep`; a full disk has no room. Neither stops the rewrite.
+    // A full disk has no room for it, a locked history folder no way in: neither stops the rewrite.
     console.warn('[links] version not kept', path, e && e.message ? e.message : e);
   }
 }
@@ -181,7 +189,11 @@ export async function linkSpans(text) {
 /** The search's `{ hits }` (docs/HOST.md `search`); the host and the kernel ship together (M47). */
 const hitsOf = (r) => (r && Array.isArray(r.hits) ? r.hits : []);
 
-/** The files (by their current path) that a search for any of `needles` turns up. */
+/**
+ * The files (by their current path) that a search for any of `needles` turns up. Backlinks read
+ * only the text files among them (`isTextPath`, the one list in ./paths.js): a hit in a PDF or
+ * an image holds no markdown link. The rewrite edits only markdown files (`isMarkdownPath`).
+ */
 async function candidates(needles, seed = []) {
   const paths = new Set(seed.map(clean).filter(Boolean));
   for (const q of needles) {
@@ -200,15 +212,18 @@ async function candidates(needles, seed = []) {
  */
 export async function findInbound(targetPath) {
   const target = clean(targetPath);
+  /** @type {{ path: string, count: number, lines: { line: number, text: string }[] }[]} */
   const out = [];
-  for (const path of await candidates(needlesFor(target))) {
-    if (path === target) continue;
+  // A file outside the vault has no inbound links: no vault page can link out of the vault.
+  if (!target || isOutside(target)) return out;
+  for (const path of (await candidates(needlesFor(target))).filter(isTextPath)) {
+    if (samePath(path, target) || isOutside(path)) continue;
     let text;
     try { text = await bridge.readText(path); } catch { continue; }
     const starts = lineStarts(text);
     const lines = [];
     for (const span of await linkSpans(text)) {
-      if (resolveHref(path, span.href) !== target) continue;
+      if (!samePath(resolveHref(path, span.href), target)) continue;
       const n = lineAt(starts, span.start);
       const last = lines[lines.length - 1];
       if (last && last.line === n) continue;   // two links on one line are one row
@@ -240,7 +255,7 @@ function lineAt(starts, offset) {
 function cleanMoves(pairs) {
   return (pairs || [])
     .map((p) => ({ from: clean(p && p.from), to: clean(p && p.to) }))
-    .filter((p) => p.from && p.to && p.from !== p.to);
+    .filter((p) => p.from && p.to && p.from !== p.to && !isOutside(p.from) && !isOutside(p.to));
 }
 
 /**
@@ -259,7 +274,8 @@ function cleanMoves(pairs) {
  * @param {{settledSelf?: boolean}} [opts]
  */
 async function editsFor(text, path, moves, { settledSelf = false } = {}) {
-  const toFor = new Map(moves.map((p) => [p.from, p.to]));
+  // Keyed in form C, so a link that spells the name in the other Unicode form still follows.
+  const toFor = new Map(moves.map((p) => [nfc(p.from), p.to]));
   const self = settledSelf ? null : moves.find((p) => p.to === path);
   // The hrefs in a file were written relative to where it was; `was` is that place.
   const was = self ? self.from : path;
@@ -271,7 +287,7 @@ async function editsFor(text, path, moves, { settledSelf = false } = {}) {
     // An href with no scheme that starts with `/` is vault-root-relative: it means the same
     // file wherever the page lands, so moving the page must not rewrite it.
     if (!moved && span.href.trim().startsWith('/')) continue;
-    const to = toFor.get(target);
+    const to = toFor.get(nfc(target));
     // Outside the move set: only a file that moved needs its own hrefs rewritten, and only
     // to say the same thing from the new folder.
     if (!to && !moved) continue;
@@ -336,8 +352,14 @@ export async function planRewrite(text, filePath, pairs, opts = {}) {
  * -> { files, links, failed: [path], rewritten: { [path]: hash } }; `rewritten` is the new hash
  *    of every file this call wrote, so a page showing one can take it as its own.
  */
+/**
+ * @param {{ from: string, to: string }[]} pairs
+ * @param {{ only?: 'moved' | null, settled?: Iterable<string> | null }} [opts]
+ * @returns {Promise<{ files: number, links: number, failed: string[], rewritten: Record<string, string> }>}
+ */
 export async function rewriteInboundMany(pairs, { only = null, settled = null } = {}) {
   const moves = cleanMoves(pairs);
+  /** @type {{ files: number, links: number, failed: string[], rewritten: Record<string, string> }} */
   const res = { files: 0, links: 0, failed: [], rewritten: {} };
   if (!moves.length) return res;
 
@@ -348,12 +370,13 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
     : await candidates(needles, moves.map((m) => m.to));
 
   for (const path of files) {
-    if (!MARKDOWN.test(path)) continue;
+    if (!isMarkdownPath(path) || isOutside(path)) continue;
     const settledSelf = done.has(path);
 
     if (only !== 'moved') {
       // The open page's buffer is the truth, not the disk: the editor makes the edit (H5).
       const own = settledSelf ? moves.filter((p) => p.to !== path) : moves;
+      /** @type {{ handled: boolean, changed?: number, failed?: string } | null | undefined} */
       let asked = null;
       try {
         const host = pageHost();
@@ -373,18 +396,25 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       }
     }
 
-    let text;
-    let hash;
-    try { ({ text, hash } = await bridge.readFile(path)); } catch { continue; }
+    /** @type {import('./bridge/bindings.ts').ReadFile} */
+    let read;
+    try { read = await bridge.readFile(path); } catch { continue; }
+    const { text, hash } = read;
     if (typeof text !== 'string') continue;
     const edits = await editsFor(text, path, moves, { settledSelf });
     if (!edits.length) continue;
+    // Only a file that reads as UTF-8, whole, is rewritten. The save writes UTF-8 and the kept
+    // version is the decoded text, so a windows-1252 or UTF-16 page would be converted with no
+    // copy of its bytes, and a lossy decode would write U+FFFD over what it could not read.
+    // Such a page keeps its old links and is listed as failed, for the user to fix by hand.
+    if (read.lossy || !/^utf-?8$/i.test(String(read.encoding || 'UTF-8'))) {
+      logLine(`links rewrite skipped ${path}: ${read.lossy ? 'bytes that do not decode' : `encoded as ${read.encoding}`}`, 'warn');
+      res.failed.push(path);
+      continue;
+    }
     // Splice from the end so earlier offsets stay valid; nothing outside the spans moves.
     let out = text;
-    for (let i = edits.length - 1; i >= 0; i--) {
-      const e = edits[i];
-      out = out.slice(0, e.start) + e.next + out.slice(e.end);
-    }
+    for (const e of [...edits].reverse()) out = out.slice(0, e.start) + e.next + out.slice(e.end);
     try {
       await keep(path, text);
       const r = await bridge.saveFile(path, out, { expectedHash: hash, version: 'none' });

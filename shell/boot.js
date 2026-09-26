@@ -34,18 +34,6 @@ import { initTrash } from './trash.js';
 import { initRecover, offerRecovered } from './recover.js';
 import { showBootError } from './boot-error.js';
 
-/**
- * The stylesheets the host rewrites into `index.html` (docs/HOST.md): `ui`, `editor` and
- * `planner`. A host fills them in before the page is parsed; a plain file server does not,
- * and then the kernel's own assets answer for them. Either way no shell file spells an origin.
- */
-function linkKernelStyles() {
-  for (const link of document.querySelectorAll('link[data-ose]')) {
-    if (link.getAttribute('href')) continue;
-    link.href = ose.assets.url(`${link.dataset.ose}.css`);
-  }
-}
-
 /** `keys.json`: the chords the shell adds over the kernel's window map. */
 async function loadKeys() {
   let map = null;
@@ -82,8 +70,7 @@ async function loadPlanner() {
  * and look at the folder; nothing is deleted for the user.
  */
 async function noticeOldPlugins() {
-  const notices = typeof ose.local === 'function' ? ose.local('notices') : null;
-  if (!notices) return;
+  const notices = ose.local('notices');
   const seen = notices.get() || {};
   if (seen.plugins) return;
   let there = false;
@@ -110,14 +97,11 @@ export async function boot() {
   try {
     await ose.ready;
   } catch (e) {
-    try { linkKernelStyles(); } catch { /* the page below still draws, in the system colours */ }
     showBootError(e, { stage: 'The kernel did not answer.', ose });
     return;
   }
 
   try {
-    linkKernelStyles();
-
     // The host has answered for itself now, and that is the authority: `first-paint.js`
     // guessed from the user agent so the first frame had the right font stack.
     if (ose.platform === 'macos') document.documentElement.classList.add('mac');

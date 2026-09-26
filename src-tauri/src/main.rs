@@ -1,21 +1,15 @@
-// The webview draws the whole window, including the title bar, so the console subsystem is off
-// in release: no flash of a terminal behind the app.
+// The release build has no console of its own: no flash of a terminal behind the app.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::webview::PageLoadEvent;
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, local, log_line, platform, protocol, shell, state, vault, vaults, AppState, Root, Source};
-
-/// The last geometry the window had while neither maximised nor minimised. Tauri reports the
-/// maximised rectangle while maximised, so this is what gets written to the local store.
-static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
+use ose::windows::{self, Host};
+use ose::{args, commands, legacy, local, log_line, platform, protocol, state, vault, vaults, Root, Source};
 
 fn main() {
     // Tauri's, wry's and notify's own warnings into our log (lib.rs `Records`), before any of
@@ -31,149 +25,146 @@ fn main() {
         std::process::exit(0);
     }
 
-    // Steps 1 to 3 of the resolution order need no app: the argument, the executable's
-    // ancestors, the environment. The remembered root (step 4) needs the app's config folder
-    // and is read in `setup`; with nothing at all the shell asks (step 5).
-    let root = vault::resolve_root(opts.root.as_deref()).map(|(path, source)| Root { path, source });
-    let app_state = AppState::new(
-        root.clone(),
-        opts.log.as_deref().and_then(open_log),
-        Some(pick_folder),
-        Some(save_file),
-    );
-    app_state.set_shell_options(shell::Options { dir: opts.shell.clone() });
-    match &root {
-        Some(r) => log_line(
-            &app_state,
-            &format!("ose starting, vault root: {} (from {})", r.path.display(), r.source.as_str()),
-        ),
-        None => log_line(&app_state, "ose starting, no vault yet"),
+    let host = Host::new(opts.log.as_deref().and_then(open_log), Some(pick_folder), Some(save_file), Some(pick_file));
+    log_line(&host, &format!("ose starting ({})", platform::version_line()));
+    if opts.shell_ignored {
+        log_line(&host, "--shell is gone: the shell is inside the executable, and `npm run tauri dev` is the live loop");
     }
 
-    // One window per vault (S14): when another instance already holds the lock, the plugin
-    // below hands it this process's argv and ends the process *inside* `builder.build()`,
-    // before a line of ours could run. That is invisible on purpose while a window comes
-    // forward — and a trap when it does not, because the copy holding the lock can be a ghost:
-    // a force-killed app whose process is still there. "The app does not start and the log
-    // says nothing" cost QA-K forty minutes. So the lock is probed first and the handover is
-    // said out loud, in this process's own log and on its stderr. If the other copy happens to
-    // exit between the probe and the plugin's own check, this launch simply carries on and the
-    // log carries on under the line.
-    if another_instance_holds_the_lock(&app_identifier()) {
-        log_line(&app_state, HANDOVER);
+    // One window per vault (S14, D14): when another instance already holds the lock, the plugin
+    // below hands it this process's argv and ends the process *inside* `builder.build()`, before
+    // a line of ours could run. That is invisible on purpose while a window comes forward — and
+    // a trap when it does not, because the copy holding the lock can be a ghost: a force-killed
+    // app whose process is still there. So the lock is probed first and the handover is said out
+    // loud, in this process's own log and on its stderr.
+    // The identifier the plugin names its lock after is the built config's, which a
+    // `tauri build --config` overlay can change; the file alone would name another app's lock.
+    let context = tauri::generate_context!();
+    if another_instance_holds_the_lock(&context.config().identifier) {
+        log_line(&host, HANDOVER);
     }
 
+    let typed = ose::bindings::builder();
     let app = tauri::Builder::default()
-        .manage(app_state)
+        .manage(host)
         // First plugin, as the plugin's own documentation requires: a second launch hands its
         // argv over and exits before anything else in this process runs (S14).
         .plugin(tauri_plugin_single_instance::init(on_second_instance))
-        // The native folder picker behind `pickVault` (`pick_folder` below); used from Rust
-        // only, so no capability entry is needed: permissions gate the webview's own invoke,
-        // not host code.
+        // The native folder picker, save dialog and open-file dialog (`pick_folder` and friends
+        // below); used from Rust only, so no capability entry is needed.
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![ose::commands::rpc])
-        // Read-only access to the vault for <img src> and friends. The root is read per request
-        // so a vault picked after startup is served at once.
-        .register_uri_scheme_protocol("vault", |ctx, request| {
-            let st = ctx.app_handle().state::<AppState>();
-            protocol::serve_current(st.inner(), &request)
+        // Drag out (§5.5): the page starts a native drag of vault files, as copies.
+        .plugin(tauri_plugin_drag::init())
+        .invoke_handler(typed.invoke_handler())
+        // Read-only access to the vault for <img src> and friends: each window its own vault,
+        // read per request so a vault picked after startup is served at once. Asynchronous: the
+        // synchronous form is answered inside WebView2's request callback, on the UI thread, so
+        // a slow disk or a big read froze every window and the IPC with it. The read runs on a
+        // blocking worker, and an answer is never more than protocol::CHUNK bytes.
+        .register_asynchronous_uri_scheme_protocol("vault", |ctx, request, responder| {
+            let host = ctx.app_handle().state::<Host>();
+            let win = host.get(ctx.webview_label());
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(protocol::serve_for(win.as_deref(), &request));
+            });
         })
-        // The kernel's own bundles, embedded from `dist-kernel/` (frontendDist). Read-only,
-        // CORS open, never cached: `http://ose.localhost/kernel.js` on Windows and
-        // `ose://localhost/kernel.js` on macOS (docs/KERNEL.md "Origins").
-        .register_uri_scheme_protocol("ose", |ctx, request| {
-            shell::serve_kernel(ctx.app_handle(), &request)
+        // The old `app` origin, for one hidden window on the first launch after the upgrade: it
+        // reads what the previous version's page kept in its store (legacy.rs). Nothing else is
+        // served there.
+        .register_asynchronous_uri_scheme_protocol(legacy::SCHEME, |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let label = ctx.webview_label().to_string();
+            std::thread::spawn(move || {
+                let (response, done) = legacy::serve(&app, &label, &request);
+                responder.respond(response);
+                if done {
+                    legacy::close(&app);
+                }
+            });
         })
-        // The app itself: the shell inside the executable (or `--shell <dir>`). Files only;
-        // `index.html` gets the import map and the three stylesheet links on the way out.
-        .register_uri_scheme_protocol("app", |ctx, request| {
-            let app = ctx.app_handle();
-            let st = app.state::<AppState>();
-            shell::serve_app(st.inner(), &request, |name| {
-                app.asset_resolver().get(name.to_string()).map(|a| (a.bytes, a.mime_type))
-            })
-        })
-        // The window starts invisible; the first finished page load is the earliest moment
-        // showing it cannot flash an empty frame.
+        // A window starts invisible; the first finished page load is the earliest moment showing
+        // it cannot flash an empty frame. The hidden window of the old origin stays hidden.
         .on_page_load(|webview, payload| {
-            if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Finished) {
+            if matches!(payload.event(), PageLoadEvent::Finished) && webview.label() != legacy::LABEL {
                 let window = webview.window();
                 let _ = window.show();
                 let _ = window.set_focus();
+                legacy::page_loaded(webview.app_handle());
             }
         })
-        .setup(setup)
-        // The one menu item with an action of ours: Quit takes the close path, so the editor's
-        // last save is awaited exactly as it is when the window's close button is pressed.
+        .setup(move |app| setup(app, &opts))
+        // The one menu item with an action of ours: Quit takes the close path of every window,
+        // so each editor's last save is awaited exactly as it is when a close button is pressed.
         .on_menu_event(|app, event| {
             if event.id() == MENU_QUIT {
-                quit_through_the_save_path(app);
+                commands::close_all(app);
             }
         })
         .on_window_event(on_window_event)
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("ose failed to start");
 
     app.run(on_run_event);
 }
 
-/// Quitting must not skip the save (S16). `ExitRequested` with no code is the app being asked
-/// to go — `app.quit`, and on Windows and Linux the last window closing. While the main window
-/// is still there the exit is held and the window is asked to close instead, which is the one
-/// path that waits for the editor: CloseRequested -> the adapter's `closing` notice -> destroy.
-/// Once the window is gone the same event means "nothing left to save", and the app exits.
+/// Quitting must not skip the save (S16). `ExitRequested` with no code is the app being asked to
+/// go — `app.quit`, and on Windows and Linux the last window closing. While any window is still
+/// there the exit is held and every window is asked to close instead, which is the one path that
+/// waits for its editor: CloseRequested -> the adapter's `closing` notice -> destroy. Once no
+/// window is left the same event means "nothing left to save", and the app exits.
 ///
 /// A code (`app.exit(n)`) is honoured as asked.
 ///
-/// macOS: the system's own Quit (the Apple menu, the Dock, `terminate:`) reaches tao as
-/// `applicationWillTerminate`, which is already past the point of no return and arrives here as
-/// `RunEvent::Exit`, not `ExitRequested`. The app menu's Quit item must therefore be a custom
-/// item that runs the `quit` command, never `PredefinedMenuItem::quit()`. `Exit` still writes
-/// the geometry, so at worst a forced quit loses the unsaved buffer, never the window position.
-fn quit_through_the_save_path(app: &tauri::AppHandle) {
-    let st = app.state::<AppState>();
-    match app.get_webview_window("main") {
-        Some(window) => {
-            log_line(st.inner(), "quit: closing the window through the save path");
-            let _ = window.close();
-        }
-        None => app.exit(0),
-    }
-}
-
+/// macOS: the system's own Quit (the Dock, `terminate:`) reaches tao as
+/// `applicationWillTerminate`, already past the point of no return, and arrives here as
+/// `RunEvent::Exit`. The app menu's Quit is therefore a custom item that closes every window,
+/// never `PredefinedMenuItem::quit()`. `Exit` still writes the geometry.
 fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     match event {
         tauri::RunEvent::ExitRequested { code: None, api, .. } => {
-            if app.get_webview_window("main").is_none() {
+            if app.webview_windows().is_empty() {
                 return;
             }
             api.prevent_exit();
-            quit_through_the_save_path(app);
+            commands::close_all(app);
         }
-        tauri::RunEvent::Exit => save_on_exit(app),
+        tauri::RunEvent::Exit => {
+            for w in app.webview_windows().values() {
+                windows::save_geometry(app, &w.as_ref().window());
+            }
+            log_line(app.state::<Host>().inner(), "ose exited");
+        }
+        // A file handed to the app by Finder (a double-click, "Open with", a drop on the Dock
+        // icon). It can come before `setup` on a cold start: then it waits for the first window.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        tauri::RunEvent::Opened { urls } => {
+            let host = app.state::<Host>();
+            for url in urls {
+                let Ok(path) = url.to_file_path() else { continue };
+                if host.is_ready() {
+                    windows::open_path(app, &path);
+                } else {
+                    host.queue_pending(path);
+                }
+            }
+        }
         _ => {}
     }
 }
 
 /// The macOS menu bar, and the whole reason S16 needed more than a `RunEvent` handler.
 ///
-/// Tauri gives a macOS app a default menu whose Quit is `PredefinedMenuItem::quit()`. That item
-/// sends `terminate:` to NSApp; tao catches it in `applicationWillTerminate`, which is already
-/// past the point of no return, and it reaches the app as `RunEvent::Exit` — never
-/// `ExitRequested`, so there is nothing to prevent and no way to wait for the editor. Cmd+Q
-/// with that item loses unsaved work, whatever `on_run_event` does.
-///
-/// So the app submenu's Quit is a plain item with the same accelerator, and choosing it runs
-/// the same close path as the close button: `window.close()` -> CloseRequested -> the adapter
-/// holds it open until the last save has settled -> destroy -> exit.
+/// Tauri gives a macOS app a default menu whose Quit is `PredefinedMenuItem::quit()`, which sends
+/// `terminate:` to NSApp: past the point of no return, with no way to wait for the editor. So the
+/// app submenu's Quit is a plain item with the same accelerator, and choosing it closes every
+/// window through its save path.
 ///
 /// The Edit submenu is not decoration: on macOS the standard editing accelerators
 /// (Cmd+C/V/X/A/Z) come from the menu bar, and a window with a menu that does not carry them
 /// loses copy and paste in the web view.
 ///
-/// Built on every platform so it compiles and type-checks in CI on Windows too, and installed
-/// on macOS alone: Windows and Linux draw their own title bar and want no menu bar at all.
+/// Built on every platform so it compiles and type-checks in CI on Windows too, and installed on
+/// macOS alone: Windows draws its own title bar and wants no menu bar.
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem as P, Submenu};
 
@@ -209,12 +200,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             &P::select_all(app, None)?,
         ],
     )?;
-    let window_menu = Submenu::with_items(
-        app,
-        "Window",
-        true,
-        &[&P::minimize(app, None)?, &P::fullscreen(app, None)?],
-    )?;
+    let window_menu = Submenu::with_items(app, "Window", true, &[&P::minimize(app, None)?, &P::fullscreen(app, None)?])?;
     Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
 }
 
@@ -228,9 +214,9 @@ const HANDOVER: &str = concat!(
     "If no window came forward, that copy has none: end the ose process and start again."
 );
 
-/// The app identifier, read from the very `tauri.conf.json` the build reads. The
-/// single-instance plugin spells its lock out of this string, and the probe below has to spell
-/// the same one; embedding the file is how the two cannot drift apart.
+/// The app identifier as `tauri.conf.json` spells it, for the tests. At run time the probe takes
+/// it from the built context instead (`main`), which is what the single-instance plugin reads.
+#[cfg(test)]
 fn app_identifier() -> String {
     const CONF: &str = include_str!("../tauri.conf.json");
     serde_json::from_str::<serde_json::Value>(CONF)
@@ -244,9 +230,8 @@ fn app_identifier() -> String {
 /// The plugin exposes nothing to ask, so this reads its own mechanism, without taking it.
 /// **Windows**: the named mutex `<identifier>-sim` exists exactly while another instance holds
 /// it, and `OpenMutexW` only looks. **macOS**: the plugin's rendezvous is a unix socket, and
-/// connecting is the only way to tell a live singleton from the socket file a crash left
-/// behind — the running app sees a connection that says nothing, which `on_second_instance`
-/// ignores. **Linux** is dbus, is not probed, and is not a platform Ose ships to.
+/// connecting is the only way to tell a live singleton from the socket file a crash left behind —
+/// the running app sees a connection that says nothing, which `on_second_instance` ignores.
 #[cfg(windows)]
 fn another_instance_holds_the_lock(identifier: &str) -> bool {
     use std::ffi::{c_void, OsStr};
@@ -259,12 +244,9 @@ fn another_instance_holds_the_lock(identifier: &str) -> bool {
     }
     const SYNCHRONIZE: u32 = 0x0010_0000;
 
-    let name: Vec<u16> = OsStr::new(&format!("{identifier}-sim"))
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    // Safe: the name is NUL-terminated and outlives the call, and the handle is closed at
-    // once. Opening a named mutex neither acquires it nor changes it.
+    let name: Vec<u16> = OsStr::new(&format!("{identifier}-sim")).encode_wide().chain(std::iter::once(0)).collect();
+    // Safe: the name is NUL-terminated and outlives the call, and the handle is closed at once.
+    // Opening a named mutex neither acquires it nor changes it.
     unsafe {
         let handle = OpenMutexW(SYNCHRONIZE, 0, name.as_ptr());
         if handle.is_null() {
@@ -286,62 +268,58 @@ fn another_instance_holds_the_lock(_identifier: &str) -> bool {
     false
 }
 
-/// A second `ose` launched while one is running. The plugin has already handed us its argv and
-/// ended that process, so this decides what the launch meant: the same vault (or none named)
-/// brings the window forward; another folder is *asked for* (C5). The host never swaps the
-/// vault under a page that may hold unsaved work: it sends `vault {requested, root, name}`, and
-/// the page leaves the old vault (saving, or refusing) before it opens the new one itself with
-/// `openVault`. One window per vault, and never two watchers on one folder (S14).
+/// A second `ose` launched while one is running (D14). The plugin has already handed us its argv
+/// and ended that process, so this decides what the launch meant (docs/HOST.md "OS opens"):
+///
+/// - paths: each one routed (`windows::route`): a folder or a file of another vault opens (or
+///   focuses) that vault's window, a file of an open vault goes to its window, anything else is
+///   an outside tab in the window focused last;
+/// - `--root <dir>` and no path: that vault's window, made when there is none;
+/// - nothing: the window focused last comes forward.
 fn on_second_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
     // A notification with no argv at all is not a launch: on macOS it is the knock from
     // `another_instance_holds_the_lock`, which connects and says nothing. Ignore it whole.
     if argv.iter().all(|a| a.trim().is_empty()) {
         return;
     }
-    let st = app.state::<AppState>();
-    log_line(st.inner(), &format!("second instance: {}", argv.join(" ")));
+    let host = app.state::<Host>();
+    log_line(host.inner(), &format!("second instance: {}", argv.join(" ")));
 
     let opts = args::parse(argv.into_iter().skip(1));
-    let asked = opts.root.as_deref().map(|r| {
-        let p = PathBuf::from(r);
-        if p.is_absolute() { p } else { Path::new(&cwd).join(p) }
-    });
-    let asked = asked.filter(|p| p.is_dir()).map(|p| vault::normalize(&p));
-
-    let open = st.root();
-    let different = matches!((&asked, &open), (Some(a), Some(o)) if !vaults::same(a, o))
-        || (asked.is_some() && open.is_none());
-
-    if different {
-        let dir = asked.expect("different implies a folder was named");
-        log_line(st.inner(), &format!("second instance asks for {}: the page decides", dir.display()));
-        let payload = serde_json::json!({
-            "requested": true,
-            "root": dir.to_string_lossy(),
-            "name": vault::root_name(&dir),
-        });
-        if let Err(e) = app.emit("vault", payload) {
-            log_line(st.inner(), &format!("second instance: vault event dropped: {e}"));
+    let cwd = PathBuf::from(cwd);
+    let mut paths: Vec<PathBuf> = opts.paths.iter().map(|p| args::absolute(p, Some(&cwd))).collect();
+    if paths.is_empty() {
+        if let Some(root) = opts.root.as_deref().filter(|r| !r.is_empty()) {
+            paths.push(args::absolute(root, Some(&cwd)));
         }
     }
-
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+    if paths.is_empty() {
+        match host.most_recent() {
+            Some(w) => windows::raise(app, &w.label),
+            None => windows::deliver(app, windows::Route::New { root: None, request: None }, Path::new("")),
+        }
+        return;
+    }
+    for p in paths {
+        windows::open_path(app, &p);
     }
 }
 
-/// The `ose::FolderPicker` for this binary: the dialog plugin's native folder picker, parented
-/// to the main window, opened in `start`. The plugin hops to the main thread only to create
-/// the dialog, runs it on a thread of its own and calls `done` from there, so nothing here
-/// blocks the event loop on any platform.
-fn pick_folder(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnOnce(Option<PathBuf>) + Send>) {
+/// The `ose::FolderPicker` for this binary: the dialog plugin's native folder picker, parented to
+/// the window that asked, opened in `start`. The plugin hops to the main thread only to create
+/// the dialog, runs it on a thread of its own and calls `done` from there, so nothing here blocks
+/// the event loop on any platform.
+fn pick_folder(
+    app: &tauri::AppHandle,
+    parent: Option<tauri::WebviewWindow>,
+    start: Option<PathBuf>,
+    done: Box<dyn FnOnce(Option<PathBuf>) + Send>,
+) {
     let mut dialog = app.dialog().file().set_title("Choose a vault folder");
     if let Some(dir) = start {
         dialog = dialog.set_directory(dir);
     }
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = parent {
         dialog = dialog.set_parent(&window);
     }
     dialog.pick_folder(move |picked| {
@@ -349,25 +327,21 @@ fn pick_folder(app: &tauri::AppHandle, start: Option<PathBuf>, done: Box<dyn FnO
     });
 }
 
-/// The `ose::FileSaver` for this binary: the dialog plugin's native save dialog, behind
-/// `Export to PDF` (print.rs). Same shape as the folder picker above, and the same reason for
-/// living here: the plugin is the binary's.
+/// The `ose::FileSaver` for this binary: the dialog plugin's native save dialog, behind `Export
+/// to PDF` (print.rs). Same shape as the folder picker above, and the same reason for living here:
+/// the plugin is the binary's.
 fn save_file(
     app: &tauri::AppHandle,
+    parent: Option<tauri::WebviewWindow>,
     start: Option<PathBuf>,
     name: String,
     done: Box<dyn FnOnce(Option<PathBuf>) + Send>,
 ) {
-    let mut dialog = app
-        .dialog()
-        .file()
-        .set_title("Export to PDF")
-        .set_file_name(name)
-        .add_filter("PDF", &["pdf"]);
+    let mut dialog = app.dialog().file().set_title("Export to PDF").set_file_name(name).add_filter("PDF", &["pdf"]);
     if let Some(dir) = start {
         dialog = dialog.set_directory(dir);
     }
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = parent {
         dialog = dialog.set_parent(&window);
     }
     dialog.save_file(move |chosen| {
@@ -375,243 +349,172 @@ fn save_file(
     });
 }
 
-fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+/// The `ose::FilePicker` for this binary: the dialog plugin's open-file dialog, behind "Open
+/// file…" (`pickFile`).
+fn pick_file(app: &tauri::AppHandle, parent: Option<tauri::WebviewWindow>, title: String, done: Box<dyn FnOnce(Option<PathBuf>) + Send>) {
+    let mut dialog = app.dialog().file().set_title(title);
+    if let Some(window) = parent {
+        dialog = dialog.set_parent(&window);
+    }
+    dialog.pick_file(move |picked| {
+        done(picked.and_then(|fp| fp.as_path().map(Path::to_path_buf)));
+    });
+}
+
+fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
-    let st = app.state::<AppState>();
+    let host = app.state::<Host>();
+    let host = host.inner();
 
     // The persistent log (M54), in every build: `<app log dir>/ose.log`, rotated at 2 MB. The
     // lines written before this point were held and land first.
     match handle.path().app_log_dir() {
         Ok(dir) => match ose::open_persistent_log(&dir) {
-            Ok(path) => log_line(st.inner(), &format!("log: {}", path.display())),
-            Err(e) => log_line(st.inner(), &format!("log: no persistent log: {e}")),
+            Ok(path) => log_line(host, &format!("log: {}", path.display())),
+            Err(e) => log_line(host, &format!("log: no persistent log: {e}")),
         },
-        Err(e) => log_line(st.inner(), &format!("log: no log folder: {e}")),
+        Err(e) => log_line(host, &format!("log: no log folder: {e}")),
     }
-    // Drafts live per machine, outside every vault (docs/HOST.md "Drafts"), and so does the
-    // local store: the session, the window, the theme mirror (docs/HOST.md "Local state").
+    // Drafts live per machine, outside every vault (docs/HOST.md "Drafts"), and so does the local
+    // store: the session, the window, the theme mirror (docs/HOST.md "Local state").
     match handle.path().app_local_data_dir() {
-        Ok(dir) => st.set_data_dir(dir),
-        Err(e) => log_line(st.inner(), &format!("drafts: no app data folder: {e}")),
+        Ok(dir) => {
+            write_drag_icon(host, &dir);
+            host.set_data_dir(dir);
+        }
+        Err(e) => log_line(host, &format!("drafts: no app data folder: {e}")),
     }
     match handle.path().app_config_dir() {
-        Ok(dir) => st.set_config_dir(dir),
-        Err(e) => log_line(st.inner(), &format!("local state: no app config folder: {e}")),
+        Ok(dir) => host.set_config_dir(dir),
+        Err(e) => log_line(host, &format!("local state: no app config folder: {e}")),
     }
-
-    // Step 4: the remembered root, now that the app knows its config folder.
-    if st.root().is_none() {
-        match vault::read_remembered(&handle) {
-            Some(path) => {
-                log_line(st.inner(), &format!("vault root: {} (from remembered)", path.display()));
-                st.set_root(path, Source::Remembered);
-            }
-            None => log_line(st.inner(), "no vault: the shell will ask for a folder"),
-        }
-    }
-    // The menu bar (macOS only; see `build_menu`). Built everywhere so a mistake here is a
-    // compile error on every runner, installed only where a menu bar belongs.
+    // The menu bar (macOS only; see `build_menu`). Built everywhere so a mistake here is a compile
+    // error on every runner, installed only where a menu bar belongs.
     match build_menu(&handle) {
         Ok(menu) => {
             if cfg!(target_os = "macos") {
                 if let Err(e) = handle.set_menu(menu) {
-                    log_line(st.inner(), &format!("menu: {e}"));
+                    log_line(host, &format!("menu: {e}"));
                 }
             }
         }
-        Err(e) => log_line(st.inner(), &format!("menu: {e}")),
+        Err(e) => log_line(host, &format!("menu: {e}")),
     }
 
-    let root = st.root();
-
-    // Whatever we ended up opening — argument, exe folder, environment, remembered — belongs
-    // at the top of the recent list, so the chooser and `Change vault…` know about the vault
-    // the app opens by itself as well as the ones that were picked (S46).
-    if let Some(root) = &root {
-        if let Err(e) = vaults::record(&handle, root) {
-            log_line(st.inner(), &format!("recent vaults: {e}"));
-        }
-    }
-
-    let window = app
-        .get_webview_window("main")
-        .ok_or("the main window is missing from tauri.conf.json")?;
-
-    // F5, Ctrl+R, Ctrl+Shift+R and the rest of WebView2's browser keys would reload the page
-    // under unsaved work without asking (M53, C5). The page still receives the keys.
-    platform::disable_browser_keys(&window);
-
-    // Theme first: the background colour has to be right before anything is painted. The
-    // mirror of the last resolved theme is this machine's (local/app.json), with the vault's
-    // old state file as the fallback of the first launch after the upgrade; with neither, the
-    // system's theme. The window's own theme is left unset (`theme: None`, M26): forcing it
-    // here would pin the web view's `prefers-color-scheme` and a page that follows the system
-    // could never see the system change. The page sets it when the user picks one.
-    let config = st.config_dir();
-    let mirror = config
-        .as_deref()
-        .and_then(|c| state::theme_of(local::host_get(c, "theme").as_ref()))
-        .or_else(|| root.as_deref().and_then(state::theme));
-    let theme = mirror.unwrap_or_else(|| match window.theme() {
-        Ok(tauri::Theme::Light) => "light",
-        _ => "dark",
+    // The first window's vault, in the resolution order of docs/HOST.md "The vault root", with
+    // one step first: a folder, or a file of a vault (one holding `.ose/`), handed to this launch
+    // by the OS is the vault to open. The other paths are routed once the window exists.
+    let cwd = std::env::current_dir().ok();
+    let paths: Vec<PathBuf> = opts.paths.iter().map(|p| args::absolute(p, cwd.as_deref())).collect();
+    let explicit = opts.root.as_deref().filter(|r| !r.is_empty()).and_then(|r| {
+        let full = vault::normalize(Path::new(r));
+        full.is_dir().then_some(Root { path: full, source: Source::Arg })
     });
-    let (r, g, b) = state::background_of(theme);
-    let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
-
-    // Saved bounds, but only if they still land on a monitor that exists. This machine's first,
-    // then what an older version wrote into the vault.
-    let saved = config
-        .as_deref()
-        .and_then(|c| local::host_get(c, "window"))
-        .and_then(|v| state::bounds_of(&v))
-        .or_else(|| root.as_deref().and_then(state::read_window));
-    if let Some(bounds) = saved {
-        let monitors: Vec<state::MonitorRect> = window
-            .available_monitors()
-            .map(|list| {
-                list.iter()
-                    .map(|m| {
-                        let p = m.position();
-                        let s = m.size();
-                        (p.x, p.y, s.width, s.height)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if state::usable(bounds, &monitors) {
-            let _ = window.set_position(tauri::PhysicalPosition::new(bounds.x, bounds.y));
-            let _ = window.set_size(tauri::PhysicalSize::new(bounds.w, bounds.h));
-            *LAST_NORMAL.lock().unwrap_or_else(|p| p.into_inner()) = Some(bounds);
-            if bounds.maximized {
-                let _ = window.maximize();
+    let from_open = if explicit.is_none() {
+        paths.first().and_then(|p| {
+            if p.is_dir() {
+                // A folder of a vault opens that vault (and `open_path` below shows the folder),
+                // never a vault of its own nested in it.
+                Some(windows::vault_of_folder(p, &windows::ose_vault_of).unwrap_or_else(|| p.clone()))
+            } else {
+                windows::ose_vault_of(p)
             }
-        } else {
-            log_line(st.inner(), "saved window bounds are off-screen, using the default");
+        })
+    } else {
+        None
+    };
+    let root = explicit
+        .or_else(|| from_open.map(|path| Root { path, source: Source::Opened }))
+        .or_else(|| vault::resolve_root(None).map(|(path, source)| Root { path, source }))
+        .or_else(|| vault::read_remembered(&handle).map(|path| Root { path, source: Source::Remembered }));
+    match &root {
+        Some(r) => log_line(host, &format!("vault root: {} (from {})", r.path.display(), r.source.as_str())),
+        None => log_line(host, "no vault: the shell will ask for a folder"),
+    }
+    // Whatever we ended up opening belongs at the top of the recent list, so the chooser and
+    // `Change vault…` know about the vault the app opens by itself as well (S46).
+    if let Some(r) = &root {
+        if let Err(e) = vaults::record(&handle, &r.path) {
+            log_line(host, &format!("recent vaults: {e}"));
         }
     }
 
-    if let Some(root) = &root {
-        st.watch(&handle, root.clone());
+    windows::build(&handle, windows::MAIN, root)?;
+    // Once per machine: what the previous version's page kept under its origin (legacy.rs).
+    legacy::start(&handle);
+
+    // Every path of this launch, and what the OS asked for before the app was ready (macOS).
+    // A folder that became the vault above routes to its own window, which is a no-op.
+    let queued = host.set_ready();
+    for p in paths.iter().chain(queued.iter()) {
+        windows::open_path(&handle, p);
     }
-
-    // The window shows the shell, whether or not there is a vault: with none it draws its own
-    // vault chooser. It starts on the blank `frontendDist` index (scripts/embed-shell.mjs), so
-    // a failure to navigate leaves a plain window rather than an error page.
-    shell::load_window(&handle, &window);
-
-    // A page that never loads must not leave an invisible process behind.
-    let anyway = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(2));
-        let _ = anyway.show();
-    });
-
     Ok(())
 }
 
-fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
-    if window.label() != "main" {
-        return;
+/// The picture a drag out carries: the app's icon, written once into the app's data folder so
+/// the drag plugin can read it by path (`platform().dragIcon`).
+fn write_drag_icon(host: &Host, dir: &Path) {
+    const ICON: &[u8] = include_bytes!("../icons/128x128.png");
+    let file = dir.join("drag.png");
+    let same = std::fs::read(&file).map(|b| b == ICON).unwrap_or(false);
+    if !same {
+        let written = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&file, ICON));
+        if let Err(e) = written {
+            log_line(host, &format!("drag icon: {e}"));
+            return;
+        }
     }
+    host.set_drag_icon(file);
+}
+
+fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     let app = window.app_handle();
-    let st = app.state::<AppState>();
+    let host = app.state::<Host>();
 
     match event {
-        WindowEvent::Resized(_) | WindowEvent::Moved(_) => remember_bounds(window),
+        WindowEvent::Resized(_) | WindowEvent::Moved(_) => windows::remember_bounds(app, window),
 
-        // The adapter prevents this close, flushes the UI and destroys the window 400ms later,
-        // so this is the last moment the geometry is still readable.
-        WindowEvent::CloseRequested { .. } => save_geometry(window),
+        // The adapter prevents this close, flushes the UI and destroys the window afterwards, so
+        // this is the last moment the geometry is still readable.
+        WindowEvent::CloseRequested { .. } => {
+            windows::save_geometry(app, window);
+            if let Ok(theme) = window.theme() {
+                persist_theme(host.inner(), theme);
+            }
+        }
 
-        // The system theme changed under us: repaint the native background to match.
+        WindowEvent::Focused(true) => host.touch(window.label()),
+
+        // The system theme changed under us: repaint every window's native background to match.
         WindowEvent::ThemeChanged(theme) => {
-            let name = persist_theme(st.inner(), *theme);
+            let name = persist_theme(host.inner(), *theme);
             let (r, g, b) = state::background_of(name);
-            if let Some(w) = app.get_webview_window("main") {
+            for w in app.webview_windows().values() {
                 let _ = w.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
             }
         }
 
         WindowEvent::Destroyed => {
-            *st.watcher.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            log_line(st.inner(), "ose exited");
+            host.remove(window.label());
+            log_line(host.inner(), &format!("{}: window closed", window.label()));
         }
 
         _ => {}
     }
 }
 
-/// Bounds and theme into this machine's local store (local/app.json), never into the vault.
-fn save_geometry(window: &tauri::Window) {
-    let app = window.app_handle();
-    let st = app.state::<AppState>();
-    let Some(config) = st.config_dir() else { return };
-    let bounds = current_bounds(window);
-    if let Err(e) = local::host_set(&config, "window", state::bounds_json(bounds)) {
-        log_line(st.inner(), &format!("window state save failed: {e}"));
-    }
-    // `ThemeChanged` only fires for system theme changes, so the value the adapter set
-    // with `winSetTheme` is read back here instead.
-    if let Ok(theme) = window.theme() {
-        persist_theme(st.inner(), theme);
-    }
-}
-
-/// `RunEvent::Exit`: a quit that never reached `CloseRequested` (macOS `terminate:`, or
-/// `app.exit`) still has its geometry written.
-fn save_on_exit(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        save_geometry(&w.as_ref().window());
-    }
-}
-
 /// Mirrors the window theme into this machine's local store so the next launch paints the right
 /// colour before the UI has run a line of JavaScript. Returns the name it wrote (or would have,
 /// with no config folder).
-fn persist_theme(st: &AppState, theme: tauri::Theme) -> &'static str {
-    let name = if matches!(theme, tauri::Theme::Dark) {
-        "dark"
-    } else {
-        "light"
-    };
-    if let Some(config) = st.config_dir() {
+fn persist_theme(host: &Host, theme: tauri::Theme) -> &'static str {
+    let name = if matches!(theme, tauri::Theme::Dark) { "dark" } else { "light" };
+    if let Some(config) = host.config_dir() {
         if let Err(e) = local::host_set(&config, "theme", serde_json::Value::String(name.to_string())) {
-            log_line(st, &format!("theme persist failed: {e}"));
+            log_line(host, &format!("theme persist failed: {e}"));
         }
     }
     name
-}
-
-fn remember_bounds(window: &tauri::Window) {
-    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
-        return;
-    }
-    let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
-        return;
-    };
-    *LAST_NORMAL.lock().unwrap_or_else(|p| p.into_inner()) = Some(state::Bounds {
-        x: pos.x,
-        y: pos.y,
-        w: size.width,
-        h: size.height,
-        maximized: false,
-    });
-}
-
-fn current_bounds(window: &tauri::Window) -> state::Bounds {
-    let maximized = window.is_maximized().unwrap_or(false);
-    let remembered = *LAST_NORMAL.lock().unwrap_or_else(|p| p.into_inner());
-
-    if let Some(bounds) = remembered {
-        return state::Bounds { maximized, ..bounds };
-    }
-    let (x, y) = window.outer_position().map(|p| (p.x, p.y)).unwrap_or((0, 0));
-    let (w, h) = window
-        .outer_size()
-        .map(|s| (s.width, s.height))
-        .unwrap_or((1280, 800));
-    state::Bounds { x, y, w, h, maximized }
 }
 
 fn open_log(path: &Path) -> Option<File> {
@@ -623,9 +526,9 @@ fn open_log(path: &Path) -> Option<File> {
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
-/// `--version` from a terminal: the release build is a windows-subsystem process with no
-/// console, so it attaches to the parent's; with none (double-clicked) this fails and the
-/// line goes nowhere, which is fine. A console build already has one and the call is a no-op.
+/// `--version` from a terminal: the release build is a windows-subsystem process with no console,
+/// so it attaches to the parent's; with none (double-clicked) this fails and the line goes
+/// nowhere, which is fine. A console build already has one and the call is a no-op.
 #[cfg(windows)]
 fn attach_parent_console() {
     #[link(name = "kernel32")]
@@ -646,9 +549,8 @@ fn attach_parent_console() {}
 mod tests {
     use super::*;
 
-    /// The single-instance lock is named after the identifier. An empty one would make the
-    /// probe answer "nobody is holding it" for ever, and silently — which is the bug it exists
-    /// to close.
+    /// The single-instance lock is named after the identifier. An empty one would make the probe
+    /// answer "nobody is holding it" for ever, and silently — which is the bug it exists to close.
     #[test]
     fn the_identifier_comes_out_of_the_config() {
         let id = app_identifier();

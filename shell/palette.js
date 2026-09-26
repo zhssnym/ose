@@ -9,7 +9,7 @@ import { ose } from 'ose:kernel';
 import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
 import { allFiles } from './sidebar.js';
 import { newFile } from './fileops.js';
-import { baseName, dirName, extOf } from './paths.js';
+import { dirName, extOf, titleOf } from './paths.js';
 
 const { commands, route } = ose;
 const navigate = (r, opts) => route.navigate(r, opts);
@@ -62,8 +62,8 @@ function commandItems(q) {
   return out;
 }
 
-/** The name the chrome shows for a path (W8): the kernel's, with a plain fallback. */
-const display = (p) => (ose.names && typeof ose.names.display === 'function' ? ose.names.display(p) : baseName(p));
+/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.js. */
+const display = (p) => titleOf(p);
 
 /** Markdown first when two files tie (H17): `notes.md` before `notes.txt` for the same query. */
 const isMd = (p) => ['md', 'markdown', 'mdown', 'mkd'].includes(extOf(p));

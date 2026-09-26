@@ -185,13 +185,19 @@ export function hrefAtCaret(view) {
 }
 
 export function registerLinkCommands(api) {
+  // In Live (wave 3) the link under the caret is the Live view's to find and follow.
+  const inLive = () => !!(api.isLive && api.isLive());
   commands.register({
     id: 'page.follow-link',
     title: 'Follow link under cursor',
     group: 'page',
     hint: 'the link the caret is in',
-    when: () => !!(api.hasPage && api.hasPage() && hrefAtCaret(api.getView())),
+    when: () => !!(api.hasPage && api.hasPage() && (inLive() || hrefAtCaret(api.getView()))),
     run: () => {
+      if (inLive()) {
+        if (!api.liveRun('page.follow-link')) toast('no link under the cursor', 'info', 2000);
+        return;
+      }
       const view = api.getView();
       const href = hrefAtCaret(view);
       if (!href) { toast('no link under the cursor', 'info', 2000); return; }

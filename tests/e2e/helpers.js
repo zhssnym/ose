@@ -6,10 +6,11 @@
 // debugging handle, kernel.js) is read to know where the app is, and used to open a route only
 // where a person would have clicked something the scenario is not about.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect } from '@playwright/test';
-import { ROOT } from './env.js';
+import { APPDATA, OUTSIDE, ROOT } from './env.js';
 
 /**
  * One bridge call from the test process, the way src/kernel/bridge/http.js makes it.
@@ -73,6 +74,56 @@ export function writeDisk(rel, text) {
   const file = path.join(ROOT, ...rel.split('/'));
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, text, 'utf8');
+}
+
+/** A vault file's bytes, or null. */
+export function diskBytes(rel) {
+  const file = path.join(ROOT, ...rel.split('/'));
+  return existsSync(file) ? readFileSync(file) : null;
+}
+
+/** What says a file was not written: its bytes' digest and its mtime. */
+export function stamp(rel, dir = ROOT) {
+  const file = path.join(dir, ...rel.split('/'));
+  return { sha: createHash('sha256').update(readFileSync(file)).digest('hex'), mtime: statSync(file).mtimeMs };
+}
+
+/** The absolute path of a file outside the vault (`<base>/outside/<rel>`). */
+export const outsidePath = (rel) => path.join(OUTSIDE, ...rel.split('/'));
+
+/** A file outside the vault as text, or null. */
+export function outsideText(rel) {
+  const file = outsidePath(rel);
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+}
+
+/** Write a file outside the vault the way another program would. */
+export function writeOutside(rel, text) {
+  writeFileSync(outsidePath(rel), text, 'utf8');
+}
+
+/** The dev bridge's log so far (`<appdata>/logs/ose.log`): every save it did is a line. */
+export function logText() {
+  const file = path.join(APPDATA, 'logs', 'ose.log');
+  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+}
+
+/**
+ * Put the page on screen in `mode` ('rich', 'live' or 'source') with the meta line's switch, as
+ * a person would, and wait until it is.
+ * @param {import('@playwright/test').Page} page
+ * @param {'rich'|'live'|'source'} mode
+ */
+export async function setMode(page, mode) {
+  const btn = page.locator(`.ed-mode-btn[data-mode="${mode}"]:visible`).first();
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  if (mode === 'live') await expect(liveEditor(page)).toBeVisible();
+}
+
+/** The Live editor's content on screen. */
+export function liveEditor(page) {
+  return page.locator('.cm-live .cm-content:visible').first();
 }
 
 /** Load the app and wait until it has a route on screen (Home, or a restored session). */

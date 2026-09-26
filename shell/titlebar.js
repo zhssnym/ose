@@ -1,9 +1,8 @@
-// Title bar: app mark, back and forward, New file, the address bar, the unsaved mark, window
-// controls. The whole strip is the window drag handle in the host; the buttons are drawn but
-// inert in the browser. In a frameless window these buttons are the only way to minimise or
-// close, so they are ordinary tab stops (D6). They sit first in the DOM and so first in the
-// tab ring; putting them last would take a positive tabindex or a re-ordered shell, neither
-// worth it for three buttons.
+// The toolbar at the top of the window: the sidebar's fold, the app mark, back and forward,
+// New file, the address bar, the unsaved mark and the focus chip. The window around it is the
+// platform's own (X9, D11): Windows draws the title bar with its minimise, maximise (and Snap
+// Layouts) and close, macOS its traffic lights, and both own moving and resizing the window.
+// So this row is a plain toolbar, not a drag handle, and there are no window buttons in it.
 //
 // The address bar (M21) is Explorer's. At rest it is the place on screen as segments — the
 // vault's name, each folder, then the file — and every folder segment is a button that opens
@@ -12,46 +11,27 @@
 // takes the highlighted one, Up and Down move, Enter goes (a folder opens as a folder, a file
 // as a page, a path that is not there says so and keeps the field), Esc puts the bar back. A
 // full path pasted from Explorer works when it is inside the vault, and so does the leading
-// vault name the bar shows at rest; one outside the vault says so.
+// vault name the bar shows at rest; one outside the vault opens that file in a tab marked
+// "outside vault" (X7, `ose.files.openOutside`). A page outside the vault reads, at rest, as
+// "Outside the vault", its folder, then its name.
 
 import { ose } from 'ose:kernel';
-import { esc, glyph, icon, hasIcon } from 'ose:ui';
+import { esc, icon, hasIcon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
-import { isHost, dragWindow, onMaximize } from './host.js';
 import * as M from './folder-model.js';
 import { openInNewTab } from './tabs.js';
-import { clean, baseName, titleOf } from './paths.js';
+import { clean, baseName, dirName, titleOf, vaultName, errorOf, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands, route, focus } = ose;
 const currentRoute = () => route.current();
 const shortcutFor = (id) => ose.keys.shortcutFor(id);
 
-const vaultName = () => (ose.vault && ose.vault.name) || 'Vault';
-
 let el = null;
 let addrEl = null;
 let dirtyEl = null;
-let maxBtn = null;
 let foldEl = null;
 let navEls = null;
 let focusEl = null;
-let maximized = false;
-
-// A real window: WebView2 or Tauri. The browser has its own frame and no window control.
-const HOST = isHost;
-
-// What the bar never starts a window drag from, and never maximises on a double click.
-const CONTROLS = '.tb-btn, .tb-fold, .tb-focus, .tb-nav-btn, .tb-addr, .tb-addr-menu';
-
-function setMaximized(v) {
-  maximized = !!v;
-  document.documentElement.classList.toggle('maximized', maximized);
-  if (maxBtn) {
-    maxBtn.innerHTML = glyph(maximized ? 'restore' : 'max');
-    maxBtn.title = maximized ? 'Restore' : 'Maximize';
-    maxBtn.setAttribute('aria-label', maxBtn.title);
-  }
-}
 
 /* ------------------------------------------------------------------ the address, at rest */
 
@@ -68,6 +48,16 @@ function partsOf(r) {
   if (r.type === 'view') {
     const v = ose.views.get(r.name);
     parts.push({ text: (v && v.title) || r.name, cur: true });
+    return parts;
+  }
+  if (r.type === 'page' && isOutside(r.path)) {
+    // A file outside the vault (X7): no folder of it is a place in the app, so its folder is
+    // one plain segment with the whole absolute path, and nothing but the name is current.
+    const abs = outsideLabel(clean(r.path));
+    parts[0] = { text: 'Outside the vault', outside: true };
+    const dir = outsideLabel(dirName(clean(r.path)));
+    if (dir) parts.push({ text: dir, path: dir });
+    parts.push({ text: display(r.path), cur: true, path: abs });
     return parts;
   }
   const segs = clean(r.path).split('/').filter(Boolean);
@@ -95,7 +85,7 @@ function renderAddress(r) {
       crumbs.appendChild(s);
     }
     const b = document.createElement(p.folder != null ? 'button' : 'span');
-    b.className = 'tb-crumb' + (p.cur ? ' cur' : '');
+    b.className = 'tb-crumb' + (p.cur ? ' cur' : '') + (p.outside ? ' tb-outside' : '');
     b.textContent = p.text;
     if (p.folder != null) {
       b.type = 'button';
@@ -127,6 +117,8 @@ const listCache = new Map();   // folder -> Promise<Entry[]>, for the length of 
 /** The vault path of what is on screen: a page's, a folder's, nothing for a view. */
 function pathOf(r) {
   if (!r || r.type === 'view') return '';
+  // A page outside the vault: its absolute path, which is what Enter opens again.
+  if (isOutside(r.path)) return outsideLabel(clean(r.path));
   return clean(r.path);
 }
 
@@ -161,7 +153,11 @@ function relOf(text) {
   if (root && (fold(t) === fold(root) || fold(t).startsWith(fold(root) + '/'))) {
     return { paths: [t.slice(root.length).replace(/^\/+/, '')] };
   }
-  if (/^[a-z]:(\/|$)/i.test(t) || t.startsWith('//')) return { paths: [], outside: true };
+  if (/^[a-z]:(\/|$)/i.test(t) || t.startsWith('//')) return { paths: [], outside: true, abs: t };
+  // On macOS and Linux an absolute path starts with a slash: outside the vault, unless it is
+  // under the vault's own root (above). It may still be a vault path typed with a slash in
+  // front, so that is tried first (`go`). On Windows a leading slash means the vault root.
+  if (!win && t.startsWith('/')) return { paths: [t.replace(/^\/+/, '')], outside: true, abs: t };
   t = t.replace(/^\/+/, '');
   const paths = [t];
   const name = vaultName();
@@ -237,15 +233,31 @@ function setNote(text) {
   if (inputEl) inputEl.setAttribute('aria-invalid', text ? 'true' : 'false');
 }
 
+/**
+ * An absolute path outside the vault (X7): the file opens in a tab marked "outside vault"
+ * (`ose.files.openOutside`). A file that is inside another Ose vault, or inside this one after
+ * all, is the kernel's to route. The field stays, with the reason, when nothing opened.
+ * @param {string} abs the absolute path as typed, forward slashes
+ */
+async function goOutside(abs) {
+  let opened = null;
+  try { opened = await ose.files.openOutside(abs); } catch (e) {
+    const err = errorOf(e);
+    if (editing) setNote(err.code === 'not_found' ? 'No such file' : (err.message || 'That file could not be opened'));
+    return;
+  }
+  if (!opened) { if (editing) setNote('That file could not be opened'); return; }
+  finishEdit();
+}
+
 /** Enter: stat the path and go there. What is not there keeps the field, with the reason. */
 async function go() {
   const typed = picked && items[pick] ? { paths: [items[pick].path] } : relOf(inputEl ? inputEl.value : '');
-  if (typed.outside) { setNote('That path is outside the vault'); return; }
   for (const target of [...new Set(typed.paths.map(clean))]) {
-    if (!target) { finishEdit(); await route.navigate({ type: 'folder', path: '' }); return; }
+    if (!target) { if (typed.outside) break; finishEdit(); await route.navigate({ type: 'folder', path: '' }); return; }
     let st = null;
     try { st = await ose.files.stat(target); } catch (e) {
-      if (/^\[escapes_vault\]/.test(String((e && e.message) || e))) { setNote('That path is outside the vault'); return; }
+      if (errorOf(e).code === 'escapes_vault') { setNote('That path is outside the vault'); return; }
       continue;
     }
     if (!editing) return;
@@ -255,6 +267,8 @@ async function go() {
     else await route.navigate({ type: 'page', path: target });
     return;
   }
+  // Not a place in the vault: an absolute path is a file anywhere on the machine.
+  if (typed.outside) { await goOutside(typed.abs); return; }
   if (editing) setNote('No such path');
 }
 
@@ -378,19 +392,12 @@ export function initTitlebar(node) {
       <nav class="tb-crumbs" aria-label="Location"></nav>
     </div>
     <span class="tb-dirty" role="img" aria-label="unsaved changes" title="unsaved changes" hidden></span>
-    <button class="tb-focus mono" type="button" hidden></button>
-    <div class="tb-drag"></div>
-    <div class="tb-win${HOST() ? '' : ' dim'}">
-      <button class="tb-btn" data-w="min" title="Minimize" aria-label="Minimize">${glyph('min')}</button>
-      <button class="tb-btn" data-w="max" title="Maximize" aria-label="Maximize">${glyph('max')}</button>
-      <button class="tb-btn close" data-w="close" title="Close" aria-label="Close">${glyph('close')}</button>
-    </div>`;
+    <button class="tb-focus mono" type="button" hidden></button>`;
 
   // The sidebar's one control: the far-left corner of the title bar, at the sidebar's own x,
   // in the same place whether the sidebar is open or folded. Only the glyph turns, and the
   // title says which way it goes. It runs `app.sidebar`, the same command Ctrl+\ runs.
   foldEl = el.querySelector('.tb-fold');
-  foldEl.addEventListener('mousedown', (e) => e.stopPropagation());
   foldEl.addEventListener('click', () => commands.run('app.sidebar'));
   setSidebarShown(sidebarVisible());
   // The window hides the sidebar on its own under 640px (layout.js `fit`, L25), without
@@ -399,11 +406,9 @@ export function initTitlebar(node) {
 
   addrEl = el.querySelector('.tb-addr');
   dirtyEl = el.querySelector('.tb-dirty');
-  maxBtn = el.querySelector('[data-w="max"]');
 
   // A folder segment opens its folder; a click anywhere else in the bar edits the address,
   // which is what a click on Explorer's address bar does.
-  addrEl.addEventListener('mousedown', (e) => e.stopPropagation());
   addrEl.addEventListener('click', (e) => {
     if (editing) return;
     const b = e.target.closest('.tb-crumb[data-folder]');
@@ -440,7 +445,6 @@ export function initTitlebar(node) {
   };
   for (const name of ['back', 'forward']) {
     const b = navEls[name];
-    b.addEventListener('mousedown', (e) => e.stopPropagation());
     b.addEventListener('click', () => commands.run('app.' + name));
   }
   titleNav();
@@ -458,43 +462,13 @@ export function initTitlebar(node) {
   // The chords come from keys.json, which is read after the bar is built.
   bus.on('booted', () => { titleNew(); titleAddr(); titleNav(); });
   newBtn.setAttribute('aria-label', 'New file…');
-  newBtn.addEventListener('mousedown', (e) => e.stopPropagation());
   newBtn.addEventListener('click', () => commands.run('file.new'));
 
   // Focus mode's chip (H18): whenever a folder is in focus the bar says so, whether or not the
   // sidebar is open, and pressing it leaves focus. Nothing enters focus but its own command.
   focusEl = el.querySelector('.tb-focus');
-  focusEl.addEventListener('mousedown', (e) => e.stopPropagation());
   focusEl.addEventListener('click', () => commands.run('app.focus-exit'));
   renderFocus();
-
-  el.querySelectorAll('.tb-btn').forEach((b) => {
-    // Drawn dim and inert in the browser, so not tab stops there either.
-    if (!HOST()) b.tabIndex = -1;
-    b.addEventListener('mousedown', (e) => e.stopPropagation());
-    b.addEventListener('click', () => {
-      if (!HOST()) return;
-      const w = b.dataset.w;
-      if (w === 'min') ose.window.minimize();
-      else if (w === 'max') ose.window.maximize();
-      else ose.window.close();
-    });
-  });
-
-  el.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest(CONTROLS)) return;
-    if (!HOST()) return;
-    dragWindow();
-  });
-
-  el.addEventListener('dblclick', (e) => {
-    if (e.target.closest(CONTROLS)) return;
-    if (!HOST()) return;
-    ose.window.maximize();
-  });
-
-  onMaximize(setMaximized);
 
   commands.register({
     id: 'app.address', title: 'Edit address', group: 'navigate',

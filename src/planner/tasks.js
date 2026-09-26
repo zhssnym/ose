@@ -69,15 +69,16 @@ export function parseTaskLine(raw) {
 
 /**
  * Every task line in a file. `line` is the 0-based index `replaceLine` takes, and `raw` the
- * exact source line (a leading BOM on the first line included), which is what it must still
- * read before it is replaced.
+ * exact source line, which is what it must still read before it is replaced. A byte-order mark
+ * before the first line is not part of it: it is a byte of the file, not a character of the
+ * line, and the host's `replaceLine` compares line 0 without it and keeps it (wave 3).
  * @param {string} text
  * @param {string} [path]
  * @returns {object[]}
  */
 export function parseTasks(text, path = '') {
   const out = [];
-  const lines = String(text ?? '').split(/\r?\n/);
+  const lines = String(text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const t = parseTaskLine(lines[i]);
     if (t) out.push({ ...t, path, line: i, raw: lines[i], id: `${path}:${i}` });

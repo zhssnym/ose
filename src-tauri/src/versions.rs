@@ -36,7 +36,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use crate::{arg_str, civil_from_days, coded, vault, Ctx};
+use crate::{civil_from_days, coded, vault};
 
 /// Where every version lives, vault-relative.
 const ROOT_DIR: &str = ".ose/history";
@@ -566,7 +566,7 @@ pub fn move_history(root: &Path, from: &str, to: &str) -> Result<(), String> {
     migrate(root);
     // A path the hide rule excludes (a temp file of the atomic writer, anything under `.git`)
     // has no history of its own to move.
-    if crate::hide::excluded(from) || crate::hide::excluded(to) {
+    if crate::hide::excluded(root, from) || crate::hide::excluded(root, to) {
         return Ok(());
     }
     let src = dir_for(root, from)?;
@@ -621,48 +621,6 @@ fn merge(src: &Path, dst: &Path) {
                 break;
             }
         }
-    }
-}
-
-// ---- dispatch --------------------------------------------------------------
-
-const COMMANDS: &[&str] = &["versionKeep", "versionList", "versionRead", "versionRestore"];
-
-/// `None` means "not mine", like every module handler.
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    if !COMMANDS.contains(&cmd) {
-        return None;
-    }
-    let root = match crate::root_for(ctx.st, cmd, args) {
-        Ok(r) => r,
-        Err(e) => return Some(Err(e)),
-    };
-    Some(dispatch(&root, cmd, args))
-}
-
-fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
-    match cmd {
-        // `versionKeep(path, text, opts)`, where `opts` is the old boolean `force` or
-        // `{ force?, reason? }`.
-        "versionKeep" => {
-            let (force, reason) = match args.get(2) {
-                Some(Value::Bool(b)) => (*b, Reason::Save),
-                Some(Value::Object(o)) => {
-                    let force = o.get("force").and_then(Value::as_bool).unwrap_or(false);
-                    let reason = match o.get("reason").and_then(Value::as_str) {
-                        None => Reason::Save,
-                        Some(r) => Reason::parse(r).ok_or_else(|| coded("bad_arg", format!("not a version reason: {r}")))?,
-                    };
-                    (force, reason)
-                }
-                _ => (false, Reason::Save),
-            };
-            keep(root, &arg_str(args, 0)?, arg_str(args, 1)?.as_bytes(), force, reason)
-        }
-        "versionList" => list(root, &arg_str(args, 0)?),
-        "versionRead" => Ok(Value::String(read(root, &arg_str(args, 0)?, &arg_str(args, 1)?)?)),
-        "versionRestore" => restore(root, &arg_str(args, 0)?, &arg_str(args, 1)?),
-        _ => Err(coded("unknown_command", cmd)),
     }
 }
 

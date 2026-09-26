@@ -30,7 +30,7 @@
 
 import { ose } from 'ose:kernel';
 import { icon, toast, esc } from 'ose:ui';
-import { baseName, dirName, extOf } from './paths.js';
+import { baseName, dirName, extOf, isOutside, outsideLabel } from './paths.js';
 import { typeLabel, sizeLabel, dateLabel } from './folder-model.js';
 
 /** The extensions this file claims. `page.js` asks; nothing else needs to know. */
@@ -73,8 +73,8 @@ export function mediaMiss(box, path) {
   // place; the third line is ours and quiet, because a missing attachment is a fact to state,
   // not an error to shout (`.miss-why` is the red the kernel keeps for a bridge fault).
   box.innerHTML = `
-        <div class="miss-title">that file is not in the vault</div>
-        <div class="miss-path mono">${esc(path)}</div>
+        <div class="miss-title">${isOutside(path) ? 'that file is not there' : 'that file is not in the vault'}</div>
+        <div class="miss-path mono">${esc(outsideLabel(path))}</div>
         <div class="media-gone mono">nothing here can create a ${esc(extOf(path))} · put the file back, or fix the link that pointed at it</div>`;
   return true;
 }
@@ -138,7 +138,7 @@ export function mediaPage(el, path) {
   const title = document.createElement('span');
   title.className = 'media-name grow mono';
   title.textContent = name;
-  title.title = path;
+  title.title = outsideLabel(path);
   head.appendChild(title);
 
   /**
@@ -441,7 +441,7 @@ export function binaryPage(el, path) {
     <div class="binary-box">
       <div class="binary-head">
         <span class="binary-icon">${icon('file')}</span>
-        <span class="binary-name mono" title="${esc(path)}">${esc(name)}</span>
+        <span class="binary-name mono" title="${esc(outsideLabel(path))}">${esc(name)}</span>
       </div>
       <dl class="binary-facts">
         <dt>Type</dt><dd class="binary-type">${esc(typeLabel({ name, kind: 'file', ext: extOf(path) }))}</dd>
@@ -467,7 +467,9 @@ export function binaryPage(el, path) {
     return b;
   };
   const first = button('Open with default app', 'reveal', () => ose.files.open(path), true);
-  button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
+  // A file outside the vault (X7) has no folder in the app: the copy into it is the way in.
+  if (isOutside(path)) button('Copy into the vault…', 'copy', () => ose.commands.run('file.copy-into-vault', path));
+  else button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
   button('Reveal in Explorer', 'reveal', () => ose.files.reveal(path));
 
   el.appendChild(col);

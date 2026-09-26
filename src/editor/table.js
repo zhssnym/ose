@@ -107,7 +107,7 @@ function insertColumn(state, rect, col) {
 
 /** The document position of the text inside the cell at (row, col). */
 function cellTextPos(rect, row, col) {
-  const { map, table, tableStart } = rect;
+  const { map, tableStart } = rect;
   const index = row * map.width + col;
   const pos = map.map[index];
   if (pos == null) return null;

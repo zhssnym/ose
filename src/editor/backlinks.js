@@ -15,6 +15,7 @@
 import { Plugin } from '@milkdown/kit/prose/state';
 import { bus, commands, debounce, esc, findInbound, navigate, titleOf } from './host.js';
 import { toast } from './deps.js';
+import { isOutside } from './paths.js';
 import './backlinks.css';
 
 /** path -> how many pages link to it, as last computed. Read by the editor's meta line. */
@@ -118,7 +119,8 @@ export function plugins(_ctx, o) {
       const path = typeof o?.pagePath === 'function' ? o.pagePath() || '' : '';
       const col = editorView.dom.closest('.ed');
       const body = col ? col.querySelector('.ed-body') : null;
-      if (!col || !body || !path) return {};
+      // A file outside the vault (X7) is not in the vault's links: nothing points at it.
+      if (!col || !body || !path || isOutside(path)) return {};
       const v = build(path);
       col.insertBefore(v.box, body.nextSibling);
       live = v;

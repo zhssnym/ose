@@ -38,8 +38,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    // The repo root, for tests/support/present.js (import.meta.url is not a file URL under
-    // happy-dom).
+    // The repo root, for a test that reads a repository file (tests/kernel/keys.test.js), since
+    // import.meta.url is not a file URL under happy-dom.
     env: { OSE_REPO: here('.') },
     include: ['tests/**/*.test.js'],
     // tests/e2e is Playwright's (`npm run test:e2e`, playwright.config.js), not vitest's.

@@ -14,6 +14,12 @@
 // Every write goes through `writeAtomic`: a temp file beside the target, synced, renamed over
 // it with no delete first, the rename retried while Windows says the file is busy, and the new
 // bytes never thrown away (C3).
+//
+// Wave 3 (CONTRACT §4.1): files outside the vault, as `abs:<absolute path>` once `outsideOpen`
+// has registered them (only under the folders `outsideRoots` names: a dev server is not the
+// app, and a browser page must not reach the whole disk); text in UTF-16 and windows-1252 as well
+// as UTF-8 (`decodeText`, `encodeText`), with no new dependency: Node decodes what it knows, and
+// windows-1252 has a table of its own here; `createNewBinary` and `importOutside`.
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
@@ -21,6 +27,8 @@ import { execFile } from 'node:child_process';
 
 const IS_WIN = process.platform === 'win32';
 const FOLDS_CASE = IS_WIN || process.platform === 'darwin';
+/** The prefix of a path outside the vault, in JS (CONTRACT §5.2): `abs:D:/Notes/a.md`. */
+export const ABS = 'abs:';
 
 // ---------------------------------------------------------------- errors
 
@@ -37,7 +45,7 @@ const ioError = (rel, e) => coded(e && e.code === 'ENOENT' ? 'not_found' : 'io',
 /** Anything thrown, as the `[code] message` string the bridge answers. */
 export function errorText(e) {
   const msg = (e && e.message) || String(e);
-  return /^\s*\[[a-z_]+\]/.test(msg) ? msg : `[io] ${msg}`;
+  return /^\s*\[[a-z0-9_]+\]/.test(msg) ? msg : `[io] ${msg}`;
 }
 
 // ---------------------------------------------------------------- the hash
@@ -383,6 +391,94 @@ export function sniffText(head, full = head.length >= SNIFF_BYTES) {
 }
 const SNIFF_BYTES = 8192;
 
+// ---------------------------------------------------------------- encodings (encoding.rs)
+
+/** windows-1252 bytes 0x80..0x9F, as WHATWG maps them (the five holes to their C1 controls, so
+ *  every byte decodes and every decode encodes back to the same bytes). */
+const CP1252 = [0x20ac, 0x81, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8d, 0x017d, 0x8f,
+  0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x9d, 0x017e, 0x0178];
+const CP1252_BACK = new Map(CP1252.map((cp, i) => [cp, 0x80 + i]));
+
+/** The WHATWG labels this bridge knows, to their encoding's name; the host knows every one
+ *  encoding_rs does. */
+const LABELS = new Map([
+  ...['utf-8', 'utf8', 'unicode-1-1-utf-8', 'unicode11utf8', 'unicode20utf8', 'x-unicode20utf8'].map((l) => [l, 'utf-8']),
+  ...['utf-16le', 'utf-16', 'ucs-2', 'unicode', 'csunicode', 'iso-10646-ucs-2', 'unicodefeff'].map((l) => [l, 'utf-16le']),
+  ...['utf-16be', 'unicodefffe'].map((l) => [l, 'utf-16be']),
+  ...['windows-1252', 'cp1252', 'x-cp1252', 'latin1', 'l1', 'iso-8859-1', 'iso8859-1', 'iso_8859-1', 'iso88591', 'iso_8859-1:1987',
+    'iso-ir-100', 'ibm819', 'cp819', 'csisolatin1', 'ascii', 'us-ascii', 'ansi_x3.4-1968'].map((l) => [l, 'windows-1252']),
+]);
+
+/** The encoding a label names, or `[unsupported]`. */
+export function encodingOf(label) {
+  const name = LABELS.get(String(label ?? '').trim().toLowerCase());
+  if (!name) throw coded('unsupported', `the dev bridge reads and writes utf-8, utf-16le, utf-16be and windows-1252, not ${label}`);
+  return name;
+}
+
+const swap16 = (buf) => { const out = Buffer.from(buf.subarray(0, buf.length - (buf.length % 2))); out.swap16(); return out; };
+
+/** `text` in the encoding `name` (a name `encodingOf` answered). A character windows-1252 cannot
+ *  hold is `[unencodable]`, and nothing is written. UTF-16 is encoded by hand, as the host does:
+ *  a BOM in the text (U+FEFF) is kept, like UTF-8's. */
+export function encodeText(text, name) {
+  if (name === 'utf-8') return Buffer.from(text, 'utf8');
+  if (name === 'utf-16le') return Buffer.from(text, 'utf16le');
+  if (name === 'utf-16be') return swap16(Buffer.from(text, 'utf16le'));
+  const out = Buffer.alloc(text.length);
+  let n = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    const b = cp < 0x80 || (cp >= 0xa0 && cp <= 0xff) ? cp : CP1252_BACK.get(cp);
+    if (b === undefined) throw coded('unencodable', `${JSON.stringify(ch)} (U+${cp.toString(16).toUpperCase().padStart(4, '0')}) cannot be written in windows-1252`);
+    out[n++] = b;
+  }
+  return out.subarray(0, n);
+}
+
+/**
+ * The bytes as text (encoding.rs `decode`): `{text, encoding, bom, lossy}`. Detection is
+ * conservative: a UTF-16 byte-order mark first, then UTF-8, then windows-1252 (the host asks
+ * chardetng there). `forced` names the encoding instead; a forced UTF-8 that is not UTF-8 is
+ * `[not_utf8]`. A byte-order mark stays in the text, as U+FEFF, whatever the encoding, so the
+ * text encodes back to the same bytes. `lossy` is a decode that does not encode back to the
+ * same bytes: such a page opens read-only and is never saved.
+ */
+export function decodeText(buf, forced = null) {
+  let name = forced ? encodingOf(forced) : null;
+  if (!name) {
+    if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) name = 'utf-16le';
+    else if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) name = 'utf-16be';
+    else name = textOrNull(buf) !== null ? 'utf-8' : 'windows-1252';
+  }
+  let text;
+  if (name === 'utf-8') {
+    text = textOrNull(buf);
+    if (text === null) throw coded('not_utf8', 'not valid UTF-8');
+  } else if (name === 'windows-1252') {
+    let out = '';
+    for (let i = 0; i < buf.length; i++) { const b = buf[i]; out += String.fromCharCode(b >= 0x80 && b < 0xa0 ? CP1252[b - 0x80] : b); }
+    text = out;
+  } else {
+    text = new TextDecoder('utf-16le', { ignoreBOM: true }).decode(name === 'utf-16le' ? buf.subarray(0, buf.length - (buf.length % 2)) : swap16(buf));
+  }
+  const bom = name === 'utf-8' ? buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf
+    : name === 'windows-1252' ? false : text.charCodeAt(0) === 0xfeff;
+  let lossy = false;
+  try { lossy = !encodeText(text, name).equals(buf); } catch { lossy = true; }
+  return { text, encoding: name, bom, lossy };
+}
+
+/** The sniff for a file that is not UTF-8 (encoding.rs `sniff`): a UTF-16 byte-order mark, or,
+ *  standing in for a confident chardetng answer, no NUL and no control character but tab, line
+ *  breaks and form feed in the first 8 KB. Answers the encoding, or null. */
+export function sniffEncoding(head) {
+  if (head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))) return head[0] === 0xff ? 'utf-16le' : 'utf-16be';
+  if (!head.length) return null;
+  for (const b of head) if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d && b !== 0x0c) return null;
+  return 'windows-1252';
+}
+
 /** Which versions of one file survive at `now` (newest-first list in, parallel booleans out). */
 function survivors(list, now) {
   const hours = new Set(), days = new Set();
@@ -413,10 +509,13 @@ function checkName(rel) {
  * The filesystem commands of the host, for one vault. `root` is the vault's absolute path,
  * `dataDir` the per-machine folder that holds drafts and the log (the app's local data folder;
  * `work/dev-appdata` under the dev server). `epoch` is what `rootInfo` answers; a mutating call
- * naming another is refused with `[stale_vault]`.
- * @param {{ root: string, dataDir: string, epoch?: number, log?: (line: string) => void }} o
+ * naming another is refused with `[stale_vault]`. `outsideRoots` are the folders under which
+ * `outsideOpen` registers a file outside the vault (none: every outside open is refused), and
+ * `onOutside(native)` is told of each registration, so the bridge can watch its folder.
+ * @param {{ root: string, dataDir: string, epoch?: number, log?: (line: string) => void,
+ *   outsideRoots?: string[], onOutside?: (native: string) => void }} o
  */
-export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
+export function createFiles({ root, dataDir, epoch = 1, log = () => {}, outsideRoots = [], onOutside = () => {} }) {
   root = path.resolve(root);
   const logDir = path.join(dataDir, 'logs');
   const logPath = path.join(logDir, 'ose.log');
@@ -426,6 +525,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
    *  file, and on Windows a name the system would read as another one is `[bad_name]`. */
   const abs = (p) => {
     const raw = String(p ?? '');
+    if (raw.startsWith(ABS)) throw coded('escapes_vault', `a file outside the vault is not allowed here: ${p}`);
     const rel = (IS_WIN ? raw.replace(/\\/g, '/') : raw).replace(/^\/+/, '');
     const segs = rel.split('/').filter((s) => s && s !== '.');
     for (const s of segs) {
@@ -440,6 +540,36 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     return full;
   };
   const relOf = (full) => path.relative(root, full).split(path.sep).join('/');
+
+  // -------------------------------------------------------------- files outside the vault (outside.rs)
+  const fold = (p) => (FOLDS_CASE ? p.toLowerCase() : p);
+  const under = (full, dir) => fold(full) === fold(dir) || fold(full).startsWith(fold(dir.endsWith(path.sep) ? dir : dir + path.sep));
+  const allowed = outsideRoots.map((d) => path.resolve(d));
+  /** folded native path -> native path, for every file `outsideOpen` registered. */
+  const registered = new Map();
+  /** `abs:` + the absolute path with forward slashes and an uppercase drive letter. */
+  const absForm = (native) => ABS + (IS_WIN ? native.replace(/\\/g, '/').replace(/^([a-z]):/, (_, d) => `${d.toUpperCase()}:`) : native);
+  /** The native path of an `abs:` path. */
+  const nativeOf = (p) => { const rest = String(p).slice(ABS.length); return path.resolve(IS_WIN ? rest.replace(/\//g, '\\') : rest); };
+  /** Where a command marked **A** reads or writes: `{full, outside, rel}`. An `abs:` path this
+   *  bridge has not registered is `[not_registered]`. */
+  const target = (p) => {
+    if (typeof p === 'string' && p.startsWith(ABS)) {
+      const full = nativeOf(p);
+      if (!registered.has(fold(full))) throw coded('not_registered', `not opened in this window: ${p}`);
+      return { full, outside: true, rel: absForm(full) };
+    }
+    return { full: abs(p), outside: false, rel: clean(p) };
+  };
+  const refuseOutside = (p, what) => {
+    if (typeof p === 'string' && p.startsWith(ABS)) throw coded('unsupported', `${what} is not available for a file outside the vault: ${p}`);
+  };
+  /** A file under the folder of a registered outside file, for the media origin's `/~abs/`, or null. */
+  const outsideMedia = (native) => {
+    const full = path.resolve(native);
+    for (const f of registered.values()) if (under(full, path.dirname(f))) return full;
+    return null;
+  };
 
   /** The vault folder must still exist before anything is written into it (vault.rs
    *  `require_vault`): a lost root is `[no_vault]`, never recreated as an empty ghost vault. */
@@ -476,9 +606,10 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
   };
   const warn = (text) => writeLog('warn', text);
 
-  /** The atomic write, with the host's `[write_failed]` wording on failure. */
+  /** The atomic write, with the host's `[write_failed]` wording on failure. A file outside the
+   *  vault (`opts.outside`) does not need the vault folder. */
   const writeVault = async (rel, full, data, opts = {}) => {
-    requireVault();
+    if (!opts.outside) requireVault();
     await fs.mkdir(path.dirname(full), { recursive: true });
     try {
       await writeAtomic(full, data, opts);
@@ -630,12 +761,16 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
   };
 
   // -------------------------------------------------------------- drafts (drafts.rs)
-  const draftsDir = () => {
+  // The drafts of files outside the vault are kept under the vault key `outside`.
+  const draftsDir = (outside = false) => {
     let key = root.replace(/\\/g, '/');
     if (FOLDS_CASE) key = key.toLowerCase();
-    return path.join(dataDir, 'drafts', hash(key));
+    return path.join(dataDir, 'drafts', hash(outside ? 'outside' : key));
   };
-  const draftFile = (p) => path.join(draftsDir(), `${hash(clean(p))}.json`);
+  const draftFile = (p) => {
+    const t = typeof p === 'string' && p.startsWith(ABS) ? target(p) : null;
+    return t ? path.join(draftsDir(true), `${hash(t.rel)}.json`) : path.join(draftsDir(), `${hash(clean(p))}.json`);
+  };
   /** A draft's file name: 16 lowercase hex digits and `.json`; anything else is not a draft. */
   const isDraftName = (n) => /^[0-9a-f]{16}\.json$/.test(n);
   /** One draft command at a time (drafts.rs `GATE`): a drop can never remove a draft written
@@ -854,21 +989,30 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     return { name: path.basename(root), path: '', kind: 'dir', ext: '', mtime: Math.floor(st.mtimeMs), size: 0, hidden: false, children: assemble(root) };
   };
 
-  /** `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?}`. */
+  /** `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?, encoding?}`.
+   *  With a sniff, a file that is not UTF-8 is text when it is UTF-16 with a byte-order mark or
+   *  looks like windows-1252 (`sniffEncoding`), and `encoding` says which. */
   const stat = async (p, opts) => {
-    const full = abs(p);
+    const { full, outside } = target(p);
     let own;
     try { own = await fs.lstat(full); } catch { return { exists: false, kind: null, mtime: 0, size: 0, hidden: false }; }
     const e = await entryOf(full, own);
-    const out = { exists: true, kind: e.kind, mtime: e.mtime, size: e.size, hidden: classify(clean(p)) !== 'shown' || await osHidden(full) };
-    if (e.link) out.link = e.link;
+    const hidden = outside ? isHiddenName(path.basename(full)) || await osHidden(full) : classify(clean(p)) !== 'shown' || await osHidden(full);
+    const out = { exists: true, kind: e.kind, mtime: e.mtime, size: e.size, hidden };
+    if (e.link && !outside) out.link = e.link;
     if (isObj(opts) && opts.sniff && e.kind === 'file') {
       try {
         const fh = await fs.open(full, 'r');
         try {
           const buf = Buffer.alloc(SNIFF_BYTES);
           const { bytesRead } = await fh.read(buf, 0, SNIFF_BYTES, 0);
-          out.text = sniffText(buf.subarray(0, bytesRead));
+          const head = buf.subarray(0, bytesRead);
+          if (sniffText(head)) { out.text = true; out.encoding = 'utf-8'; }
+          else {
+            const enc = sniffEncoding(head);
+            out.text = !!enc;
+            if (enc) out.encoding = enc;
+          }
         } finally { await fh.close(); }
       } catch { out.text = false; }
     }
@@ -1082,7 +1226,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
   const files = {
     // ------------------------------------------------------------ plain reads and writes
     readText: async (p) => {
-      const full = abs(p);
+      const { full } = target(p);
       let buf;
       try { buf = await fs.readFile(full); } catch (e) { throw ioError(p, e); }
       const text = textOrNull(buf);
@@ -1099,7 +1243,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
       return null;
     },
     writeBinary: async (p, b64, opts) => { checkEpoch(opts); await writeVault(clean(p), abs(p), Buffer.from(String(b64 ?? ''), 'base64')); return null; },
-    readBinary: async (p) => { const full = abs(p); try { return (await fs.readFile(full)).toString('base64'); } catch (e) { throw ioError(p, e); } },
+    readBinary: async (p) => { const { full } = target(p); try { return (await fs.readFile(full)).toString('base64'); } catch (e) { throw ioError(p, e); } },
     mkdir: async (p, opts) => { checkEpoch(opts); const full = abs(p); requireVault(); await fs.mkdir(full, { recursive: true }); return null; },
     // Never overwrites (vault.rs `rename`); a case-only rename goes through a temporary name.
     // The history and the drafts follow the file.
@@ -1128,16 +1272,20 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     trashWhere: async (p) => { abs(p); return { where: 'vault' }; },
     // Listings under the one hide rule, a copy of a file or a folder, and the local store.
     list, tree, stat, copyPath, localGet, localSet,
-    exists: async (p) => fss.existsSync(abs(p)),
+    exists: async (p) => fss.existsSync(target(p).full),
 
     // ------------------------------------------------------------ the save path (files.rs)
-    readFile: async (p) => {
-      const full = abs(p);
+    // `readFile(path, {encoding})`: the text decoded (`decodeText`), with the encoding it was
+    // read in, whether it starts with a byte-order mark, and `lossy` when the decode does not
+    // encode back to the same bytes. The hash is always the bytes on disk.
+    readFile: async (p, opts) => {
+      const { full } = target(p);
       let buf;
       try { buf = await fs.readFile(full); } catch (e) { throw ioError(p, e); }
-      const text = textOrNull(buf);
-      if (text === null) throw coded('not_utf8', `not valid UTF-8: ${p}`);
-      return { text, hash: hash(buf), mtime: await mtimeOf(full), size: buf.length };
+      const forced = isObj(opts) && typeof opts.encoding === 'string' && opts.encoding ? opts.encoding : null;
+      let d;
+      try { d = decodeText(buf, forced); } catch (e) { throw e.code ? coded(e.code, `${e.message.replace(/^\[[a-z0-9_]+\] /, '')}: ${p}`) : e; }
+      return { text: d.text, hash: hash(buf), mtime: await mtimeOf(full), size: buf.length, encoding: d.encoding, bom: d.bom, lossy: d.lossy };
     },
     saveFile: async (p, text, opts) => {
       checkEpoch(opts);
@@ -1147,15 +1295,22 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
         if (!isObj(opts)) throw coded('bad_arg', 'saveFile needs {expectedHash}');
         const expected = opts.expectedHash;
         if (!(expected === null || typeof expected === 'string')) throw coded('bad_arg', 'expectedHash must be a hash or null');
-        const mode = opts.version ?? 'save';
+        const { full, outside } = target(p);
+        // A file outside the vault keeps no versions: they live in the vault's history.
+        const mode = outside ? 'none' : (opts.version ?? 'save');
         if (!['save', 'conflict', 'none'].includes(mode)) throw coded('bad_arg', `not a version mode: ${mode}`);
-        const full = abs(p);
+        const encoding = opts.encoding === undefined || opts.encoding === null ? 'utf-8' : encodingOf(opts.encoding);
         if (full === root) throw coded('bad_arg', 'no file name to write');
         // A lost vault folder is not a deleted page (files.rs `save_file`).
-        requireVault();
+        if (!outside) requireVault();
+        // Encoded before anything is read or written: a character the encoding cannot hold
+        // is `[unencodable]`, and the file is not touched.
+        const bytes = encodeText(text, encoding);
         const r = await withLock(full, async () => {
           const disk = await readExisting(full, rel);
-          const bytes = Buffer.from(text, 'utf8');
+          // The bytes on disk do not survive a round trip through this encoding: saving over
+          // them would change bytes nobody edited (encoding.rs).
+          if (disk && encoding !== 'utf-8' && decodeText(disk, encoding).lossy) throw coded('lossy', `${rel} cannot be read back exactly as ${encoding}; it is not saved`);
           if (disk && disk.equals(bytes)) return { status: 'saved', hash: hash(bytes), mtime: await mtimeOf(full), unchanged: true };
           const diskHash = disk ? hash(disk) : null;
           const matches = expected === null ? !disk : !!disk && diskHash === expected;
@@ -1170,7 +1325,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
             throw new Error('changed on disk while saving');
           };
           try {
-            await writeVault(rel, full, bytes, { beforeRename: still, rethrow: () => moved !== undefined });
+            await writeVault(rel, full, bytes, { beforeRename: still, rethrow: () => moved !== undefined, outside });
           } catch (e) {
             if (moved) return conflictOf(moved.now);
             throw e;
@@ -1183,7 +1338,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
           }
           return saved;
         });
-        await pruneVaultIfOver(Date.now());
+        if (!outside) await pruneVaultIfOver(Date.now());
         logSave(rel, r);
         return r;
       } catch (e) {
@@ -1213,6 +1368,57 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
       } catch (e) { throw e.message?.startsWith('[') ? e : ioError(from, e); }
       await withLock(dst, () => createExclusive(dst, clean(to), bytes));
       return { path: clean(to), hash: hash(bytes) };
+    },
+    // `createNewBinary(path, base64, opts)`: an exclusive create written with its bytes in one
+    // call, so a failure leaves no empty file (wave 1, open).
+    createNewBinary: async (p, data, opts) => {
+      checkEpoch(opts);
+      if (typeof data !== 'string') throw coded('bad_arg', 'argument 1 must be the bytes, in base64');
+      checkName(p);
+      const full = abs(p);
+      requireVault();
+      const bytes = Buffer.from(data, 'base64');
+      await withLock(full, () => createExclusive(full, clean(p), bytes));
+      return { path: clean(p), hash: hash(bytes) };
+    },
+    // `importOutside(from, to, opts)`: a byte copy of a registered outside file into the vault,
+    // create-only.
+    importOutside: async (from, to, opts) => {
+      checkEpoch(opts);
+      if (typeof from !== 'string' || !from.startsWith(ABS)) throw coded('bad_arg', `not a file outside the vault: ${from}`);
+      const src = target(from).full;
+      checkName(to);
+      const dst = abs(to);
+      requireVault();
+      let bytes;
+      try {
+        if ((await fs.stat(src)).isDirectory()) throw coded('bad_arg', `not a file: ${from}`);
+        bytes = await fs.readFile(src);
+      } catch (e) { throw e.message?.startsWith('[') ? e : ioError(from, e); }
+      await withLock(dst, () => createExclusive(dst, clean(to), bytes));
+      return { path: clean(to), hash: hash(bytes) };
+    },
+    // `outsideOpen(path)`: a native absolute path, or `abs:`. Inside the vault it answers the
+    // vault path and registers nothing; outside, it registers the file for the life of the
+    // bridge, when it is under one of `outsideRoots`.
+    outsideOpen: async (p) => {
+      const raw = String(p ?? '');
+      let native;
+      if (raw.startsWith(ABS)) native = nativeOf(raw);
+      else if (path.isAbsolute(raw) && (!IS_WIN || /^[a-zA-Z]:[\\/]|^\\\\/.test(raw))) native = path.resolve(raw);
+      else throw coded('bad_arg', `not an absolute path: ${p}`);
+      let st = null;
+      try { st = await fs.stat(native); } catch { st = null; }
+      const info = { name: path.basename(native), exists: !!st, kind: st ? (st.isDirectory() ? 'dir' : 'file') : null };
+      if (under(native, root)) return { path: relOf(native), inside: true, ...info };
+      if (!allowed.some((d) => under(native, d))) {
+        throw coded('unsupported', `the dev bridge opens files outside the vault only under ${allowed.length ? allowed.join(', ') : 'OSE_E2E_OUTSIDE (not set)'}: ${p}`);
+      }
+      if (!registered.has(fold(native))) {
+        registered.set(fold(native), native);
+        try { onOutside(native); } catch (e) { warn(`outside: watch of ${native}: ${e.message}`); }
+      }
+      return { path: absForm(native), inside: false, ...info };
     },
     appendLine: async (p, line, opts) => {
       checkEpoch(opts);
@@ -1246,8 +1452,11 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
         try { buf = await fs.readFile(full); } catch (e) { throw ioError(p, e); }
         const text = textOrNull(buf);
         if (text === null) throw coded('not_utf8', `not valid UTF-8: ${p}`);
-        const span = index >= 0 ? lineSpans(text)[index] : undefined;
-        if (!span) return { status: 'conflict', actual: null };
+        const found = index >= 0 ? lineSpans(text)[index] : undefined;
+        if (!found) return { status: 'conflict', actual: null };
+        // As the host (files.rs line_at): line 0 is compared without a leading byte-order mark,
+        // and the mark stays in the file.
+        const span = index === 0 && text.startsWith('﻿') ? [found[0] + 1, found[1]] : found;
         const actual = text.slice(span[0], span[1]);
         if (actual !== expected) return { status: 'conflict', actual };
         if (expected === next) return { status: 'replaced', hash: hash(buf) };
@@ -1281,26 +1490,30 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
       if (!isObj(draft)) throw coded('bad_arg', 'a draft is an object');
       if (typeof draft.text !== 'string') throw coded('bad_arg', 'a draft needs its text');
       const at = Date.now();
+      const t = target(p);
       await gated(() => writeDraftFile(draftFile(p), {
-        v: 1, vault: root, path: clean(p), text: draft.text,
+        v: 1, vault: t.outside ? 'outside' : root, path: t.rel, text: draft.text,
         baselineHash: typeof draft.baselineHash === 'string' ? draft.baselineHash : null,
-        mode: draft.mode === 'source' ? 'source' : 'rich',
+        mode: draft.mode === 'source' || draft.mode === 'live' ? draft.mode : 'rich',
         exact: typeof draft.exact === 'boolean' ? draft.exact : true,
         rev: typeof draft.rev === 'number' ? draft.rev : 0,
         at,
       }));
       return { at };
     },
+    // The vault's drafts and the drafts of files outside it (`abs:` paths).
     draftList: async () => {
-      let names = [];
-      try { names = await fs.readdir(draftsDir()); } catch { return []; }
       const out = [];
-      for (const n of names) {
-        if (!isDraftName(n)) continue;
-        const o = await readDraftFile(path.join(draftsDir(), n));
-        if (!o) continue;
-        const { text, ...info } = toDraft(o);
-        out.push({ ...info, bytes: Buffer.byteLength(String(text), 'utf8') });
+      for (const dir of [draftsDir(), draftsDir(true)]) {
+        let names = [];
+        try { names = await fs.readdir(dir); } catch { continue; }
+        for (const n of names) {
+          if (!isDraftName(n)) continue;
+          const o = await readDraftFile(path.join(dir, n));
+          if (!o) continue;
+          const { text, ...info } = toDraft(o);
+          out.push({ ...info, bytes: Buffer.byteLength(String(text), 'utf8') });
+        }
       }
       return out.sort((a, b) => b.at - a.at);
     },
@@ -1324,6 +1537,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     // ------------------------------------------------------------ versions
     // `versionKeep(path, text, opts)`: opts is the old boolean `force` or `{force?, reason?}`.
     versionKeep: async (p, text, opts = false) => {
+      refuseOutside(p, 'a version');
       let force = false, reason = 'save';
       checkEpoch(opts);
       if (typeof opts === 'boolean') force = opts;
@@ -1336,8 +1550,9 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
       }
       return keepVersion(clean(p), Buffer.from(String(text ?? ''), 'utf8'), force, reason);
     },
-    versionList: async (p) => { migrate(); return (await entries(p)).map(({ id, at, bytes, reason, session: s }) => ({ id, at, bytes, reason, session: s })); },
+    versionList: async (p) => { refuseOutside(p, 'a version'); migrate(); return (await entries(p)).map(({ id, at, bytes, reason, session: s }) => ({ id, at, bytes, reason, session: s })); },
     versionRead: async (p, id) => {
+      refuseOutside(p, 'a version');
       migrate();
       const e = await findVersion(p, id);
       const text = textOrNull(await fs.readFile(e.full));
@@ -1347,6 +1562,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     // Only "there is no file" means there is nothing to keep (F3): a file that cannot be read
     // holds bytes no version has, so the restore fails and writes nothing.
     versionRestore: async (p, id, opts) => {
+      refuseOutside(p, 'a version');
       checkEpoch(opts);
       migrate();
       const e = await findVersion(p, id);
@@ -1374,7 +1590,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     },
   };
 
-  return { files, abs, relOf, walk, list, tree, stat, logPath, epoch, checkEpoch, requireVault, moveHistory, rekeyDrafts, writeLog, keepVersion, _survivors: survivors };
+  return { files, abs, relOf, target, absForm, outsideMedia, walk, list, tree, stat, logPath, epoch, checkEpoch, requireVault, moveHistory, rekeyDrafts, writeLog, keepVersion, _survivors: survivors };
 }
 
 export { survivors, idFromMs, msFromId };

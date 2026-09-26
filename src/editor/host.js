@@ -34,11 +34,33 @@ export const debounce = ose.debounce;
 
 /** Every `.md` in the vault, as the shell's tree and focus folder see it (`ose.pages()`). */
 export const allPages = () => ose.pages();
+/**
+ * Every file in the vault, hidden ones and focus mode included, read fresh from the host: what
+ * a wikilink in Live resolves against. Not `allPages()`: that is the sidebar's copy of the tree,
+ * narrowed to the focused folder and re-listed only after a change on disk has been handled,
+ * so a page created a moment ago would still be missing from it. Links are not walked into.
+ * @returns {Promise<string[]>}
+ */
+export async function vaultFiles() {
+  /** @type {string[]} */
+  const out = [];
+  /** @param {any} n */
+  const walk = (n) => {
+    if (!n || !Array.isArray(n.children)) return;
+    for (const c of n.children) {
+      if (c.kind === 'dir') { if (!c.link) walk(c); } else if (typeof c.path === 'string') out.push(c.path);
+    }
+  };
+  walk(await ose.files.tree({ hidden: true }));
+  return out;
+}
 /** The paths the user opened last, newest first: the `[[` menu ranks by it. */
 export const recentFiles = () => ose.route.recent();
 
 export const navigate = (route, opts) => ose.route.navigate(route, opts);
 export const clearRoute = (opts) => ose.route.close(opts);
+/** `route` in a tab of its own (M23): what mod+click on a link in Live does. */
+export const openInNewTab = (route) => ose.tabs.open(route, { reuse: false });
 
 /**
  * Where `page.new` writes (wave 2): the focused folder, else the folder on screen or the open
@@ -89,10 +111,7 @@ export const onWindowLeave = (fn) => (typeof ose.window.onLeave === 'function'
  * Say where a page went without mounting anything (`ose.route.repoint`, C6): the tab, the
  * breadcrumb, back and forward and the window title follow a rename the page made itself.
  */
-export const repointRoute = (moves) => {
-  const fn = ose.route && ose.route.repoint;
-  return typeof fn === 'function' ? fn(moves) : undefined;
-};
+export const repointRoute = (moves) => ose.route.repoint(moves);
 
 /** Where the router is, or null. */
 export const currentRoute = () => { try { return ose.route.current(); } catch { return null; } };
@@ -105,7 +124,11 @@ export const fileops = () => ose.fileops || null;
 /** `ose.names`: split, check and the free-name search, or null. */
 export const names = () => ose.names || null;
 
-/** One line in the app's log (`ose.log`, M54), mirrored to the console. Never throws. */
+/**
+ * One line in the app's log (`ose.log`, M54), mirrored to the console. Never throws.
+ * @param {unknown} text
+ * @param {'error' | 'warn' | 'info' | 'debug'} [level]
+ */
 export function log(text, level = 'info') {
   const line = String(text);
   try {
@@ -136,6 +159,19 @@ export const spellcheckOn = () => ose.settings.get().spellcheck !== false;
  * the title is left. Off by default: a file has one name, and it is the one on disk.
  */
 export const titleSyncOn = () => ose.settings.get().titleSync === true;
+
+/**
+ * `editorMode` (wave 3, X1): the mode a markdown file opens in when it remembers none of its
+ * own. A machine setting; the kernel's default is 'rich'. modes.js validates what it reads.
+ */
+export const editorModeSetting = () => ose.settings.get().editorMode;
+
+/**
+ * `ose.local(key)`: per machine and per vault, outside the vault (W5). modes.js keeps the
+ * per-file mode memory in it (`pageModes`).
+ * @param {string} key
+ */
+export const localSlot = (key) => ose.local(key);
 
 /** One line for the trash confirmation, so it says where the file is going (S37). */
 export const trashDestination = () =>
@@ -188,34 +224,78 @@ export const bridge = {
 // version. The hash is the host's: this side carries it and compares it by equality, nothing
 // more. The epoch that stops a write landing in the wrong vault is added by the kernel.
 
-/** Call `obj[key](...args)`, or reject `[unknown_command]` on a kernel that lacks it. */
-async function hose(obj, key, name, args) {
-  const fn = obj && obj[key];
-  if (typeof fn !== 'function') {
-    const e = new Error(`${name} is not available in this kernel`);
-    e.code = 'unknown_command';
-    e.cmd = name;
-    throw e;
-  }
-  return fn.apply(obj, args);
-}
+// The kernel ships in the same executable as this bundle: every call below is there, and a
+// missing one is a hard error (X5), never a feature to detect. The types are the host's
+// generated bindings.
 
-const drafts = () => ose.files.drafts;
+/** @typedef {import('../kernel/bridge/bindings.ts').ReadFile} ReadFile */
+/** @typedef {import('../kernel/bridge/bindings.ts').SaveOutcome} SaveOutcome */
+/** @typedef {import('../kernel/bridge/bindings.ts').Created} Created */
+/** @typedef {import('../kernel/bridge/bindings.ts').Draft} Draft */
+/** @typedef {import('../kernel/bridge/bindings.ts').DraftAt} DraftAt */
+/** @typedef {import('../kernel/bridge/bindings.ts').DraftInfo} DraftInfo */
+/** @typedef {import('../kernel/bridge/bindings.ts').Dropped} Dropped */
+/** @typedef {{ kept: boolean, id: string | null }} Kept */
 
 export const pageFiles = {
-  /** `{text, hash, mtime, size}` of a vault file. */
-  readFile: (path) => hose(ose.files, 'readFile', 'readFile', [path]),
-  /** `SaveOutcome`: `{status:'saved', hash, mtime, unchanged?}` or `{status:'conflict', disk}`. */
-  save: (path, text, opts) => hose(ose.files, 'save', 'saveFile', [path, text, opts]),
-  /** `{path, hash}`; refuses with `[exists]`, never overwrites. */
-  createNew: (path, text) => hose(ose.files, 'createNew', 'createNew', [path, text]),
-  /** A version of `path` holding `text`: `opts` is `{force, reason}`. */
-  keepVersion: (path, text, opts) => hose(ose.files.versions, 'keep', 'versionKeep', [path, text, opts]),
+  /**
+   * `{text, hash, mtime, size, encoding, bom, lossy}` of a file (wave 3, X10). `opts.encoding`
+   * forces a decoding (`page.reopen-encoding`); left out, the host detects it.
+   * @param {string} path
+   * @param {{ encoding?: string | null }} [opts]
+   * @returns {Promise<ReadFile>}
+   */
+  readFile: (path, opts) => ose.files.readFile(path, opts),
+  /**
+   * `{status:'saved', hash, mtime, unchanged?}` or `{status:'conflict', disk}`.
+   * @param {string} path
+   * @param {string} text
+   * @param {{ expectedHash: string | null, version?: 'save' | 'conflict' | 'none', encoding?: string }} opts
+   * @returns {Promise<SaveOutcome>}
+   */
+  save: (path, text, opts) => ose.files.save(path, text, opts),
+  /**
+   * Refuses with `[exists]`, never overwrites.
+   * @param {string} path
+   * @param {string} text
+   * @returns {Promise<Created>}
+   */
+  createNew: (path, text) => ose.files.createNew(path, text),
+  /**
+   * An exclusive create written with its bytes (base64) in one call (wave 3).
+   * @param {string} path
+   * @param {string} data
+   * @returns {Promise<Created>}
+   */
+  createNewBinary: (path, data) => ose.files.createNewBinary(path, data),
+  /**
+   * A version of `path` holding `text`.
+   * @param {string} path
+   * @param {string} text
+   * @param {{ force?: boolean, reason?: string }} [opts]
+   * @returns {Promise<Kept>}
+   */
+  keepVersion: (path, text, opts) => ose.files.versions.keep(path, text, opts),
   drafts: {
-    write: (path, draft) => hose(drafts(), 'write', 'draftWrite', [path, draft]),
-    read: (path) => hose(drafts(), 'read', 'draftRead', [path]),
-    drop: (path, opts) => hose(drafts(), 'drop', 'draftDrop', [path, opts]),
-    list: () => hose(drafts(), 'list', 'draftList', []),
+    /**
+     * @param {string} path
+     * @param {Draft} draft
+     * @returns {Promise<DraftAt>}
+     */
+    write: (path, draft) => ose.files.drafts.write(path, draft),
+    /**
+     * @param {string} path
+     * @returns {Promise<Draft | null>}
+     */
+    read: (path) => ose.files.drafts.read(path),
+    /**
+     * @param {string} path
+     * @param {{ ifRev?: number }} [opts]
+     * @returns {Promise<Dropped>}
+     */
+    drop: (path, opts) => ose.files.drafts.drop(path, opts),
+    /** @returns {Promise<DraftInfo[]>} */
+    list: () => ose.files.drafts.list(),
   },
 };
 

@@ -111,16 +111,32 @@ const statusData = new Map();
 const statusWatchers = makeEmitter();
 export const status = {
   /**
-   * `set(field, text)` as it always was, and `set(field, { text, kind, onClick })` for a field
-   * that says something is wrong or that can be pressed (docs/KERNEL.md). A field keeps only
-   * what it was given; `all()` still answers `{ key, text }` for every reader that wants the
-   * string, with `kind` and `onClick` beside it for the ones that draw them.
+   * `set(field, text)` as it always was, and `set(field, { text, kind, onClick, title,
+   * choices, value, onChoose })` for a field that says something is wrong, that can be
+   * pressed, or that offers a choice (docs/KERNEL.md, §4.5 of the wave-3 contract: the editing
+   * mode). A field keeps only what it was given; `all()` still answers `{ key, text }` for every
+   * reader that wants the string, with the rest beside it for the ones that draw them.
+   * `choices` is `[{ value, label }]`; the shell draws the field as a menu of them, the current
+   * `value` checked, and a pick calls `onChoose(value)`.
+   * @param {string} key
+   * @param {string | null | undefined | import('./types.js').StatusField} value
    */
   set(key, value) {
+    /** @type {import('./types.js').StatusField} */
     const obj = value && typeof value === 'object' ? value : { text: value };
     const text = obj.text == null ? '' : String(obj.text);
-    if (!text) statusData.delete(key);
-    else statusData.set(key, { text, kind: obj.kind || null, onClick: typeof obj.onClick === 'function' ? obj.onClick : null });
+    if (!text) { statusData.delete(key); statusWatchers.emit('change', status.all()); return; }
+    /** @type {import('./types.js').StatusEntry} */
+    const entry = { text, kind: obj.kind || null, onClick: typeof obj.onClick === 'function' ? obj.onClick : null };
+    if (typeof obj.title === 'string' && obj.title) entry.title = obj.title;
+    if (Array.isArray(obj.choices)) {
+      entry.choices = obj.choices
+        .filter((c) => c && typeof c.value === 'string')
+        .map((c) => ({ value: c.value, label: typeof c.label === 'string' && c.label ? c.label : c.value }));
+      entry.value = typeof obj.value === 'string' ? obj.value : null;
+      entry.onChoose = typeof obj.onChoose === 'function' ? obj.onChoose : null;
+    }
+    statusData.set(key, entry);
     statusWatchers.emit('change', status.all());
   },
   clear(key) { status.set(key, null); },

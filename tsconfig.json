@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "strict": false,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitAny": false,
+    "paths": {
+      "ose:kernel": ["./src/kernel/kernel.js"],
+      "ose:ui": ["./src/kernel/ui.js"],
+      "ose:editor": ["./src/editor/lib.js"],
+      "ose:planner": ["./src/planner/index.js"]
+    }
+  },
+  "include": [
+    "src/kernel/**/*.js",
+    "src/kernel/bridge/bindings.ts",
+    "src/editor/live/**/*.js",
+    "src/editor/reading/**/*.js",
+    "src/editor/source.js",
+    "src/editor/instances.js",
+    "src/editor/merge.js",
+    "src/editor/host.js",
+    "src/editor/modes.js"
+  ]
+}

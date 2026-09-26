@@ -1,5 +1,6 @@
 // File operations as a person asks for them: New file…, New folder, Rename…, Move to…,
-// Duplicate, Move to the trash, Cut, Copy, Paste and Undo (H12, H13, C6, M17, M18). This is the
+// Duplicate, Move to the trash, Cut, Copy, Paste and Undo (H12, H13, C6, M17, M18), and for a
+// file outside the vault Open file… and Copy into the vault… (X7). This is the
 // only UI for them. The tree and its context menu, the folder view, the palette, the title
 // bar's New file button and quick open's Shift+Enter all end here, and every one of them ends
 // at `ose.fileops`, the kernel's one implementation, which asks the open page to save before
@@ -24,7 +25,7 @@
 
 import { ose } from 'ose:kernel';
 import { prompt, confirm, pickFolder, toast, focusOrigin } from 'ose:ui';
-import { clean, join, baseName, dirName } from './paths.js';
+import { clean, join, baseName, dirName, errorOf, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands, route } = ose;
 
@@ -123,16 +124,6 @@ function stemRange(value, kind = 'file') {
   return [start, ext ? s.length - ext.length - 1 : s.length];
 }
 
-/** A `[code] message` string, or an Error with a code, as `{ code, message }`. */
-function errorOf(e) {
-  if (e && typeof e === 'object') {
-    const m = /^\[(\w+)\]\s*(.*)$/s.exec(String(e.message || ''));
-    return { code: e.code || (m ? m[1] : null), message: m ? m[2] : String(e.message || '') };
-  }
-  const m = /^\[(\w+)\]\s*(.*)$/s.exec(String(e || ''));
-  return m ? { code: m[1], message: m[2] } : { code: null, message: String(e || '') };
-}
-
 const cap = (s) => { const t = String(s || '').replace(/\.$/, ''); return t ? t[0].toUpperCase() + t.slice(1) : t; };
 
 /**
@@ -165,16 +156,15 @@ function linkFailures(links) {
   for (const p of links.failed || []) toast('Could not update links in ' + (p && p.path ? p.path : p), 'err', 0);
 }
 
-const journal = () => (ose.fileops && ose.fileops.journal) || null;
+const journal = () => ose.fileops.journal;
 
 /**
- * The toast of a completed operation: its journal label (or `fallback` from a kernel that
- * keeps no journal), and an Undo for exactly that entry when it can be undone.
+ * The toast of a completed operation: its journal label (or `fallback` when the entry carries
+ * none), and an Undo for exactly that entry when it can be undone.
  */
 function done(entry, fallback, tail = '') {
   const text = ((entry && entry.label) || fallback) + tail;
-  const j = journal();
-  const canUndo = !!(entry && entry.id && entry.undoable !== false && j && typeof j.undo === 'function');
+  const canUndo = !!(entry && entry.id && entry.undoable !== false);
   toast(text, 'info', canUndo ? 6000 : 2600, canUndo ? { actions: [{ label: 'Undo', run: () => void undo(entry.id) }] } : {});
 }
 
@@ -288,9 +278,7 @@ export async function newFolder(target) {
     const c = ose.names.check(typed, { folders: true });
     if (!c.ok) { reason = `${cap(c.reason)}.`; continue; }
     try {
-      let res;
-      if (typeof ose.fileops.mkdir === 'function') res = await ose.fileops.mkdir(folder, c.name);
-      else { const path = join(folder, c.name); await ose.files.mkdir(path); res = { path }; bus.emit('paths:created', { paths: [path] }); }
+      const res = await ose.fileops.mkdir(folder, c.name);
       reveal(res.path, true);
       done(res.entry, `Created folder ${baseName(res.path)}`);
       return res.path;
@@ -409,16 +397,29 @@ function trashWords(where) {
 
 /**
  * Where `path` would go, asked of the host (`ose.files.trashWhere`, which knows a volume with
- * no Recycle Bin); a kernel without it answers from the setting.
+ * no Recycle Bin). When the host cannot say, the setting is the next best answer.
  */
 async function whereFor(path) {
   try {
-    if (typeof ose.files.trashWhere === 'function') {
-      const r = await ose.files.trashWhere(path);
-      if (r && (r.where === 'vault' || r.where === 'system')) return r.where;
-    }
+    const r = await ose.files.trashWhere(path);
+    if (r && (r.where === 'vault' || r.where === 'system')) return r.where;
   } catch { /* the setting is the next best answer */ }
   return ose.settings.get().trash === 'vault' ? 'vault' : 'system';
+}
+
+// Where the vault's files go when trashed, as the host last said for the vault root: what the
+// `file.trash` command is called, in every menu and in the palette. A drive with no Recycle Bin
+// answers `vault` even with the system setting, and the words follow.
+let binWhere = null;
+
+/**
+ * The title of `file.trash`, naming the real bin: "Move to the Recycle Bin", "Move to the
+ * Trash" or "Move to .trash in this vault".
+ * @returns {string}
+ */
+export function trashTitle() {
+  const where = binWhere || (ose.settings.get().trash === 'vault' ? 'vault' : 'system');
+  return trashWords(where).title;
 }
 
 /**
@@ -545,10 +546,7 @@ export async function paste(folder) {
   }
   let res;
   try {
-    if (typeof ose.fileops.paste === 'function') res = await ose.fileops.paste({ mode, paths }, dest);
-    else if (mode === 'cut') res = await ose.fileops.move(paths, dest);
-    else if (typeof ose.fileops.copy === 'function') res = await ose.fileops.copy(paths, dest);
-    else throw new Error('copying files needs a newer kernel');
+    res = await ose.fileops.paste({ mode, paths }, dest);
   } catch (e) { fail(mode === 'cut' ? 'Move failed' : 'Copy failed', e); return null; }
   if (mode === 'cut') setClip(null);
   for (const s of (res && res.skipped) || []) fail(`${baseName(s.path)} was not ${mode === 'cut' ? 'moved' : 'copied'}`, s.error);
@@ -618,8 +616,7 @@ function followClipboard() {
  */
 export async function undo(id) {
   const j = journal();
-  if (!j || typeof j.undo !== 'function') { toast('Undo is not available', 'info', 2000); return null; }
-  if (!id && typeof j.canUndo === 'function' && !j.canUndo()) { toast('Nothing to undo', 'info', 1800); return null; }
+  if (!id && !j.canUndo()) { toast('Nothing to undo', 'info', 1800); return null; }
   let r;
   try { r = await j.undo(id); } catch (e) { fail('Could not undo', e); return null; }
   if (!r) return null;
@@ -637,6 +634,67 @@ export async function undo(id) {
   return r;
 }
 
+/* ------------------------------------------------------------------ files outside the vault */
+
+/** The outside file a command acts on: the one handed in, else the page on screen when it is one. */
+function outsideTarget(arg) {
+  if (isTarget(arg) && isOutside(arg.path)) return { path: arg.path, kind: 'file' };
+  if (typeof arg === 'string' && isOutside(arg)) return { path: arg, kind: 'file' };
+  const r = route.current();
+  return r && r.type === 'page' && isOutside(r.path) ? { path: r.path, kind: 'file' } : null;
+}
+
+/**
+ * Open file… (X7): the system's own file dialog, then the file in a tab. A file inside this
+ * vault opens as the vault page it is; any other opens marked "outside vault", edited and
+ * saved in place, with no versions, no links and no attachments (docs/SHELL.md "Files outside
+ * the vault").
+ * @returns {Promise<boolean>} whether a file was opened
+ */
+export async function openOutsideFile() {
+  let picked = null;
+  try { picked = await ose.files.pick({ title: 'Open file' }); } catch (e) {
+    const err = errorOf(e);
+    if (err.code === 'unsupported') { toast('Open file… needs the app: the browser cannot name a file on this computer', 'info', 3200); return false; }
+    fail('Could not open the file dialog', e);
+    return false;
+  }
+  if (!picked) return false;
+  try {
+    const opened = await ose.files.openOutside(picked);
+    return !!opened;
+  } catch (e) {
+    fail(`Could not open ${picked}`, e);
+    return false;
+  }
+}
+
+/**
+ * Copy into the vault… (X7): a folder of the vault is asked for, and the outside file is
+ * copied there byte for byte under a free name (`ose.fileops.copy`, which brings an `abs:`
+ * file in through the host's create-only `importOutside` and journals it, so Undo takes the
+ * copy back). The copy opens; the outside file is left as it is, and its tab stays.
+ * @param {Target|null} target an `abs:` target
+ * @returns {Promise<string|null>} the copy's vault path
+ */
+export async function copyIntoVault(target) {
+  if (!target || !isOutside(target.path)) return null;
+  const name = baseName(target.path);
+  const folder = await pickFolder({ title: `Copy ${name} into…`, enterLabel: 'copy here' });
+  if (folder === null || folder === undefined) return null;
+  const dest = clean(folder);
+  let res;
+  try { res = await ose.fileops.copy([target.path], dest); } catch (e) { fail(`${name} was not copied`, e); return null; }
+  for (const s of res.skipped || []) fail(`${name} was not copied`, s.error);
+  const landed = (res.copied || [])[0];
+  if (!landed || !landed.to) return null;
+  const path = clean(landed.to);
+  reveal(path, false);
+  done(res.entry, `Copied ${outsideLabel(target.path)} to ${path}`);
+  await route.navigate({ type: 'page', path });
+  return path;
+}
+
 /* ------------------------------------------------------------------------------ commands */
 
 /**
@@ -646,7 +704,9 @@ export async function undo(id) {
  * Ctrl+X, C, V and Z inside the tree and the folder view only, so the editor keeps its own.
  */
 export function initFileOps() {
-  const hasPath = (t) => !!t && !!t.path;
+  // A file outside the vault (X7) is opened and saved, never renamed, moved, copied or trashed
+  // from here: those commands are not offered for it at all.
+  const hasPath = (t) => !!t && !!t.path && !isOutside(t.path);
   followClipboard();
   commands.register({
     id: 'file.new', title: 'New file…', group: 'file', icon: 'plus',
@@ -691,12 +751,44 @@ export function initFileOps() {
   });
   commands.register({
     id: 'file.undo', title: 'Undo last file operation', group: 'file', icon: 'undo',
-    when: () => { const j = journal(); return !!j && typeof j.canUndo === 'function' && j.canUndo(); },
+    when: () => journal().canUndo(),
     run: () => undo(),
   });
+  registerTrash();
+  // The title names the real bin, so it is asked of the host once the vault is up, and again
+  // whenever the setting changes (docs/SHELL.md "Files").
+  void refreshTrashTitle();
+  let lastMode = ose.settings.get().trash;
+  bus.on('settings', () => {
+    const now = ose.settings.get().trash;
+    if (now !== lastMode) { lastMode = now; void refreshTrashTitle(); }
+  });
+
   commands.register({
-    id: 'file.trash', title: 'Move to the trash', group: 'file', icon: 'trash',
-    when: (arg) => many(arg).some(hasPath),
+    id: 'file.open', title: 'Open file…', group: 'file', icon: 'file',
+    hint: 'any file on this computer, in a tab',
+    run: () => openOutsideFile(),
+  });
+  commands.register({
+    id: 'file.copy-into-vault', title: 'Copy into the vault…', group: 'file', icon: 'copy',
+    hint: 'a copy of the file outside the vault',
+    when: (arg) => { const t = outsideTarget(arg); return !!t; },
+    run: (arg) => copyIntoVault(outsideTarget(arg)),
+  });
+}
+
+/** `file.trash`, under the title that names the bin; registering it again replaces it. */
+function registerTrash() {
+  commands.register({
+    id: 'file.trash', title: trashTitle(), group: 'file', icon: 'trash',
+    when: (arg) => many(arg).some((t) => !!t && !!t.path && !isOutside(t.path)),
     run: (arg) => trashPaths(many(arg)),
   });
+}
+
+async function refreshTrashTitle() {
+  const was = trashTitle();
+  const where = await whereFor('');
+  binWhere = where;
+  if (trashTitle() !== was || !commands.get('file.trash')) registerTrash();
 }

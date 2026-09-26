@@ -8,7 +8,7 @@
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
 import { ose } from 'ose:kernel';
 import { esc, pickFolder, toast } from 'ose:ui';
-import { chooseVault, switchVault } from './vault.js';
+import { chooseVault, switchVault, openInNewWindow } from './vault.js';
 import { hostKind } from './host.js';
 
 const { bus, commands, store } = ose;
@@ -19,6 +19,8 @@ const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 const ON_OFF = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
+// The editing modes a markdown file can open in (X1), in the switch's own order and words.
+const MODES = [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' }, { value: 'source', label: 'Source' }];
 
 const settings = () => ose.settings.get();
 const save = (partial) => ose.settings.set(partial);
@@ -77,6 +79,7 @@ function currentValues() {
     full: onOff(s.readableWidth === false),
     spell: onOff(s.spellcheck !== false),
     titlesync: onOff(s.titleSync === true),
+    mode: MODES.some((m) => m.value === s.editorMode) ? s.editorMode : 'rich',
     trash: s.trash === 'vault' ? 'vault' : 'system',
     attach: s.attachments === 'beside' || s.attachments === undefined ? 'beside' : 'folder',
     hidden: onOff(s.showHidden === true),
@@ -96,6 +99,7 @@ function applySeg(group, v, box) {
   else if (group === 'full') save({ readableWidth: v !== 'on' });
   else if (group === 'spell') save({ spellcheck: v === 'on' });
   else if (group === 'titlesync') save({ titleSync: v === 'on' });
+  else if (group === 'mode') save({ editorMode: v });
   else if (group === 'trash') { save({ trash: v }); void paintTrashNote(box); }
   else if (group === 'attach') void chooseAttachments(v, box);
   else if (group === 'hidden') save({ showHidden: v === 'on' });
@@ -149,7 +153,12 @@ function appearanceHtml() {
 
 function editorHtml() {
   const v = currentValues();
-  return row('Spellcheck',
+  return row('Open markdown files in',
+    seg('mode', MODES, v.mode),
+    'The mode a markdown file opens in the first time. Rich edits the page as a document, Live shows '
+    + 'the markdown with its marks hidden away from the caret, Source is the plain text. A file you '
+    + 'switch keeps its mode; plain text files always open as source.')
+    + row('Spellcheck',
     seg('spell', ON_OFF, v.spell),
     "The web view's own checker, in the display language of the system. Shift+right-click a word for its suggestions.")
     + row('Name new pages after their heading',
@@ -274,7 +283,7 @@ async function paintTrashNote(box) {
   const lines = [];
   if (settings().trash !== 'vault') {
     try {
-      const r = typeof ose.files.trashWhere === 'function' ? await ose.files.trashWhere('') : null;
+      const r = await ose.files.trashWhere('');
       if (r && r.where === 'vault') lines.push(`This drive has no ${binName()}, so deleted files go to .trash in this vault.`);
     } catch { /* no answer: the sentence above is still true */ }
     if (ose.platform === 'macos') lines.push('Items in the system Trash cannot be listed here. Only items moved to this vault\'s .trash can be restored in Show trash.');
@@ -494,8 +503,7 @@ const view = {
 export async function openSettings(arg) {
   const route = { type: 'view', name: 'settings' };
   if (arg) route.arg = arg;
-  if (ose.tabs && typeof ose.tabs.open === 'function') await ose.tabs.open(route);
-  else await ose.route.navigate(route);
+  await ose.tabs.open(route);
   if (live && arg) await live.show(arg);
   if (live) live.focus();
 }
@@ -508,6 +516,9 @@ export function initSettings() {
   commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Keys', run: () => openSettings('keys') });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
+  // A window of its own (X6), on no vault: it opens on the chooser. Change vault… offers the
+  // same for a vault, with Shift+Enter on a row or its "Open in new window" button.
+  commands.register({ id: 'app.new-window', title: 'New window', group: 'app', hint: 'a window of its own, for another vault', run: () => openInNewWindow() });
 
   // The page view is one command too, so switching between the scroll and the sheet is a
   // palette away rather than a page away.

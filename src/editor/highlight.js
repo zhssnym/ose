@@ -1,3 +1,4 @@
+// @ts-nocheck
 // One place for everything that turns code into coloured spans.
 //
 // Three surfaces need the same answer and used to have three different ones: the standalone

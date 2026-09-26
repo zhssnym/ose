@@ -1,3 +1,4 @@
+// @ts-nocheck
 // What makes a `$` a formula, on one line: the pandoc rule of math.js, kept apart from Temml
 // and the CSS so that the serializer (stringify.js) and the headless engine the tests run can
 // import it without a DOM (docs/KERNEL.md `ose:editor`). math.js re-exports all three.

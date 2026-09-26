@@ -13,7 +13,7 @@
 
 import { ose } from 'ose:kernel';
 import { esc, icon, hasIcon, toast } from 'ose:ui';
-import { baseName, dirName } from './paths.js';
+import { baseName, dirName, errorOf, vaultName as nameOfVault } from './paths.js';
 import { dateLabel, iconName, sizeLabel } from './folder-model.js';
 import { undo } from './fileops.js';
 
@@ -22,7 +22,7 @@ const { bus, commands, route } = ose;
 export const TRASH = { type: 'view', name: 'trash' };
 
 const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
-const vaultName = () => (ose.vault && ose.vault.name) || 'the vault';
+const vaultName = () => nameOfVault('the vault');
 
 /** Where an item is now, in the platform's own word. */
 function whereWord(where) {
@@ -47,13 +47,6 @@ function headSentence(items) {
   const bin = ose.platform === 'windows' ? 'the Recycle Bin' : 'the Trash';
   if (!count) return `Nothing from this vault is in ${bin} or in its .trash folder.`;
   return `Items from this vault in ${bin} and in its .trash folder. ${back}`;
-}
-
-/** A `[code] message` error as `{ code, message }`. */
-function errorOf(e) {
-  const text = String((e && e.message) || e || '');
-  const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
-  return { code: (e && e.code) || (m ? m[1] : null), message: m ? m[2] : text };
 }
 
 // The one mounted view, so `trash.restore` from the palette can reach its selection.
@@ -134,11 +127,10 @@ function mountTrash(host) {
     const my = ++seq;
     let list = [];
     try {
-      list = typeof ose.fileops.trashList === 'function' ? await ose.fileops.trashList()
-        : typeof ose.files.trashList === 'function' ? await ose.files.trashList() : [];
+      list = await ose.fileops.trashList();
     } catch (e) {
       const err = errorOf(e);
-      if (err.code !== 'unknown_command') noteEl.textContent = `Could not read the trash: ${err.message}`;
+      noteEl.textContent = `Could not read the trash: ${err.message}`;
       list = [];
     }
     if (my !== seq || !live) return;
@@ -152,7 +144,6 @@ function mountTrash(host) {
 
   async function restore(ids = targets()) {
     if (!ids.length) return;
-    if (typeof ose.fileops.restore !== 'function') { toast('Restoring needs a newer kernel', 'err', 0); return; }
     let res;
     try { res = await ose.fileops.restore(ids); } catch (e) {
       toast(`Could not restore: ${errorOf(e).message}`, 'err', 0);

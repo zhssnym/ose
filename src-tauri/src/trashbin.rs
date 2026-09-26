@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use crate::{arg_str, coded, vault};
+use crate::{coded, vault};
 
 /// The vault bin and its sidecars.
 const BIN: &str = ".trash";
@@ -107,11 +107,13 @@ fn chosen_mode(root: &Path) -> &'static str {
     }
 }
 
-/// `trashWhere(path)` -> `{where}`: where `trash` would put it now, with the current setting.
-pub fn trash_where(root: &Path, rel: &str) -> Result<Value, String> {
+/// `trashWhere(path, {mode})` -> `{where}`: where `trash` would put it now, with `mode` when the
+/// page names one and the vault's setting otherwise.
+pub fn trash_where(root: &Path, rel: &str, mode: Option<&str>) -> Result<Value, String> {
     let full = vault::resolve(root, rel)?;
     let probe = if full.exists() { full } else { root.to_path_buf() };
-    let place = if chosen_mode(root) == "vault" || !has_bin(&probe) { "vault" } else { "system" };
+    let mode = mode.map(|m| if m == "vault" { "vault" } else { "system" }).unwrap_or_else(|| chosen_mode(root));
+    let place = if mode == "vault" || !has_bin(&probe) { "vault" } else { "system" };
     Ok(json!({ "where": place }))
 }
 
@@ -228,8 +230,8 @@ fn unstamped(entry: &str) -> (String, Option<i64>) {
 }
 
 /// A name that is an entry of the vault bin and nothing else.
-fn valid_entry(entry: &str) -> bool {
-    !entry.is_empty() && entry != INFO && entry != "." && entry != ".." && !entry.contains(['/', '\\']) && !crate::hide::excluded(entry)
+fn valid_entry(root: &Path, entry: &str) -> bool {
+    !entry.is_empty() && entry != INFO && entry != "." && entry != ".." && !entry.contains(['/', '\\']) && !crate::hide::excluded(root, entry)
 }
 
 /// The vault bin's items.
@@ -238,7 +240,7 @@ fn vault_items(root: &Path) -> Vec<Value> {
     let Ok(read) = fs::read_dir(root.join(BIN)) else { return out };
     for e in read.flatten() {
         let entry = e.file_name().to_string_lossy().to_string();
-        if !valid_entry(&entry) {
+        if !valid_entry(root, &entry) {
             continue;
         }
         let full = e.path();
@@ -446,7 +448,7 @@ fn free_target(root: &Path, original: &str) -> Result<PathBuf, String> {
 }
 
 fn restore_vault(root: &Path, entry: &str) -> Result<String, String> {
-    if !valid_entry(entry) {
+    if !valid_entry(root, entry) {
         return Err(coded("bad_arg", format!("not a trash id: vault:{entry}")));
     }
     let src = root.join(BIN).join(entry);
@@ -558,33 +560,6 @@ pub fn trash_restore(root: &Path, ids: &[String]) -> Result<Value, String> {
         }
     }
     Ok(json!({ "restored": restored, "failed": failed }))
-}
-
-// ---- dispatch --------------------------------------------------------------
-
-/// The four commands; all of them run on a blocking worker (lib.rs), since the system bin is
-/// COM on Windows and a listing of it can take a moment.
-pub const COMMANDS: &[&str] = &["trash", "trashWhere", "trashList", "trashRestore"];
-
-pub fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
-    match cmd {
-        "trash" => {
-            // {mode: "system"|"vault"} from settings (S37); anything else means the bin.
-            let mode = crate::opt_field_str(args, 1, "mode").unwrap_or_default();
-            trash(root, &arg_str(args, 0)?, &mode)
-        }
-        "trashWhere" => trash_where(root, &arg_str(args, 0)?),
-        "trashList" => trash_list(root),
-        "trashRestore" => {
-            let ids: Vec<String> = match args.first() {
-                Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
-                Some(Value::String(s)) => vec![s.clone()],
-                _ => return Err(coded("bad_arg", "trashRestore needs a list of ids")),
-            };
-            trash_restore(root, &ids)
-        }
-        _ => Err(coded("unknown_command", cmd)),
-    }
 }
 
 #[cfg(test)]
@@ -802,6 +777,6 @@ mod tests {
         fs::write(root.join("a.md"), "x").unwrap();
         fs::create_dir_all(root.join(".ose")).unwrap();
         fs::write(root.join(".ose/state.json"), r#"{"settings":{"trash":"vault"}}"#).unwrap();
-        assert_eq!(trash_where(root, "a.md").unwrap()["where"], "vault");
+        assert_eq!(trash_where(root, "a.md", None).unwrap()["where"], "vault");
     }
 }

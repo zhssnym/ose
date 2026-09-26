@@ -24,6 +24,8 @@ export const PAGE_FACES = ['document', 'plain'];
 // How a page is laid out on screen. `scroll` is one continuous column; `pages` is the A4 sheet
 // it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.js).
 export const LAYOUTS = ['scroll', 'pages'];
+/** How a markdown file opens when it remembers no mode of its own (X1). */
+export const EDITOR_MODES = ['rich', 'live', 'source'];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
@@ -41,6 +43,9 @@ export const DEFAULTS = {
   attachments: 'beside',
   trash: 'system',
   titleSync: false,
+  // How a markdown file opens the first time (X1): 'rich', 'live' or 'source'. A file the user
+  // left in another mode remembers it (`src/editor/modes.js`); a plain text file is Source.
+  editorMode: 'rich',
 };
 
 /**
@@ -49,7 +54,7 @@ export const DEFAULTS = {
  */
 export const MACHINE_KEYS = new Set([
   'fontSize', 'lineHeight', 'pageFace', 'layout', 'readableWidth', 'zoom', 'spellcheck',
-  'showHidden', 'restoreSession', 'hideMdExt',
+  'showHidden', 'restoreSession', 'hideMdExt', 'editorMode',
 ]);
 
 // Settings an older build wrote that mean nothing now: never answered, never written back.
@@ -176,6 +181,12 @@ export function pageFace() {
 export function layout() {
   const l = settings().layout;
   return LAYOUTS.includes(l) ? l : DEFAULTS.layout;
+}
+
+/** `rich`, `live` or `source`: the mode a markdown file with no remembered mode opens in. */
+export function editorMode() {
+  const m = settings().editorMode;
+  return EDITOR_MODES.includes(m) ? m : DEFAULTS.editorMode;
 }
 
 /** Read by the editor: `spellcheck` on the body, on by default (S36). */

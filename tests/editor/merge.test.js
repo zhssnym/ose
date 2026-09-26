@@ -5,14 +5,12 @@
 // Depends on: editor (src/editor/merge.js). Skipped until that file exists.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const present = exists('src/editor/merge.js');
-const { merge3, keepBoth } = present ? await import('../../src/editor/merge.js') : {};
+const { merge3, keepBoth } = await import('../../src/editor/merge.js');
 
 const base = '# Title\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n\nFive.\n';
 
-describe.skipIf(!present)('merge3', () => {
+describe('merge3', () => {
   it('answers the other side when only one side changed', () => {
     const theirs = base.replace('Five.', 'Five, on disk.');
     expect(merge3(base, base, theirs)).toEqual({ clean: true, text: theirs });
@@ -89,7 +87,7 @@ describe.skipIf(!present)('merge3', () => {
   });
 });
 
-describe.skipIf(!present)('keepBoth', () => {
+describe('keepBoth', () => {
   it('writes each overlap as ours then theirs, with no markers', () => {
     const ours = base.replace('Three.', 'Three, mine.');
     const theirs = base.replace('Three.', 'Three, theirs.');

@@ -5,15 +5,13 @@
 // Depends on: planner (src/planner/tasks.js). Skipped until it exists.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const present = exists('src/planner/tasks.js', 'src/planner/dates.js');
-const t = present ? await import('../../src/planner/tasks.js') : {};
+const t = await import('../../src/planner/tasks.js');
 
 const DUE = '\u{1F4C5}';
 const DONE = '\u{2705}';
 
-describe.skipIf(!present)('todo lines', () => {
+describe('todo lines', () => {
   const text = `# Todo\r\n\r\n- [ ] Write the essay ${DUE} 2026-09-26\r\n  - [x] Outline ${DONE} 2026-09-20\r\n- [ ] Undated\r\nNot a task\r\n`;
 
   it('parseTasks gives the replaceLine index and the exact line, CRLF not included', () => {

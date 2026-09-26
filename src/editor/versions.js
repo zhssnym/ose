@@ -10,6 +10,7 @@
 import { bridge, commands } from './host.js';
 import { choose, openOverlay, toast } from './deps.js';
 import { compareTexts } from './compare.js';
+import { isOutside } from './paths.js';
 
 /** The api handed over by index.js at boot (registerExtensionCommands). */
 let api = null;
@@ -233,6 +234,11 @@ export function registerCommands(a) {
     title: 'Versions…',
     group: 'page',
     when: () => !!(api && api.hasPage()),
-    run: () => void openVersions(),
+    // A file outside the vault (wave 3, X7) has no `.ose/history` to keep versions in: the
+    // host answers `unsupported`, and the palette says so before asking it.
+    run: () => {
+      if (api && isOutside(api.getPath() || '')) { toast('Versions are kept only for files inside the vault', 'info'); return; }
+      void openVersions();
+    },
   });
 }

@@ -22,12 +22,24 @@
   "assist": {
     "enabled": false
   },
+  "overrides": [
+    {
+      "includes": ["src/editor/blocks.js"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedFunctionParameters": "off"
+          }
+        }
+      }
+    }
+  ],
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": false,
+      "preset": "none",
       "correctness": {
-        "recommended": true
+        "preset": "recommended"
       }
     }
   }

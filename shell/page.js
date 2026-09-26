@@ -35,7 +35,8 @@ let released = null;
 
 const under = (p, folder) => p === folder || p.startsWith(folder + '/');
 const mapped = (p, from, to) => (p === from ? to : to + p.slice(from.length));
-const pathOf = (h) => (h && typeof h.path === 'function' ? clean(h.path()) : '');
+// Media handles only (`media.js`), whose `path` is a function; an editor handle's is a getter.
+const pathOf = (h) => clean(h.path());
 
 /**
  * Start loading `ose:editor`, once, and answer the module (or null when it failed). `boot.js`
@@ -85,20 +86,20 @@ const host = {
       return page.ready;
     }
     // No editor: draw nothing, and the router shows the file as text.
-    if (!editor || typeof editor.markdownPage !== 'function') { page = null; return undefined; }
+    if (!editor) { page = null; return undefined; }
     page = editor.markdownPage(el, path, opts);
     return page.ready;
   },
 
   /** Whether the page on screen lets itself be left; a dirty page saves first (C1). */
   async canLeave(reason) {
-    if (!page || typeof page.canLeave !== 'function') return true;
+    if (!page) return true;
     return (await page.canLeave(reason)) !== false;
   },
 
   /** A `true` from `canLeave` froze the page; the navigation did not happen after all. */
   stay() {
-    if (page && typeof page.stay === 'function') page.stay();
+    if (page) page.stay();
   },
 
   /**
@@ -110,7 +111,7 @@ const host = {
   async close(opts = {}) {
     if (!page) return true;
     const closing = page;
-    if (opts && opts.park && typeof closing.park === 'function') {
+    if (opts && opts.park && !closing.media) {
       try { await closing.park(); } catch (e) { console.error('[shell] park', e); }
       if (page === closing) page = null;
       released = null;
@@ -128,7 +129,7 @@ const host = {
    * background. False: it could not be saved, and it stays parked (the close is refused).
    */
   async release(path) {
-    if (!editor || typeof editor.releasePage !== 'function') return true;
+    if (!editor) return true;
     return (await editor.releasePage(clean(path))) !== false;
   },
 
@@ -138,8 +139,16 @@ const host = {
    * then rewrites the file on disk as before.
    */
   async rewriteLinksIn(path, pairs) {
-    if (!editor || typeof editor.rewriteLinksIn !== 'function') return undefined;
+    if (!editor) return undefined;
     return editor.rewriteLinksIn(clean(path), pairs);
+  },
+
+  /**
+   * The pages, on screen or parked, whose text could not be saved. The leave gate names them in
+   * its refusal and reopens one that no tab shows.
+   */
+  problems() {
+    return editor ? editor.problemPages() : [];
   },
 
   scrollToLine: (line, col) => !!page && page.goToLine(line, col),
@@ -152,10 +161,10 @@ const host = {
    */
   async beforePathChange(change) {
     if (page && page.media && change.kind !== 'copy' && under(pathOf(page), clean(change.from))) {
-      if (typeof page.release === 'function') page.release();
+      page.release();
       released = page;
     }
-    if (editor && typeof editor.beforePathChange === 'function') {
+    if (editor) {
       const answer = await editor.beforePathChange(change);
       if (answer && answer.ok === false) {
         await remountReleased(false, change);
@@ -167,7 +176,7 @@ const host = {
 
   /** After it, whether the host call succeeded or not. The router has been re-pointed already. */
   async afterPathChange(change) {
-    if (editor && typeof editor.afterPathChange === 'function') await editor.afterPathChange(change);
+    if (editor) await editor.afterPathChange(change);
     await remountReleased(!!change.ok, change);
   },
 
@@ -209,7 +218,7 @@ export async function initPageHost() {
     const why = String((ed.failed && ed.failed.message) || ed.failed);
     try { await ose.log(`editor failed to load: ${why}`, 'error'); } catch { /* the log is best effort */ }
     toast(`The editor could not be loaded (${why}). Pages open as plain text, read-only.`, 'err', 0);
-  } else if (editor && typeof editor.holdPageCommands === 'function') {
+  } else if (editor) {
     // One reference held for the life of the window, so `page.new` is in the palette and on
     // Ctrl+N with no page open — the home is where a new page most often starts.
     try { editor.holdPageCommands(); } catch (e) { console.error('[shell] page commands', e); }

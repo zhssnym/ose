@@ -23,7 +23,7 @@ import { byViewOrder } from './order.js';
 import * as pins from './pins.js';
 import { mountFolderList, folderRoute } from './folder.js';
 import { iconName } from './folder-model.js';
-import { baseName, dirName, titleOf } from './paths.js';
+import { baseName, dirName, titleOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands, route, keys } = ose;
 
@@ -50,14 +50,19 @@ function chordFor(name) {
   return keys.shortcutFor(id) || '';
 }
 
-/** A row of the pins or the recent list: the icon, the name, the folder, and a note. */
+/**
+ * A row of the pins or the recent list: the icon, the name, the folder, and a note. A file
+ * outside the vault (X7) names its absolute folder and wears the same mark its tab does.
+ */
 function rowHtml({ path, kind, missing = false }) {
-  const folder = dirName(path);
-  const name = kind === 'dir' ? (baseName(path) || (ose.vault && ose.vault.name) || 'Vault') : display(path);
+  const out = isOutside(path);
+  const folder = out ? outsideLabel(dirName(path)) : dirName(path);
+  const name = kind === 'dir' ? (baseName(path) || vaultName()) : display(path);
   const glyph = iconSvg(iconName({ name: baseName(path), kind }), kind === 'dir' ? 'folder' : 'file');
   const hint = missing ? 'missing' : folder;
-  return `<button type="button" class="row home-row${missing ? ' missing' : ''}" data-path="${esc(path)}" data-kind="${kind}" title="${esc(path)}${missing ? ' (missing)' : ''}">
-    ${glyph}<span class="grow">${esc(name)}</span>${hint ? `<span class="hint">${esc(hint)}</span>` : ''}
+  const tip = `${out ? outsideLabel(path) : path}${out ? ' (outside the vault)' : ''}${missing ? ' (missing)' : ''}`;
+  return `<button type="button" class="row home-row${missing ? ' missing' : ''}${out ? ' outside' : ''}" data-path="${esc(path)}" data-kind="${kind}" title="${esc(tip)}"${out ? ` aria-label="${esc(`${name}, outside vault, ${folder}`)}"` : ''}>
+    ${glyph}<span class="grow">${esc(name)}</span>${out ? '<span class="home-out mono-sm" aria-hidden="true">outside vault</span>' : ''}${hint ? `<span class="hint">${esc(hint)}</span>` : ''}
   </button>`;
 }
 
@@ -109,7 +114,7 @@ async function renderRecent() {
 
 function renderRootHead() {
   const name = root && root.querySelector('.home-root-name');
-  if (name) name.textContent = (ose.vault && ose.vault.name) || 'Vault';
+  if (name) name.textContent = vaultName();
 }
 
 function render() {

@@ -61,6 +61,13 @@ const DRAFT_DELAY = 1000;
  */
 let revClock = Date.now();
 
+/**
+ * The next edit's revision: after every one before it, and never behind the wall clock, so a
+ * draft's `ifRev` compares across windows too (the draft of a file outside the vault is shared
+ * by every window that has it open).
+ */
+const nextRev = () => { revClock = Math.max(revClock + 1, Date.now()); return revClock; };
+
 const errText = (e) => String((e && e.message) || e || 'unknown error').split('\n')[0];
 const errCode = (e) => (e && e.code) || 'io';
 
@@ -96,6 +103,10 @@ export function codeEditor(el, opts = {}) {
   // The host's hash of the bytes the baseline came from (wave 1, M2): every save is one
   // `saveFile` call that compares and writes under the host's lock against it.
   let diskHash = null;
+  // The encoding the file was read in (X10): every save writes back in it, so a file that is
+  // not UTF-8 is never rewritten as UTF-8 behind the user's back. A lossy read opens read-only.
+  let encoding = 'UTF-8';
+  let lossy = false;
   // Drafts (C4). rev: the edit clock at the last edit; hasDraft: one may be stored for this
   // path; draftChain: the writes and drops one after the other, so a drop issued after a write
   // never reaches the host first.
@@ -114,7 +125,7 @@ export function codeEditor(el, opts = {}) {
   };
 
   const markDirty = () => {
-    rev = ++revClock;
+    rev = nextRev();
     scheduleDraft();
     if (dirty) return;
     dirty = true;
@@ -240,7 +251,7 @@ export function codeEditor(el, opts = {}) {
       try {
         await pageFiles.drafts.write(path, draft);
       } catch (e) {
-        if (errCode(e) !== 'unknown_command') log(`draft failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+        log(`draft failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
       }
     });
   }
@@ -257,7 +268,6 @@ export function codeEditor(el, opts = {}) {
         if (r && r.dropped === false && ifRev !== undefined) return;
         hasDraft = false;
       } catch (e) {
-        if (errCode(e) === 'unknown_command') { hasDraft = false; return; }
         log(`draft not dropped ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
       }
     });
@@ -271,7 +281,7 @@ export function codeEditor(el, opts = {}) {
   async function recoverDraft(raw) {
     let d = null;
     try { d = await pageFiles.drafts.read(path); } catch (e) {
-      if (errCode(e) !== 'unknown_command') log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
       return false;
     }
     if (!d || typeof d.text !== 'string' || closed) return false;
@@ -316,6 +326,10 @@ export function codeEditor(el, opts = {}) {
       const r = await pageFiles.readFile(path);
       raw = r.text;
       diskHash = r.hash ?? null;
+      encoding = typeof r.encoding === 'string' && r.encoding ? r.encoding : 'UTF-8';
+      // A text that does not encode back to the same bytes is shown, never saved.
+      lossy = r.lossy === true;
+      if (lossy) readOnly = true;
     } catch (e) {
       toast(`cannot open ${path}: ${errText(e)}`, 'err');
       baseline = null;
@@ -406,7 +420,7 @@ export function codeEditor(el, opts = {}) {
     let expectedHash = diskHash;
     let version = 'save';
     for (let round = 0; round < 3; round++) {
-      const r = await pageFiles.save(path, onWire(text), { expectedHash, version });
+      const r = await pageFiles.save(path, onWire(text), { expectedHash, version, ...(/^utf-?8$/i.test(encoding) ? {} : { encoding }) });
       if (r && r.status === 'saved') {
         diskHash = r.hash ?? null;
         baseline = text;
@@ -521,7 +535,8 @@ export function codeEditor(el, opts = {}) {
      */
     setText(text) { if (view.setText(String(text ?? ''))) markDirty(); },
     setReadOnly(on) {
-      readOnly = !!on;
+      // A lossy read stays read-only, whatever the caller says.
+      readOnly = !!on || lossy;
       // While the file is still being read the view stays read-only whatever the caller says;
       // the load lifts it to whatever `readOnly` is by then (finding 5).
       if (!loading) view.setReadOnly(readOnly);

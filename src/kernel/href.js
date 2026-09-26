@@ -51,7 +51,7 @@ export function resolveHref(fromFile, href) {
   let h = String(href || '').trim();
   if (!h || h.startsWith('#')) return null;
   if (isExternal(h)) return null;
-  h = h.split('#')[0].split('?')[0];
+  h = (h.split('#')[0] || '').split('?')[0] || '';
   if (!h) return null;
   let decoded = h;
   // decodeURIComponent, not decodeURI: relativeHref encodes with encodeURIComponent, and

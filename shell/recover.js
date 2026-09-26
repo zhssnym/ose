@@ -10,7 +10,7 @@
 
 import { ose } from 'ose:kernel';
 import { esc, openOverlay, overlayCount, prompt, confirm, toast } from 'ose:ui';
-import { clean, baseName, dirName } from './paths.js';
+import { clean, baseName, dirName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands, route } = ose;
 
@@ -18,19 +18,17 @@ const { bus, commands, route } = ose;
 let known = [];
 let openOv = null;
 
-const drafts = () => (ose.files && ose.files.drafts) || null;
+const drafts = () => ose.files.drafts;
 
 /** `DraftInfo[]`, newest first, or [] when there are none or the host cannot say. */
 async function listDrafts() {
   const d = drafts();
-  if (!d || typeof d.list !== 'function') return [];
   try {
     const list = await d.list();
     known = Array.isArray(list) ? list.filter((x) => x && x.path) : [];
   } catch (e) {
-    // A host without drafts answers `unknown_command`: there is nothing to recover, and that is
-    // not worth a notice. Anything else is logged.
-    if (!e || e.code !== 'unknown_command') console.warn('[shell] drafts', e);
+    // Every host has drafts, so a failure here is a real one: logged, and nothing is offered.
+    console.warn('[shell] drafts', e);
     known = [];
   }
   return known;
@@ -58,7 +56,8 @@ async function saveAs(info) {
   let draft = null;
   try { draft = await d.read(info.path); } catch (e) { toast(`could not read the recovered text: ${e.message || e}`, 'err', 0); return false; }
   if (!draft || typeof draft.text !== 'string') { toast('the recovered text is gone', 'err', 0); return false; }
-  let value = clean(info.path);
+  // A file that was outside the vault (X7) is saved into the vault root by its own name.
+  let value = isOutside(info.path) ? baseName(info.path) : clean(info.path);
   let reason = '';
   for (;;) {
     const start = value.lastIndexOf('/') + 1;
@@ -92,7 +91,7 @@ async function saveAs(info) {
  * is then the recovered text, marked unsaved, and the next leave writes it.
  */
 function tabShowing(path) {
-  const list = ose.tabs && typeof ose.tabs.list === 'function' ? ose.tabs.list() : [];
+  const list = ose.tabs.list();
   const tab = list.find((t) => t && t.route && t.route.type === 'page' && t.route.path === path);
   if (tab) return tab;
   const cur = route.current();
@@ -165,9 +164,10 @@ export async function showRecovered() {
       <div class="dlg-body">
         <p class="dlg-text">This text never reached its file, and was kept on this machine. Open a page to get it back: the page shows what it recovered.</p>
         <div class="rec-list">${items.map((x, i) => `
-          <button type="button" class="row rec-row${x.there ? '' : ' gone'}" data-i="${i}" title="${esc(x.path)}">
+          <button type="button" class="row rec-row${x.there ? '' : ' gone'}" data-i="${i}" title="${esc(outsideLabel(x.path))}${isOutside(x.path) ? ' (outside the vault)' : ''}">
             <span class="rec-name">${esc(baseName(x.path))}</span>
-            <span class="grow rec-path mono-sm">${esc(dirName(x.path) || '/')}</span>
+            <span class="grow rec-path mono-sm">${esc(outsideLabel(dirName(x.path)) || '/')}</span>
+            ${isOutside(x.path) ? '<span class="pal-hint">outside vault</span>' : ''}
             ${x.there ? '' : '<span class="pal-hint gone">file gone · save as…</span>'}
             <span class="pal-hint">${esc(when(x.at))}</span>
           </button>`).join('')}</div>

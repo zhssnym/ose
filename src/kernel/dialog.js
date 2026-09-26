@@ -8,7 +8,27 @@ import { titleOf } from './paths.js';
 import { highlight, pageItems } from './fuzzy.js';
 import { pageList } from './pagehost.js';
 
+/** @typedef {{ el: HTMLDivElement, box: HTMLDivElement, close: () => void, prevFocus: Element | null }} Overlay */
+
+/** @type {Overlay[]} */
 const stack = [];
+
+/**
+ * The element `sel` inside `root`, which the caller has just drawn: one that is not there is a
+ * bug in the markup above it, and says so instead of failing later on a null.
+ * @template {HTMLElement} [T=HTMLElement]
+ * @param {ParentNode} root
+ * @param {string} sel
+ * @returns {T}
+ */
+export function part(root, sel) {
+  const found = root.querySelector(sel);
+  if (!found) throw new Error(`[ui] missing ${sel}`);
+  return /** @type {T} */ (/** @type {unknown} */ (found));
+}
+
+/** The element as an HTMLElement when it is one. @param {unknown} n @returns {HTMLElement | null} */
+const html = (n) => (n instanceof HTMLElement ? n : null);
 
 export function overlayCount() { return stack.length; }
 export function closeTopOverlay() { stack[stack.length - 1]?.close(); }
@@ -19,19 +39,20 @@ export function closeTopOverlay() { stack[stack.length - 1]?.close(); }
  * will be handed back to when the palette closes.
  */
 export function focusOrigin() {
-  return stack.length ? stack[0].prevFocus : document.activeElement;
+  return stack[0] ? stack[0].prevFocus : document.activeElement;
 }
 /**
  * The sidebar rebuilds its rows while a dialog is open (an fs event lands mid-confirm); the
  * node focus would go back to is then detached. It tells us the replacement here (B4).
  */
+/** @param {Element | null} el */
 export function retargetFocusOrigin(el) {
-  if (stack.length && el) stack[0].prevFocus = el;
+  if (stack[0] && el) stack[0].prevFocus = el;
 }
 export function overlayHasInputFocus() {
   const top = stack[stack.length - 1];
   if (!top) return false;
-  const a = document.activeElement;
+  const a = html(document.activeElement);
   return !!a && top.el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
 }
 
@@ -89,9 +110,9 @@ export function openOverlay(opts = {}) {
   el.addEventListener('contextmenu', (e) => { if (e.target === el) { e.preventDefault(); close(); } });
   box.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') return;
-    const items = [...box.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
-    if (!items.length) return;
+    const items = [...box.querySelectorAll(FOCUSABLE)].map(html).filter((n) => n !== null && n.offsetParent !== null);
     const first = items[0], last = items[items.length - 1];
+    if (!first || !last) return;
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
@@ -106,9 +127,8 @@ export function openOverlay(opts = {}) {
   // deferred is soon enough. The box holds the focus until the caller puts it on its own
   // field (`focusField`), which the dialogs here do in the same task.
   try { box.focus({ preventScroll: true }); } catch { /* a detached body: nothing to guard */ }
-  if (prevFocus && prevFocus !== document.body && document.activeElement === prevFocus && typeof prevFocus.blur === 'function') {
-    prevFocus.blur();
-  }
+  const was = html(prevFocus);
+  if (was && was !== document.body && document.activeElement === was) was.blur();
 
   let closed = false;
   function close() {
@@ -119,8 +139,8 @@ export function openOverlay(opts = {}) {
     el.remove();
     try { onClose && onClose(); } catch (e) { console.error(e); }
     // `entry.prevFocus`, not the captured const: retargetFocusOrigin may have swapped it.
-    const back = entry.prevFocus;
-    if (back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
+    const back = html(entry.prevFocus);
+    if (back && back.isConnected) back.focus({ preventScroll: true });
   }
 
   return entry;
@@ -153,17 +173,31 @@ export function focusField(box, el, then) {
 }
 
 /**
+ * The row `sel` an event happened in, or null.
+ * @param {Event} e
+ * @param {string} sel
+ * @returns {HTMLElement | null}
+ */
+function rowAt(e, sel) {
+  return e.target instanceof Element ? html(e.target.closest(sel)) : null;
+}
+
+/**
  * Menu keys: Up/Down wrap, Home/End, and a letter jumps to the next row whose label starts
  * with it (cycling, so pressing it again moves on). Chords are left alone: the shell's window
  * listener has already had them, and anything with a modifier is not a letter jump.
  */
+/** @param {HTMLElement} box */
 function bindMenuKeys(box) {
-  const rows = () => [...box.querySelectorAll('.menu-row')].filter((n) => !n.disabled && n.offsetParent !== null);
+  /** @returns {HTMLElement[]} */
+  const rows = () => [...box.querySelectorAll('.menu-row')]
+    .map(html)
+    .filter(/** @returns {n is HTMLElement} */ (n) => n !== null && !(/** @type {HTMLButtonElement} */ (n)).disabled && n.offsetParent !== null);
   box.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const list = rows();
     if (!list.length) return;
-    const at = list.indexOf(document.activeElement);
+    const at = list.indexOf(/** @type {HTMLElement} */ (document.activeElement));
     let next = -1;
     if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % list.length;
     else if (e.key === 'ArrowUp') next = at < 0 ? list.length - 1 : (at - 1 + list.length) % list.length;
@@ -171,7 +205,8 @@ function bindMenuKeys(box) {
     else if (e.key === 'End') next = list.length - 1;
     else if (e.key.length === 1 && e.key !== ' ') {
       const ch = e.key.toLowerCase();
-      const starts = (n) => (n.textContent || '').trim().toLowerCase().startsWith(ch);
+      /** @param {HTMLElement | undefined} n */
+      const starts = (n) => !!n && (n.textContent || '').trim().toLowerCase().startsWith(ch);
       for (let i = 1; i <= list.length; i++) {
         const n = (at + i) % list.length;
         if (starts(list[n])) { next = n; break; }
@@ -179,7 +214,7 @@ function bindMenuKeys(box) {
       if (next < 0) return;
     } else return;
     e.preventDefault();
-    list[next].focus();
+    list[next]?.focus();
   });
 }
 
@@ -187,6 +222,11 @@ function bindMenuKeys(box) {
 // sighted user reads first is the name a screen reader announces first (S40).
 let headSeq = 0;
 
+/**
+ * @param {HTMLElement} box
+ * @param {{ title?: string, danger?: boolean }} o
+ * @returns {{ body: HTMLElement, cancel: HTMLElement, ok: HTMLElement }}
+ */
 function dialogShell(box, { title, danger }) {
   box.classList.add('dlg');
   const headId = `dlg-head-${++headSeq}`;
@@ -199,9 +239,9 @@ function dialogShell(box, { title, danger }) {
       <button class="btn ${danger ? 'danger' : 'primary'}" data-act="ok"></button>
     </div>`;
   return {
-    body: box.querySelector('.dlg-body'),
-    cancel: box.querySelector('[data-act="cancel"]'),
-    ok: box.querySelector('[data-act="ok"]'),
+    body: part(box, '.dlg-body'),
+    cancel: part(box, '[data-act="cancel"]'),
+    ok: part(box, '[data-act="ok"]'),
   };
 }
 
@@ -209,6 +249,8 @@ function dialogShell(box, { title, danger }) {
  * A one-line question. Answers the trimmed value, or null on cancel or an empty answer.
  * `select: [start, end]` is the input's selection once it has focus (a rename selects the stem
  * and leaves the extension alone); the default is the whole value.
+ * @param {{ title?: string, value?: string, placeholder?: string, ok?: string, body?: string, select?: number[] | null }} [o]
+ * @returns {Promise<string | null>}
  */
 export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'OK', body = '', select = null } = {}) {
   return new Promise((resolve) => {
@@ -218,7 +260,7 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
     const parts = dialogShell(ov.box, { title });
     parts.ok.textContent = ok;
     parts.body.innerHTML = (body ? `<p class="dlg-text">${esc(body)}</p>` : '') + `<input class="input" type="text" spellcheck="false">`;
-    const input = parts.body.querySelector('input');
+    const input = /** @type {HTMLInputElement} */ (part(parts.body, 'input'));
     input.value = value;
     input.placeholder = placeholder;
     parts.ok.addEventListener('click', () => finish(input.value.trim() || null));
@@ -239,6 +281,11 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
   });
 }
 
+/**
+ * A yes or no question. Answers true for OK, false for Cancel, Esc or a click outside.
+ * @param {{ title?: string, body?: string, ok?: string, danger?: boolean }} [o]
+ * @returns {Promise<boolean>}
+ */
 export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger = false } = {}) {
   return new Promise((resolve) => {
     let done = false;
@@ -282,20 +329,21 @@ export function choose({ title = 'Choose', body = '', options = [], cancel = 'Ca
           </button>`).join('')}</div>
       </div>
       <div class="dlg-foot"><button class="btn" data-act="cancel">${esc(cancel)}</button></div>`;
-    const rows = [...ov.box.querySelectorAll('.choice')];
-    rows.forEach((r) => r.addEventListener('click', () => finish(items[+r.dataset.i].value)));
-    ov.box.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+    const rows = [...ov.box.querySelectorAll('.choice')].map(html).filter((r) => r !== null);
+    rows.forEach((r) => r.addEventListener('click', () => { const o = items[Number(r.dataset.i)]; finish(o ? o.value : null); }));
+    const cancelBtn = part(ov.box, '[data-act="cancel"]');
+    cancelBtn.addEventListener('click', () => finish(null));
     ov.box.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      const at = rows.indexOf(document.activeElement);
+      const at = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
       if (at < 0) return;
       e.preventDefault();
-      rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+      rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
     });
     // Synchronously: the box is already in the document, a button needs no layout pass, and a
     // frame callback never runs in a background tab — which would leave the dialog up with
     // nothing focused and Up/Down doing nothing at all.
-    (rows[0] || ov.box.querySelector('[data-act="cancel"]')).focus();
+    (rows[0] || cancelBtn).focus();
   });
 }
 
@@ -380,8 +428,8 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
         <span class="pal-mode">${esc(mode)}</span>
       </div>`;
 
-    const input = ov.box.querySelector('.pal-input');
-    const list = ov.box.querySelector('.pal-list');
+    const input = /** @type {HTMLInputElement} */ (part(ov.box, '.pal-input'));
+    const list = part(ov.box, '.pal-list');
     let items = all;
     let sel = 0;
 
@@ -406,7 +454,7 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
       items.forEach((p, i) => {
         const row = document.createElement('div');
         row.className = 'row pal-row' + (i === sel ? ' active' : '');
-        row.dataset.i = i;
+        row.dataset.i = String(i);
         row.setAttribute('role', 'option');
         // No glyph per row: the head's icon already says what kind of thing is listed, and the
         // page picker and Ctrl+P draw their rows without one (E13).
@@ -428,17 +476,18 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-      else if (e.key === 'Enter') { e.preventDefault(); if (items.length) finish(items[sel]); }
+      else if (e.key === 'Enter') { e.preventDefault(); const p = items[sel]; if (p !== undefined) finish(p); }
     });
     list.addEventListener('click', (e) => {
-      const row = e.target.closest('.pal-row');
+      const row = rowAt(e, '.pal-row');
       if (!row) return;
-      finish(items[+row.dataset.i]);
+      const p = items[Number(row.dataset.i)];
+      if (p !== undefined) finish(p);
     });
     list.addEventListener('mousemove', (e) => {
-      const row = e.target.closest('.pal-row');
-      if (!row || +row.dataset.i === sel) return;
-      sel = +row.dataset.i;
+      const row = rowAt(e, '.pal-row');
+      if (!row || Number(row.dataset.i) === sel) return;
+      sel = Number(row.dataset.i);
       list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
     });
 
@@ -488,11 +537,13 @@ export async function pickFile({ title = 'Choose a file…', ext = null, current
 // `setPageList`; with nothing registered the vault is walked instead.
 async function quickOpenData() {
   const router = await import('./router.js');
+  /** @type {string[]} */
   let recent = [];
   try { recent = router.recentFiles(); } catch { /* no history yet */ }
   const provider = pageList();
+  /** @type {string[]} */
   let paths = [];
-  try { paths = provider ? provider() : await vaultFiles(['md']); } catch (e) { console.error('[ui] page list', e); }
+  try { paths = provider ? [...(await provider())] : await vaultFiles(['md']); } catch (e) { console.error('[ui] page list', e); }
   return { paths, recent };
 }
 
@@ -521,8 +572,9 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
         <span class="pal-mode">pages</span>
       </div>`;
 
-    const input = ov.box.querySelector('.pal-input');
-    const list = ov.box.querySelector('.pal-list');
+    const input = /** @type {HTMLInputElement} */ (part(ov.box, '.pal-input'));
+    const list = part(ov.box, '.pal-list');
+    /** @type {ReturnType<typeof pageItems>} */
     let items = [];
     let sel = 0;
 
@@ -541,7 +593,7 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
       items.forEach((it, i) => {
         const row = document.createElement('div');
         row.className = 'row pal-row' + (i === sel ? ' active' : '');
-        row.dataset.i = i;
+        row.dataset.i = String(i);
         row.setAttribute('role', 'option');
         row.innerHTML = `<span class="grow">${highlight(it.title, it.hits)}</span>`
           + (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '')
@@ -562,17 +614,18 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-      else if (e.key === 'Enter') { e.preventDefault(); if (items.length) finish(items[sel].path); }
+      else if (e.key === 'Enter') { e.preventDefault(); const it = items[sel]; if (it) finish(it.path); }
     });
     list.addEventListener('click', (e) => {
-      const row = e.target.closest('.pal-row');
+      const row = rowAt(e, '.pal-row');
       if (!row) return;
-      finish(items[+row.dataset.i].path);
+      const it = items[Number(row.dataset.i)];
+      if (it) finish(it.path);
     });
     list.addEventListener('mousemove', (e) => {
-      const row = e.target.closest('.pal-row');
-      if (!row || +row.dataset.i === sel) return;
-      sel = +row.dataset.i;
+      const row = rowAt(e, '.pal-row');
+      if (!row || Number(row.dataset.i) === sel) return;
+      sel = Number(row.dataset.i);
       list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
     });
 
@@ -598,7 +651,7 @@ export async function pageTitle(path) {
       if (end >= 0) text = text.slice(text.indexOf('\n', end + 1) + 1);
     }
     const m = text.match(/^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/m);
-    const h1 = m && m[1].trim();
+    const h1 = m && m[1] ? m[1].trim() : '';
     return h1 || fallback;
   } catch {
     return fallback;
@@ -667,7 +720,12 @@ export function contextMenu(x, y, items) {
 
 // Newest last in the DOM, so `dismissToast` pops the last child. The host is a live region:
 // a screen reader hears a save error the way a sighted user sees it (D10).
+/** @type {HTMLDivElement | null} */
 let toastHost = null;
+
+/** Each toast's kill, and whether it is sticky, for `dismissToast`. */
+/** @type {WeakMap<Element, { kill: () => void, sticky: boolean }>} */
+const toastState = new WeakMap();
 
 /**
  * A message above the status bar (docs/KERNEL.md `ose.toast`, H8). Errors surface here instead
@@ -695,7 +753,7 @@ export function toast(text, kind = 'info', ms = 4500, opts = {}) {
     document.body.appendChild(toastHost);
   }
   const sticky = !(ms > 0);
-  const actions = Array.isArray(opts && opts.actions) ? opts.actions.filter((a) => a && a.label && typeof a.run === 'function') : [];
+  const actions = opts && Array.isArray(opts.actions) ? opts.actions.filter((a) => a && a.label && typeof a.run === 'function') : [];
   const t = document.createElement('div');
   t.className = 'toast surface ' + kind + (sticky ? ' sticky' : '') + (actions.length ? ' has-actions' : '');
   if (kind === 'err') t.setAttribute('role', 'alert');
@@ -703,14 +761,14 @@ export function toast(text, kind = 'info', ms = 4500, opts = {}) {
   line.className = 'toast-text';
   line.textContent = String(text);
   t.appendChild(line);
-  let timer = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
   const kill = () => {
     clearTimeout(timer);
     t.remove();
     if (toastHost && !toastHost.childElementCount) { toastHost.remove(); toastHost = null; }
   };
-  t.__kill = kill;
-  t.__sticky = sticky;
+  toastState.set(t, { kill, sticky });
   if (actions.length || sticky) {
     const row = document.createElement('span');
     row.className = 'toast-actions';
@@ -759,8 +817,8 @@ export function dismissToast() {
   // "not saved" notice must not go with a keystroke meant for something else. Its own close
   // button, or its action, is the way.
   const all = toastHost ? [...toastHost.children] : [];
-  const t = all.reverse().find((n) => !n.__sticky);
+  const t = all.reverse().map((n) => toastState.get(n)).find((s) => s && !s.sticky);
   if (!t) return false;
-  t.__kill();
+  t.kill();
   return true;
 }

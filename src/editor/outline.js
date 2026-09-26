@@ -7,7 +7,7 @@
 // as `pickPage` in `ose:ui` is, so Esc, click-outside and focus return are the same everywhere
 // a list is chosen from.
 
-import { esc, openOverlay, fuzzy, highlight } from './host.js';
+import { openOverlay, fuzzy, highlight } from './host.js';
 import { caretAt } from './reveal.js';
 
 /** A heading glyph on the app's 16-unit icon grid, for the picker's head. */

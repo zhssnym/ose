@@ -5,33 +5,29 @@
   "version": "1.0.0",
   "identifier": "com.zhssnym.ose",
   "build": {
-    "frontendDist": "../dist-kernel",
+    "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Ose",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 720,
-        "minHeight": 480,
-        "center": true,
-        "resizable": true,
-        "decorations": false,
-        "shadow": true,
-        "visible": false,
-        "backgroundColor": "#1A1917",
-        "dragDropEnabled": false,
-        "zoomHotkeysEnabled": false
-      }
-    ],
+    "windows": [],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' vault: http://vault.localhost data: blob:",
+        "font-src": "'self' data:",
+        "media-src": "'self' vault: http://vault.localhost blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost vault: http://vault.localhost",
+        "worker-src": "'self' blob:",
+        "frame-src": "vault: http://vault.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      }
     }
   },
   "bundle": {
@@ -43,6 +39,24 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "mimeType": "text/markdown",
+        "rank": "Default"
+      },
+      {
+        "ext": ["txt"],
+        "name": "Plain text",
+        "description": "Plain text",
+        "role": "Editor",
+        "mimeType": "text/plain",
+        "rank": "Alternate"
+      }
     ],
     "macOS": {
       "minimumSystemVersion": "12.0",

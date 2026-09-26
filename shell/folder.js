@@ -18,6 +18,11 @@
 // Ctrl+Enter opens in a new tab, Backspace goes up, F2 renames, Delete trashes, Ctrl+X/C/V cut,
 // copy and paste, Ctrl+Z undoes the last file operation, Ctrl+A selects everything. Every one
 // of those ends in `shell/fileops.js`, the one UI for a file operation.
+//
+// The mouse's way to the same places is drag and drop (shell/drag.js): a row dragged onto a
+// folder row, here or in the tree, moves; a drop from Explorer or Finder on a folder row or
+// on the list's background is copied in; and Alt+drag takes the rows out of the app, as a
+// copy.
 
 import { ose } from 'ose:kernel';
 import { esc, icon, hasIcon, toast, contextMenu } from 'ose:ui';
@@ -25,14 +30,14 @@ import * as M from './folder-model.js';
 import * as fops from './fileops.js';
 import { openInNewTab } from './tabs.js';
 import * as pins from './pins.js';
-import { clean, baseName, dirName, titleOf } from './paths.js';
+import { clean, baseName, dirName, titleOf, vaultName, errorOf } from './paths.js';
+import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, dragOut, setDragged, dragged } from './drag.js';
 
 const { bus, commands, route } = ose;
 
 /** The route of a folder, with the child to select when there is one. */
 export const folderRoute = (path, select) => (select ? { type: 'folder', path: clean(path), select } : { type: 'folder', path: clean(path) });
 
-const vaultName = () => (ose.vault && ose.vault.name) || 'Vault';
 /** A folder's name as the chrome says it: its own name, the vault's at the root. */
 export const folderName = (path) => (clean(path) ? baseName(path) : vaultName());
 
@@ -46,14 +51,6 @@ function display(entry) {
 const iconSvg = (name, fallback = 'file') => icon(hasIcon(name) ? name : fallback);
 
 const showHidden = () => !!ose.settings.get().showHidden;
-
-/** A `[code] message` string, or an Error with a code, as `{ code, message }`. */
-function errorOf(e) {
-  if (e && typeof e === 'object' && e.code) return { code: String(e.code), message: String(e.message || '') };
-  const text = String((e && e.message) || e || '');
-  const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
-  return m ? { code: m[1], message: m[2] } : { code: null, message: text };
-}
 
 /* ------------------------------------------------------------------ the sort, per folder */
 
@@ -179,7 +176,7 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
       <span class="fv-type">${esc(type)}</span>
       <span class="fv-date">${esc(date)}</span>
       <span class="fv-size">${esc(size)}</span>`;
-    return `<div class="${cls.join(' ')}" role="option" id="${uid}-${i}" data-name="${esc(e.name)}" aria-selected="${me.selected.has(e.name)}" title="${esc(e.path)}">
+    return `<div class="${cls.join(' ')}" role="option" id="${uid}-${i}" data-name="${esc(e.name)}" aria-selected="${me.selected.has(e.name)}" title="${esc(e.path)}" draggable="true">
       <span class="fv-name">${iconSvg(M.iconName(e), e.kind === 'dir' ? 'folder' : 'file')}<span class="fv-text">${esc(display(e))}</span>${badge}${lock}${sr}</span>${hint}
     </div>`;
   }
@@ -559,6 +556,84 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     if (done) { e.preventDefault(); e.stopPropagation(); }
   });
 
+  /* ---- drag and drop (shell/drag.js) */
+
+  let dropOn = null;
+  let draggingHere = false;
+  // The host element outlives this list when a caller reuses it: its drop listeners go with
+  // the list (`unmount`), and the list's own go with its nodes.
+  const hostEvents = new AbortController();
+  const onHost = { signal: hostEvents.signal };
+  function setDropOn(node) {
+    if (dropOn === node) return;
+    if (dropOn) dropOn.classList.remove('drop-on');
+    dropOn = node;
+    if (dropOn) dropOn.classList.add('drop-on');
+  }
+  /**
+   * Where a drop at `node` lands: a folder row's folder, else this folder. The whole list is
+   * this folder's background, the note under it included, so an empty folder takes a drop too.
+   */
+  function dropTarget(node) {
+    const row = node && node.closest ? node.closest('.fv-row') : null;
+    const en = row ? byName(row.dataset.name) : null;
+    if (en && en.kind === 'dir' && en.readable !== false && !en.link) return { el: row, dir: en.path };
+    return { el, dir: me.path };
+  }
+
+  listEl.addEventListener('dragstart', (e) => {
+    const row = e.target.closest && e.target.closest('.fv-row');
+    const en = row ? byName(row.dataset.name) : null;
+    if (!en || !e.dataTransfer) { e.preventDefault(); return; }
+    // A row inside the selection drags the selection; any other row, itself.
+    const list = me.selected.has(en.name) ? chosen() : [en];
+    const paths = list.map((x) => x.path);
+    // Alt: out of the app, as a copy (drag.js `dragOut`); nothing moves in the vault.
+    if (e.altKey) { dragOut(e, paths); return; }
+    draggingHere = true;
+    setDragged(paths);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(paths));
+    e.dataTransfer.setData('text/plain', paths.join('\n'));
+  });
+  listEl.addEventListener('dragend', () => { draggingHere = false; setDragged(null); setDropOn(null); });
+
+  el.addEventListener('dragover', (e) => {
+    const moving = dragged();
+    const internal = !!moving || isInternal(e.dataTransfer);
+    const external = !internal && hasOsFiles(e.dataTransfer);
+    if (!internal && !external) return;
+    e.preventDefault();
+    const t = dropTarget(e.target);
+    // A move lights a folder only when every dragged item may go there (not into itself, not
+    // where it already is); the list's own background is where the rows already are.
+    const ok = external || (moving || []).every((p) => fops.canMoveInto(p, t.dir));
+    if (!ok) { setDropOn(null); e.dataTransfer.dropEffect = 'none'; return; }
+    e.dataTransfer.dropEffect = internal ? 'move' : 'copy';
+    setDropOn(t.el);
+  }, onHost);
+  el.addEventListener('dragleave', (e) => {
+    if (dropOn && !el.contains(e.relatedTarget)) setDropOn(null);
+  }, onHost);
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const t = dropTarget(e.target);
+    let from = dragged();
+    if (!from && isInternal(e.dataTransfer)) {
+      try { const v = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)); if (Array.isArray(v)) from = v.map(clean).filter(Boolean); } catch { from = null; }
+    }
+    // The drop's items are readable only inside the event: taken before anything awaits.
+    const dropped = !(from && from.length) && hasOsFiles(e.dataTransfer) ? takeDropped(e.dataTransfer) : null;
+    setDropOn(null);
+    if (from && from.length) {
+      const movable = from.filter((p) => fops.canMoveInto(p, t.dir));
+      if (movable.length) void fops.movePaths(movable.map((p) => ({ path: p, kind: 'file' })), t.dir);
+    } else if (dropped) {
+      void importDropped(dropped, t.dir);
+    }
+    if (draggingHere) { draggingHere = false; setDragged(null); }
+  }, onHost);
+
   if (colsEl) {
     colsEl.addEventListener('click', (e) => {
       const b = e.target.closest('.fv-col');
@@ -635,6 +710,9 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     openMenu: () => { const r = listEl.getBoundingClientRect(); openMenuAt(Math.round(r.left + 24), Math.round(r.top)); },
     unmount() {
       me.alive = false;
+      hostEvents.abort();
+      setDropOn(null);
+      el.classList.remove('drop-on');
       for (const off of offs) { try { off && off(); } catch { /* gone */ } }
       el.textContent = '';
     },

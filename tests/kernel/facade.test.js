@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The kernel facade is whole: the wave-1 calls (CONTRACT 4.2 of wave 1), focus not restored at
 // boot (H18), the leave gate reaching the host; and the wave-2 calls (CONTRACT §4) with the
-// plugin runtime gone (W2). The wave-2 half runs once the kernel exposes `ose.tabs`.
+// plugin runtime gone (W2).
 import { describe, expect, it, test, vi } from 'vitest';
 
 const calls = [];
@@ -18,7 +18,6 @@ vi.mock('../../src/kernel/bridge/index.js', async () => {
     localGet: async () => ({}), localSet: async () => null,
     setTitle: async () => null, log: async (t, l) => { calls.push(['log', l, t]); return null; },
     saveFile: async (...a) => { calls.push(['saveFile', ...a]); return { status: 'conflict', disk: { exists: true, text: 'x', hash: 'y' } }; },
-    reloadShell: async () => { calls.push(['reloadShell']); return null; },
     win: { destroy: async () => { calls.push(['destroy']); } },
   };
   return { ...real, bridge, setEpoch: real.setEpoch, currentEpoch: real.currentEpoch };
@@ -56,13 +55,15 @@ test('save needs expectedHash; a conflict is logged by the host, not twice', asy
   expect(calls.some((c) => c[0] === 'log' && c[2].includes('conflict a.md'))).toBe(false);
 });
 
-test('reload leaves first; a refusal stops it', async () => {
+test('reload leaves first; a refusal stops it; the document reloads itself (X4)', async () => {
+  const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
   const off = ose.window.onLeave(() => false);
   expect(await ose.reload()).toBe(false);
-  expect(calls.some((c) => c[0] === 'reloadShell')).toBe(false);
+  expect(reload).not.toHaveBeenCalled();
   off();
   expect(await ose.reload()).toBe(true);
-  expect(calls.some((c) => c[0] === 'reloadShell')).toBe(true);
+  expect(reload).toHaveBeenCalledTimes(1);
+  reload.mockRestore();
 });
 
 test('the close fan-out goes through the gate; onChangeRequested', async () => {
@@ -78,7 +79,7 @@ test('the close fan-out goes through the gate; onChangeRequested', async () => {
   expect(calls.some((c) => c[0] === 'destroy')).toBe(true);
 });
 
-describe.skipIf(!ose.tabs)('the wave-2 facade (CONTRACT §4)', () => {
+describe('the wave-2 facade (CONTRACT §4)', () => {
   it('has tabs, the session, the per-machine store and the new file calls', () => {
     for (const k of ['list', 'active', 'open', 'activate', 'close', 'closeOthers', 'move', 'reopenClosed', 'on']) expect(typeof ose.tabs[k], `tabs.${k}`).toBe('function');
     for (const k of ['snapshot', 'restore']) expect(typeof ose.session[k], `session.${k}`).toBe('function');

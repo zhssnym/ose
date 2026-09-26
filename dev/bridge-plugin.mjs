@@ -14,6 +14,16 @@
 // `.ose`, `.git`, the app's own files at the root and temp files are excluded; dotfiles are
 // hidden until the page asks for them. `OSE_DEV_FAULTS=1` adds `devFault(spec)` for tests: see
 // `faults` below.
+//
+// Wave 3 (CONTRACT §4.1): the typed host commands keep their names here and this bridge keeps
+// its wire format (`POST /__bridge/<name> {"args":[...]}`, `[code] message` errors), so the
+// kernel's http adapter is one `invoke(name, args)`. New twins: `createNewBinary`,
+// `importOutside`, `outsideOpen`, `takeOpens` (always `[]`: a browser tab gets no OS opens),
+// `pickFile` and `openVaultWindow` (`[unsupported]`: no dialog, no second window), `readFile`
+// and `saveFile` with an encoding, and `/vault/` with Range requests and `/vault/~abs/<path>`
+// for media beside a file outside the vault. Files outside the vault are registered only under
+// `OSE_E2E_OUTSIDE` (folders, separated like PATH) or, under `npm run dev:test`, the throwaway
+// vault's parent folder; their folders are watched, one level, and changes come as `abs:` paths.
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
@@ -38,7 +48,10 @@ export function bridgePlugin() {
   const dataDir = path.resolve(process.env.OSE_APPDATA || process.env.OSE_DEV_APPDATA || path.join(repoRoot, 'work', 'dev-appdata'));
   // The dev bridge serves one vault for its whole life, so its epoch never moves.
   const EPOCH = 1;
-  const store = createFiles({ root, dataDir, epoch: EPOCH, log: (line) => console.log('[app]', line) });
+  // Where a file outside the vault may be opened from (see the header).
+  const outsideRoots = (process.env.OSE_E2E_OUTSIDE || '').split(path.delimiter).map((d) => d.trim()).filter(Boolean);
+  if (!outsideRoots.length && (process.env.OSE_TEST_ROOT || '').trim()) outsideRoots.push(path.dirname(root));
+  const store = createFiles({ root, dataDir, epoch: EPOCH, log: (line) => console.log('[app]', line), outsideRoots, onOutside: (native) => watchOutside(native) });
   const { abs } = store;
   const rel = (full) => path.relative(root, full).split(path.sep).join('/');
   // The vault search, the same semantics as the host (src-tauri/src/vault.rs `search`): terms
@@ -301,6 +314,36 @@ export function bridgePlugin() {
     watcher = null;
   }
 
+  // ---------------------------------------------------------------- outside folders
+  // One non-recursive watch per folder of a registered outside file (outside.rs): a change to a
+  // file in it is reported with its `abs:` path; a rename comes as a delete and a create.
+  const outsideWatchers = new Map(); // folder -> { watcher, pending: Set<native>, timer }
+  const flushOutside = async (w) => {
+    w.timer = null;
+    const batch = [...w.pending];
+    w.pending.clear();
+    const changes = [];
+    for (const full of batch) {
+      let st = null;
+      try { st = await fs.stat(full); } catch { st = null; }
+      if (st && st.isDirectory()) continue;
+      changes.push({ path: store.absForm(full), kind: st ? 'modify' : 'delete' });
+    }
+    if (changes.length) emit('fs', { changes });
+  };
+  function watchOutside(native) {
+    const dir = path.dirname(native);
+    if (outsideWatchers.has(dir)) return;
+    const w = { watcher: null, pending: new Set(), timer: null };
+    w.watcher = fss.watch(dir, { recursive: false, persistent: false }, (_type, filename) => {
+      if (!filename) return;
+      w.pending.add(path.join(dir, String(filename)));
+      if (!w.timer) w.timer = setTimeout(() => { flushOutside(w).catch(() => { }); }, 150);
+    });
+    w.watcher.on('error', (e) => console.warn(`[bridge] outside watch ${dir}: ${e.message}`));
+    outsideWatchers.set(dir, w);
+  }
+
   // ---------------------------------------------------------------- shell out
   const openExternal = async (url) => {
     let u;
@@ -321,7 +364,7 @@ export function bridgePlugin() {
   const EXECUTABLE = new Set(['exe', 'bat', 'cmd', 'com', 'msi', 'ps1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'scr',
     'pif', 'reg', 'lnk', 'url', 'sh', 'command', 'app', 'jar', 'py', 'pyw', 'rb', 'pl']);
   const openPath = async (p) => {
-    const full = abs(p);
+    const full = store.target(p).full;
     if (!fss.existsSync(full)) throw new Error('nothing to open: ' + p);
     if (EXECUTABLE.has(path.extname(full).slice(1).toLowerCase())) return reveal(p);
     if (IS_WIN) {
@@ -332,7 +375,7 @@ export function bridgePlugin() {
   };
 
   const reveal = async (p) => {
-    const full = abs(p);
+    const full = store.target(p).full;
     const exists = fss.existsSync(full);
     if (IS_WIN) {
       const target = exists ? full : path.dirname(full);
@@ -366,14 +409,19 @@ export function bridgePlugin() {
     // Recent vaults are the host's business (src-tauri/src/vaults.rs): the dev bridge has one
     // configured root and no per-user config folder, so the list is the vault it is serving.
     recentVaults: async () => (noVault ? [] : [{ path: root, name: path.basename(root), exists: true, current: true }]),
-    openVault: async () => ({ root, name: path.basename(root), epoch: EPOCH }),
+    // One vault, one window: an open adopts the vault this bridge serves.
+    openVault: async () => ({ status: 'adopted', root, name: path.basename(root), epoch: EPOCH }),
+    openVaultWindow: async () => { throw new Error('[unsupported] a browser tab cannot open another window; run the app'); },
+    pickFile: async () => { throw new Error('[unsupported] a browser tab has no file dialog; type the path in the address bar'); },
+    // A browser tab is never handed files by the OS.
+    takeOpens: async () => [],
     forgetVault: async () => null,
     // Every file command, the listings, the trash, the save path, drafts, versions, the local
     // store and the log (./files.mjs).
     ...store.files,
     search: async (q, opts) => search(q, opts || {}),
 
-    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root, logPath: store.logPath }),
+    platform: async () => ({ os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux', version: 'dev', build: null, exe: process.execPath, exeDir: path.dirname(process.execPath), root: noVault ? null : root, logPath: store.logPath, dragIcon: null }),
 
     getState: async () => { try { return JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { return {}; } },
     // `setState(state, {epoch})`: a write sent late from a page of a vault that was left is
@@ -416,8 +464,8 @@ export function bridgePlugin() {
   if (process.env.OSE_DEV_FAULTS === '1') {
     cmds.devFault = async (spec) => {
       if (spec === null || spec === undefined) { fault = null; return null; }
-      if (!spec || typeof spec !== 'object' || typeof spec.cmd !== 'string' || !/^[a-z_]+$/.test(String(spec.code || ''))) {
-        throw new Error('[bad_arg] devFault needs {cmd, code} (code in lowercase letters and _), or null');
+      if (!spec || typeof spec !== 'object' || typeof spec.cmd !== 'string' || !/^[a-z0-9_]+$/.test(String(spec.code || ''))) {
+        throw new Error('[bad_arg] devFault needs {cmd, code} (code in lowercase letters, digits and _), or null');
       }
       const times = spec.times === undefined || spec.times === null ? null : Number(spec.times);
       if (times !== null && !(Number.isInteger(times) && times > 0)) throw new Error('[bad_arg] devFault times must be a positive whole number');
@@ -433,11 +481,55 @@ export function bridgePlugin() {
     return `[${f.code}] ${f.message}`;
   };
 
+  // ---------------------------------------------------------------- the media origin
+  /**
+   * `/vault/<vault path>` and `/vault/~abs/<absolute path>` (protocol.rs): a file, with
+   * `Accept-Ranges: bytes`; `Range: bytes=a-b`, `a-` or `-n` answers 206 with only that slice
+   * read, and a range past the end 416. A file is never read whole to answer a range.
+   */
+  const serveMedia = async (req, res, rel) => {
+    let f;
+    try {
+      if (rel.startsWith('~abs/')) {
+        let native = rel.slice(5);
+        if (!IS_WIN && !native.startsWith('/')) native = '/' + native;
+        f = store.outsideMedia(native);
+        if (!f) throw new Error('not beside a file opened from outside the vault');
+      } else {
+        f = abs(rel);
+      }
+      const st = await fs.stat(f);
+      if (!st.isFile()) throw new Error('not a file');
+      res.setHeader('Content-Type', mime[path.extname(f).toLowerCase()] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Accept-Ranges', 'bytes');
+      const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers?.range || '').trim());
+      if (!range || (!range[1] && !range[2])) {
+        res.setHeader('Content-Length', String(st.size));
+        fss.createReadStream(f).pipe(res);
+        return;
+      }
+      let start, end;
+      if (!range[1]) { start = Math.max(0, st.size - Number(range[2])); end = st.size - 1; }
+      else { start = Number(range[1]); end = range[2] ? Math.min(Number(range[2]), st.size - 1) : st.size - 1; }
+      if (start >= st.size || start > end) {
+        res.statusCode = 416;
+        res.setHeader('Content-Range', `bytes */${st.size}`);
+        res.end();
+        return;
+      }
+      res.statusCode = 206;
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${st.size}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      fss.createReadStream(f, { start, end }).pipe(res);
+    } catch { res.statusCode = 404; res.end('not found'); }
+  };
+
   return {
     name: 'os-dev-bridge',
     configureServer(server) {
       startWatch();
-      const shutdown = () => { stopWatch(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
+      const shutdown = () => { stopWatch(); for (const w of outsideWatchers.values()) { clearTimeout(w.timer); try { w.watcher.close(); } catch { } } outsideWatchers.clear(); for (const c of clients) { clearInterval(c.ping); try { c.res.end(); } catch { } } clients.clear(); };
       server.httpServer?.on('close', shutdown);
       process.once('exit', shutdown);
       process.once('SIGINT', () => { shutdown(); process.exit(0); });
@@ -449,14 +541,7 @@ export function bridgePlugin() {
         if (url === '/__bridge/events') { openStream(req, res); return; }
 
         if (url.startsWith('/vault/')) {
-          try {
-            const f = abs(url.slice(7));
-            const st = await fs.stat(f);
-            if (!st.isFile()) throw new Error('not a file');
-            res.setHeader('Content-Type', mime[path.extname(f).toLowerCase()] || 'application/octet-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            fss.createReadStream(f).pipe(res);
-          } catch { res.statusCode = 404; res.end('not found'); }
+          serveMedia(req, res, url.slice(7));
           return;
         }
 

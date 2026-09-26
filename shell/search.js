@@ -19,7 +19,7 @@
 import { ose } from 'ose:kernel';
 import { esc, icon } from 'ose:ui';
 import { panel, focusPage } from './layout.js';
-import { baseName, dirName } from './paths.js';
+import { dirName, titleOf } from './paths.js';
 
 const { bus, commands, debounce } = ose;
 
@@ -43,8 +43,8 @@ let live = null;
 // re-asking is a handful of stats.
 const mtimes = new Map();
 
-/** The name the chrome shows for a path (W8): the kernel's, with a plain fallback. */
-const display = (p) => (ose.names && typeof ose.names.display === 'function' ? ose.names.display(p) : baseName(p));
+/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.js. */
+const display = (p) => titleOf(p);
 
 /** Both answers: the `{hits}` object of batch 12 and the bare array an older host returns. */
 const hitsOf = (r) => (Array.isArray(r) ? r : Array.isArray(r && r.hits) ? r.hits : []);
@@ -247,7 +247,7 @@ function mountSearch(el, start = {}) {
     if (!h) return;
     remember(input.value);
     const route = routeOf(h, terms);
-    const opened = aside && ose.tabs && typeof ose.tabs.open === 'function'
+    const opened = aside
       ? ose.tabs.open(route, { reuse: false })
       : ose.route.navigate(route, { focus: false });
     // The page may take the caret as it mounts (its find bar opens with the query): the field

@@ -23,7 +23,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -51,13 +51,14 @@ const LIVENESS: Duration = Duration::from_secs(1);
 /// How deep the id cache walks, the same bound as the tree's.
 const MAX_DEPTH: usize = 25;
 
-/// Set by `fault()` when notify reports, through the `log` crate, that it stopped watching. The
-/// running watcher sees it within a poll and restarts.
-static FAULT: AtomicBool = AtomicBool::new(false);
+/// Counted up by `fault()` when notify reports, through the `log` crate, that it stopped
+/// watching. The record does not say which watch died, and each window has its own: every
+/// running watcher sees the count move within a poll and restarts.
+static FAULTS: AtomicU64 = AtomicU64::new(0);
 
-/// notify said it gave up on the watch (lib.rs `Records`): restart, and tell the page to re-read.
+/// notify said it gave up on a watch (lib.rs `Records`): restart, and tell the page to re-read.
 pub fn fault() {
-    FAULT.store(true, Ordering::SeqCst);
+    FAULTS.fetch_add(1, Ordering::SeqCst);
 }
 
 /// Where the watcher's output goes: the `fs` event, and the drafts folder a rename re-keys.
@@ -82,17 +83,18 @@ impl Drop for Handle {
     }
 }
 
-/// Starts watching `root` for the app: changes become the `fs` event.
-pub fn start(app: AppHandle, root: PathBuf) -> Handle {
+/// Starts watching `root` for window `label`: changes become the `fs` event, sent to that window
+/// only (another window has another vault).
+pub fn start(app: AppHandle, label: String, root: PathBuf) -> Handle {
     let (a, b) = (app.clone(), app);
     start_with(
         Sink {
             emit: Box::new(move |payload| {
-                if let Err(e) = a.emit("fs", payload) {
+                if let Err(e) = a.emit_to(tauri::EventTarget::webview_window(&label), "fs", payload) {
                     eprintln!("fs event dropped: {e}");
                 }
             }),
-            data_dir: Box::new(move || b.state::<crate::AppState>().data_dir()),
+            data_dir: Box::new(move || b.state::<crate::Host>().data_dir()),
         },
         root,
     )
@@ -147,8 +149,8 @@ pub fn start_with(sink: Sink, root: PathBuf) -> Handle {
 
 /// One watcher's life. `Ok(())` means "asked to stop", `Err` means "restart me".
 fn run(sink: &Sink, root: &Path, stop: &AtomicBool, missed: &mut bool) -> Result<(), String> {
-    // A fault from the watcher being replaced is not this one's.
-    FAULT.store(false, Ordering::SeqCst);
+    // A fault from before this watcher started is not this one's.
+    let faults = FAULTS.load(Ordering::SeqCst);
     let (tx, rx) = channel::<DebounceEventResult>();
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, VaultIds>(
         DEBOUNCE,
@@ -163,7 +165,7 @@ fn run(sink: &Sink, root: &Path, stop: &AtomicBool, missed: &mut bool) -> Result
         (sink.emit)(json!({ "changes": [], "rescan": true }));
     }
 
-    let mut batch = Batch::default();
+    let mut batch = Batch { own: hide::own_entry_of(root), ..Batch::default() };
     let mut last = Instant::now();
     let mut checked = Instant::now();
 
@@ -171,7 +173,7 @@ fn run(sink: &Sink, root: &Path, stop: &AtomicBool, missed: &mut bool) -> Result
         if stop.load(Ordering::Relaxed) {
             return Ok(());
         }
-        if FAULT.swap(false, Ordering::SeqCst) {
+        if FAULTS.load(Ordering::SeqCst) != faults {
             return Err("notify stopped watching".to_string());
         }
         // The vault folder can go away without notify saying a word: on Windows the backend
@@ -228,7 +230,7 @@ impl VaultIds {
     fn under_excluded(&self, path: &Path) -> bool {
         let Some(rel) = rel(&self.root, path) else { return false };
         match rel.rsplit_once('/') {
-            Some((parent, _)) => hide::excluded(parent),
+            Some((parent, _)) => hide::excluded(&self.root, parent),
             None => false,
         }
     }
@@ -250,7 +252,7 @@ impl FileIdCache for VaultIds {
         if recursive_mode != RecursiveMode::Recursive || !is_dir {
             return;
         }
-        if path != self.root && rel(&self.root, path).is_some_and(|r| hide::excluded(&r)) {
+        if path != self.root && rel(&self.root, path).is_some_and(|r| hide::excluded(&self.root, &r)) {
             return;
         }
         for entry in hide::walker(&self.root, path, true, MAX_DEPTH).flatten() {
@@ -305,6 +307,8 @@ struct Batch {
     seen: HashSet<String>,
     /// The backend flagged an event with Rescan: the batch goes out with `rescan: true`.
     rescan: bool,
+    /// The app's own entry at the vault root (hide.rs `own_entry_of`), worked out once.
+    own: Option<String>,
 }
 
 impl Batch {
@@ -338,14 +342,15 @@ impl Batch {
     }
 
     fn add(&mut self, kind: Kind, path: String) {
-        if hide::excluded(&path) {
+        if hide::excluded_with(self.own.as_deref(), &path) {
             return;
         }
         self.push(Pending { kind, path, to: None });
     }
 
     fn rename(&mut self, from: String, to: String) {
-        match (hide::excluded(&from), hide::excluded(&to)) {
+        let own = self.own.as_deref();
+        match (hide::excluded_with(own, &from), hide::excluded_with(own, &to)) {
             (true, true) => {}
             // An atomic save: a temp file renamed onto the page is the page changing.
             (true, false) => self.push(Pending { kind: Kind::Modify, path: to, to: None }),

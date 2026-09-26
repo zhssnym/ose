@@ -6,11 +6,9 @@
 // Depends on: planner (src/planner/detect.js, settings.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
-import { present as exists } from '../support/present.js';
 
-const has = (f) => exists(`src/planner/${f}`);
-const { detectPaths } = has('detect.js') ? await import('../../src/planner/detect.js') : {};
-const settings = has('settings.js') ? await import('../../src/planner/settings.js') : null;
+const { detectPaths } = await import('../../src/planner/detect.js');
+const settings = await import('../../src/planner/settings.js');
 
 /** A tree from `{ 'a/b.md': '', 'a/c/': '' }`: every folder on the way made, names kept. */
 function tree(paths, extra = {}) {
@@ -32,7 +30,7 @@ function tree(paths, extra = {}) {
   return root;
 }
 
-describe.skipIf(!detectPaths)('detectPaths', () => {
+describe('detectPaths', () => {
   it('finds the four with numbered prefixes and any case', () => {
     const t = tree([
       '0-tasks/1-general-todo.md', '0-tasks/2-School-TODO.md', '0-tasks/notes.md',
@@ -73,7 +71,7 @@ describe.skipIf(!detectPaths)('detectPaths', () => {
   });
 });
 
-describe.skipIf(!settings)('planner settings: migration and normalising', () => {
+describe('planner settings: migration and normalising', () => {
   it('copies the old plugin paths (M29)', () => {
     const plugins = {
       day: { paths: { calendar: 'cal.md', todo: '0-tasks/todo.md', reports: 'r' } },
@@ -104,7 +102,7 @@ describe.skipIf(!settings)('planner settings: migration and normalising', () => 
   });
 });
 
-describe.skipIf(!detectPaths)('detectPaths, todo as a word', () => {
+describe('detectPaths, todo as a word', () => {
   it('matches todo or todos as a whole word, not inside another word', () => {
     const r = detectPaths(tree(['Mastodon.md', 'photodocs.md', 'todos.md', 'a/3-todo list.md']));
     expect(r.todo).toEqual(['todos.md', 'a/3-todo list.md']);

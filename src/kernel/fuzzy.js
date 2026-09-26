@@ -60,15 +60,23 @@ export function highlight(text, hits) {
  * stays free of imports that would close a cycle.
  * Returns [{ path, title, hint, score, hits, recent }], best first, capped at `limit`.
  */
+/**
+ * @param {Iterable<string>} paths
+ * @param {string} query
+ * @param {{ recent?: string[], limit?: number, titles?: Map<string, string> | null }} [opts]
+ * @returns {{ path: string, title: string, hint: string, score: number, hits: Set<number> | number[] | null, recent: boolean }[]}
+ */
 export function pageItems(paths, query, { recent = [], limit = 200, titles = null } = {}) {
   const words = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rank = new Map(recent.map((p, i) => [p, i]));
+  /** @type {{ path: string, title: string, hint: string, score: number, hits: Set<number> | number[] | null, recent: boolean }[]} */
   const out = [];
   for (const p of paths) {
     const title = (titles && titles.get(p)) || display(p);
     const lowPath = p.toLowerCase();
     const lowTitle = title.toLowerCase();
     let score = 0;
+    /** @type {Set<number> | null} */
     let hits = null;
     let ok = true;
     for (const w of words) {
@@ -81,7 +89,7 @@ export function pageItems(paths, query, { recent = [], limit = 200, titles = nul
       if (inTitle && inTitle.hits) hits = hits ? new Set([...hits, ...inTitle.hits]) : inTitle.hits;
     }
     if (!ok) continue;
-    const r = rank.has(p) ? rank.get(p) : 999;
+    const r = rank.get(p) ?? 999;
     out.push({
       path: p,
       title,

@@ -9,8 +9,9 @@
 // disk: only the keys this window changed are written over, and whatever the host keeps in the
 // same file (the window bounds, the theme mirror) is never reverted by a stale copy.
 //
-// A host without `localGet` (`[unknown_command]`) gets an in-memory copy for the session and
-// one warning in the log; nothing throws.
+// A read that fails, for any reason (an unknown command included: X5, every command is
+// typed and a missing one is a hard error), leaves the scope unloaded for the session: it is
+// logged, the defaults answer, and nothing is written over what could not be read.
 
 import { bridge } from './bridge/index.js';
 import { logLine } from './log.js';
@@ -19,20 +20,10 @@ const WRITE_MS = 300;
 
 /** One scope: its cache, the keys changed since the last write, its timer. */
 function scope(name) {
-  return { name, cache: {}, loaded: false, memory: false, touched: new Set(), timer: null, writing: null };
+  return { name, cache: {}, loaded: false, touched: new Set(), timer: null, writing: null };
 }
 
 const scopes = { vault: scope('vault'), app: scope('app') };
-
-let warned = false;
-function memoryOnly(s, e) {
-  s.memory = true;
-  if (warned) return;
-  warned = true;
-  const why = (e && e.message) || String(e);
-  console.warn('[local] the host keeps no per-machine state; this session only:', why);
-  logLine(`local state unavailable, kept in memory: ${why}`, 'warn');
-}
 
 async function load(s) {
   try {
@@ -43,7 +34,6 @@ async function load(s) {
     s.cache = {};
     // No vault open is not a failure of the store: there is simply nothing to read yet.
     if (e && e.code === 'no_vault') { s.loaded = false; return; }
-    if (e && e.code === 'unknown_command') { memoryOnly(s, e); return; }
     // Unreadable is not empty: nothing is written over it this session.
     s.loaded = false;
     console.warn(`[local] ${s.name} could not be read:`, (e && e.message) || e);
@@ -62,7 +52,7 @@ export async function loadLocal() {
  */
 function write(s, { fresh = true } = {}) {
   const send = async () => {
-    if (!s.loaded || s.memory || !s.touched.size) return;
+    if (!s.loaded || !s.touched.size) return;
     const keys = [...s.touched];
     s.touched.clear();
     if (fresh) {
@@ -83,7 +73,6 @@ function write(s, { fresh = true } = {}) {
       await bridge.localSet(s.name, { ...s.cache });
     } catch (e) {
       for (const k of keys) s.touched.add(k);
-      if (e && e.code === 'unknown_command') { memoryOnly(s, e); return; }
       console.warn(`[local] ${s.name} write failed:`, (e && e.message) || e);
       logLine(`local state ${s.name} write failed: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'warn');
     }
@@ -147,7 +136,7 @@ export function localCache(which = 'vault') { return scopes[which] ? scopes[whic
  */
 export function migrateLocal(state, readingKeys) {
   const v = scopes.vault;
-  if (!v.loaded && !v.memory) return false;
+  if (!v.loaded) return false;
   if (v.cache.migrated === 1) return false;
   const st = state && typeof state === 'object' ? state : {};
   if (Array.isArray(st.recent) && v.cache.recent === undefined) patch(v, 'recent', st.recent.slice());

@@ -13,11 +13,8 @@
 // Depends on: kernel (src/kernel/router.js, tabs.js, pagehost.js, session.js).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { present } from '../support/present.js';
 
 vi.mock('../../src/kernel/bridge/index.js', () => import('./fake-bridge.js'));
-
-const has = (f) => present(`src/kernel/${f}`);
 
 let R;       // src/kernel/router.js
 let T;       // src/kernel/tabs.js
@@ -70,7 +67,7 @@ const keys = () => T.list().map((t) => (t.route ? `${t.route.type}:${t.route.pat
 /** The host calls since the mark, without the opens. */
 const since = (mark) => host.log.slice(mark).filter(([c]) => c !== 'open');
 
-describe.skipIf(!has('tabs.js'))('tabs', () => {
+describe('tabs', () => {
   it('each tab has its own back and forward', async () => {
     await R.navigate(page('a.md'));
     await R.navigate(page('b.md'));
@@ -228,7 +225,7 @@ describe.skipIf(!has('tabs.js'))('tabs', () => {
   });
 });
 
-describe.skipIf(!has('tabs.js') || !has('session.js'))('session', () => {
+describe('session', () => {
   it('a snapshot restores the same tabs, their histories and the active one, mounting one page', async () => {
     const S = await import('../../src/kernel/session.js');
     await R.navigate(page('a.md'));

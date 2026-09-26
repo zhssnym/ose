@@ -8,8 +8,9 @@
 //! - `local/vaults/<vaultKey>.json`: this machine, one vault, filed under the same key as the
 //!   drafts (`localGet('vault')`).
 //!
-//! The page reads and writes whole objects, at most 1 MB each. Two keys of `app.json` are the
-//! host's own, `window` (the bounds) and `theme` (the resolved theme, the first paint's
+//! The page reads and writes whole objects, at most 1 MB each. The `window` key of a vault's
+//! object is the host's (the geometry of a window other than `main`), and two keys of `app.json`
+//! are the host's own, `window` (the bounds) and `theme` (the resolved theme, the first paint's
 //! colour): the page never sees them and cannot overwrite them, so a page holding an old copy
 //! of the object can never put the window back where it was two moves ago. Writes go through
 //! `vault::write_atomic_owned`: the page still has the object, so a refused rename leaves
@@ -19,9 +20,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
-use crate::{arg_str, coded, Ctx};
+use crate::coded;
 
 /// One read-modify-write at a time, for the page's writes and the host's own patches alike.
 static GATE: Mutex<()> = Mutex::new(());
@@ -29,8 +30,19 @@ static GATE: Mutex<()> = Mutex::new(());
 /// The most one object may weigh, serialised.
 pub const MAX_BYTES: usize = 1024 * 1024;
 
-/// The keys of `app.json` the host owns.
-const HOST_KEYS: &[&str] = &["window", "theme"];
+/// The keys of `app.json` the host owns. `legacyOrigin` is what was rescued from the old
+/// origin's page store, once (legacy.rs): a page that rewrote it would have it tried again.
+const HOST_KEYS: &[&str] = &["window", "theme", "legacyOrigin"];
+/// The keys of a vault's object the host owns: the geometry of a window other than `main`.
+const VAULT_HOST_KEYS: &[&str] = &["window"];
+
+fn host_keys(app: bool) -> &'static [&'static str] {
+    if app {
+        HOST_KEYS
+    } else {
+        VAULT_HOST_KEYS
+    }
+}
 
 /// How long a refused rename is tried again: short, the page retries and still has the object.
 const BUDGET_MS: u64 = 200;
@@ -63,14 +75,12 @@ fn write(file: &Path, value: &Map<String, Value>) -> Result<(), String> {
     crate::vault::write_atomic_owned(file, text.as_bytes(), BUDGET_MS).map_err(|f| f.message("local state", None))
 }
 
-/// `localGet(scope)` for a file: the object, less the host's keys in `app.json`.
+/// `localGet(scope)` for a file: the object, less the host's keys.
 pub fn get(file: &Path, app: bool) -> Value {
     let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
     let mut o = read(file);
-    if app {
-        for k in HOST_KEYS {
-            o.remove(*k);
-        }
+    for k in host_keys(app) {
+        o.remove(*k);
     }
     Value::Object(o)
 }
@@ -87,13 +97,11 @@ pub fn set(file: &Path, value: &Value, app: bool) -> Result<(), String> {
     }
     let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
     let mut next = given.clone();
-    if app {
-        let on_disk = read(file);
-        for k in HOST_KEYS {
-            next.remove(*k);
-            if let Some(v) = on_disk.get(*k) {
-                next.insert((*k).to_string(), v.clone());
-            }
+    let on_disk = read(file);
+    for k in host_keys(app) {
+        next.remove(*k);
+        if let Some(v) = on_disk.get(*k) {
+            next.insert((*k).to_string(), v.clone());
         }
     }
     write(file, &next)
@@ -107,55 +115,31 @@ pub fn host_get(config: &Path, key: &str) -> Option<Value> {
 
 /// Sets one of the host's own keys of `app.json`, keeping everything else.
 pub fn host_set(config: &Path, key: &str, value: Value) -> Result<(), String> {
+    set_key(&app_file(config), key, value)
+}
+
+/// One of the host's own keys of a vault's object (`window`), or `None`.
+pub fn vault_host_get(config: &Path, root: &Path, key: &str) -> Option<Value> {
     let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
-    let file = app_file(config);
-    let mut o = read(&file);
+    read(&vault_file(config, root)).get(key).cloned()
+}
+
+/// Sets one of the host's own keys of a vault's object, keeping everything else.
+pub fn vault_host_set(config: &Path, root: &Path, key: &str, value: Value) -> Result<(), String> {
+    set_key(&vault_file(config, root), key, value)
+}
+
+fn set_key(file: &Path, key: &str, value: Value) -> Result<(), String> {
+    let _gate = GATE.lock().unwrap_or_else(|p| p.into_inner());
+    let mut o = read(file);
     o.insert(key.to_string(), value);
-    write(&file, &o)
-}
-
-// ---- dispatch --------------------------------------------------------------
-
-const COMMANDS: &[&str] = &["localGet", "localSet"];
-
-/// `None` means "not mine", like every module handler.
-pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
-    if !COMMANDS.contains(&cmd) {
-        return None;
-    }
-    Some(dispatch(ctx, cmd, args))
-}
-
-fn dispatch(ctx: &Ctx, cmd: &str, args: &[Value]) -> Result<Value, String> {
-    let scope = arg_str(args, 0)?;
-    let app = match scope.as_str() {
-        "app" => true,
-        "vault" => false,
-        other => return Err(coded("bad_arg", format!("not a local scope: {other}"))),
-    };
-    let config = ctx.st.config_dir();
-    let file = if app {
-        config.as_deref().map(app_file)
-    } else {
-        // The vault scope needs an open vault; a write names its epoch, so a late write from a
-        // page of the vault that was just left never lands in the new one's file.
-        let root = crate::root_for(ctx.st, cmd, args)?;
-        config.as_deref().map(|c| vault_file(c, &root))
-    };
-    match cmd {
-        "localGet" => Ok(file.map(|f| get(&f, app)).unwrap_or_else(|| json!({}))),
-        "localSet" => {
-            let file = file.ok_or_else(|| coded("io", "this machine has no app config folder"))?;
-            set(&file, args.get(1).unwrap_or(&Value::Null), app)?;
-            Ok(Value::Null)
-        }
-        _ => Err(coded("unknown_command", cmd)),
-    }
+    write(file, &o)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Tmp(PathBuf);

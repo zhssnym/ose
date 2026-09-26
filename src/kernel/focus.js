@@ -15,7 +15,7 @@
 // Store key `focus` (a vault-relative folder path, or null).
 import { bus, store, commands, status } from './registry.js';
 import { patchState, stateCache } from './state.js';
-import { clean, baseName, dirName } from './paths.js';
+import { clean, baseName, dirName, isOutside } from './paths.js';
 
 let focus = null;
 
@@ -32,7 +32,8 @@ export function defaultNewFolder() {
   if (focus) return focus;
   const route = store.get('route');
   if (route && route.type === 'folder' && typeof route.path === 'string') return clean(route.path);
-  if (route && route.type === 'page' && route.path) return dirName(route.path);
+  // A file outside the vault (X7) has no folder in it: a new file goes to the root.
+  if (route && route.type === 'page' && route.path && !isOutside(route.path)) return dirName(route.path);
   return '';
 }
 

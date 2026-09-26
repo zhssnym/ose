@@ -5,8 +5,11 @@
 //   properties strip   only when the file has YAML frontmatter; raw text preserved, simple
 //                      `key: value` lines editable in place, everything else read-only
 //   title              the file's first H1, editable; the file name when there is no H1
-//   meta               word count, last save, and the Rich | Source switch (H14)
-//   body               Crepe (Milkdown) over everything after the title
+//   meta               word count, last save, the Rich | Live | Source switch (H14, X1) and
+//                      the Read toggle (X3)
+//   body               Crepe (Milkdown) over everything after the title, or in Live and in
+//                      Source, CodeMirror over the whole file (the title and properties strips
+//                      are hidden in Live: the text holds both)
 //
 // Markdown is the source of truth. Nothing is written on open; a save happens only when the
 // composed text differs from what is on disk (M5: that difference is what "dirty" means).
@@ -33,13 +36,20 @@
 // the same path puts that very instance back, buffer, undo history, mode, caret and scroll
 // included (instances.js is the register). A change made on disk while a page is dirty is
 // merged into it line by line (H7, merge.js), and only lines both sides touched are a question.
+//
+// Wave 3 (X1, X2, X3, X7, X10). Live is a third mode: CodeMirror over the whole file with the
+// markup drawn off the caret line (live/). Its text is the file's text, so a save writes
+// `live.getText()` and nothing composes it, exactly as in Source. The Reading view shows the
+// buffer rendered, read-only, over the editor, which stays mounted underneath. A file outside
+// the vault (`abs:`) opens here too, with no versions, links or attachments; a file that is not
+// UTF-8 keeps its own encoding, and one that cannot be decoded exactly opens read-only.
 
 import {
   bus, commands, status, store, bridge, navigate, defaultNewFolder,
   copyText, icon, attachmentFolder, spellcheckOn, titleSyncOn, collectCommands, onWindowLeave, repointRoute,
-  fileops, names, log, pageFiles, planRewrite,
+  fileops, names, log, pageFiles, planRewrite, vaultFiles, openInNewTab,
 } from './host.js';
-import { prompt, confirm, patchState, toast } from './deps.js';
+import { prompt, confirm, choose, patchState, toast } from './deps.js';
 import { instances, activeInstance, setActive, findParked, overCap, parkedPaths as parkedList } from './instances.js';
 import { merge3, keepBoth } from './merge.js';
 import { docWithoutPad } from './space.js';
@@ -49,11 +59,15 @@ import { DRAG_TYPE, dropInto, payloadOf } from './drop.js';
 import { createFind } from './find.js';
 import { pickHeading } from './outline.js';
 import { bodyStartLine, titleLineNo, posForBodyLine } from './lines.js';
-import { caretAt, scrollerOf } from './reveal.js';
+import { caretAt, revealPos, scrollerOf } from './reveal.js';
 import { registerExtensionCommands } from './extensions.js';
 import { backlinkCount } from './backlinks.js';
 import { followHref } from './linkstate.js';
-import { createSourceView, rememberSource, renameRemembered, wasInSource } from './source.js';
+import { createSourceView } from './source.js';
+import { EditorView } from '@codemirror/view';
+import { defaultMode, modeFor, rememberMode, renameMode } from './modes.js';
+import { createLiveView, LIVE_COMMANDS } from './live/index.js';
+import { createReadingView } from './reading/index.js';
 import { describe, indentFor, loadLanguage } from './highlight.js';
 import { compareTexts } from './compare.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
@@ -96,6 +110,16 @@ const UNTITLED = /^Untitled( \d+)?$/i;
  */
 let revClock = Date.now();
 
+/** What a body command says while the Reading view is up. */
+const READING_REFUSAL = 'Leave the Reading view to edit · Esc';
+
+/**
+ * The next edit's revision: after every one before it, and never behind the wall clock. Two
+ * windows each have a clock of their own, and the draft of a file outside the vault is shared
+ * by every window that has it open; on the wall clock their revisions compare.
+ */
+const nextRev = () => { revClock = Math.max(revClock + 1, Date.now()); return revClock; };
+
 /** A change made on disk and merged into a dirty page is announced for this long (H7). */
 const MERGE_NOTE_MS = 8000;
 
@@ -110,6 +134,24 @@ const covers = (path, from) => !!path && !!from && (path === from || path.starts
 const mapPath = (path, from, to) => (path === from ? to : to + path.slice(from.length));
 const errText = (e) => String((e && e.message) || e || 'unknown error').split('\n')[0];
 const errCode = (e) => (e && e.code) || 'io';
+
+// The three modes (X1): the public words, and the internal ones `p.mode` holds. 'block' is
+// Crepe; the word predates Live and stays internal.
+const INTERNAL = { rich: 'block', live: 'live', source: 'source' };
+const PUBLIC = { block: 'rich', live: 'live', source: 'source' };
+const MODE_LABEL = { rich: 'Rich', live: 'Live', source: 'Source' };
+const MODE_CHOICES = [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' }, { value: 'source', label: 'Source' }];
+/** A file's encoding is UTF-8 unless the host said otherwise (X10). */
+const isUtf8 = (enc) => !enc || /^utf-?8$/i.test(String(enc));
+const ATTACH_OUTSIDE = 'Attachments need a file inside the vault';
+/** The page has an editor mounted, whichever of the three. */
+const hasEditor = (p) => !!(p && (p.crepe || p.source || p.live));
+
+/** The mode a recovered draft reopens in (L5): its own, unless it is not exactly a save's text. */
+function recoveredModeOf(p, r) {
+  if (p.plain || !r.exact) return 'source';
+  return r.mode === 'live' ? 'live' : r.mode === 'rich' ? 'block' : 'source';
+}
 
 // ---------------------------------------------------------------------------
 // the serializer's two checks (docs/KERNEL.md `ose:editor`, "Writing")
@@ -150,6 +192,15 @@ const blankPage = () => ({
   // remembered. words/wordTimer: the meta line's count, taken from the ProseMirror document and
   // debounced with the save rather than serialised per key.
   mode: 'block', plain: false, forced: null, source: null, words: 0, chars: 0, mtime: 0, wordTimer: 0,
+  // Wave 3. live: the Live view (X2), when `mode` is 'live'. lastEdit: the page's last mode that
+  // is not Source, where Ctrl+E goes back to. reading: the Reading view over the editor (X3),
+  // `{view, el, from}`, or null. outside: the path is `abs:` (X7). encoding: the host's label
+  // for the file's encoding (X10); lossy: its bytes do not decode exactly, so the page is
+  // read-only; forcedEncoding: the one `page.reopen-encoding` chose, used for every read of the
+  // file. liveFailed: why Live could not be built at the last mount (it fell back to Source).
+  // wikiPages: the vault's markdown pages, for `[[wikilink]]` resolution in Live.
+  live: null, lastEdit: 'rich', reading: null, outside: false,
+  encoding: 'UTF-8', lossy: false, forcedEncoding: null, liveFailed: null, wikiPages: null,
   titleSelected: false, dirty: false, ready: false,
   // rev: the edit clock at the last edit, so a write can tell whether the document moved on
   // under it. frozen: every input path is read-only while a leave, a mode switch or a path
@@ -160,13 +211,14 @@ const blankPage = () => ({
   rev: 0, frozen: false, problem: null, deleted: false, trashed: false, moving: null, movingDone: null,
   asking: false, titleToBody: false, readOnly: false,
   // Drafts (C4). draft: 'written' | 'failed' | null, what the last try did; hasDraft: one may be
-  // stored for this path; recovered: the draft found at open, `{at, text, applied, kept, …}`.
+  // stored for this path; draftStamp: the host's `at` on the draft this page last wrote or
+  // recovered; recovered: the draft found at open, `{at, text, applied, kept, …}`.
   // draftChain: the draft writes and drops of this page, one after the other, so a drop issued
   // after a write runs after it. uncheckedRev: the edit at which text the user has not checked
   // yet went on screen (a guard refusal, an inexact draft); while `rev` is still that, the page
   // is let go as a draft, never written. reloadPending: "Reload from disk" was chosen while
   // the page could not be rebuilt at once; the next `stay` or path change rebuilds it.
-  draft: null, hasDraft: false, draftAt: 0, draftTimer: 0, draftChain: null, recovered: null, notice: null,
+  draft: null, hasDraft: false, draftAt: 0, draftStamp: null, draftTimer: 0, draftChain: null, recovered: null, notice: null,
   uncheckedRev: -1, reloadPending: false, orphan: null,
   // keptCopies: write failures that left a `<stem>.unsaved-<stamp>` copy beside the file;
   // failedAt: when the last write failed. A copy stops the timed retries (see `saveFailed`).
@@ -189,14 +241,15 @@ const blankPage = () => ({
  *
  * `opts.line` (1-based, a line of the file as the search overlay counts them) puts the caret in
  * the block that holds that line once the editor is up (C7); `opts.selection` is a `{from,to}`
- * a router remembered; `opts.query` seeds the find bar.
+ * a router remembered (in Live, the view's snapshot, `mode: 'live'`); `opts.query` seeds the
+ * find bar; `opts.encoding` reads the file in that encoding (X10, `page.reopen-encoding`).
  *
  * Wave 2 (M12, M24): when an instance of `path` is parked (`handle.park()`, a tab gone to the
  * background), that instance is put back into `el` instead — the same buffer, undo history and
  * mode, its caret and scroll — and the same handle is answered.
  */
 export function markdownPage(el, path, opts = {}) {
-  const again = findParked(P.normalize(String(path ?? '')));
+  const again = findParked(P.pagePath(String(path ?? '')));
   if (again) { again.reattach(el, opts); return again.handle; }
   return buildPage(el, path, opts);
 }
@@ -271,7 +324,7 @@ function buildPage(el, path, opts) {
 
   async function open(nextPath, options = {}) {
     if (closed) return;
-    if (options.line && page && page.path === nextPath && (page.crepe || page.source) && page.el && page.el.parentNode === el) {
+    if (options.line && page && page.path === nextPath && hasEditor(page) && page.el && page.el.parentNode === el) {
       scrollToLine(options.line, options.col);
       openFindWith(page, options.query);
       return;
@@ -289,8 +342,11 @@ function buildPage(el, path, opts) {
     if (!parked) take();
 
     let file;
+    // `page.reopen-encoding` hands a decoding over (X10); it holds for this open and every read
+    // of the file after it, until the page is opened again without one.
+    p.forcedEncoding = typeof options.encoding === 'string' && options.encoding ? options.encoding : null;
     try {
-      file = await pageFiles.readFile(nextPath);
+      file = await pageFiles.readFile(nextPath, p.forcedEncoding ? { encoding: p.forcedEncoding } : undefined);
       if (!file || typeof file.text !== 'string') throw Object.assign(new Error('the host answered no text'), { code: 'io' });
     } catch (e) {
       if (token !== openToken) return;
@@ -312,9 +368,19 @@ function buildPage(el, path, opts) {
     // A file that is not markdown is never parsed as one (batch 12): it opens in source mode,
     // with no title strip, and what is written back is exactly what CodeMirror holds.
     p.plain = !P.isMarkdown(nextPath);
+    p.outside = P.isOutside(nextPath);
     p.baseline = text;
     p.baselineHash = file.hash ?? null;
     p.mtime = Number(file.mtime) || 0;
+    // X10: the file keeps its own encoding, and a save writes it back in it. A decode that does
+    // not give the same bytes back is shown, never saved: the page is read-only until the user
+    // reopens it with another encoding or converts it on purpose.
+    p.encoding = typeof file.encoding === 'string' && file.encoding ? file.encoding : 'UTF-8';
+    p.lossy = file.lossy === true;
+    if (p.lossy) {
+      p.readOnly = true;
+      log(`opened read-only ${nextPath}: not exact as ${p.encoding}`, 'warn');
+    }
 
     // A draft this machine kept of the page (C4, §6.6): a crash, a forced quit, a save that
     // failed. Applied when it was written over the text on disk now; offered when not.
@@ -333,15 +399,18 @@ function buildPage(el, path, opts) {
         const since = p.mtime > 0 && at > 0 && p.mtime > at;
         const applied = !since && (draft.baselineHash ?? null) === p.baselineHash;
         p.hasDraft = true;
+        p.draftStamp = Number(draft.at) || null;
         p.recovered = {
           at: Number(draft.at) || Date.now(), text: draft.text, applied,
           baselineHash: draft.baselineHash ?? null, exact: draft.exact !== false,
-          mode: draft.mode === 'source' ? 'source' : 'rich',
+          mode: draft.mode === 'source' || draft.mode === 'live' ? draft.mode : 'rich',
         };
         if (Number(draft.rev) > revClock) revClock = Number(draft.rev);
         if (applied) {
           bodyText = draft.text;
-          recoveredMode = !p.plain && p.recovered.exact && p.recovered.mode === 'rich' ? 'block' : 'source';
+          // It reopens in the mode it was typed in (L5). A draft that is not exactly what a save
+          // would write is shown as text, whatever it was typed in.
+          recoveredMode = recoveredModeOf(p, p.recovered);
         }
         log(`draft found ${nextPath}: ${applied ? 'applied' : 'offered, the file changed since'}`, 'warn');
         // An offered draft shares its slot with every draft this page will write, and the next
@@ -360,14 +429,20 @@ function buildPage(el, path, opts) {
     p.doc = p.plain ? plainDoc(bodyText) : parseDoc(bodyText);
     p.title = p.doc.title;
     publishTitle(p);
-    p.mode = recoveredMode || (p.plain || (await wasInSource(nextPath)) ? 'source' : 'block');
+    // X1: what the file remembers, else the machine's `editorMode`; a plain file has Source only.
+    p.mode = recoveredMode || INTERNAL[await modeFor(nextPath, { plain: p.plain, outside: p.outside })] || 'block';
     p.forced = p.plain ? 'plain' : null;
     if (token !== openToken) return;
+    const dflt = defaultMode();
+    p.lastEdit = p.mode === 'live' ? 'live' : p.mode === 'block' ? 'rich' : (dflt === 'source' ? 'rich' : dflt);
 
     buildDom(p, el);
     updateMeta(p, true);
 
-    if (!await mountBody(p, bodyText, token)) return;
+    // A caret the router remembered from Live goes back in with the view (§4.2); a Rich or a
+    // Source one is put back after the layout, below.
+    const restore = p.mode === 'live' && options.selection && options.selection.mode === 'live' ? options.selection : undefined;
+    if (!await mountBody(p, bodyText, token, { restore })) return;
     // C10: what the parser could not hold is not in the rich view, and the next save would
     // delete it from the file. Such a page opens as text instead, and says why.
     if (p.crepe) {
@@ -382,7 +457,7 @@ function buildPage(el, path, opts) {
       // their back before they have seen the banner. Leaving saves it; so does Ctrl+S; so does
       // the first edit. A blur alone does not (onEditorBlur), or clicking Compare would write
       // the draft before the user compared it.
-      p.rev = ++revClock;
+      p.rev = nextRev();
       if (p.recovered && p.recovered.applied) {
         p.recovered.rev = p.rev;
         // A draft that was not what a save would write (the guard's best effort): leaving
@@ -417,18 +492,40 @@ function buildPage(el, path, opts) {
       const d = await pageFiles.drafts.read(path);
       return d && typeof d.text === 'string' ? d : null;
     } catch (e) {
-      if (errCode(e) !== 'unknown_command') log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
       return null;
     }
   }
 
   /**
-   * Put the body in: Crepe in block mode, CodeMirror over the whole file in source mode. `text`
-   * is the whole file. Answers false when the open was superseded while the editor was building.
+   * Put the body in: Crepe in block mode, CodeMirror over the whole file in Source and in Live.
+   * `text` is the whole file. Answers false when the open was superseded while the editor was
+   * building. `o.restore` is a Live caret the router kept (§4.2).
+   *
+   * A Live view that cannot be built is not a page that cannot be opened (F6): the text goes
+   * into Source instead, which parses nothing, `p.liveFailed` says why, and the caller that
+   * asked for Live (an open, a switch) sees that the mode is not the one it asked for.
    */
-  async function mountBody(p, text, token) {
+  async function mountBody(p, text, token, o = {}) {
     p.ready = false;
-    if (p.mode === 'source') {
+    p.liveFailed = null;
+    if (p.mode === 'live') {
+      try {
+        mountLive(p, text, o.restore);
+      } catch (e) {
+        console.error('[editor] live', e);
+        const reason = errText(e);
+        log(`live view failed ${p.path}: ${reason}`, 'error');
+        if (p.live) { try { p.live.destroy(); } catch { /* half built */ } }
+        p.live = null;
+        p.mode = 'source';
+        buildDom(p, p.el && p.el.parentNode ? p.el.parentNode : el);
+        const ok = await mountBody(p, text, token);
+        p.liveFailed = reason;
+        p.notice = `Opened as source: the Live view could not be built (${reason}).`;
+        return ok;
+      }
+    } else if (p.mode === 'source') {
       p.bodyEl.classList.add('ed-source');
       p.el.classList.add('ed-source-on');
       // The title line is inside the text now; a strip that could also edit it would be a second
@@ -448,7 +545,7 @@ function buildPage(el, path, opts) {
         gutter: p.plain,
         // M3: the file's own line endings and byte-order mark come back out of `getText`.
         exact: true,
-        readOnly: p.frozen,
+        readOnly: p.frozen || p.readOnly,
         onChange: () => markDirty(p),
         onEscape: () => { try { p.source.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
       });
@@ -501,7 +598,7 @@ function buildPage(el, path, opts) {
       const ready = () => { p.ready = true; };
       requestAnimationFrame(() => requestAnimationFrame(ready));
       setTimeout(ready, 80);
-      if (p.frozen) { try { p.crepe.setReadonly(true); } catch { /* not ready */ } }
+      if (p.frozen || p.readOnly) { try { p.crepe.setReadonly(true); } catch { /* not ready */ } }
     }
     wireEditorEvents(p);
     applySpellcheck(p);
@@ -510,15 +607,125 @@ function buildPage(el, path, opts) {
     return true;
   }
 
+  /**
+   * Live (X2): CodeMirror over the whole file, the markup drawn off the caret line. The text it
+   * holds is the file; `getText()` puts back the byte-order mark and the line endings it cannot
+   * hold, and that is what a save writes. Throws when the view cannot be built (see mountBody).
+   */
+  function mountLive(p, text, restore) {
+    p.bodyEl.classList.add('ed-live');
+    p.el.classList.add('ed-live-on');
+    loadWikiPages(p);
+    p.live = createLiveView({
+      host: p.bodyEl,
+      text,
+      path: p.path,
+      readOnly: p.frozen || p.readOnly,
+      spellcheck: spellcheckOn(),
+      restore,
+      resolveAsset: (src) => resolveImage(p, src),
+      resolveWikilink: (target) => resolveWikilink(p, target),
+      // `[[` completion (live/complete.js): the list loadWikiPages keeps, or a read when it is not
+      // in yet. Outside the vault there is no page list to offer.
+      pages: p.outside ? undefined : () => p.wikiPages || vaultFiles(),
+      onOpenLink: (href, o) => { void openLinkFrom(p, href, o); },
+      saveAttachment: (file) => saveAttachment(p, file),
+      linkTo: (vaultPath) => P.relativeHref(p.path, vaultPath),
+      onChange: () => markDirty(p),
+      onFocus: () => take(),
+      onBlur: () => onEditorBlur(p),
+      onEscape: () => { try { if (p.live) p.live.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
+    });
+    // The find bar is CodeMirror's own panel, as in Source.
+    p.find = {
+      open: (fo) => { if (p.live) p.live.openFind(fo || {}); },
+      close: () => { if (p.live) p.live.closeFind(); },
+      isOpen: () => !!(p.live && p.live.findOpen()),
+      destroy: () => {},
+    };
+    // Every text in Live is the user's gesture or ours, never the editor settling: it is ready
+    // at once, unlike Crepe, which adds its trailing paragraph on the first frames.
+    p.ready = true;
+  }
+
+  /**
+   * The vault's markdown pages, for `[[target]]` in Live: read once per mount, and again on a
+   * change in the tree. Until the list is in, every wikilink counts as found (nothing is drawn
+   * missing on a guess).
+   */
+  function loadWikiPages(p) {
+    let timer = 0;
+    const load = () => {
+      void vaultFiles().then((list) => {
+        if (p !== page) return;
+        p.wikiPages = Array.isArray(list) ? list : null;
+        // Wikilinks drawn before the list was in, or before a page appeared or went: draw them again.
+        if (p.live) { try { p.live.refresh(); } catch { /* destroyed meanwhile */ } }
+      }, () => {});
+    };
+    load();
+    // A burst of changes (a folder copied in) reads the tree once.
+    const off = bus.on('fs', (payload) => {
+      const changes = payload && Array.isArray(payload.changes) ? payload.changes : [];
+      if (!changes.some((c) => c && c.kind !== 'modify')) return;
+      clearTimeout(timer);
+      timer = setTimeout(load, 150);
+    });
+    p.cleanups.push(() => { clearTimeout(timer); try { off(); } catch { /* gone */ } });
+  }
+
+  /**
+   * `[[target#heading|alias]]` → the vault path it names, Obsidian's way: a path from the vault
+   * root or beside the page, else the page whose name is `target`, the shortest path first.
+   * `exists: false` draws it missing; the path is then where following it would create it.
+   */
+  function resolveWikilink(p, target) {
+    const t = String(target ?? '').split('#')[0].split('|')[0].trim().replace(/\\/g, '/');
+    if (!t) return { path: p.path, exists: true };
+    const withExt = /\.[a-z0-9]{1,8}$/i.test(t) ? t : `${t}.md`;
+    const beside = p.outside ? null : P.joinPath(P.dirname(p.path), withExt);
+    // Outside the vault a wikilink is followed as written, beside the file.
+    if (p.outside) return { path: null, exists: true };
+    const list = p.wikiPages;
+    if (!list) return { path: beside || withExt, exists: true };
+    const want = withExt.toLowerCase();
+    const exact = list.find((x) => x.toLowerCase() === want);
+    if (exact) return { path: exact, exists: true };
+    const near = beside ? list.find((x) => x.toLowerCase() === beside.toLowerCase()) : null;
+    if (near) return { path: near, exists: true };
+    const byName = list.filter((x) => (x.split('/').pop() || '').toLowerCase() === (want.split('/').pop() || ''))
+      .sort((a, b) => a.length - b.length);
+    if (byName[0]) return { path: byName[0], exists: true };
+    return { path: beside || withExt, exists: false };
+  }
+
+  /**
+   * A link followed in Live or in the Reading view (§4.2): a click, or `page.follow-link`.
+   * `href` is an href from this page (Live turns a wikilink into one through
+   * `resolveWikilink` and `linkTo`). Mod+click opens it in a new tab.
+   */
+  async function openLinkFrom(p, href, o = {}) {
+    const target = String(href ?? '').trim();
+    if (!target || p !== page) return;
+    if (o && o.newTab && !P.isExternal(target)) {
+      const t = P.linkTarget(p.path, target);
+      if (t && t.path) { void openInNewTab({ type: 'page', path: t.path }); return; }
+    }
+    await followHref(target, p.path);
+  }
+
   /** Tear the body down, whichever kind it is, and forget everything wired around it. */
   async function unmountBody(p) {
     clearTimeout(p.wordTimer);
+    closeReading(p, { focus: false });
     for (const fn of p.cleanups) { try { fn(); } catch (e) { console.error(e); } }
     p.cleanups.length = 0;
     if (p.crepe) { try { await p.crepe.destroy(); } catch (e) { console.error('[editor] destroy', e); } }
     if (p.source) p.source.destroy();
+    if (p.live) { try { p.live.destroy(); } catch (e) { console.error('[editor] live destroy', e); } }
     p.crepe = null;
     p.source = null;
+    p.live = null;
   }
 
   /**
@@ -579,37 +786,47 @@ function buildPage(el, path, opts) {
   }
 
   // -------------------------------------------------------------------------
-  // rich and source (H14)
+  // rich, live and source (H14, X1)
 
-  /** Ctrl+E: the other mode. */
+  /** Ctrl+E: Source, or back from it to the mode the page was in before (§4.5). */
   function toggleSource() {
     const p = page;
-    if (!p || (!p.crepe && !p.source)) return Promise.resolve(false);
-    return setMode(p.source ? 'rich' : 'source');
+    if (!p || !hasEditor(p)) return Promise.resolve(false);
+    return setMode(p.source ? (p.lastEdit || 'rich') : 'source');
+  }
+
+  /** `page.mode-next`: Rich, Live, Source, and round again. */
+  function nextMode() {
+    const p = page;
+    if (!p || !hasEditor(p)) return Promise.resolve(false);
+    const order = ['rich', 'live', 'source'];
+    return setMode(order[(order.indexOf(publicMode(p)) + 1) % order.length] || 'rich');
   }
 
   /**
-   * Show the page in `want` ('rich' or 'source'). The buffer, not the file, crosses over, and
-   * nothing is written: the dirty flag and the baseline are untouched.
+   * Show the page in `want` ('rich', 'live' or 'source'). The buffer, not the file, crosses
+   * over, and nothing is written: the dirty flag and the baseline are untouched.
    *
-   * Rich → Source never refuses (H14). A clean page shows the disk text itself; a dirty one
-   * the text a save would write, or when the guard says that text is not safe, its best effort
-   * — the page stays dirty and the user checks it there. Source → Rich parses the text and asks
-   * the open check; when the rich view cannot hold all of it, the page stays in source and the
-   * banner says why. The undo history of the editor being left does not survive.
+   * Rich → Source and Rich → Live never refuse (H14). A clean page shows the disk text itself;
+   * a dirty one the text a save would write, or when the guard says that text is not safe, its
+   * best effort — the page stays dirty and the user checks it there. Live ↔ Source hands the
+   * text over as it is: both hold the file. Source → Rich and Live → Rich parse the text and
+   * ask the open check; when the rich view cannot hold all of it, the page stays where it was
+   * and the banner says why. The undo history of the editor being left does not survive.
    *
    * `o.text` puts that text in instead of the buffer's (a recovered draft); `o.forced` is the
    * reason the mode was not the user's choice, and a forced mode is never remembered.
    */
   async function setMode(want, o = {}) {
     const p = page;
-    if (!p || (!p.crepe && !p.source)) return false;
+    if (!p || !hasEditor(p)) return false;
+    if (!INTERNAL[want]) return false;
     if (p.plain && want !== 'source') {
       toast(`${P.basename(p.path)} is not markdown: source is its only mode`, 'info');
       return false;
     }
-    const now = p.source ? 'source' : 'rich';
-    if (want === now && typeof o.text !== 'string') return true;
+    const now = publicMode(p);
+    if (want === now && typeof o.text !== 'string') { closeReading(p); return true; }
     if (p.switching) { await p.switching; return setMode(want, o); }
     let done;
     p.switching = new Promise((r) => { done = r; });
@@ -624,6 +841,7 @@ function buildPage(el, path, opts) {
   async function switchTo(p, want, o) {
     const host = p.el ? p.el.parentNode : null;
     if (!host) return false;
+    const from = publicMode(p);
     // H1: nothing typed may land between the compose and the teardown.
     const wasFrozen = p.frozen;
     freeze(p);
@@ -631,6 +849,7 @@ function buildPage(el, path, opts) {
     let exact = true;
     if (typeof o.text === 'string') text = o.text;
     else if (p.source) text = p.source.getText();
+    else if (p.live) text = p.live.getText();
     else if (!p.dirty) text = p.baseline;
     else {
       const r = composeChecked(p);
@@ -648,16 +867,20 @@ function buildPage(el, path, opts) {
     if (p !== page) return false;
 
     let refused = null;
+    // Where a refusal leaves the page: the text editor it came from (Live stays Live), else Source.
+    const back = from === 'live' ? 'live' : 'source';
     try {
-      await remount(p, want === 'source' ? 'source' : 'block', text);
+      await remount(p, INTERNAL[want], text);
       if (p !== page) return false;
       if (p.crepe) {
         const check = checkOpened(p.crepe, p.doc.body);
         if (!check.ok) {
           refused = check.reason;
-          await remount(p, 'source', text);
+          await remount(p, INTERNAL[back], text);
           if (p !== page) return false;
         }
+      } else if (want === 'live' && p.liveFailed) {
+        refused = `the Live view could not be built: ${p.liveFailed}`;
       }
     } catch (e) {
       if (p !== page) return false;
@@ -674,8 +897,11 @@ function buildPage(el, path, opts) {
     if (!wasFrozen) unfreeze(p);
 
     if (refused) {
-      p.notice = `Staying in source: the rich view cannot show part of this page (${refused}).`;
-      log(`source to rich refused ${p.path}: ${refused}`, 'warn');
+      const where = publicMode(p) === 'live' ? 'Live' : 'source';
+      p.notice = want === 'rich'
+        ? `Staying in ${where}: the rich view cannot show part of this page (${refused}).`
+        : `Staying in ${where}: ${refused}.`;
+      log(`${from} to ${want} refused ${p.path}: ${refused}`, 'warn');
       publishState(p);
       publishMode(p);
       return false;
@@ -683,13 +909,11 @@ function buildPage(el, path, opts) {
     p.forced = o.forced || (p.plain ? 'plain' : null);
     if (!p.forced) {
       p.notice = null;
-      void rememberSource(p.path, p.mode === 'source');
+      void rememberMode(p.path, publicMode(p));
     }
     publishState(p);
     publishMode(p);
-    if (!o.quiet) {
-      if (p.source) p.source.focus(); else focusBody();
-    }
+    if (!o.quiet) focusPage();
     return true;
   }
 
@@ -718,6 +942,8 @@ function buildPage(el, path, opts) {
     if (p !== page) return false;
     p.orphan = null;
     p.mode = mode;
+    if (mode === 'live') p.lastEdit = 'live';
+    else if (mode === 'block') p.lastEdit = 'rich';
     p.doc = p.plain ? plainDoc(text) : parseDoc(text);
     p.title = p.doc.title;
     publishTitle(p);
@@ -745,8 +971,8 @@ function buildPage(el, path, opts) {
     publishMode(p);
   }
 
-  /** The words the status bar and the handle use for the mode. */
-  const publicMode = (p) => (p && p.mode === 'source' ? 'source' : 'rich');
+  /** The words the status bar and the handle use for the mode: 'rich', 'live' or 'source'. */
+  const publicMode = (p) => (p && PUBLIC[p.mode]) || 'rich';
 
   /** The mode, to the bus, the handle, the status bar and the switch in the meta line. */
   function publishMode(p) {
@@ -758,13 +984,28 @@ function buildPage(el, path, opts) {
     paintMode(p);
   }
 
+  /**
+   * The status bar's mode field (§4.5): a menu of the three modes, the current one checked, or
+   * the one word `Text` for a file that is not markdown. The meta line's switch follows.
+   */
   function paintMode(p) {
     if (!p) return;
     const mode = publicMode(p);
     if (p.plain) setStatus('mode', { text: 'Text' });
-    else setStatus('mode', { text: mode === 'source' ? 'Source' : 'Rich', onClick: () => { void toggleSource(); } });
+    else {
+      setStatus('mode', {
+        text: MODE_LABEL[mode],
+        title: 'Editing mode',
+        choices: MODE_CHOICES,
+        value: mode,
+        onChoose: (value) => { if (p === page) void setMode(value); },
+        onClick: () => { if (p === page) void nextMode(); },
+      });
+    }
     if (p.modeEl) {
-      for (const b of p.modeEl.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+      for (const b of p.modeEl.querySelectorAll('button[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+      const read = p.modeEl.querySelector('button[data-read]');
+      if (read) read.setAttribute('aria-pressed', String(!!p.reading));
     }
   }
 
@@ -777,8 +1018,10 @@ function buildPage(el, path, opts) {
     const p = page;
     const n = Math.floor(Number(line) || 0);
     if (!p || !p.el || n < 1) return false;
-    // Source mode counts the same lines the search overlay counts: the file's own.
+    // Source and Live count the same lines the search overlay counts: the file's own.
+    if (p.reading) closeReading(p, { focus: false });
     if (p.source) { p.source.goToLine(n, col); return true; }
+    if (p.live) { p.live.goToLine(n, col); return true; }
     if (!p.crepe) return false;
     const view = editorView(p.crepe);
     if (!view) return false;
@@ -809,15 +1052,25 @@ function buildPage(el, path, opts) {
    * dispatch itself, and `always` makes it scroll even when the position is already on screen.
    */
   function restoreSelection(p, sel) {
-    const view = p && p.crepe ? editorView(p.crepe) : null;
-    if (!view || !sel) return;
+    if (!p || !sel) return;
+    // A Live caret is a CodeMirror offset, a Rich one a ProseMirror position: each only goes
+    // back into its own kind of editor. Live takes its own at mount (`restore`).
+    if (sel.mode === 'live') return;
+    const view = p.crepe ? editorView(p.crepe) : null;
+    if (!view) return;
     const size = view.state.doc.content.size;
     const from = Math.max(0, Math.min(Math.floor(Number(sel.from) || 0), size));
     caretAt(view, from, { block: 'center', always: true, focus: true });
   }
 
-  /** Where the caret is, for the router to hand back at the next open (N44, P7). */
+  /**
+   * Where the caret is, for the router to hand back at the next open (N44, P7). In Live it is
+   * the view's snapshot, tagged `mode: 'live'` (§4.2).
+   */
   function currentSelection() {
+    if (page && page.live) {
+      try { return page.live.snapshot(); } catch { return null; }
+    }
     const view = page && page.crepe ? editorView(page.crepe) : null;
     return view ? { from: view.state.selection.from, to: view.state.selection.to } : null;
   }
@@ -948,8 +1201,9 @@ function buildPage(el, path, opts) {
   function setEditable(p, on) {
     try { if (p.crepe) p.crepe.setReadonly(!on); } catch (e) { console.error('[editor] readonly', e); }
     try { if (p.source) p.source.setReadOnly(!on); } catch (e) { console.error('[editor] readonly', e); }
+    try { if (p.live) p.live.setReadOnly(!on); } catch (e) { console.error('[editor] readonly', e); }
     // In source mode the title strip stays a label: the text below is where the title is edited.
-    if (p.titleEl && p.titleEl.tagName === 'H1') p.titleEl.contentEditable = on && !p.source ? 'plaintext-only' : 'false';
+    if (p.titleEl && p.titleEl.tagName === 'H1') p.titleEl.contentEditable = on && !p.source && !p.live ? 'plaintext-only' : 'false';
     for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = on ? 'plaintext-only' : 'false';
     if (p.el) p.el.classList.toggle('ed-frozen', !on);
   }
@@ -1044,7 +1298,7 @@ function buildPage(el, path, opts) {
       const to = mapPath(p.path, change.from, change.to);
       const kindChanged = P.isMarkdown(from) !== P.isMarkdown(to);
       p.path = to;
-      void renameRemembered(from, to);
+      void renameMode(from, to);
       publishTitle(p);
       updateMeta(p);
       unfreeze(p);
@@ -1086,11 +1340,14 @@ function buildPage(el, path, opts) {
     p.lastBanner = '';
     col.append(banner);
 
-    if (p.doc.frontmatterRaw) col.append(propertiesStrip(p));
+    // Live holds the frontmatter and the H1 in its text (X2): a strip above it that could edit
+    // the same bytes would be a second source of truth, so neither is drawn.
+    const live = p.mode === 'live';
+    if (p.doc.frontmatterRaw && !live) col.append(propertiesStrip(p));
 
     // A file that is not markdown has no title of any kind: the meta line names it.
     p.titleEl = null;
-    if (p.plain) {
+    if (p.plain || live) {
       // nothing above the body
     } else if (p.doc.titleLine !== null) {
       col.append(makeTitleEl(p, p.doc.title));
@@ -1116,16 +1373,18 @@ function buildPage(el, path, opts) {
     p.metaEl = meta;
     p.metaText = metaText;
     p.modeEl = null;
-    // H14: which view this is, on screen. Two buttons, one pressed; Tab reaches them and they
-    // run the same commands the palette lists (`page.view-rich`, `page.view-source`).
+    // H14, X1: which mode this is, on screen. Three buttons, one pressed, and the Read toggle
+    // (X3); Tab reaches them and they run the same commands the palette lists
+    // (`page.mode-rich`, `page.mode-live`, `page.mode-source`, `page.reading-toggle`).
     if (!p.plain) {
       const sw = document.createElement('span');
       sw.className = 'ed-mode';
       sw.setAttribute('role', 'group');
-      sw.setAttribute('aria-label', 'View');
+      sw.setAttribute('aria-label', 'Editing mode');
       for (const [mode, label, title] of [
-        ['rich', 'Rich', 'Show rich view'],
-        ['source', 'Source', 'Show source (raw markdown text)'],
+        ['rich', 'Rich', 'Edit as rich text'],
+        ['live', 'Live', 'Edit in Live preview: the markdown, drawn off the caret line'],
+        ['source', 'Source', 'Edit as source (raw markdown text)'],
       ]) {
         const b = document.createElement('button');
         b.type = 'button';
@@ -1137,6 +1396,15 @@ function buildPage(el, path, opts) {
         b.addEventListener('click', () => { void setMode(mode); });
         sw.append(b);
       }
+      const read = document.createElement('button');
+      read.type = 'button';
+      read.className = 'ed-mode-btn ed-read-btn';
+      read.dataset.read = '1';
+      read.textContent = 'Read';
+      read.title = 'Reading view: the page rendered, read-only';
+      read.setAttribute('aria-pressed', String(!!p.reading));
+      read.addEventListener('click', () => { toggleReading(); });
+      sw.append(read);
       meta.append(sw);
       p.modeEl = sw;
     }
@@ -1269,6 +1537,7 @@ function buildPage(el, path, opts) {
     const p = page;
     if (!p) return;
     if (p.source) { p.source.focus(); return; }
+    if (p.live) { p.live.focus(); return; }
     const view = p.crepe ? editorView(p.crepe) : null;
     if (!view) return;
     view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)).scrollIntoView());
@@ -1346,7 +1615,8 @@ function buildPage(el, path, opts) {
     const lang = navigator.language || 'en';
     p.el.setAttribute('lang', lang);
     const view = p.crepe ? editorView(p.crepe) : null;
-    for (const dom of [view && view.dom, p.source && p.source.view.contentDOM]) {
+    if (p.live) { try { p.live.setSpellcheck(on_); } catch (e) { console.error('[editor] spellcheck', e); } }
+    for (const dom of [view && view.dom, p.source && p.source.view.contentDOM, p.live && p.live.view.contentDOM]) {
       if (!dom) continue;
       dom.setAttribute('spellcheck', String(on_));
       dom.setAttribute('lang', lang);
@@ -1400,6 +1670,13 @@ function buildPage(el, path, opts) {
     const onBlankClick = (e) => {
       if (e.button !== 0 || parked) return;
       if (e.target !== host && e.target !== scroller && e.target !== p.bodyEl) return;
+      if (p.live) {
+        e.preventDefault();
+        const end = p.live.view.state.doc.length;
+        p.live.setSelection({ from: end, to: end });
+        p.live.focus();
+        return;
+      }
       const view = p.crepe ? editorView(p.crepe) : null;
       if (!view) return;
       e.preventDefault();
@@ -1432,7 +1709,8 @@ function buildPage(el, path, opts) {
    * event arrives its target is the paragraph and the anchor is gone.
    */
   function onLinkPointerDown(e) {
-    if (!page || e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
+    // Live follows its own links (onOpenLink): mod+click there is a new tab, not this.
+    if (!page || page.live || e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
     const a = anchorAt(e);
     if (!a || inTooltip(a)) return;
     const href = (a.getAttribute('href') || '').trim();
@@ -1448,7 +1726,7 @@ function buildPage(el, path, opts) {
    * alone: it must still place the caret.
    */
   function onLinkClick(e) {
-    if (!page) return;
+    if (!page || page.live) return;
     const a = anchorAt(e);
     if (!a) return;
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); return; }
@@ -1480,8 +1758,10 @@ function buildPage(el, path, opts) {
   /**
    * A pasted or dropped file lands in `<page folder>/attachments/<yyyy-mm-dd>-<slug>.<ext>`,
    * numbered when taken, so the folder stays portable. Resolves to the vault path of the copy.
+   * A page outside the vault has no folder of the vault to put it in (X7): refused.
    */
   async function attachFile(p, file) {
+    if (p.outside) throw Object.assign(new Error(ATTACH_OUTSIDE), { code: 'outside' });
     const image = /^image\//.test(file.type || '');
     const ext = (/\.([a-z0-9]{1,8})$/i.exec(file.name || '') || [])[1]
       || (image ? (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg') : 'bin');
@@ -1492,31 +1772,42 @@ function buildPage(el, path, opts) {
     const named = (name) => (folder ? `${folder}/${name}` : name);
     const nth = (n) => named(n < 2 ? `${base}.${ext.toLowerCase()}` : `${base}-${n}.${ext.toLowerCase()}`);
     const data = await readAsBase64(file);
-    // The name is taken with an exclusive create (contract §4.5: never an overwrite), and the
-    // bytes then go into the empty file that create made. A file that appeared under the name
-    // meanwhile (a sync client, a second window) answers `exists`, and the next number is tried.
-    let target = null;
-    for (let n = 1; n < 1000 && target === null; n++) {
+    // The name is taken with an exclusive create that writes the bytes in the same call
+    // (`createNewBinary`, wave 3): never an overwrite, and a write that fails leaves no empty
+    // file behind (wave 1, open). A file that appeared under the name meanwhile (a sync client,
+    // a second window) answers `exists`, and the next number is tried.
+    for (let n = 1; n < 1000; n++) {
       try {
-        const r = await pageFiles.createNew(nth(n), '');
-        target = String((r && r.path) || nth(n));
+        const r = await pageFiles.createNewBinary(nth(n), data);
+        return String((r && r.path) || nth(n));
       } catch (e) {
         if (errCode(e) === 'exists') continue;
-        if (errCode(e) !== 'unknown_command') throw e;
-        // A kernel with no exclusive create: the old probe, which is the best it can do.
-        let k = n;
-        while (await bridge.exists(nth(k))) k++;
-        target = nth(k);
+        throw e;
       }
     }
-    if (target === null) throw Object.assign(new Error(`no free name for ${base}.${ext}`), { code: 'exists' });
-    await bridge.writeBinary(target, data);
-    return target;
+    throw Object.assign(new Error(`no free name for ${base}.${ext}`), { code: 'exists' });
   }
 
   /** Milkdown's uploader (crepe.js onUpload): the attachment as a markdown src relative to the page. */
   async function uploadImage(p, file) {
+    if (p.outside) { toast(ATTACH_OUTSIDE, 'warn'); throw Object.assign(new Error(ATTACH_OUTSIDE), { code: 'outside' }); }
     return P.relativeHref(p.path, await attachFile(p, file));
+  }
+
+  /**
+   * Live's attachment path (M11, `PasteContext.saveAttachment`): the vault path of the copy, or
+   * null when there is none, and then the page has said why. Never throws.
+   */
+  async function saveAttachment(p, file) {
+    if (p.outside) { toast(ATTACH_OUTSIDE, 'warn'); return null; }
+    if (p.frozen || p.readOnly) return null;
+    try {
+      return await attachFile(p, file);
+    } catch (e) {
+      log(`attachment not saved ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      toast(`could not save ${file && file.name ? file.name : 'the file'}: ${errText(e)}`, 'err');
+      return null;
+    }
   }
 
   /**
@@ -1642,6 +1933,13 @@ function buildPage(el, path, opts) {
         };
       }
       const kept = p.draft === 'written' ? 'Your text is kept on this machine.' : 'Copy your text somewhere safe before closing.';
+      if (p.problem.reason === 'unencodable') {
+        return {
+          kind: 'err', alert: true,
+          text: `Not saved: the text holds characters ${p.encoding} cannot hold. ${kept}`,
+          buttons: [['Save as UTF-8', 'page.save-utf8'], ['Save as…', 'page.save-as'], ['Copy text', 'page.copy-markdown'], ['Discard changes', 'page.discard-changes']],
+        };
+      }
       return {
         kind: 'err', alert: true,
         text: `Not saved: ${String(p.problem.message || 'the file could not be written').replace(/[.\s]+$/, '')}. ${kept}`,
@@ -1654,6 +1952,15 @@ function buildPage(el, path, opts) {
       const c = p.conflict || {};
       const n = Number(c.count) || 0;
       if (typeof c.theirs !== 'string') {
+        // Read in another encoding, or lossy (X10): the disk is text, read another way than
+        // this page's. Take theirs opens it again as it reads now.
+        if (c.encoding) {
+          return {
+            kind: 'err', alert: true,
+            text: `Changed on disk while you were editing: ${name} now reads as ${readAs(c)}.`,
+            buttons: [['Keep mine', 'page.merge-keep-mine'], ['Take theirs', 'page.merge-take-theirs'], ['Discard changes', 'page.discard-changes']],
+          };
+        }
         return {
           kind: 'err', alert: true,
           text: `Changed on disk while you were editing: ${name} is no longer text this editor can show.`,
@@ -1686,7 +1993,11 @@ function buildPage(el, path, opts) {
         }
         : {
           kind: 'warn', alert: false,
-          text: `Unsaved changes from ${when} could not be applied: the file changed since.`,
+          // Outside the vault they have no Versions to go to (X7), so they keep the draft slot,
+          // and the page's own typing has no draft until they are restored or discarded.
+          text: p.outside
+            ? `Unsaved changes from ${when} could not be applied: the file changed since. Until you restore or discard them, what you type here is not kept as a draft.`
+            : `Unsaved changes from ${when} could not be applied: the file changed since.`,
           buttons: [['Compare', 'page.recovered-compare'], ['Restore mine', 'page.recovered-restore'], ['Discard', 'page.discard-changes']],
         };
     }
@@ -1695,6 +2006,14 @@ function buildPage(el, path, opts) {
         kind: 'warn', alert: false,
         text: 'Merged changes made on disk by another program.',
         buttons: [['Show changes', 'page.merge-show'], ...(canUndoMerge(p) ? [['Undo merge', 'page.merge-undo']] : [])],
+      };
+    }
+    // X10: the bytes did not decode exactly; a save would change the ones that did not.
+    if (p.lossy) {
+      return {
+        kind: 'warn', alert: false,
+        text: `Read-only: ${name} is not exact as ${p.encoding}, and saving it would change bytes it cannot show.`,
+        buttons: [['Reopen with encoding…', 'page.reopen-encoding']],
       };
     }
     if (p.notice) return { kind: 'warn', alert: false, text: p.notice, buttons: [] };
@@ -1768,7 +2087,7 @@ function buildPage(el, path, opts) {
   function markDirty(p) {
     // A text put in from outside (the disk, a merge, H7) is not an edit of the user's.
     if (p !== page || !p.ready || p.applying) return;
-    p.rev = ++revClock;
+    p.rev = nextRev();
     setDirty(p, true);
     clearTimeout(p.wordTimer);
     p.wordTimer = setTimeout(() => { if (p === page) updateMeta(p, true); }, SAVE_DEBOUNCE);
@@ -1780,11 +2099,62 @@ function buildPage(el, path, opts) {
         const wait = Math.max(SAVE_DEBOUNCE, p.retry * 1000 - (Date.now() - p.failedAt));
         p.saveTimer = setTimeout(() => { p.saveTimer = 0; void saveDoc(p); }, wait);
       }
+      // A text the encoding could not hold (X10) may hold it after this edit: try once more.
+      if (p.problem && p.problem.reason === 'unencodable') {
+        clearTimeout(p.saveTimer);
+        p.saveTimer = setTimeout(() => { p.saveTimer = 0; void saveDoc(p); }, SAVE_DEBOUNCE);
+      }
     } else {
       clearTimeout(p.saveTimer);
       p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
     }
     publishState(p);
+  }
+
+  /**
+   * What a save tells the host about the bytes (X10): the file's own encoding, when it is not
+   * UTF-8, so the text goes back in it. Left out, the host writes UTF-8.
+   */
+  const encodingOpts = (p) => (isUtf8(p.encoding) ? {} : { encoding: p.encoding });
+
+  /** How the page reads its file again: in the encoding the user chose, when they chose one. */
+  const readOpts = (p) => (p.forcedEncoding ? { encoding: p.forcedEncoding } : undefined);
+
+  /**
+   * A read of the page's file that did not decode the way the page did: another encoding was
+   * detected, or the decoding went lossy (or stopped being lossy). Its text is not a later
+   * state of the page's text but the bytes read another way, and merging it would write the
+   * misreading back over every untouched line (a UTF-8 page, one Latin-1 line appended on
+   * disk, reads as windows-1252 mojibake). The page reopens instead, or holds the conflict.
+   * @param {{ encoding?: string | null, lossy?: boolean | null }} file
+   */
+  const readsOtherwise = (p, file) => {
+    const enc = String((file && file.encoding) || 'UTF-8');
+    const same = isUtf8(enc) ? isUtf8(p.encoding) : enc.toLowerCase() === String(p.encoding || '').toLowerCase();
+    return !same || (file && file.lossy === true) !== !!p.lossy;
+  };
+
+  /** How a read that `readsOtherwise` is named to the user. */
+  const readAs = (file) => `${String((file && file.encoding) || 'UTF-8')}${file && file.lossy ? ', which cannot be written back exactly' : ''}`;
+
+  /**
+   * The disk reads otherwise than the page (`readsOtherwise`). A clean page opens the file again
+   * in place, as it is read now; a dirty one holds the conflict with no text of theirs, the
+   * way a file that is no longer text does. Nothing is merged.
+   */
+  async function readOtherwise(p, file) {
+    // A page still opening reads the file itself, with its encoding, a moment from now.
+    if (!p.el || !hasEditor(p)) return;
+    const hash = file.hash ?? null;
+    log(`${p.path} now reads as ${readAs(file)} (the page read it as ${p.encoding}${p.lossy ? ', lossy' : ''})`, 'warn');
+    if (!p.dirty && !p.conflict) {
+      if (Number(file.mtime)) p.mtime = Number(file.mtime);
+      toast(`${P.basename(p.path)} changed on disk and now reads as ${readAs(file)}: opened again`, 'warn');
+      await reopenInPlace(p);
+      return;
+    }
+    if (p.conflict && hash !== null && p.conflict.hash === hash && typeof p.conflict.theirs !== 'string') return;
+    holdConflict(p, { theirs: null, hash, count: 0, base: p.baseline, encoding: String(file.encoding || 'UTF-8'), lossy: file.lossy === true });
   }
 
   /** Autosave never runs on a deleted page, a conflict or a page the rich view could not write. */
@@ -1798,6 +2168,8 @@ function buildPage(el, path, opts) {
    */
   function composeChecked(p) {
     if (p.source) return { status: 'ok', text: p.source.getText() };
+    // Live holds the file itself (X2): its text is the save, with no serializer and no guard.
+    if (p.live) return { status: 'ok', text: p.live.getText() };
     // No editor could be built (`mountFallback`): the text that was to go in is all there is.
     // Nothing saves it over the file (`saveDoc` needs an editor); Save as and Copy text may.
     if (!p.crepe) {
@@ -1820,6 +2192,7 @@ function buildPage(el, path, opts) {
    */
   function bestEffort(p) {
     if (p.source) return p.source.getText();
+    if (p.live) return p.live.getText();
     if (!p.crepe && typeof p.orphan === 'string') return p.orphan;
     let body = null;
     try { body = p.crepe ? p.crepe.getMarkdown() : null; } catch { /* next */ }
@@ -1854,7 +2227,7 @@ function buildPage(el, path, opts) {
    */
   async function saveDoc(p, o = {}) {
     if (!p) return true;
-    if (!p.crepe && !p.source) return !p.dirty;
+    if (!hasEditor(p)) return !p.dirty;
     clearTimeout(p.saveTimer);
     p.saveTimer = 0;
     if (p.trashed) return true;
@@ -1875,8 +2248,9 @@ function buildPage(el, path, opts) {
     const deliberate = o.explicit || o.closing;
     // "Save again here" on a deleted page is a deliberate save, even of a clean buffer.
     const recreate = p.deleted && o.explicit && !o.leaving && !o.closing;
-    if (!p.dirty && !recreate) return true;
-    if (p.readOnly) return false;
+    // `o.recode`: `page.save-utf8` writes the same text in another encoding, dirty or not.
+    if (!p.dirty && !recreate && !o.recode) return true;
+    if (p.readOnly && !o.recode) return false;
     // H7: the disk and the buffer overlap. Ctrl+S (a save the user asked for, not a leave, a
     // close or a path change) opens the resolve view; everything else goes to the host as
     // usual, where the stale hash keeps it from writing over the disk's text.
@@ -1896,11 +2270,11 @@ function buildPage(el, path, opts) {
     }
     const text = r.text;
     // M5: a buffer that composes back to the baseline is not dirty, whatever changed in it.
-    if (text === p.baseline && !recreate) { settleClean(p, rev); return true; }
+    if (text === p.baseline && !recreate && !o.recode) { settleClean(p, rev); return true; }
 
     let outcome = false;
     p.saving = (async () => {
-      outcome = await writeOut(p, text, rev, { expectedHash: p.deleted ? null : p.baselineHash });
+      outcome = await writeOut(p, text, rev, { expectedHash: p.deleted ? null : p.baselineHash, ...encodingOpts(p) });
     })();
     publishState(p);
     try {
@@ -2013,10 +2387,15 @@ function buildPage(el, path, opts) {
     // `[write_failed] …; your text is in <where>`: the host could not put the file in place and
     // set the new text aside in a visible copy beside it (vault.rs `keep_unsaved`).
     const copy = code === 'write_failed' && /;\s*your text is in\s/.test(errText(e));
+    // X10: the text holds a character the file's encoding cannot, and nothing was written. It
+    // stays so until the text changes or the user converts the file (`page.save-utf8`).
+    const unencodable = code === 'unencodable';
     p.problem = {
       status: 'not-saved',
-      reason: code === 'stale_vault' ? 'stale-vault' : 'write-failed',
-      message: code === 'stale_vault' ? 'the vault changed since this page was opened' : errText(e),
+      reason: code === 'stale_vault' ? 'stale-vault' : unencodable ? 'unencodable' : 'write-failed',
+      message: code === 'stale_vault'
+        ? 'the vault changed since this page was opened'
+        : unencodable ? `the text holds characters ${p.encoding} cannot hold` : errText(e),
       copy,
     };
     p.failedAt = Date.now();
@@ -2027,12 +2406,13 @@ function buildPage(el, path, opts) {
     // of another vault is not: it would land in the wrong place, which is what the epoch stops.
     // Nor is a write that left a copy beside the file: every try would leave one more in the
     // user's folder. That one is tried again on the next edit (`markDirty`) or by a deliberate
-    // save, which the banner offers.
+    // save, which the banner offers. Nor is a text the encoding cannot hold: the next edit or a
+    // deliberate save tries again.
     if (code !== 'stale_vault' && p === page) {
       p.retry = Math.min(RETRY_MAX, p.retry ? p.retry * 2 : 2);
       clearTimeout(p.saveTimer);
       p.saveTimer = 0;
-      if (!copy) p.saveTimer = setTimeout(() => { void saveDoc(p); }, p.retry * 1000);
+      if (!copy && !unencodable) p.saveTimer = setTimeout(() => { void saveDoc(p); }, p.retry * 1000);
     }
   }
 
@@ -2120,7 +2500,7 @@ function buildPage(el, path, opts) {
       settleClean(p, p.rev);
       return 'merged';
     }
-    p.rev = ++revClock;
+    p.rev = nextRev();
     if (wasUnchecked) p.uncheckedRev = p.rev;
     setDirty(p, true);
     if (merged !== ours) {
@@ -2158,9 +2538,14 @@ function buildPage(el, path, opts) {
    * it), which keeps the text but not the undo history.
    */
   async function applyText(p, text) {
-    if (p.source) {
+    // The Reading view shows the buffer: it follows a text put in from outside (X3).
+    if (p.reading) { try { p.reading.view.setText(text); } catch (e) { console.error('[editor] reading', e); } }
+    if (p.source || p.live) {
       p.applying = true;
-      try { p.source.replaceText(text); } finally { p.applying = false; }
+      try {
+        if (p.source) p.source.replaceText(text);
+        else if (p.live) p.live.replaceMinimal(text);
+      } finally { p.applying = false; }
       p.doc = p.plain ? plainDoc(text) : parseDoc(text);
       if (p.doc.titleLine !== null) p.title = p.doc.title;
       if (p.titleEl && p.titleEl.textContent !== p.title) p.titleEl.textContent = p.title;
@@ -2180,11 +2565,11 @@ function buildPage(el, path, opts) {
       updateMeta(p, true);
       return !!p.crepe;
     }
-    if (!p.crepe && !p.source) { p.orphan = text; return false; }
+    if (!hasEditor(p)) { p.orphan = text; return false; }
     const wasFrozen = p.frozen;
     freeze(p);
     try {
-      await remount(p, p.mode === 'source' ? 'source' : 'block', text);
+      await remount(p, p.mode, text);
       if (p === page && p.crepe) {
         const check = checkOpened(p.crepe, p.doc.body);
         if (!check.ok) await forceSource(p, text, 'lossy-open', check.reason);
@@ -2255,7 +2640,8 @@ function buildPage(el, path, opts) {
    * The disk and the buffer overlap: the buffer is left as it is, autosave stops, leaving is
    * refused, a draft keeps the text, and the banner offers the resolve view. `info` is
    * `{theirs, hash, count, base}`: the disk's text (null when it is not text), its hash, how many
-   * regions overlap (0 when unknown) and the text both were edited from.
+   * regions overlap (0 when unknown) and the text both were edited from; with `encoding` (and
+   * `lossy`) when the disk is text read another way than the page's (`readsOtherwise`).
    */
   function holdConflict(p, info) {
     const first = !p.conflict;
@@ -2277,7 +2663,9 @@ function buildPage(el, path, opts) {
   /** The disk as it is now, `{text, hash}`, or null when it cannot be read (a gone file is looked for). */
   async function readDisk(p) {
     try {
-      const f = await pageFiles.readFile(p.path);
+      const f = await pageFiles.readFile(p.path, readOpts(p));
+      // Read another way than the page's (another encoding, or lossy): no text to merge.
+      if (readsOtherwise(p, f)) return { text: null, hash: f.hash ?? null, file: f };
       return { text: typeof f.text === 'string' ? f.text : null, hash: f.hash ?? null };
     } catch (e) {
       if (errCode(e) === 'not_found') { goneCheck(p); return null; }
@@ -2300,8 +2688,12 @@ function buildPage(el, path, opts) {
     const disk = await readDisk(p);
     if (p !== page || !p.conflict) return false;
     if (disk && disk.hash !== null && disk.hash !== p.conflict.hash) {
-      const m = await mergeExternal(p, disk);
-      if (m !== 'conflict') return saveDoc(p, { explicit: true, noResolve: true });
+      if (disk.file) await readOtherwise(p, disk.file);
+      else {
+        const m = await mergeExternal(p, disk);
+        if (m !== 'conflict') return saveDoc(p, { explicit: true, noResolve: true });
+      }
+      if (p !== page || !p.conflict) return false;
     }
     const c = p.conflict;
     if (!c) return false;
@@ -2310,12 +2702,19 @@ function buildPage(el, path, opts) {
     const exact = r0.status !== 'unsafe' && typeof r0.text === 'string';
     const ours = exact ? r0.text : bestEffort(p);
     if (typeof c.theirs !== 'string') {
+      const what = c.encoding
+        ? `${p.path} changed on disk and now reads as ${readAs(c)}.`
+        : `${p.path} was replaced by something this editor cannot show as text.`;
+      // A file outside the vault keeps no Versions (X7): overwriting it loses the other text.
+      const kept = p.outside
+        ? ' This file is outside the vault and has no Versions: what is on disk now is lost.'
+        : ' The file on disk is kept in Versions….';
       const ok = await confirm({
         title: 'Changed on disk',
-        body: `${p.path} was replaced by something this editor cannot show as text. Keep your version and overwrite it? The file on disk is kept in Versions….`,
-        ok: 'Keep mine',
+        body: `${what} Keep your version and overwrite it?${kept}`,
+        ok: 'Keep mine', danger: !!p.outside,
       });
-      return ok && p === page ? keepMine(p) : false;
+      return ok && p === page ? keepMine(p, { asked: true }) : false;
     }
     const actions = [
       { label: 'Keep both', value: 'both', kind: 'primary' },
@@ -2328,15 +2727,17 @@ function buildPage(el, path, opts) {
       b: c.theirs,
       aLabel: 'yours, in this page',
       bLabel: 'on disk now',
-      note: c.count
+      note: (c.count
         ? `${c.count} part${c.count === 1 ? '' : 's'} changed on both sides. Keep both puts the lines on disk after yours where they overlap.`
-        : 'Keep both puts the lines on disk after yours where they differ.',
+        : 'Keep both puts the lines on disk after yours where they differ.')
+        + (p.outside ? ' This file is outside the vault and has no Versions: Keep mine and Take theirs lose the other side.' : ''),
       actions,
     });
     if (p !== page || p.conflict !== c) return false;
     if (choice === 'both') return keepBothIn(p, ours, c);
-    if (choice === 'mine') return keepMine(p);
-    if (choice === 'theirs') return takeTheirs(p);
+    if (choice === 'mine') return keepMine(p, { asked: true });
+    // The note above said what an outside page loses: no second question.
+    if (choice === 'theirs') return takeTheirs(p, { asked: true });
     return false;
   }
 
@@ -2350,7 +2751,7 @@ function buildPage(el, path, opts) {
     p.conflict = null;
     p.problem = null;
     p.merged = null;
-    p.rev = ++revClock;
+    p.rev = nextRev();
     setDirty(p, true);
     log(`kept both versions ${p.path}`, 'info');
     clearTimeout(p.saveTimer);
@@ -2362,12 +2763,28 @@ function buildPage(el, path, opts) {
   /**
    * Keep mine: the buffer over the disk, against the hash of the text the conflict showed, so a
    * write that lands meanwhile is merged again rather than lost. The host keeps the disk's text
-   * as a `conflict` version.
+   * as a `conflict` version. Outside the vault there is none (X7): the user is asked first,
+   * and may copy the disk's text, unless the question was already asked (`o.asked`).
    */
-  async function keepMine(p) {
+  async function keepMine(p, o = {}) {
     if (!p || p !== page) return false;
     const c = p.conflict;
     if (!c) return saveNow({ explicit: true });
+    if (p.outside && !o.asked && typeof c.theirs === 'string') {
+      const go = await confirmLoss(p, {
+        title: 'Keep your version?',
+        body: 'Your text is written over the file on disk. This file is outside the vault and has no Versions: the text on disk now is lost.',
+        ok: 'Keep mine', text: c.theirs,
+      });
+      if (!go || p !== page || p.conflict !== c) return false;
+    } else if (p.outside && !o.asked) {
+      const go = await confirm({
+        title: 'Keep your version?',
+        body: 'Your text is written over the file on disk. This file is outside the vault and has no Versions: what is on disk now is lost.',
+        ok: 'Keep mine', danger: true,
+      });
+      if (!go || p !== page || p.conflict !== c) return false;
+    }
     let r0;
     try { r0 = composeChecked(p); } catch (e) { r0 = { status: 'unsafe', text: null, reason: errText(e) }; }
     if (r0.status === 'unsafe' || typeof r0.text !== 'string') {
@@ -2377,7 +2794,7 @@ function buildPage(el, path, opts) {
     const rev = p.rev;
     let res;
     try {
-      res = await pageFiles.save(p.path, r0.text, { expectedHash: c.hash, version: 'conflict' });
+      res = await pageFiles.save(p.path, r0.text, { expectedHash: c.hash, version: 'conflict', ...encodingOpts(p) });
     } catch (e) {
       saveFailed(p, e);
       return false;
@@ -2394,27 +2811,76 @@ function buildPage(el, path, opts) {
     return false;
   }
 
-  /** Take theirs: the buffer goes to Versions (reason `reload`), and the page shows the disk. */
-  async function takeTheirs(p) {
+  /**
+   * Take theirs: the buffer goes to Versions (reason `reload`), and the page shows the disk. A
+   * disk that reads in another encoding than the page's opens again as it reads now (X10).
+   * Outside the vault there are no Versions (X7): the user is asked first, and may copy the
+   * text, unless the compare view already said so (`o.asked`).
+   */
+  async function takeTheirs(p, o = {}) {
     if (!p || p !== page) return false;
     const disk = await readDisk(p);
-    if (!disk || typeof disk.text !== 'string' || p !== page) {
+    const other = !!(disk && disk.file);
+    if (!disk || (!other && typeof disk.text !== 'string') || p !== page) {
       if (disk) toast(`${p.path} is not text this editor can show; keep yours, or discard your changes`, 'warn');
       return false;
     }
     let d = null;
     try { d = draftText(p); } catch { d = null; }
-    if (d && typeof d.text === 'string') await keepBuffer(p, d.text);
+    const mine = d && typeof d.text === 'string' ? d.text : null;
+    if (p.outside && !o.asked && mine !== null && mine !== disk.text && mine !== p.baseline) {
+      const go = await confirmLoss(p, {
+        title: 'Take the version on disk?',
+        body: 'The page shows the file on disk. This file is outside the vault and has no Versions: your text in this page is lost.',
+        ok: 'Take theirs', text: mine,
+      });
+      if (!go || p !== page) return false;
+    }
+    if (mine !== null) await keepBuffer(p, mine);
     if (p !== page) return false;
     p.conflict = null;
     p.problem = null;
     p.recovered = null;
     p.merged = null;
     clearTimeout(p.saveTimer);
+    if (other) {
+      setDirty(p, false);
+      await dropDraft(p);
+      log(`took the version on disk ${p.path}, read as ${readAs(disk.file)}`, 'info');
+      await reopenInPlace(p);
+      return true;
+    }
     await reloadClean(p, disk.text, disk.hash);
     await dropDraft(p);
     log(`took the version on disk ${p.path}`, 'info');
     return true;
+  }
+
+  /**
+   * The question in front of a gesture that loses `text` for good, asked only on a page outside
+   * the vault (no Versions, X7). "Copy, then …" puts the text on the clipboard first, and goes
+   * on only when the copy worked. Cancel comes first, so it has the focus.
+   * @param {any} p
+   * @param {{ title: string, body: string, ok: string, text: string }} o
+   * @returns {Promise<boolean>}
+   */
+  async function confirmLoss(p, o) {
+    const choice = await choose({
+      title: o.title,
+      body: o.body,
+      options: [
+        { label: 'Cancel', value: null },
+        { label: `Copy, then ${o.ok.toLowerCase()}`, value: 'copy', kind: 'primary' },
+        { label: o.ok, value: 'go', kind: 'danger' },
+      ],
+    });
+    if (choice === 'copy') {
+      const ok = await copyText(o.text);
+      if (!ok) { toast('could not copy the text: nothing was changed', 'err'); return false; }
+      toast('copied', 'info');
+      return p === page;
+    }
+    return choice === 'go' && p === page;
   }
 
   /** The banner that says a merge happened: up for `MERGE_NOTE_MS`, or until Esc. */
@@ -2440,17 +2906,28 @@ function buildPage(el, path, opts) {
   async function undoMerge(p) {
     if (!canUndoMerge(p) || p !== page) return false;
     const m = p.merged;
+    if (p.outside) {
+      // No Versions outside the vault (X7): the next save writes over the disk's change.
+      const go = await confirmLoss(p, {
+        title: 'Undo the merge?',
+        body: 'The page goes back to your text, and the next save writes it over the change made on disk. This file is outside the vault and has no Versions: that change is lost.',
+        ok: 'Undo merge', text: m.theirs,
+      });
+      if (!go || p !== page || p.merged !== m || !canUndoMerge(p)) return false;
+    }
     clearMergeNote(p);
-    try {
-      await pageFiles.keepVersion(p.path, m.theirs, { force: true, reason: 'conflict' });
-    } catch (e) {
-      log(`version not kept ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+    if (!p.outside) {
+      try {
+        await pageFiles.keepVersion(p.path, m.theirs, { force: true, reason: 'conflict' });
+      } catch (e) {
+        log(`version not kept ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      }
     }
     if (p !== page) return false;
     await applyText(p, m.ours);
     if (p !== page) return false;
     p.merged = null;
-    p.rev = ++revClock;
+    p.rev = nextRev();
     setDirty(p, true);
     log(`merge undone ${p.path}`, 'info');
     clearTimeout(p.saveTimer);
@@ -2475,7 +2952,7 @@ function buildPage(el, path, opts) {
 
   /** The disk's text, kept as a version before it is put in the buffer (reason `reload`). Never throws. */
   async function keepDisk(p, text) {
-    if (typeof text !== 'string') return;
+    if (typeof text !== 'string' || p.outside) return;
     try {
       await pageFiles.keepVersion(p.path, text, { force: true, reason: 'reload' });
     } catch (e) {
@@ -2485,7 +2962,7 @@ function buildPage(el, path, opts) {
 
   /** The buffer, kept as a version before the page lets it go (reason `reload`). Never throws. */
   async function keepBuffer(p, text) {
-    if (typeof text !== 'string' || text === p.baseline) return;
+    if (typeof text !== 'string' || text === p.baseline || p.outside) return;
     try {
       await pageFiles.keepVersion(p.path, text, { force: true, reason: 'reload' });
     } catch (e) {
@@ -2501,6 +2978,7 @@ function buildPage(el, path, opts) {
     // Text the user has not checked yet stays marked as such, whichever editor holds it.
     const exact = !unchecked(p);
     if (p.source) return { text: p.source.getText(), exact };
+    if (p.live) return { text: p.live.getText(), exact };
     if (!p.crepe) return { text: typeof p.orphan === 'string' ? p.orphan : null, exact: false };
     const r = composeChecked(p);
     if (r.status !== 'unsafe' && typeof r.text === 'string') return { text: r.text, exact };
@@ -2517,7 +2995,7 @@ function buildPage(el, path, opts) {
   /** Write the draft of a dirty buffer now. Never throws; the state says how it went. */
   async function writeDraft(p) {
     if (!p || !p.path || !p.dirty || p.trashed) return;
-    if (!p.crepe && !p.source && typeof p.orphan !== 'string') return;
+    if (!hasEditor(p) && typeof p.orphan !== 'string') return;
     clearTimeout(p.draftTimer);
     p.draftTimer = 0;
     let d;
@@ -2545,6 +3023,9 @@ function buildPage(el, path, opts) {
   async function keepRecovered(p) {
     const r = p.recovered;
     if (!r || r.applied || r.kept) return true;
+    // A file outside the vault has no Versions (X7). Its offered draft stays offered, and the
+    // slot is not written over while it is there: the page's own drafts wait (`writeDraftText`).
+    if (p.outside) return false;
     try {
       await pageFiles.keepVersion(p.path, r.text, { force: true, reason: 'conflict' });
       r.kept = true;
@@ -2571,8 +3052,9 @@ function buildPage(el, path, opts) {
         return;
       }
       try {
-        await pageFiles.drafts.write(path, { path, ...draft });
+        const at = await pageFiles.drafts.write(path, { path, ...draft });
         p.draftAt = Date.now();
+        p.draftStamp = at && Number(at.at) ? Number(at.at) : null;
         p.draft = 'written';
       } catch (e) {
         p.draft = 'failed';
@@ -2594,18 +3076,34 @@ function buildPage(el, path, opts) {
       if (!p.hasDraft) return;
       if (!await keepRecovered(p)) return;
       try {
+        // The draft of a file outside the vault is one slot for every window that has the file
+        // open: only the draft this page wrote (or recovered) is its to drop.
+        if (p.outside && !await ownsDraft(p)) {
+          p.hasDraft = false;
+          p.draft = null;
+          publishState(p);
+          return;
+        }
         const r = await pageFiles.drafts.drop(p.path, rev === undefined ? undefined : { ifRev: rev });
         // A newer draft than this save stays, and so does the flag that says there is one.
         if (r && r.dropped === false && rev !== undefined) return;
         p.hasDraft = false;
         p.draft = null;
       } catch (e) {
-        if (errCode(e) !== 'unknown_command') { log(`draft not dropped ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn'); return; }
-        p.hasDraft = false;
-        p.draft = null;
+        log(`draft not dropped ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+        return;
       }
       publishState(p);
     });
+  }
+
+  /**
+   * Is the draft in the page's slot the one this page wrote or recovered? By the `at` the host
+   * stamped it with. No draft there is not ours either. Throws what the read throws.
+   */
+  async function ownsDraft(p) {
+    const d = await pageFiles.drafts.read(p.path);
+    return !!d && p.draftStamp != null && Number(d.at) === p.draftStamp;
   }
 
   // -------------------------------------------------------------------------
@@ -2625,13 +3123,18 @@ function buildPage(el, path, opts) {
     }
     const n = (v) => v.toLocaleString('en');
     const bits = [];
+    // A file outside the vault says so, and where it is (X7): the breadcrumb has no folder of
+    // the vault to show for it.
+    if (p.outside) bits.push(`Outside the vault: ${P.outsideLabel(p.path)}`);
     // A file with no title of its own says its name; a page's folder is in the breadcrumb.
-    if (p.plain) bits.push(P.basename(p.path));
+    else if (p.plain) bits.push(P.basename(p.path));
+    // The encoding, when it is not the usual one (X10).
+    if (!isUtf8(p.encoding)) bits.push(p.lossy ? `${p.encoding}, read-only` : p.encoding);
     bits.push(`${n(p.words)} word${p.words === 1 ? '' : 's'}`);
     bits.push(`${n(p.chars)} character${p.chars === 1 ? '' : 's'}`);
     const when = modifiedLabel(p.mtime);
     if (when) bits.push(when);
-    const linked = backlinkCount(p.path);
+    const linked = p.outside ? 0 : backlinkCount(p.path);
     if (linked) bits.push(`${linked} linked`);
     if (p.deleted) bits.push('(deleted)');
     if (p.dirty) bits.push('unsaved');
@@ -2647,7 +3150,10 @@ function buildPage(el, path, opts) {
    */
   function pageText(p) {
     try {
-      if (p.source) return p.source.viewText();
+      // Source and Live hold the whole file: the count is of what Rich would show of it, so a
+      // mode switch never changes the size of the note. A plain file counts as it is.
+      if (p.source) return p.plain ? p.source.viewText() : shownText(p.source.viewText());
+      if (p.live) return shownText(p.live.viewText());
       const view = p.crepe ? editorView(p.crepe) : null;
       if (view) {
         const doc = view.state.doc;
@@ -2710,7 +3216,7 @@ function buildPage(el, path, opts) {
     const before = p.baselineHash;
     let file;
     try {
-      file = await pageFiles.readFile(p.path);
+      file = await pageFiles.readFile(p.path, readOpts(p));
     } catch (e) {
       if (errCode(e) === 'not_found') goneCheck(p);
       return;
@@ -2726,6 +3232,8 @@ function buildPage(el, path, opts) {
     }
     // The overlap the banner already shows: nothing new to merge.
     if (p.conflict && file.hash != null && file.hash === p.conflict.hash) return;
+    // The bytes read another way than the page read them: reopen or hold, never merge (X10).
+    if (readsOtherwise(p, file)) { await readOtherwise(p, file); return; }
     if (Number(file.mtime)) p.mtime = Number(file.mtime);
     // H7: a clean page takes the disk in place; a dirty one merges it (`mergeExternal`).
     await mergeExternal(p, { text: file.text, hash: file.hash ?? null });
@@ -2771,15 +3279,12 @@ function buildPage(el, path, opts) {
   function followRename(p, to) {
     const from = p.path;
     p.path = to;
-    void renameRemembered(from, to);
+    void renameMode(from, to);
     publishTitle(p);
     updateMeta(p);
     publishState(p);
     if (!parked) toast(`moved on disk: ${from} → ${to}`);
-    if (typeof ose.route.repoint === 'function') { repointRoute([{ from, to }]); return; }
-    // A kernel with no re-point: the old way, a remount at the new path, which saves first. A
-    // parked page is not on screen to remount: it follows the path and waits for its tab.
-    if (!parked) void navigate({ type: 'page', path: to }, { replace: true });
+    repointRoute([{ from, to }]);
   }
 
   /**
@@ -2793,7 +3298,8 @@ function buildPage(el, path, opts) {
     const top = scroller ? scroller.scrollTop : 0;
     const sel = currentSelection();
     const line = p.source ? p.source.view.state.doc.lineAt(p.source.view.state.selection.main.head).number : 0;
-    await run(p.path, sel ? { selection: sel } : {});
+    // The encoding the user chose for this page is kept across the reopen (X10).
+    await run(p.path, { ...(sel ? { selection: sel } : {}), ...(p.forcedEncoding ? { encoding: p.forcedEncoding } : {}) });
     if (scroller) scroller.scrollTop = top;
     if (line && page && page.source) page.source.goToLine(line);
   }
@@ -2834,7 +3340,7 @@ function buildPage(el, path, opts) {
    * name per file (M13): this runs only when the vault setting `titleSync` asks for it.
    */
   async function renameUntitledFromTitle(p) {
-    if (!titleSyncOn()) return false;
+    if (!titleSyncOn() || p.outside) return false;
     if (p !== page || p.deleted || p.trashed || !p.doc || p.doc.titleLine === null) return false;
     if (!UNTITLED.test(P.stem(p.path))) return false;
     const title = cleanStem(p.title);
@@ -2919,15 +3425,21 @@ function buildPage(el, path, opts) {
     p.recovered = null;
     p.baseline = text;
     p.baselineHash = (res && res.hash) ?? null;
+    // The copy is a new file, written as UTF-8, and it may be inside the vault where the old one
+    // was not (X7, X10).
+    p.outside = P.isOutside(dest);
+    p.encoding = 'UTF-8';
+    p.forcedEncoding = null;
+    if (p.lossy) { p.lossy = false; p.readOnly = false; if (!p.frozen) setEditable(p, true); }
     p.savedAt = P.hhmm();
     p.savedAtMs = Date.now();
-    if (p.source && !p.forced) void rememberSource(dest, true);
+    if (!p.forced) void rememberMode(dest, publicMode(p));
     log(`save ok ${dest} (save as, from ${from})`, 'info');
-    if (typeof ose.route.repoint === 'function') repointRoute([{ from, to: dest }]);
+    repointRoute([{ from, to: dest }]);
     publishTitle(p);
     if (p.rev === rev) settleClean(p, rev); else publishState(p);
     toast(`saved as ${dest}`);
-    if (!parked && (typeof ose.route.repoint !== 'function' || P.isMarkdown(from) !== P.isMarkdown(dest))) {
+    if (!parked && P.isMarkdown(from) !== P.isMarkdown(dest)) {
       void navigate({ type: 'page', path: dest }, { replace: true, force: true });
     }
     return true;
@@ -2947,13 +3459,19 @@ function buildPage(el, path, opts) {
         // and the question says plainly whether the text survives the discard.
         const kept = await keepRecovered(p);
         if (p !== page || !p.recovered) return true;
-        const ok = await confirm({
-          title: 'Discard recovered changes?',
-          body: kept
-            ? 'The page stays as the file on disk. The recovered text is kept in Versions….'
-            : 'The page stays as the file on disk. The recovered text could not be kept in Versions and will be lost.',
-          ok: 'Discard', danger: true,
-        });
+        const ok = p.outside
+          ? await confirmLoss(p, {
+            title: 'Discard recovered changes?',
+            body: 'The page stays as the file on disk. This file is outside the vault and has no Versions: the recovered text is lost.',
+            ok: 'Discard', text: p.recovered.text,
+          })
+          : await confirm({
+            title: 'Discard recovered changes?',
+            body: kept
+              ? 'The page stays as the file on disk. The recovered text is kept in Versions….'
+              : 'The page stays as the file on disk. The recovered text could not be kept in Versions and will be lost.',
+            ok: 'Discard', danger: true,
+          });
         if (!ok || p !== page || !p.recovered) return false;
         // The slot may hold the draft only while it is not in Versions: a failed keep leaves
         // it, and the user said to let it go, so it goes without the check.
@@ -2965,13 +3483,25 @@ function buildPage(el, path, opts) {
       }
       return true;
     }
-    const ok = await confirm({
-      title: 'Discard unsaved changes?',
-      body: p.deleted
-        ? 'The file is gone from disk; the text on screen goes too.'
-        : 'The page goes back to the file on disk. What you discard is kept in Versions….',
-      ok: 'Discard', danger: true,
-    });
+    let ok;
+    if (p.outside && !p.deleted) {
+      // No Versions outside the vault (X7): the question says so, and offers a copy.
+      let mine = null;
+      try { const d = draftText(p); mine = d && typeof d.text === 'string' ? d.text : null; } catch { mine = null; }
+      ok = await confirmLoss(p, {
+        title: 'Discard unsaved changes?',
+        body: 'The page goes back to the file on disk. This file is outside the vault and has no Versions: what you discard is lost.',
+        ok: 'Discard', text: mine ?? bestEffort(p),
+      });
+    } else {
+      ok = await confirm({
+        title: 'Discard unsaved changes?',
+        body: p.deleted
+          ? 'The file is gone from disk; the text on screen goes too.'
+          : 'The page goes back to the file on disk. What you discard is kept in Versions….',
+        ok: 'Discard', danger: true,
+      });
+    }
     if (!ok || p !== page) return false;
     if (!p.deleted) {
       let d = null;
@@ -3015,12 +3545,12 @@ function buildPage(el, path, opts) {
     const p = page;
     const r = p && p.recovered;
     if (!r || r.applied) return false;
-    const mode = !p.plain && r.exact && r.mode === 'rich' ? 'rich' : 'source';
+    const mode = PUBLIC[recoveredModeOf(p, r)] || 'source';
     r.applied = true;
     const ok = await setMode(mode, { text: r.text, quiet: true });
     if (p !== page) return false;
-    if (!ok && !p.source) { r.applied = false; publishState(p); return false; }
-    p.rev = ++revClock;
+    if (!ok && !p.source && !p.live) { r.applied = false; publishState(p); return false; }
+    p.rev = nextRev();
     setDirty(p, true);
     // The draft was typed over an older text than the disk holds, and that text is gone: there
     // is nothing to merge against. The page holds it as an overlap with the disk, and the
@@ -3032,9 +3562,248 @@ function buildPage(el, path, opts) {
   function focusPage() {
     const p = page;
     if (!p) return;
+    if (p.reading) { p.reading.view.el.focus({ preventScroll: true }); return; }
     if (p.source) { p.source.focus(); return; }
+    if (p.live) { p.live.focus(); return; }
     if (p.crepe) { const view = editorView(p.crepe); if (view) { view.focus(); return; } }
     if (p.titleEl) p.titleEl.focus();
+  }
+
+  // -------------------------------------------------------------------------
+  // encodings (X10)
+
+  /**
+   * `page.save-utf8`: the text written back as UTF-8, from now on. Converting is never done
+   * behind the user's back (F7): it is this command, asked for, with the question saying what
+   * it means. A page that could not be decoded exactly says that the characters it shows are
+   * what will be written.
+   */
+  async function saveUtf8() {
+    const p = page;
+    if (!p) return false;
+    const name = P.basename(p.path);
+    if (isUtf8(p.encoding)) { toast(`${name} is already UTF-8`, 'info'); return true; }
+    const kept = p.outside ? '' : ' The file as it is now is kept in Versions….';
+    const ok = await confirm({
+      title: 'Save as UTF-8?',
+      body: p.lossy
+        ? `${name} is not exact as ${p.encoding}. What the page shows is written as UTF-8, and the bytes it could not show are lost.${kept}`
+        : `${name} is written as UTF-8 from now on, instead of ${p.encoding}.${kept}`,
+      ok: 'Save as UTF-8', danger: p.lossy,
+    });
+    if (!ok || p !== page) return false;
+    const was = p.encoding;
+    p.encoding = 'UTF-8';
+    p.forcedEncoding = null;
+    if (p.lossy) { p.lossy = false; p.readOnly = false; if (!p.frozen) setEditable(p, true); }
+    if (p.problem && p.problem.reason === 'unencodable') p.problem = null;
+    const done = await saveNow({ explicit: true, recode: true });
+    if (p !== page) return done;
+    log(`${done ? 'converted' : 'not converted'} to UTF-8 ${p.path} (was ${was})`, done ? 'info' : 'warn');
+    updateMeta(p);
+    publishState(p);
+    if (done) toast(`${name} saved as UTF-8`);
+    return done;
+  }
+
+  /**
+   * `page.reopen-encoding`: the file read again in the encoding the user names, which then
+   * holds for every read and save of the page (F7: the override of a misdetection). A page
+   * with unsaved changes is not reopened: its text would be read again from under it.
+   */
+  async function reopenEncoding() {
+    const p = page;
+    if (!p) return false;
+    if (p.dirty) { toast('Save or discard your changes first: reopening reads the file again', 'warn'); return false; }
+    const answer = await prompt({
+      title: 'Reopen with encoding',
+      value: p.encoding,
+      ok: 'Reopen',
+      body: 'An encoding name, such as UTF-8, windows-1252, ISO-8859-15, UTF-16LE, Shift_JIS, GBK or windows-1251.',
+    });
+    if (!answer || p !== page) return false;
+    let label;
+    try { label = new TextDecoder(String(answer).trim()).encoding; } catch { label = null; }
+    if (!label) { toast(`${String(answer).trim()} is not an encoding this app knows`, 'err'); return false; }
+    if (p.dirty) { toast('Save or discard your changes first: reopening reads the file again', 'warn'); return false; }
+    // Tried first, so a file that is not text in that encoding leaves the page as it was.
+    try {
+      await pageFiles.readFile(p.path, { encoding: label });
+    } catch (e) {
+      toast(`${P.basename(p.path)} cannot be read as ${label}: ${errText(e)}`, 'err');
+      return false;
+    }
+    if (p !== page || p.dirty) return false;
+    await run(p.path, { encoding: label });
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // the Reading view (X3)
+
+  /** The buffer as a save would write it, for the Reading view: never composed twice for nothing. */
+  function readingText(p) {
+    if (p.source) return p.source.getText();
+    if (p.live) return p.live.getText();
+    if (!p.dirty) return p.baseline;
+    let r;
+    try { r = composeChecked(p); } catch { r = { text: null }; }
+    return typeof r.text === 'string' ? r.text : bestEffort(p);
+  }
+
+  /** The first file line in view (1-based): the editor's own answer, or for Rich, the scroll's. */
+  function topLineOf(p) {
+    try {
+      if (p.source) return p.source.topLine();
+      if (p.live) return p.live.topLine();
+    } catch { return 1; }
+    const scroller = scrollerOf(p.el);
+    if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return 1;
+    const lines = String(p.baseline || '').split('\n').length;
+    return Math.max(1, Math.round((scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight)) * lines));
+  }
+
+  /** `page.reading-toggle`, and the Read button. */
+  function toggleReading() {
+    const p = page;
+    if (!p) return false;
+    if (p.reading) { closeReading(p); return true; }
+    return openReading(p);
+  }
+
+  /**
+   * The buffer, rendered, read-only, in place of the editor (X3). The editor stays mounted and
+   * hidden underneath with its buffer, undo history and dirty flag; coming back is to the same
+   * mode. Links follow as they do in the page.
+   */
+  function openReading(p) {
+    if (!hasEditor(p) || !p.metaEl) return false;
+    if (p.plain) { toast(`${P.basename(p.path)} is not markdown: there is nothing to render`, 'info'); return false; }
+    const line = topLineOf(p);
+    // Where the editor was, to the pixel: a glance at the Reading view and back, with no
+    // scrolling in between, lands exactly there again (`closeReading`).
+    const scroller = scrollerOf(p.el);
+    const editorTop = scroller ? scroller.scrollTop : 0;
+    // A plain container: the view's own element is the document, named, and the one tab stop.
+    const holder = document.createElement('div');
+    holder.className = 'ed-reading';
+    p.metaEl.after(holder);
+    let view;
+    try {
+      view = createReadingView({
+        host: holder,
+        text: readingText(p),
+        path: p.path,
+        resolveAsset: (src) => resolveImage(p, src),
+        resolveWikilink: (target) => resolveWikilink(p, target),
+        onOpenLink: (href, o) => { void openLinkFrom(p, href, o); },
+      });
+    } catch (e) {
+      holder.remove();
+      console.error('[editor] reading', e);
+      toast(`could not show the reading view: ${errText(e)}`, 'err');
+      return false;
+    }
+    holder.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      if (p === page) closeReading(p);
+    });
+    /** @type {{ view: any, el: HTMLElement, from: string, editorTop: number, startLine: number | null }} */
+    const r = { view, el: holder, from: publicMode(p), editorTop, startLine: null };
+    p.reading = r;
+    p.el.classList.add('ed-reading-on');
+    paintMode(p);
+    view.el.focus({ preventScroll: true });
+    afterLayout(() => {
+      if (p.reading !== r) return;
+      if (line > 1) view.goToLine(line);
+      try { r.startLine = view.topLine(); } catch { r.startLine = null; }
+    });
+    return true;
+  }
+
+  /**
+   * Back to the editor. The caret stays where the user left it: reading is not editing. The
+   * scroll comes back to the pixel when the Reading view was not scrolled; otherwise the line
+   * the Reading view was showing goes to the top of the column, and still the caret stays.
+   */
+  function closeReading(p, o = {}) {
+    const r = p && p.reading;
+    if (!r) return;
+    let line = 1;
+    try { line = r.view.topLine(); } catch { line = 1; }
+    const moved = r.startLine === null || line !== r.startLine;
+    p.reading = null;
+    try { r.view.destroy(); } catch (e) { console.error('[editor] reading destroy', e); }
+    r.el.remove();
+    if (p.el) p.el.classList.remove('ed-reading-on');
+    paintMode(p);
+    if (o.focus === false || p !== page) return;
+    const place = () => {
+      if (p !== page || p.reading) return;
+      if (moved) scrollLineToTop(p, line);
+      else { const s = scrollerOf(p.el); if (s) s.scrollTop = r.editorTop; }
+    };
+    place();
+    focusPage();
+    // The editor was hidden: its height may settle a frame later, and the scroll with it.
+    afterLayout(place);
+  }
+
+  /**
+   * File line `line` (1-based) at the top of the column, with the selection left alone: a
+   * CodeMirror scroll effect in Source and Live, a scroll of the column in Rich.
+   */
+  function scrollLineToTop(p, line) {
+    const n = Math.max(1, Math.floor(Number(line) || 1));
+    const cm = p.source ? p.source.view : p.live ? p.live.view : null;
+    if (cm) {
+      const doc = cm.state.doc;
+      const at = doc.line(Math.min(n, doc.lines));
+      cm.dispatch({ effects: EditorView.scrollIntoView(at.from, { y: 'start' }) });
+      return;
+    }
+    const view = p.crepe ? editorView(p.crepe) : null;
+    const scroller = scrollerOf(p.el);
+    if (!view || !p.doc) return;
+    const start = bodyStartLine(p.doc);
+    if (n < start) { if (scroller) scroller.scrollTop = 0; return; }
+    revealPos(view, posForBodyLine(p.crepe, view, p.doc.body, n - start + 1), { block: 'start', always: true });
+  }
+
+  /**
+   * Paste as plain text in Live: the clipboard's text goes in raw, one input.paste edit. The
+   * chord already does this inside the view (paste.js lets the browser's plain paste through);
+   * this is the palette's and the menu's way to it.
+   */
+  async function livePastePlain(p) {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { text = ''; }
+    if (!text) { toast('nothing to paste · Ctrl+Shift+V pastes plain text', 'info'); return; }
+    if (p !== page || !p.live || p.frozen || p.readOnly) return;
+    const v = p.live.view;
+    v.dispatch({ ...v.state.replaceSelection(text), userEvent: 'input.paste', scrollIntoView: true });
+    p.live.focus();
+  }
+
+  /** See `api.liveRun`. */
+  function liveRun(id) {
+    const p = page;
+    if (!p || !p.live) return false;
+    if (id === 'format.paste-plain') { void livePastePlain(p); return true; }
+    if (!LIVE_COMMANDS.includes(id)) { toast('Not available in Live', 'info', 2000); return false; }
+    // The Live view is hidden under the Reading view: nothing edits it unseen (X3).
+    if (p.reading) { toast(READING_REFUSAL, 'info', 2000); return false; }
+    if (p.frozen || p.readOnly) {
+      if (id !== 'page.follow-link') return false;
+    }
+    if (!p.live.hasFocus()) p.live.focus();
+    try { return p.live.run(id) !== false; } catch (e) {
+      console.error('[editor] live command', id, e);
+      log(`live command failed ${id}: ${errText(e)}`, 'error');
+      return false;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -3043,8 +3812,10 @@ function buildPage(el, path, opts) {
   const api = {
     hasPage: () => !!page,
     getPage: () => page,
-    getView: () => (page && page.crepe ? editorView(page.crepe) : null),
-    getCrepe: () => (page ? page.crepe : null),
+    // No editable view while the Reading view is up (X3): the editor is hidden under it, and a
+    // command that reached it would change bytes the user cannot see.
+    getView: () => (page && page.crepe && !page.reading ? editorView(page.crepe) : null),
+    getCrepe: () => (page && !page.reading ? page.crepe : null),
     getPath: () => (page ? page.path : null),
     getDoc: () => (page ? page.doc : null),
     focusTitle: () => { if (page) focusTitle(page); },
@@ -3062,11 +3833,27 @@ function buildPage(el, path, opts) {
     attachFile: (file) => (page ? attachFile(page, file) : Promise.reject(new Error('no page'))),
     // The find bar of the open page, whichever kind it is.
     openFind: (o) => { if (page && page.find) page.find.open(o || {}); },
-    // Batch 12 (P5) and H14: the two views.
+    // Batch 12 (P5), H14 and X1: the three modes.
     isSource: () => !!(page && page.source),
+    isLive: () => !!(page && page.live),
     isMarkdown: () => !!(page && !page.plain),
     toggleSource: () => toggleSource(),
     setMode: (mode) => setMode(mode),
+    nextMode: () => nextMode(),
+    mode: () => (page ? publicMode(page) : null),
+    /**
+     * A body command in Live (§3.3): the Live view runs the ids of LIVE_COMMANDS; any other
+     * says it is not available there. Answers what the view answered.
+     */
+    liveRun: (id) => liveRun(id),
+    // X3: the Reading view.
+    isReading: () => !!(page && page.reading),
+    toggleReading: () => toggleReading(),
+    // X7, X10: outside the vault, and the file's encoding.
+    isOutside: () => !!(page && page.outside),
+    encoding: () => (page ? page.encoding : null),
+    saveUtf8: () => saveUtf8(),
+    reopenEncoding: () => reopenEncoding(),
     // K1c: what the page-level commands do, so they can live at module level and act on
     // whichever page has the focus.
     hasCrepe: () => !!(page && page.crepe),
@@ -3077,6 +3864,7 @@ function buildPage(el, path, opts) {
     outline: () => outlinePage(),
     find: (o) => { if (page && page.find) page.find.open(o || {}); },
     reveal: () => { if (page) void bridge.reveal(page.path); },
+    isReadOnlyFile: () => !!(page && page.readOnly),
     // Wave 1 (H8, C4, C7): the save state and what the banner's buttons do.
     status: () => statusOf(page),
     isDirty: () => !!(page && page.dirty),
@@ -3090,6 +3878,8 @@ function buildPage(el, path, opts) {
     // Wave 2 (H7): an overlap with the disk, and a merge that happened.
     hasConflict: () => !!(page && page.conflict),
     conflictIsText: () => !!(page && page.conflict && typeof page.conflict.theirs === 'string'),
+    // Take theirs also opens a disk that reads in another encoding again (X10).
+    conflictCanTake: () => !!(page && page.conflict && (typeof page.conflict.theirs === 'string' || page.conflict.encoding)),
     hasMerge: () => !!(page && page.merged),
     canUndoMerge: () => canUndoMerge(page),
     mergeResolve: () => resolveMerge(page),
@@ -3188,9 +3978,14 @@ function buildPage(el, path, opts) {
     if (p && p.bindParent) p.bindParent();
     take();
     if (p) {
+      // A page frozen by a leave that is no longer in flight — a navigation superseded while its
+      // wait timed out (wave 2, open) — would stay read-only for good: nothing else unfreezes a
+      // page that is shown again. A leave or a switch in flight, a rename or a trash, keep theirs.
+      if (p.frozen && !leaving && !p.switching && !p.moving && !p.trashed) stay();
       p.lastBanner = '';
       publishState(p);
       if (p.source) { try { p.source.view.requestMeasure(); } catch { /* not laid out yet */ } }
+      if (p.live) { try { p.live.refresh(); } catch { /* not laid out yet */ } }
     }
     const scroll = parkScroll;
     const focus = parkFocus;
@@ -3228,21 +4023,27 @@ function buildPage(el, path, opts) {
     const list = (Array.isArray(pairs) ? pairs : [])
       .map((x) => ({ from: P.normalize(String((x && x.from) || '')), to: P.normalize(String((x && x.to) || '')) }))
       .filter((x) => x.from && x.to && x.from !== x.to);
-    // A file that is not markdown holds no markdown links; the disk path leaves it alone too.
-    if (!list.length || p.plain) return { handled: true, changed: 0 };
+    // A file that is not markdown holds no markdown links; the disk path leaves it alone too. A
+    // file outside the vault is not part of the vault's links (X7).
+    if (!list.length || p.plain || p.outside) return { handled: true, changed: 0 };
     try {
-      if (p.source) {
+      // Source and Live hold the file's text: the kernel's plan applies to it as one change.
+      const textView = () => (p.source ? p.source : p.live);
+      if (textView()) {
         for (let round = 0; round < 2; round++) {
-          const text = p.source.getText();
+          const tv = textView();
+          if (!tv) return { handled: false };
+          const text = tv.getText();
           const splices = await planRewrite(text, target, list, o);
           if (splices === null) return { handled: false };
-          if (p !== page || !p.source) return { handled: false };
+          if (p !== page || textView() !== tv) return { handled: false };
           // The buffer moved while the plan was being made: plan again over what is there now.
-          if (p.source.getText() !== text) continue;
+          if (tv.getText() !== text) continue;
           if (!splices.length) return { handled: true, changed: 0 };
           let out = text;
           for (const sp of [...splices].sort((a, b) => b.from - a.from)) out = out.slice(0, sp.from) + sp.insert + out.slice(sp.to);
-          p.source.replaceText(out, { edit: true });
+          if (p.source) p.source.replaceText(out, { edit: true });
+          else if (p.live) p.live.replaceMinimal(out, { edit: true });
           log(`links rewritten in the open page ${target}: ${splices.length}`, 'info');
           return { handled: true, changed: splices.length };
         }
@@ -3335,7 +4136,7 @@ function buildPage(el, path, opts) {
     get el() { return el; },
     get path() { return page ? page.path : null; },
     get dirty() { return !!(page && page.dirty); },
-    /** 'rich' | 'source': the public words; the internal 'block' stays internal. */
+    /** 'rich' | 'live' | 'source': the public words; the internal 'block' stays internal. */
     get mode() { return publicMode(page); },
     get state() { return page ? stateOf(page) : null; },
     get readOnly() { return !!(page && page.readOnly); },
@@ -3386,11 +4187,12 @@ function buildPage(el, path, opts) {
  * @property {string} path
  * @property {'clean'|'dirty'|'saving'|'not-saved'|'conflict'|'deleted'} status
  * @property {boolean} dirty
- * @property {null|'write-failed'|'unsafe'|'stale-vault'|'overlap'|'gone'|'read-only'} reason
- *   `overlap` (wave 2, H7): the disk changed lines the buffer changed too; nothing was merged
+ * @property {null|'write-failed'|'unsafe'|'stale-vault'|'overlap'|'gone'|'read-only'|'unencodable'} reason
+ *   `overlap` (wave 2, H7): the disk changed lines the buffer changed too; nothing was merged.
+ *   `unencodable` (wave 3, X10): the text holds a character the file's encoding cannot hold
  * @property {string|null} message   one sentence, for the tab tooltip and the banner
  * @property {null|'written'|'failed'} draft
- * @property {'rich'|'source'} mode
+ * @property {'rich'|'live'|'source'} mode
  * @property {number|null} savedAt
  */
 
@@ -3406,6 +4208,37 @@ const readAsBase64 = (file) => new Promise((resolve, reject) => {
   fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
   fr.readAsDataURL(file);
 });
+
+/**
+ * The words of a markdown file as the Rich view shows them, for the counts: no frontmatter, the
+ * title and the body, with the markup taken out (heading marks, list and task markers, quote
+ * marks, fences, emphasis, link targets, table rules, tags) and one line break between blocks,
+ * as ProseMirror's `textBetween` joins them. Close to Rich's own count, never a serialisation.
+ * @param {string} text
+ */
+function shownText(text) {
+  const d = parseDoc(text);
+  const body = String(d.body || '')
+    .replace(/^[ \t]*(```|~~~).*$/gm, '')
+    .replace(/^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$/gm, '')
+    .replace(/^[ \t]*([-*_])([ \t]*\1){2,}[ \t]*$/gm, '')
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
+    .replace(/^([ \t]*>)+[ \t]?/gm, '')
+    .replace(/^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/gm, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[\[([^\]|#]*)(?:#[^\]|]*)?\|([^\]]*)\]\]/g, '$2')
+    .replace(/\[\[([^\]]*)\]\]/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>\n]+>/g, '')
+    .replace(/(\*\*|__|~~)(?=\S)|(?<=\S)(\*\*|__|~~)/g, '')
+    .replace(/(^|[^\p{L}\p{N}\\])[*_`]+(?=\S)|(?<=\S)[*_`]+(?=$|[^\p{L}\p{N}])/gmu, '$1')
+    .replace(/^[ \t]*\|.*\|[ \t]*$/gm, (row) => row.trim().slice(1, -1).split('|').map((c) => c.trim()).join('\n'))
+    .replace(/\\([\\`*_{}[\]()#+\-.!|~<>$])/g, '$1')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+  return `${d.title || ''} ${body}`;
+}
 
 /**
  * A file name's stem from free text (a title): no path separators, no characters Windows
@@ -3551,6 +4384,8 @@ export async function beforePathChange(change) {
  */
 export async function afterPathChange(change) {
   if (!change || !change.from) return;
+  // The mode each file remembers follows it, open or not, a whole folder at a time (modes.js).
+  if (change.ok && change.to && (change.kind === 'rename' || change.kind === 'move')) void renameMode(change.from, change.to);
   for (const i of [...instances]) {
     try { await i.afterPathChange(change); } catch (e) { console.error('[editor] afterPathChange', e); }
   }
@@ -3564,7 +4399,7 @@ export async function afterPathChange(change) {
  * @returns {Promise<boolean>}
  */
 export async function releasePage(path) {
-  const inst = findParked(P.normalize(String(path ?? '')));
+  const inst = findParked(P.pagePath(String(path ?? '')));
   if (!inst) return true;
   try { return (await inst.handle.close()) !== false; } catch (e) {
     console.error('[editor] release', e);
@@ -3579,6 +4414,23 @@ export async function releasePage(path) {
 export function parkedPaths() { return parkedList(); }
 
 /**
+ * `PageHost.problems()`: the paths of every live page, on screen or parked, whose text is not on
+ * disk and could not be put there (not saved, a conflict, or its file deleted). The kernel's
+ * leave gate names them, and reopens one no tab shows.
+ * @returns {string[]}
+ */
+export function problemPages() {
+  const out = [];
+  for (const i of instances) {
+    let st = 'clean';
+    try { st = i.api ? i.api.status() : 'clean'; } catch { st = 'clean'; }
+    const path = i.path();
+    if (path && ['not-saved', 'conflict', 'deleted'].includes(st)) out.push(path);
+  }
+  return out;
+}
+
+/**
  * `PageHost.rewriteLinksIn(path, pairs)` (H5, §4.8): the links of an open page — on screen or
  * parked — into files that moved are rewritten in the editor, as an edit of the page, instead of
  * the file being written on disk behind it. `{handled: false}` when no page holds `path`: the
@@ -3590,7 +4442,7 @@ export function parkedPaths() { return parkedList(); }
  * @returns {Promise<{handled: boolean, changed?: number, failed?: string}>}
  */
 export async function rewriteLinksIn(path, pairs, opts = {}) {
-  const target = P.normalize(String(path ?? ''));
+  const target = P.pagePath(String(path ?? ''));
   if (!target) return { handled: false };
   for (const i of [...instances]) {
     if (!i.holds(target)) continue;
@@ -3623,9 +4475,11 @@ for (const name of [
   'hasPage', 'getPage', 'getView', 'getCrepe', 'getPath', 'getDoc', 'focusTitle', 'focusBody',
   'markDirty', 'touch', 'saveNow', 'getSelection', 'updateMeta', 'reopenInPlace', 'attachFile',
   'openFind', 'isSource', 'isMarkdown', 'toggleSource', 'setMode', 'hasCrepe', 'isReadOnly', 'folder',
+  'isLive', 'nextMode', 'mode', 'liveRun', 'isReading', 'toggleReading', 'isOutside', 'encoding',
+  'saveUtf8', 'reopenEncoding', 'isReadOnlyFile',
   'copyMarkdown', 'link', 'outline', 'find', 'reveal', 'status', 'isDirty', 'hasRecovered',
   'recoveredApplied', 'saveAs', 'discardChanges', 'showProblem', 'recoveredCompare', 'recoveredRestore',
-  'hasConflict', 'conflictIsText', 'hasMerge', 'canUndoMerge', 'mergeResolve', 'mergeKeepMine',
+  'hasConflict', 'conflictIsText', 'conflictCanTake', 'hasMerge', 'canUndoMerge', 'mergeResolve', 'mergeKeepMine',
   'mergeTakeTheirs', 'mergeUndo', 'mergeShow',
 ]) {
   editorApi[name] = (...args) => {
@@ -3633,7 +4487,8 @@ for (const name of [
     if (!a) {
       if (name === 'saveNow') return Promise.resolve(true);
       return ['hasPage', 'isSource', 'isMarkdown', 'hasCrepe', 'isDirty', 'hasRecovered', 'recoveredApplied',
-        'hasConflict', 'conflictIsText', 'hasMerge', 'canUndoMerge'].includes(name)
+        'hasConflict', 'conflictIsText', 'conflictCanTake', 'hasMerge', 'canUndoMerge', 'isLive', 'isReading', 'isOutside',
+        'isReadOnlyFile', 'liveRun'].includes(name)
         ? false : undefined;
     }
     return a[name](...args);
@@ -3702,7 +4557,7 @@ function registerCommands() {
   });
   commands.register({
     id: 'page.merge-take-theirs', title: 'Take the version on disk', group: 'page',
-    when: () => hasPage() && editorApi.hasConflict() && editorApi.conflictIsText(),
+    when: () => hasPage() && editorApi.hasConflict() && editorApi.conflictCanTake(),
     run: () => editorApi.mergeTakeTheirs(),
   });
   commands.register({
@@ -3714,6 +4569,35 @@ function registerCommands() {
     id: 'page.merge-show', title: 'Show changes merged from disk', group: 'page',
     when: () => hasPage() && editorApi.hasMerge(),
     run: () => editorApi.mergeShow(),
+  });
+  // X1, §4.5: the three modes, one command each, and the status field's click. No chords:
+  // Ctrl+E (source.js) is the one the editor has, Source and back.
+  const markdownPage = () => hasPage() && editorApi.isMarkdown();
+  for (const [mode, title] of [['rich', 'Edit as rich text'], ['live', 'Edit in Live preview'], ['source', 'Edit as source']]) {
+    commands.register({
+      id: `page.mode-${mode}`, title, group: 'page',
+      when: () => markdownPage() && editorApi.mode() !== mode,
+      run: () => editorApi.setMode(mode),
+    });
+  }
+  commands.register({
+    id: 'page.mode-next', title: 'Next editing mode', group: 'page',
+    when: markdownPage, run: () => editorApi.nextMode(),
+  });
+  // X3: the buffer rendered, read-only; the same command comes back.
+  commands.register({
+    id: 'page.reading-toggle', title: 'Reading view', group: 'page',
+    when: markdownPage, run: () => editorApi.toggleReading(),
+  });
+  // X10: a file that is not UTF-8.
+  commands.register({
+    id: 'page.save-utf8', title: 'Save as UTF-8', group: 'page',
+    when: () => hasPage() && !!editorApi.encoding() && !/^utf-?8$/i.test(String(editorApi.encoding())),
+    run: () => editorApi.saveUtf8(),
+  });
+  commands.register({
+    id: 'page.reopen-encoding', title: 'Reopen with encoding…', group: 'page',
+    when: hasPage, run: () => editorApi.reopenEncoding(),
   });
   commands.register({
     id: 'page.reveal', title: 'Reveal in Explorer', group: 'page',

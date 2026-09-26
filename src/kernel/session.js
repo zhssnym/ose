@@ -104,7 +104,9 @@ export async function restore(session) {
   }
   if (!recs.length) return false;
   const at = Number.isInteger(s.active) ? Math.max(0, Math.min(s.active, recs.length - 1)) : 0;
-  const shown = await restoreTabs(recs, recs[at].id);
+  const front = recs[at] || recs[0];
+  if (!front) return false;
+  const shown = await restoreTabs(recs, front.id);
   if (shown) bus.emit('session:restored', { tabs: T.list() });
   return shown;
 }

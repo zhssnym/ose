@@ -11,8 +11,8 @@
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { APPDATA, BASE, ROOT, SOURCE } from './env.js';
-import { FILES } from './fixtures.js';
+import { APPDATA, BASE, OUTSIDE, ROOT, SOURCE } from './env.js';
+import { FILES, OUTSIDE_FILES } from './fixtures.js';
 
 /** Never a real vault: the source must be the repo's work/ copy or an explicit override. */
 function copyVault() {
@@ -36,18 +36,21 @@ function copyVault() {
   });
 }
 
-/** The fixtures, written byte for byte (LF, UTF-8 without BOM). */
+/** The fixtures, written byte for byte: UTF-8, with the endings and the mark each one spells. */
 function writeFixtures() {
-  for (const [rel, text] of Object.entries(FILES)) {
-    const file = path.join(ROOT, ...rel.split('/'));
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, text, 'utf8');
+  for (const [dir, files] of [[ROOT, FILES], [OUTSIDE, OUTSIDE_FILES]]) {
+    for (const [rel, text] of Object.entries(files)) {
+      const file = path.join(dir, ...rel.split('/'));
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, text, 'utf8');
+    }
   }
 }
 
 rmSync(BASE, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 mkdirSync(ROOT, { recursive: true });
 mkdirSync(APPDATA, { recursive: true });
+mkdirSync(OUTSIDE, { recursive: true });
 copyVault();
 writeFixtures();
 console.log(`[e2e] vault ready at ${ROOT}`);
