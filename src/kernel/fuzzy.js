@@ -3,7 +3,8 @@
 // slash item and the `page.link` command). Keeping it here is what makes those three agree on
 // what "matches" means; it also keeps dialog.js from importing palette.js, which imports it.
 import { esc } from './registry.js';
-import { titleOf, dirName } from './paths.js';
+import { dirName } from './paths.js';
+import { display } from './names.js';
 
 const START = /[\s/\\._\-]/;
 
@@ -51,9 +52,9 @@ export function highlight(text, hits) {
  * double, and recently opened files float up — strongly with an empty query, gently once the
  * user is typing.
  *
- * `titles` (optional) is a `path -> first H1` map: with it the list matches and shows what the
- * page calls itself rather than what its file is called. Without it the file name is the title,
- * which is what every caller had before.
+ * `titles` (optional) is a `path -> label` map: with it the list matches and shows that label.
+ * Without it a row is the file's real name, extension included (`ose.names.display`, W8), the
+ * way the tree and the tabs say it.
  *
  * `paths` is `allPages()`; `recent` is `recentFiles()`; both come from the caller so this file
  * stays free of imports that would close a cycle.
@@ -64,7 +65,7 @@ export function pageItems(paths, query, { recent = [], limit = 200, titles = nul
   const rank = new Map(recent.map((p, i) => [p, i]));
   const out = [];
   for (const p of paths) {
-    const title = (titles && titles.get(p)) || titleOf(p);
+    const title = (titles && titles.get(p)) || display(p);
     const lowPath = p.toLowerCase();
     const lowTitle = title.toLowerCase();
     let score = 0;

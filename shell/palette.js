@@ -1,23 +1,25 @@
-// Command palette (Ctrl+Shift+P) and quick open (Ctrl+O, and Ctrl+P beside it: D8). Same surface,
-// two data sources.
+// Command palette (Ctrl+Shift+P) and Go to file (Ctrl+P, and Ctrl+O beside it: D8). Same
+// surface, two data sources.
 // Matching is a subsequence score with a bonus for word starts, so "phab" finds "page.habits".
+//
+// Go to file lists every file in the vault (H17), under its real name with its extension, the
+// same name the tree and the tab show (W8), with its folder under it. What a page's H1 says is
+// not a second name for it: a file has one name, and it is the one on disk.
 import { ose } from 'ose:kernel';
 import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
-// One reader for "the first H1 of a markdown text", the same one the editor's title strip and
-// the task index use: it skips frontmatter and fenced code.
-import { firstH1 } from 'ose:md';
-import { allPages, allFiles } from './sidebar.js';
+import { allFiles } from './sidebar.js';
 import { newFile } from './fileops.js';
+import { baseName, dirName, extOf } from './paths.js';
 
-const { bus, commands, files, route } = ose;
+const { commands, route } = ose;
 const navigate = (r, opts) => route.navigate(r, opts);
 const recentFiles = () => route.recent();
 const shortcutFor = (id) => ose.keys.shortcutFor(id);
 
 // `tree` is the sidebar's row commands (D3): they act on the focused row, else the open page.
-// `editor` (the code block's own two) and `image` sit with the other block-level groups; both
-// used to fall past the end of this list and sort under a heading nothing declared (QA F8).
-const GROUP_ORDER = ['navigate', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'app'];
+// `editor` (the code block's own two) and `image` sit with the other block-level groups; a
+// group nobody lists here sorts after `app`.
+const GROUP_ORDER = ['navigate', 'tab', 'folder', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'planner', 'trash', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
@@ -26,11 +28,12 @@ export { fuzzy };
 
 /* -------------------------------------------------------------- what is listed */
 
-// One row per act (R9). The strip does what these two do, under the chords the app really
-// binds: `tab.close` is Ctrl+W and `tab.reopen` falls through to `app.reopen-closed` when its
-// own stack is empty. Listed as well, they printed one act twice, and `Reopen closed page`
-// carried a hint naming Ctrl+W, which is the tab command. Both still run by id.
-const SHADOWED = new Set(['page.close', 'app.reopen-closed']);
+// One row per act (R9). `page.close` is what Ctrl+W runs, and it closes the tab: the strip's
+// `tab.close` is the same act, and it is the one listed. It still runs by id.
+const SHADOWED = new Set(['page.close']);
+
+/** A group's heading, in sentence case (M27): `navigate` -> `Navigate`. */
+const groupLabel = (g) => (g ? g.charAt(0).toUpperCase() + g.slice(1) : '');
 
 function commandItems(q) {
   const out = [];
@@ -59,94 +62,51 @@ function commandItems(q) {
   return out;
 }
 
-/**
- * What each page calls itself (L26): `path -> first H1`, read once and kept until the vault
- * changes. Quick open matched file names only, so a page whose H1 is `Living systems` in a
- * file called `zz.md` could not be found by its name — the one name the user knows it by.
- *
- * The read is one `readText` per page, started the first time quick open is used and never
- * awaited: the list is drawn from file names immediately and re-drawn when the titles land.
- * A vault of a few hundred pages is milliseconds; nothing here is on the boot path.
- */
-const titles = new Map();
-let titleScan = null;
-let onTitles = null;
+/** The name the chrome shows for a path (W8): the kernel's, with a plain fallback. */
+const display = (p) => (ose.names && typeof ose.names.display === 'function' ? ose.names.display(p) : baseName(p));
 
-function scanTitles() {
-  if (titleScan) return titleScan;
-  const paths = allPages();
-  titleScan = (async () => {
-    for (const p of paths) {
-      if (titles.has(p)) continue;
-      try { titles.set(p, firstH1(await files.read(p))); } catch { titles.set(p, ''); }
-    }
-    if (onTitles) onTitles();
-  })();
-  return titleScan;
-}
-
-/** The map `pageItems` wants: only the pages whose H1 is worth showing. */
-function titleMap() {
-  const m = new Map();
-  for (const [p, t] of titles) if (t) m.set(p, t);
-  return m;
-}
-
-/**
- * The rows a plugin registers through `ose.route.index(pattern, fn)` (docs/KERNEL.md): an NSI
- * problem is a page in every way a person cares about — it has a title, it is navigated to, it
- * gets history and a window title — and it is not a file, so `allPages()` has never seen one.
- * Quick open is the shell's, so this is where the two lists meet. Never throws: a plugin whose
- * index function is broken costs its own rows and nothing else.
- */
-function ownedRows() {
-  try { return route.indexed() || []; } catch (e) { console.error('[shell] route.indexed', e); return []; }
-}
+/** Markdown first when two files tie (H17): `notes.md` before `notes.txt` for the same query. */
+const isMd = (p) => ['md', 'markdown', 'mdown', 'mkd'].includes(extOf(p));
 
 function fileItems(q) {
-  // Every file the tree can open, not only the pages: New file and Shift+Enter below make a
-  // `notes.txt` as readily as a page, and quick open is how it is found again. A page is named
-  // by its H1 or its stem; any other file by its whole name, extension and all, as in the tree.
+  // Every file the tree holds, not only the pages (H17). The title of a row is the file's own
+  // name, extension and all; the line under it is its folder.
   const paths = allFiles();
-  const seen = new Set(paths);
-  const owned = new Map();                 // path -> the plugin's title for it
-  for (const row of ownedRows()) {
-    if (!row || !row.path || seen.has(row.path)) continue;   // a real file of that name wins
-    seen.add(row.path);
-    owned.set(row.path, row.title || '');
-  }
-  const names = titleMap();
-  for (const [path, title] of owned) if (title) names.set(path, title);
-  return pageItems([...paths, ...owned.keys()], q, { recent: recentFiles(), titles: names }).map((it) => ({
-    kind: owned.has(it.path) ? 'own' : 'file', id: it.path, group: 'pages',
-    title: it.title, hint: it.hint, sub: it.path, shortcut: '',
+  const names = new Map(paths.map((p) => [p, display(p)]));
+  const items = pageItems(paths, q, { recent: recentFiles(), titles: names });
+  items.sort((a, b) => (b.score - a.score) || (isMd(b.path) - isMd(a.path)) || a.title.localeCompare(b.title));
+  return items.map((it) => ({
+    kind: 'file', id: it.path, group: 'files',
+    title: it.title, hint: '', sub: dirName(it.path), shortcut: '',
     score: it.score, hits: it.hits, recent: it.recent,
-    run: () => navigate({ type: owned.has(it.path) ? 'own' : 'page', path: it.path }),
+    run: () => navigate({ type: 'page', path: it.path }),
   }));
 }
 
 /**
- * Shift+Enter in quick open (N41): the page you were looking for and did not find, made with
+ * Shift+Enter in Go to file (N41): the file you were looking for and did not find, made with
  * the name you typed. It is New file… (shell/fileops.js) with the prompt already answered, so
- * there is one way a file is created and one rule for where it goes: beside the open page,
- * else in the focused folder, else at the vault root. The name is taken as typed; quick open
- * lists pages, so a name that carries no extension is a page and gets `.md`, and one that does
- * (`notes.txt`, `data.json`) is exactly that file. A name that cannot be used brings the
- * New file prompt up with the reason.
+ * there is one way a file is created and one rule for where it goes. The name is taken as
+ * typed; a name that carries no extension is a page and gets `.md`, and one that does
+ * (`notes.txt`, `data.json`) is exactly that file. A name that cannot be used brings the New
+ * file prompt up with the reason.
  */
 async function createTyped(text) {
   const typed = String(text || '').trim();
   if (!typed) return;
   const { ext } = ose.names.split(typed);
   const name = /^[A-Za-z0-9]{1,10}$/.test(ext) ? typed : `${typed}.md`;
-  const path = await newFile(undefined, { name });
-  if (path) titles.delete(path);
+  await newFile(undefined, { name });
 }
 
 /* ------------------------------------------------------------------ ui */
 
 let openOv = null;
 
+/**
+ * Open the palette in `commands` or `files` mode; switch mode in place when it is already open.
+ * @param {'commands'|'files'} [mode]
+ */
 export function openPalette(mode = 'commands') {
   if (openOv) {
     // Already open: switch mode in place rather than stacking a second surface.
@@ -154,7 +114,7 @@ export function openPalette(mode = 'commands') {
     return;
   }
 
-  const ov = openOverlay({ width: 560, top: '15vh', className: 'pal', onClose: () => { openOv = null; onTitles = null; } });
+  const ov = openOverlay({ width: 560, top: '15vh', className: 'pal', onClose: () => { openOv = null; } });
   ov.box.innerHTML = `
     <div class="pal-head">
       <span class="pal-icon"></span>
@@ -162,10 +122,10 @@ export function openPalette(mode = 'commands') {
     </div>
     <div class="pal-list" role="listbox"></div>
     <div class="pal-foot mono-sm">
-      <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-      <span><span class="kbd">Enter</span> <span class="pal-enter">run</span></span>
-      <span><span class="kbd">Esc</span> close</span>
-      <span class="pal-create" hidden><span class="kbd">Shift</span><span class="kbd">Enter</span> new page</span>
+      <span><span class="kbd">↑</span><span class="kbd">↓</span> Move</span>
+      <span><span class="kbd">Enter</span> <span class="pal-enter">Run</span></span>
+      <span><span class="kbd">Esc</span> Close</span>
+      <span class="pal-create" hidden><span class="kbd">Shift</span><span class="kbd">Enter</span> New file</span>
       <span class="grow"></span>
       <span class="pal-mode"></span>
     </div>`;
@@ -193,28 +153,28 @@ export function openPalette(mode = 'commands') {
     if (!items.length) {
       const d = document.createElement('div');
       d.className = 'empty';
-      d.textContent = 'no matches';
+      d.textContent = 'No matches';
       list.appendChild(d);
       return;
     }
     const frag = document.createDocumentFragment();
     let group = null;
     items.forEach((it, i) => {
-      const g = current === 'files' ? (it.recent && !input.value.trim() ? 'recent' : 'pages') : it.group;
+      const g = current === 'files' ? (it.recent && !input.value.trim() ? 'recent' : 'files') : it.group;
       if (g !== group) {
         group = g;
         const l = document.createElement('div');
         l.className = 'section-label';
-        l.textContent = g;
+        l.textContent = groupLabel(g);
         frag.appendChild(l);
       }
       const row = document.createElement('div');
       row.className = 'row pal-row' + (i === sel ? ' active' : '');
       row.dataset.i = i;
       row.setAttribute('role', 'option');
-      // A page row is two lines: what the page calls itself, and where the file is (L26).
-      // A command row is one, as it always was.
-      if (it.sub) {
+      // A file row is two lines: its name, and the folder it is in. A file at the vault root
+      // has no folder line; a command row is one line, as it always was.
+      if (it.kind === 'file' && it.sub) {
         row.classList.add('pal-row-2');
         row.innerHTML = `<span class="grow"><span class="pal-title">${highlight(it.title, it.hits)}</span>`
           + `<span class="pal-sub mono-sm">${esc(it.sub)}</span></span>`;
@@ -256,14 +216,11 @@ export function openPalette(mode = 'commands') {
   function setMode(m) {
     current = m;
     openOv.mode = m;
-    input.placeholder = m === 'files' ? 'Go to page or file…' : 'Type a command…';
-    modeEl.textContent = m === 'files' ? 'quick open' : 'commands';
-    // The foot names the act, and quick open opens a page rather than running one (R17).
-    enterEl.textContent = m === 'files' ? 'open' : 'run';
-    iconEl.innerHTML = icon(m === 'files' ? 'page' : 'command');
-    // The titles are read in the background the first time quick open is used; the list is
-    // drawn from file names at once and rebuilt, in place, when they land (L26).
-    if (m === 'files') { onTitles = () => { if (openOv && current === 'files') build(); }; void scanTitles(); }
+    input.placeholder = m === 'files' ? 'Go to file…' : 'Type a command…';
+    modeEl.textContent = m === 'files' ? 'Go to file' : 'Commands';
+    // The foot names the act, and Go to file opens a file rather than running one (R17).
+    enterEl.textContent = m === 'files' ? 'Open' : 'Run';
+    iconEl.innerHTML = icon(m === 'files' ? 'file' : 'command');
     createEl.hidden = m !== 'files';
     build();
   }
@@ -272,7 +229,7 @@ export function openPalette(mode = 'commands') {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-    // Shift+Enter in quick open makes the page you were looking for and did not find (N41).
+    // Shift+Enter in Go to file makes the file you were looking for and did not find (N41).
     else if (e.key === 'Enter' && e.shiftKey && current === 'files') {
       e.preventDefault();
       const typed = input.value.trim();
@@ -303,10 +260,8 @@ export function openPalette(mode = 'commands') {
   focusField(ov.box, input);
 }
 
-/** A changed vault means changed titles: the index is dropped and read again when next used. */
-bus.on('fs', () => { titles.clear(); titleScan = null; });
-
+/** Register the palette's two commands. Called once by `boot.js`. */
 export function initPalette() {
   commands.register({ id: 'app.palette', title: 'Command palette', group: 'app', run: () => openPalette('commands') });
-  commands.register({ id: 'app.quickopen', title: 'Go to page', group: 'navigate', hint: 'by title or path', run: () => openPalette('files') });
+  commands.register({ id: 'app.quickopen', title: 'Go to file', group: 'navigate', hint: 'by name or path', run: () => openPalette('files') });
 }

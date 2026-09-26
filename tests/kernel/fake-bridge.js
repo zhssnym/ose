@@ -11,6 +11,10 @@ const files = new Map();     // vault path -> text
 const dirs = new Set();      // vault paths of folders
 const failures = new Map();  // cmd -> code of the next failure
 const listeners = new Map(); // event -> Set(fn)
+const bin = new Map();       // trash id -> { path, kind, files: [[path, text]], dirs: [path], at }
+const local = { app: {}, vault: {} };  // localGet / localSet
+let binSeq = 0;
+let restorable = true;       // false: `trash` answers `id: null`, as macOS's system Trash does
 
 /** Every call, in order: `[cmd, ...args]`. */
 export const calls = [];
@@ -104,13 +108,62 @@ export const bridge = {
     if (!files.has(from) && !dirs.has(from)) throw coded('not_found', `${from} not found`, 'rename');
     moveUnder(from, to);
   },
+  // CONTRACT §3.1: `{ id, where }`; the id is what trashRestore takes, null where the platform
+  // cannot restore (setRestorable(false)).
   async trash(p, opts) {
     note('trash', [p, opts]);
     if (!files.has(p) && !dirs.has(p)) throw coded('not_found', `${p} not found`, 'trash');
-    for (const k of [...files.keys()]) if (k === p || k.startsWith(p + '/')) files.delete(k);
-    for (const d of [...dirs]) if (d === p || d.startsWith(p + '/')) dirs.delete(d);
+    const item = { path: p, kind: dirs.has(p) ? 'dir' : 'file', files: [], dirs: [], at: Date.now() + binSeq };
+    for (const k of [...files.keys()]) if (k === p || k.startsWith(p + '/')) { item.files.push([k, files.get(k)]); files.delete(k); }
+    for (const d of [...dirs]) if (d === p || d.startsWith(p + '/')) { item.dirs.push(d); dirs.delete(d); }
+    const where = opts && opts.mode === 'vault' ? 'vault' : 'system';
+    if (!restorable) return { id: null, where };
+    const id = `t${++binSeq}`;
+    bin.set(id, { ...item, where });
+    return { id, where };
   },
-  async mkdir(p) { note('mkdir', [p]); dirs.add(p); addDirs(p); },
+  async trashWhere(p) { note('trashWhere', [p]); return { where: 'system' }; },
+  async trashList() {
+    note('trashList', []);
+    return [...bin].map(([id, it]) => ({
+      id, name: it.path.split('/').pop(), original: it.path, deletedAt: it.at, kind: it.kind,
+      size: it.files.reduce((n, [, t]) => n + t.length, 0), where: it.where,
+    })).sort((a, b) => b.deletedAt - a.deletedAt);
+  },
+  async trashRestore(ids, opts) {
+    note('trashRestore', [ids, opts]);
+    const restored = [];
+    const failed = [];
+    for (const id of ids) {
+      const it = bin.get(id);
+      if (!it) { failed.push({ id, error: `[not_found] ${id} is not in the trash` }); continue; }
+      if (files.has(it.path) || dirs.has(it.path)) { failed.push({ id, error: `[exists] ${it.path} already exists` }); continue; }
+      for (const d of it.dirs) { dirs.add(d); addDirs(d); }
+      for (const [k, v] of it.files) { files.set(k, v); addDirs(k); }
+      bin.delete(id);
+      restored.push({ id, path: it.path });
+    }
+    return { restored, failed };
+  },
+  // A file or a whole folder, create-only, parents made (CONTRACT §3.1).
+  async copyPath(from, to, opts) {
+    note('copyPath', [from, to, opts]);
+    if (!files.has(from) && !dirs.has(from)) throw coded('not_found', `${from} not found`, 'copyPath');
+    if (files.has(to) || dirs.has(to)) throw coded('exists', `${to} already exists`, 'copyPath');
+    let n = 0;
+    if (files.has(from)) { files.set(to, files.get(from)); addDirs(to); return { path: to, files: 1 }; }
+    dirs.add(to); addDirs(to);
+    for (const d of [...dirs]) if (d.startsWith(from + '/')) dirs.add(to + d.slice(from.length));
+    for (const [k, v] of [...files]) if (k.startsWith(from + '/')) { files.set(to + k.slice(from.length), v); n += 1; }
+    return { path: to, files: n };
+  },
+  async localGet(scope) { note('localGet', [scope]); return structuredClone(local[scope] || {}); },
+  async localSet(scope, value, opts) { note('localSet', [scope, value, opts]); local[scope] = structuredClone(value || {}); return null; },
+  async mkdir(p) {
+    note('mkdir', [p]);
+    if (dirs.has(p) || files.has(p)) throw coded('exists', `${p} already exists`, 'mkdir');
+    dirs.add(p); addDirs(p);
+  },
   async tree() { note('tree', []); return treeOf(''); },
   async list(p) { note('list', [p]); return treeOf(p).children; },
   async saveFile(p, text) { note('saveFile', [p, text]); files.set(p, text); return { status: 'saved', hash: `h:${text}`, mtime: 0 }; },
@@ -128,18 +181,25 @@ export const bridge = {
 };
 
 /** The in-memory vault, for assertions. */
-export const vault = { files, dirs };
+export const vault = { files, dirs, bin, local };
 
 /** Empty the vault and the call log, then add `seed` (`{ path: text }`; a path ending in `/` is a folder). */
 export function reset(seed = {}) {
   files.clear();
   dirs.clear();
   failures.clear();
+  bin.clear();
+  local.app = {};
+  local.vault = {};
+  restorable = true;
   calls.length = 0;
   for (const [p, text] of Object.entries(seed)) {
     if (p.endsWith('/')) { dirs.add(p.slice(0, -1)); addDirs(p.slice(0, -1)); } else { files.set(p, text); addDirs(p); }
   }
 }
+
+/** `trash` answers `id: null` from now on (a platform whose bin cannot restore), or again an id. */
+export function setRestorable(yes) { restorable = !!yes; }
 
 /** The next call of `cmd` fails with `[code]`. */
 export function fail(cmd, code = 'io') { failures.set(cmd, code); }
@@ -151,7 +211,7 @@ export function emit(event, data) {
 
 /** The bridge calls made so far that change something, in order (a test's own log entries left out). */
 export function writes() {
-  const reads = new Set(['stat', 'exists', 'readText', 'readFile', 'tree', 'list', 'setTitle', 'search']);
+  const reads = new Set(['stat', 'exists', 'readText', 'readFile', 'tree', 'list', 'setTitle', 'search', 'trashWhere', 'trashList', 'localGet']);
   return calls.filter(([c]) => !reads.has(c) && typeof bridge[c] === 'function');
 }
 

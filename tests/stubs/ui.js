@@ -1,4 +1,4 @@
-// `ose:ui` for the headless tests (vitest.config.js): every name the editor imports, doing
+// `ose:ui` for the headless tests (vitest.config.js): every name the editor and the planner import, doing
 // nothing. A dialog answers "cancelled" (null), a toast answers its kill function.
 
 const none = () => undefined;
@@ -14,3 +14,6 @@ export const icon = () => '';
 export const openOverlay = () => ({ close: none, el: null });
 export const pageItems = () => [];
 export const pickPage = async () => null;
+// The planner's settings fragment (src/planner/settings.js) imports the two pickers.
+export const pickFile = async () => null;
+export const pickFolder = async () => null;

@@ -259,7 +259,6 @@ fn platform_info(ctx: &Ctx) -> Value {
         "exe": std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         "exeDir": crate::vault::exe_dir().map(|p| p.display().to_string()),
         "root": ctx.st.root().map(|p| p.display().to_string()),
-        "api": crate::shell::API,
         "kernelOrigin": crate::shell::kernel_origin(),
         "appOrigin": crate::shell::app_origin(),
         "vaultOrigin": crate::shell::vault_origin(),

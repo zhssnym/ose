@@ -2,6 +2,9 @@
 // while proving a change. Serves `work/vault` (a copy of the vault's small files) on 5174.
 // `npm run dev:test`, or the `ose-test` entry in .claude/launch.json. `OSE_TEST_ROOT` names
 // another vault and `OSE_TEST_PORT` another port, which is how several agents run one each.
+// Everything else in the environment reaches the dev bridge as it is: `OSE_APPDATA` for its
+// drafts, local store and log, and `OSE_DEV_FAULTS=1` for the no-loss suite's `devFault`
+// (dev/bridge-plugin.mjs).
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -564,8 +564,9 @@ pub fn restore(root: &Path, rel: &str, id: &str) -> Result<Value, String> {
 /// Nothing to move is not an error.
 pub fn move_history(root: &Path, from: &str, to: &str) -> Result<(), String> {
     migrate(root);
-    let hidden = |p: &str| p.replace('\\', "/").split('/').any(vault::is_hidden);
-    if hidden(from) || hidden(to) {
+    // A path the hide rule excludes (a temp file of the atomic writer, anything under `.git`)
+    // has no history of its own to move.
+    if crate::hide::excluded(from) || crate::hide::excluded(to) {
         return Ok(());
     }
     let src = dir_for(root, from)?;

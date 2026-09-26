@@ -22,12 +22,14 @@ use serde_json::Value;
 pub mod args;
 pub mod drafts;
 pub mod files;
+pub mod hide;
+pub mod local;
 pub mod platform;
 pub mod print;
 pub mod protocol;
-pub mod run;
 pub mod shell;
 pub mod state;
+pub mod trashbin;
 pub mod vault;
 pub mod vaults;
 pub mod versions;
@@ -128,14 +130,15 @@ pub struct AppState {
     /// The per-machine app data folder (drafts live under it), set in `setup` once the app
     /// knows it. `None` in tests that do not set one, and on a platform without one.
     data_dir: RwLock<Option<PathBuf>>,
+    /// The per-user app config folder: the remembered root, the recent vaults and the
+    /// per-machine local store live under it (local.rs). Set in `setup`; `None` in tests.
+    config_dir: RwLock<Option<PathBuf>>,
     pub log: Option<Mutex<File>>,
     pub watcher: Mutex<Option<watcher::Handle>>,
     pub picker: Option<FolderPicker>,
     pub saver: Option<FileSaver>,
     /// `--shell <dir>`, settled once at startup (shell.rs).
     shell: shell::Slot,
-    /// Every program `run` started, so they can all be killed when the app goes (run.rs).
-    pub processes: run::Processes,
 }
 
 impl AppState {
@@ -145,16 +148,17 @@ impl AppState {
         picker: Option<FolderPicker>,
         saver: Option<FileSaver>,
     ) -> Self {
+        crate::hide::set_root(root.as_ref().map(|r| r.path.as_path()));
         Self {
             root: RwLock::new(root),
             epoch: AtomicU64::new(1),
             data_dir: RwLock::new(None),
+            config_dir: RwLock::new(None),
             log: log.map(Mutex::new),
             watcher: Mutex::new(None),
             picker,
             saver,
             shell: shell::slot(shell::Options::default()),
-            processes: run::Processes::default(),
         }
     }
 
@@ -210,6 +214,7 @@ impl AppState {
     /// The root found at startup (the remembered one): the page has not seen any other yet, so
     /// the epoch stays where it is.
     pub fn set_root(&self, path: PathBuf, source: Source) {
+        crate::hide::set_root(Some(&path));
         *self.root.write().unwrap_or_else(|p| p.into_inner()) = Some(Root { path, source });
     }
 
@@ -218,6 +223,7 @@ impl AppState {
     pub fn adopt_root(&self, path: PathBuf, source: Source) -> u64 {
         let mut guard = self.root.write().unwrap_or_else(|p| p.into_inner());
         let next = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        crate::hide::set_root(Some(&path));
         *guard = Some(Root { path, source });
         next
     }
@@ -229,6 +235,15 @@ impl AppState {
 
     pub fn set_data_dir(&self, dir: PathBuf) {
         *self.data_dir.write().unwrap_or_else(|p| p.into_inner()) = Some(dir);
+    }
+
+    /// The per-user app config folder, when the app has told us.
+    pub fn config_dir(&self) -> Option<PathBuf> {
+        self.config_dir.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    pub fn set_config_dir(&self, dir: PathBuf) {
+        *self.config_dir.write().unwrap_or_else(|p| p.into_inner()) = Some(dir);
     }
 
     /// (Re)starts the watcher on `root`. Dropping the previous handle stops its thread.
@@ -573,19 +588,28 @@ pub mod commands {
             return log_err(st, &cmd, r);
         }
 
-        // `search` walks every file in the vault and `tree` reads every directory: both are
-        // synchronous, and on a big vault either would hold a tokio worker for the length of
-        // the walk. Each runs on a blocking worker and is awaited here. Everything else in
-        // vault.rs touches one path and stays inline.
-        if vault::BLOCKING.contains(&cmd.as_str()) {
-            let root = match st.require_root() {
+        // `search` walks every file in the vault, `tree` reads every directory and `copyPath`
+        // may copy a whole folder: synchronous all three, and on a big vault any of them would
+        // hold a tokio worker for its whole length. The trash goes through COM on Windows, and
+        // a listing of the system bin takes a moment. Each runs on a blocking worker and is
+        // awaited here; a mutating one that names a stale epoch is refused before it starts.
+        // Everything else in vault.rs touches one path and stays inline.
+        let blocking_vault = vault::BLOCKING.contains(&cmd.as_str());
+        if blocking_vault || trashbin::COMMANDS.contains(&cmd.as_str()) {
+            let root = match root_for(st, &cmd, &args) {
                 Ok(r) => r,
                 Err(e) => return log_err(st, &cmd, Err(e)),
             };
             let (c, a) = (cmd.clone(), args.clone());
-            let r = tauri::async_runtime::spawn_blocking(move || vault::dispatch(&root, &c, &a))
-                .await
-                .unwrap_or_else(|e| Err(coded("io", format!("{cmd} worker failed: {e}"))));
+            let r = tauri::async_runtime::spawn_blocking(move || {
+                if blocking_vault {
+                    vault::dispatch(&root, &c, &a)
+                } else {
+                    trashbin::dispatch(&root, &c, &a)
+                }
+            })
+            .await
+            .unwrap_or_else(|e| Err(coded("io", format!("{cmd} worker failed: {e}"))));
             return log_err(st, &cmd, r);
         }
 
@@ -601,10 +625,10 @@ pub mod commands {
         if let Some(r) = state::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
-        if let Some(r) = shell::handle(&ctx, &cmd, &args) {
+        if let Some(r) = local::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
-        if let Some(r) = run::handle(&ctx, &cmd, &args) {
+        if let Some(r) = shell::handle(&ctx, &cmd, &args) {
             return log_err(st, &cmd, r);
         }
         if let Some(r) = versions::handle(&ctx, &cmd, &args) {
@@ -664,13 +688,13 @@ pub mod commands {
     pub fn epoch_of(cmd: &str, args: &[Value]) -> Option<u64> {
         let at = match cmd {
             "writeText" | "appendText" | "writeBinary" | "rename" | "saveFile" | "copyFile"
-            | "appendLine" | "draftWrite" | "versionRestore" => 2,
+            | "copyPath" | "appendLine" | "draftWrite" | "versionRestore" | "localSet" => 2,
             // `versionKeep(path, text, opts)`: the legacy boolean `opts` is not an object, so it
             // names no epoch and is let through.
             "versionKeep" => 2,
             // `setState(state, opts?)` and `draftDrop(path, opts?)`: sent late from a page of the
             // vault that was just left, either would land in the new one.
-            "mkdir" | "trash" | "setState" | "draftDrop" => 1,
+            "mkdir" | "trash" | "trashRestore" | "setState" | "draftDrop" => 1,
             "replaceLine" => 4,
             // `createNew(path, text = '', opts?)`: the text may be left out.
             "createNew" => {
@@ -802,6 +826,10 @@ mod tests {
         );
         assert_eq!(epoch_of("setState", &[serde_json::json!({}), o.clone()]), Some(1));
         assert_eq!(epoch_of("draftDrop", &[Value::from("a"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("copyPath", &[Value::from("a"), Value::from("b"), o.clone()]), Some(1));
+        assert_eq!(epoch_of("trashRestore", &[serde_json::json!(["vault:x"]), o.clone()]), Some(1));
+        assert_eq!(epoch_of("localSet", &[Value::from("vault"), serde_json::json!({}), o.clone()]), Some(1));
+        assert_eq!(epoch_of("localGet", &[Value::from("vault"), o.clone()]), None);
         assert_eq!(epoch_of("versionKeep", &[Value::from("a"), Value::from("t"), o.clone()]), Some(1));
         assert_eq!(epoch_of("versionKeep", &[Value::from("a"), Value::from("t"), Value::from(true)]), None);
         assert_eq!(epoch_of("setState", &[serde_json::json!({})]), None);

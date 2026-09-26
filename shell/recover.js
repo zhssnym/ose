@@ -86,8 +86,49 @@ async function saveAs(info) {
   }
 }
 
-/** Throw a draft away, once asked. */
+/**
+ * The tab that shows `path` now, or null. A restored session (H19) mounts the tab in front
+ * before this sheet comes up, and a page that finds its draft applies it: the buffer on screen
+ * is then the recovered text, marked unsaved, and the next leave writes it.
+ */
+function tabShowing(path) {
+  const list = ose.tabs && typeof ose.tabs.list === 'function' ? ose.tabs.list() : [];
+  const tab = list.find((t) => t && t.route && t.route.type === 'page' && t.route.path === path);
+  if (tab) return tab;
+  const cur = route.current();
+  return cur && cur.type === 'page' && cur.path === path ? { id: null, route: cur } : null;
+}
+
+/**
+ * Throw a draft away, once asked. Dropping the draft alone is right only while no editor holds
+ * it: a page open in a tab may have put the draft back into its buffer, and would write it into
+ * the file on the next leave, the very text the user just said to discard. Such a page is
+ * brought to the front and discards through its own command (`page.discard-changes`): the
+ * buffer goes back to the file on disk, the draft goes, and the page asks its own question.
+ * Answers true once the draft is gone.
+ */
 async function discard(info) {
+  if (tabShowing(info.path)) {
+    let shown = false;
+    try { shown = await route.navigate({ type: 'page', path: info.path }); } catch (e) { console.warn('[shell] recovered discard', e); }
+    const cur = route.current();
+    if (shown === false || !cur || cur.type !== 'page' || cur.path !== info.path) {
+      toast(`could not discard: ${info.path} could not be brought to the front`, 'err', 0);
+      return false;
+    }
+    // Undefined: the command does not apply, so the page holds nothing of the draft (no unsaved
+    // text, nothing offered) and the draft is dropped below like any other.
+    const run = commands.run('page.discard-changes');
+    if (run !== undefined) {
+      try { await run; } catch (e) {
+        toast(`could not discard: ${e && e.message ? e.message : e}`, 'err', 0);
+        return false;
+      }
+      // What decides is whether the draft is gone, not what the page answered: a Cancel on the
+      // page's own question keeps it.
+      return !(await listDrafts()).some((x) => x.path === info.path);
+    }
+  }
   const ok = await confirm({
     title: 'Discard Recovered Text?',
     body: `The unsaved text of ${info.path} from ${when(info.at)} goes. The file itself is not touched.`,
@@ -183,7 +224,7 @@ export async function showRecovered() {
 
 /**
  * After the boot: the sheet, when there is anything in it. Never throws, and never shows over a
- * dialog that is already up (a plugin's first-run question, say): the command brings it back.
+ * dialog that is already up (a prompt the planner opened, say): the command brings it back.
  */
 export async function offerRecovered() {
   const list = await listDrafts();

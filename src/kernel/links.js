@@ -12,11 +12,12 @@
 import { bridge } from './bridge/index.js';
 import { resolveHref, relativeHref, basename } from './href.js';
 import { logLine } from './log.js';
+import { pageHost } from './pagehost.js';
 
 // A rename has to find *every* inbound link, so this pass is the one search that runs with no
-// cap at all (N20; `limit: 0` means "no cap" in both bridges). The confirm step throws the
-// false hits away; a hit list cut at a limit would silently lose real links and the toast
-// would then report a count that is not the truth.
+// cap at all, hidden files included (N20; `limit: 0` means "no cap" in both bridges). The
+// confirm step throws the false hits away; a hit list cut at a limit would silently lose real
+// links and the toast would then report a count that is not the truth.
 const SEARCH_LIMIT = 0;
 
 /** The files whose links are markdown links, and so the only ones a rewrite edits. */
@@ -184,7 +185,7 @@ const hitsOf = (r) => (r && Array.isArray(r.hits) ? r.hits : []);
 async function candidates(needles, seed = []) {
   const paths = new Set(seed.map(clean).filter(Boolean));
   for (const q of needles) {
-    for (const h of hitsOf(await bridge.search(q, { limit: SEARCH_LIMIT }))) {
+    for (const h of hitsOf(await bridge.search(q, { limit: SEARCH_LIMIT, hidden: true }))) {
       if (h && h.path) paths.add(clean(h.path));
     }
   }
@@ -235,6 +236,72 @@ function lineAt(starts, offset) {
   }
   return lo + 1;
 }
+/** `pairs` cleaned: vault paths, the files already moved, no pair that goes nowhere. */
+function cleanMoves(pairs) {
+  return (pairs || [])
+    .map((p) => ({ from: clean(p && p.from), to: clean(p && p.to) }))
+    .filter((p) => p.from && p.to && p.from !== p.to);
+}
+
+/**
+ * The splices that bring the links of `text` (the file at `path`) up to date with `moves`, in
+ * ascending order: `[{ start, end, next }]`, UTF-16 offsets into `text`. The one rule, shared by
+ * the disk rewrite and by the editor's rewrite of an open page (`planRewrite`), so both make
+ * exactly the same edit.
+ *
+ * A file that is one of the moves' `to` is a file that moved (unless `settledSelf`: its own
+ * hrefs were already rewritten by an earlier pass): its hrefs were written against where it
+ * was, so they are resolved from there and every one of them is written relative to the new
+ * place (N16). Any other file only has its links into a `from` rewritten.
+ * @param {string} text
+ * @param {string} path
+ * @param {Array<{from: string, to: string}>} moves  cleaned
+ * @param {{settledSelf?: boolean}} [opts]
+ */
+async function editsFor(text, path, moves, { settledSelf = false } = {}) {
+  const toFor = new Map(moves.map((p) => [p.from, p.to]));
+  const self = settledSelf ? null : moves.find((p) => p.to === path);
+  // The hrefs in a file were written relative to where it was; `was` is that place.
+  const was = self ? self.from : path;
+  const moved = was !== path;
+  const edits = [];
+  for (const span of await linkSpans(text)) {
+    const target = resolveHref(was, span.href);
+    if (target === null) continue;
+    // An href with no scheme that starts with `/` is vault-root-relative: it means the same
+    // file wherever the page lands, so moving the page must not rewrite it.
+    if (!moved && span.href.trim().startsWith('/')) continue;
+    const to = toFor.get(target);
+    // Outside the move set: only a file that moved needs its own hrefs rewritten, and only
+    // to say the same thing from the new folder.
+    if (!to && !moved) continue;
+    if (!to && span.href.trim().startsWith('/')) continue;
+    const next = relativeHref(path, to || target) + span.tail;
+    if (next === span.href + span.tail) continue;
+    edits.push({ start: span.start, end: span.end, next });
+  }
+  return edits.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * `ose.links.planRewrite(text, filePath, pairs, opts?)` -> Promise<Array<{ from, to, insert }>>: the
+ * splices the disk rewrite would make in `text`, the file at `filePath`, for the moves `pairs`,
+ * as UTF-16 offsets into `text`, ascending and never overlapping. Pure: nothing is read or
+ * written. The editor applies them to a Source buffer as one transaction (H5). Async only
+ * because the markdown parser is loaded the first time it is needed. `opts.settled`: this
+ * file's own hrefs were already rewritten for the move (the second pass), so it is not
+ * treated as a file that moved.
+ * @param {string} text
+ * @param {string} filePath
+ * @param {Array<{from: string, to: string}>} pairs
+ * @param {{settled?: boolean}} [opts]
+ */
+export async function planRewrite(text, filePath, pairs, opts = {}) {
+  const moves = cleanMoves(pairs);
+  if (!moves.length || typeof text !== 'string') return [];
+  const edits = await editsFor(text, clean(filePath), moves, { settledSelf: !!(opts && opts.settled) });
+  return edits.map((e) => ({ from: e.start, to: e.end, insert: e.next }));
+}
 
 /**
  * Rewrite every link into any of `pairs` ([{ from, to }], vault paths, the files already
@@ -244,21 +311,25 @@ function lineAt(starts, offset) {
  * A moved file is found at its new path, so its own hrefs are resolved against its old path
  * (that is what they were written against) and rewritten relative to the new one; a link
  * from one moved file to another, still right after the move, comes out unchanged and is not
- * counted. Every file that is about to be rewritten has its current text kept as a version
- * first (`keep` above), and is written with `saveFile` against the hash it was read with: a
- * file that changed between the read and the write (the open page's own save, a sync client)
- * is not written over, and lands in `failed` with every other write that did not happen.
- * Only markdown files are rewritten; a link in any other text file is not a markdown link.
+ * counted. Only markdown files are rewritten; a link in any other text file is not a markdown
+ * link.
  *
- * N16: a moved file's hrefs that point *outside* the move set are rewritten too. `[x](other.md)`
- * in a page moved from a subfolder to the root used to be left as written and then resolved
- * against the root, where `other.md` is not; an `attachments/` image src broke the same way.
- * Those files are read whether or not the name search turned them up, because a page need not
- * mention its own name to hold links written from where it used to be.
+ * A file that is open in the editor (on screen or parked in a background tab) is not touched on
+ * disk: the page host is asked first (`rewriteLinksIn`, H5) and rewrites the buffer as one
+ * undoable edit, which the editor's autosave then writes; its `failed` joins this call's. Every
+ * other file has its current text kept as a version first (`keep` above), and is written with
+ * `saveFile` against the hash it was read with: a file that changed between the read and the
+ * write (the open page's own save, a sync client) is not written over, and lands in `failed`.
+ *
+ * N16: a moved file's hrefs that point *outside* the move set are rewritten too. Those files are
+ * read whether or not the name search turned them up, because a page need not mention its own
+ * name to hold links written from where it used to be.
  *
  * Two options split the pass in two, so the moved files can be done while the pages showing
  * them are still frozen (fileops.js movePath) and everything else after:
- * - `only: 'moved'`: rewrite only the moved files' own hrefs; no search, no other file read.
+ * - `only: 'moved'`: rewrite only the moved files' own hrefs, on disk; no search, no other file
+ *   read, and the page host is not asked (the page is frozen and saved, and takes the new disk
+ *   text as its baseline from `afterPathChange`).
  * - `settled: paths`: files (at their new paths) whose own hrefs an earlier `only: 'moved'`
  *   pass already rewrote. They are read as files that did not move: their hrefs now say where
  *   they are, and only a link into this batch's `from`s is still rewritten.
@@ -266,15 +337,11 @@ function lineAt(starts, offset) {
  *    of every file this call wrote, so a page showing one can take it as its own.
  */
 export async function rewriteInboundMany(pairs, { only = null, settled = null } = {}) {
-  const moves = (pairs || [])
-    .map((p) => ({ from: clean(p.from), to: clean(p.to) }))
-    .filter((p) => p.from && p.to && p.from !== p.to);
+  const moves = cleanMoves(pairs);
   const res = { files: 0, links: 0, failed: [], rewritten: {} };
   if (!moves.length) return res;
 
   const done = new Set([...(settled || [])].map(clean));
-  const toFor = new Map(moves.map((p) => [p.from, p.to]));
-  const fromFor = new Map(moves.filter((p) => !done.has(p.to)).map((p) => [p.to, p.from]));
   const needles = [...new Set(moves.flatMap((p) => needlesFor(p.from)))];
   const files = only === 'moved'
     ? [...new Set(moves.map((m) => m.to).filter((to) => !done.has(to)))]
@@ -282,33 +349,42 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
 
   for (const path of files) {
     if (!MARKDOWN.test(path)) continue;
+    const settledSelf = done.has(path);
+
+    if (only !== 'moved') {
+      // The open page's buffer is the truth, not the disk: the editor makes the edit (H5).
+      const own = settledSelf ? moves.filter((p) => p.to !== path) : moves;
+      let asked = null;
+      try {
+        const host = pageHost();
+        asked = host && typeof host.rewriteLinksIn === 'function' ? await host.rewriteLinksIn(path, own, { settled: settledSelf }) : null;
+      } catch (e) {
+        console.error('[links] rewriteLinksIn', path, e);
+        asked = { handled: true, changed: 0, failed: String((e && e.message) || e) };
+      }
+      if (asked && asked.handled) {
+        const n = Number(asked.changed) || 0;
+        if (n) { res.files++; res.links += n; }
+        if (asked.failed) {
+          logLine(`links rewrite in open page failed ${path}: ${asked.failed}`, 'warn');
+          if (!res.failed.includes(path)) res.failed.push(path);
+        }
+        continue;
+      }
+    }
+
     let text;
     let hash;
     try { ({ text, hash } = await bridge.readFile(path)); } catch { continue; }
     if (typeof text !== 'string') continue;
-    // The hrefs in a file were written relative to where it was; `was` is that place.
-    const was = fromFor.get(path) || path;
-    const moved = was !== path;
-    const edits = [];
-    for (const span of await linkSpans(text)) {
-      const target = resolveHref(was, span.href);
-      if (target === null) continue;
-      // An href with no scheme that starts with `/` is vault-root-relative: it means the same
-      // file wherever the page lands, so moving the page must not rewrite it.
-      if (!moved && span.href.trim().startsWith('/')) continue;
-      const to = toFor.get(target);
-      // Outside the move set: only a file that moved needs its own hrefs rewritten, and only
-      // to say the same thing from the new folder.
-      if (!to && !moved) continue;
-      if (!to && span.href.trim().startsWith('/')) continue;
-      const next = relativeHref(path, to || target) + span.tail;
-      if (next === span.href + span.tail) continue;
-      edits.push({ start: span.start, end: span.end, next });
-    }
+    const edits = await editsFor(text, path, moves, { settledSelf });
     if (!edits.length) continue;
     // Splice from the end so earlier offsets stay valid; nothing outside the spans moves.
     let out = text;
-    for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.next + out.slice(e.end);
+    for (let i = edits.length - 1; i >= 0; i--) {
+      const e = edits[i];
+      out = out.slice(0, e.start) + e.next + out.slice(e.end);
+    }
     try {
       await keep(path, text);
       const r = await bridge.saveFile(path, out, { expectedHash: hash, version: 'none' });
@@ -329,7 +405,7 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
   return res;
 }
 
-/** One file, already moved from `from` to `to`. The editor's rename will call this. */
+/** One file, already moved from `from` to `to`. */
 export function rewriteInbound(from, to) {
   return rewriteInboundMany([{ from, to }]);
 }

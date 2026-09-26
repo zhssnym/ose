@@ -2,26 +2,31 @@
 //
 // The same editor source mode mounts, with two things added: a language from the CodeMirror
 // language pack (the one the code-block feature uses, so a `python` block and a `.py` file are
-// highlighted by the same rules), and, when it is given a `path`, the page editor's save: the
-// file is read back before every write and must still be the text this editor was opened from,
-// or the user decides what happens. With `text` instead of `path` nothing is read and nothing
-// is written; `onSave` is handed the text and does what it likes.
+// highlighted by the same rules), and, when it is given a `path`, the page editor's save: one
+// host call that compares and writes against the hash of the text this editor was opened from
+// (`saveFile`), so a file that moved under it is never written over without the user deciding.
+// With `text` instead of `path` nothing is read and nothing is written; `onSave` is handed the
+// text and does what it likes.
 //
-// A plugin uses this for a script beside its data, the shell for a `.json` or a `.css` of its
-// own; source mode inside a page stays where it is, in page.js, because it shares the page's
-// title strip, baseline and conflict dialog. Both ask `createSourceView` for `code: true` and
-// get exactly the same editor, so a `.py` file looks and behaves the same in either.
+// A path editor keeps the page's promises about text that is not on disk (wave 2): a draft of
+// the buffer goes to this machine's app-data folder while it is dirty (C4, `ose.files.drafts`),
+// the next open of the file offers it back, and the window's leave gate (`ose.window.onLeave`,
+// C5) waits for the save or refuses to let the window go. The host keeps the replaced bytes as
+// a version on every save, so this file keeps none of its own any more.
+//
+// Source mode inside a page stays where it is, in page.js, because it shares the page's title
+// strip, baseline and merge. Both ask `createSourceView` for `code: true` and get exactly the
+// same editor, so a `.py` file looks and behaves the same in either.
 //
 // `grow` makes the editor as tall as its text, so the column scrolls; it is described where
 // it is built, below.
 
 import { Prec, StateEffect } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
-import { bridge, pageFiles } from './host.js';
+import { log, onWindowLeave, pageFiles } from './host.js';
 import { choose, toast } from './deps.js';
 import { describe, indentFor, loadLanguage } from './highlight.js';
 import { createSourceView } from './source.js';
-import { keepVersion, keepDiskVersion } from './versions.js';
 import * as P from './paths.js';
 
 /**
@@ -46,6 +51,27 @@ function endingOf(raw) {
   return crlf > all - crlf ? '\r\n' : '\n';
 }
 
+/** A draft follows an edit this long after it (C4). */
+const DRAFT_DELAY = 1000;
+
+/**
+ * The edit counter of every code editor, one clock started when the bundle loaded, so a later
+ * edit always has a higher number than a draft an earlier session left: `drafts.drop(path,
+ * {ifRev})` then never keeps a stale one (the page editor keeps its own, in page.js).
+ */
+let revClock = Date.now();
+
+const errText = (e) => String((e && e.message) || e || 'unknown error').split('\n')[0];
+const errCode = (e) => (e && e.code) || 'io';
+
+/** `14:02` today, `9 Sep 14:02` another day: when a draft was written. */
+function whenLabel(at) {
+  const d = new Date(Number(at) || Date.now());
+  const time = P.hhmm(d);
+  const same = new Date().toDateString() === d.toDateString();
+  return same ? time : `${d.toLocaleDateString('en', { day: 'numeric', month: 'short' })} ${time}`;
+}
+
 /**
  * @param {HTMLElement} el
  * @param {object} opts  { path | text, language, readOnly, onChange, onSave, gutter,
@@ -67,11 +93,16 @@ export function codeEditor(el, opts = {}) {
   // instead: the user cannot lose what they cannot type.
   let loading = !!path;
   let eol = '\n';
-  // The host's hash of the bytes the baseline came from (wave 1, M2). With it, a save is one
-  // `saveFile` call that compares and writes under the host's lock and keeps the replaced
-  // bytes as a version; without it (a kernel that has no `readFile`), the old read, compare
-  // and write below.
+  // The host's hash of the bytes the baseline came from (wave 1, M2): every save is one
+  // `saveFile` call that compares and writes under the host's lock against it.
   let diskHash = null;
+  // Drafts (C4). rev: the edit clock at the last edit; hasDraft: one may be stored for this
+  // path; draftChain: the writes and drops one after the other, so a drop issued after a write
+  // never reaches the host first.
+  let rev = 0;
+  let hasDraft = false;
+  let draftTimer = 0;
+  let draftChain = Promise.resolve();
   const onWire = (t) => (eol === '\n' ? t : t.replace(/\n/g, eol));
 
   const emit = (event, payload) => {
@@ -83,6 +114,8 @@ export function codeEditor(el, opts = {}) {
   };
 
   const markDirty = () => {
+    rev = ++revClock;
+    scheduleDraft();
     if (dirty) return;
     dirty = true;
     emit('dirty', { path, dirty: true });
@@ -123,7 +156,7 @@ export function codeEditor(el, opts = {}) {
   /**
    * Escape with no search panel open: leave the text and put the keyboard back on the page
    * around it. Tab inside CodeMirror is the indent unit and Escape used to do nothing here, so
-   * the only way out of a plugin's code editor was a command — a keyboard trap in an app whose
+   * the only way out of an embedded code editor was a command — a keyboard trap in an app whose
    * rule is that nothing needs the mouse. The nearest page container takes the focus so the
    * next Tab starts from the page, not from the top of the window; Escape with the search
    * panel open still closes the panel first (`source.js`).
@@ -138,7 +171,7 @@ export function codeEditor(el, opts = {}) {
 
   // `.md` is the one language the pack does not have to load: source mode's own markdown mode
   // is already in the bundle, and `createSourceView` installs it.
-  const isMarkdown = !!path && P.extname(path) === 'md' && !opts.language;
+  const isMarkdown = !!path && P.isMarkdown(path) && !opts.language;
   const named = describe(opts.language, path);
   const indent = opts.indent || indentFor(named);
   const view = createSourceView({
@@ -161,13 +194,13 @@ export function codeEditor(el, opts = {}) {
   // are the same in a code file open as a page and here, and they live in one place so they
   // cannot differ (`ide()` in source.js). What is only this editor's is Ctrl+S.
   //
-  // Ctrl+S here as well as in the shell: a code editor inside a dialog or a plugin's panel is
-  // not always under a chord the shell bound (docs/KERNEL.md, keyboard reachable every time).
-  // `keys.js` binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would
-  // otherwise take it first and nothing inside CodeMirror could outrank a listener that runs
-  // before the event ever descends. The exemption belongs in the key engine rather than here,
-  // and that is where it is: `OWN_EDITOR_KEYS` stands down for `mod+s` and `mod+f` inside
-  // `.ed-code`. `Prec.high` because `appendConfig` puts this *after* the view's own keymap.
+  // Ctrl+S here as well as in the shell: a code editor inside a dialog or a panel is not always
+  // under a chord the shell bound (docs/KERNEL.md, keyboard reachable every time). `keys.js`
+  // binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would otherwise
+  // take it first and nothing inside CodeMirror could outrank a listener that runs before the
+  // event ever descends. The exemption belongs in the key engine rather than here, and that is
+  // where it is: `OWN_EDITOR_KEYS` stands down for `mod+s` and `mod+f` inside `.ed-code`.
+  // `Prec.high` because `appendConfig` puts this *after* the view's own keymap.
   view.view.dispatch({
     effects: StateEffect.appendConfig.of(Prec.high(keymap.of([
       { key: 'Mod-s', run: () => { void save({ explicit: true }); return true; }, preventDefault: true },
@@ -175,6 +208,101 @@ export function codeEditor(el, opts = {}) {
   });
 
   const getText = () => view.getText();
+
+  // -------------------------------------------------------------------------
+  // drafts (C4)
+
+  /** One draft write or drop after the other; `fn` runs whether the one before it failed or not. */
+  function draftOp(fn) {
+    const next = draftChain.then(fn, fn);
+    draftChain = next.catch(() => {});
+    return next;
+  }
+
+  function scheduleDraft() {
+    // At most one draft a second while typing: a pending one takes the newer text with it.
+    if (!path || loading || draftTimer) return;
+    draftTimer = setTimeout(() => { draftTimer = 0; void writeDraft(); }, DRAFT_DELAY);
+  }
+
+  /**
+   * The buffer, as the file would hold it, into this machine's draft store. Only for a path
+   * editor whose file loaded, and only while there is something the disk does not hold.
+   * Never throws.
+   */
+  function writeDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = 0;
+    if (!path || !dirty || loading || closed || baseline === null) return Promise.resolve();
+    const draft = { path, text: onWire(getText()), baselineHash: diskHash, mode: 'source', exact: true, rev };
+    hasDraft = true;
+    return draftOp(async () => {
+      try {
+        await pageFiles.drafts.write(path, draft);
+      } catch (e) {
+        if (errCode(e) !== 'unknown_command') log(`draft failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      }
+    });
+  }
+
+  /** Drop the draft after a save that left the editor clean (`ifRev`: a newer draft stays). */
+  function dropDraft(ifRev) {
+    clearTimeout(draftTimer);
+    draftTimer = 0;
+    if (!path) return Promise.resolve();
+    return draftOp(async () => {
+      if (!hasDraft) return;
+      try {
+        const r = await pageFiles.drafts.drop(path, ifRev === undefined ? undefined : { ifRev });
+        if (r && r.dropped === false && ifRev !== undefined) return;
+        hasDraft = false;
+      } catch (e) {
+        if (errCode(e) === 'unknown_command') { hasDraft = false; return; }
+        log(`draft not dropped ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      }
+    });
+  }
+
+  /**
+   * At open: a draft this machine kept of the file. Applied when it was written over the text
+   * on disk now (the buffer is then dirty, and the user saves it); when the file changed since,
+   * it is kept as a version instead and the user is told where. Never throws.
+   */
+  async function recoverDraft(raw) {
+    let d = null;
+    try { d = await pageFiles.drafts.read(path); } catch (e) {
+      if (errCode(e) !== 'unknown_command') log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+      return false;
+    }
+    if (!d || typeof d.text !== 'string' || closed) return false;
+    hasDraft = true;
+    if (d.text === raw) { void dropDraft(); return false; }
+    if (Number(d.rev) > revClock) revClock = Number(d.rev);
+    const at = Number(d.at) || Date.now();
+    if ((d.baselineHash ?? null) === diskHash) {
+      view.setText(normalize(d.text));
+      markDirty();
+      log(`draft found ${path}: applied`, 'warn');
+      emit('recovered', { path, at, applied: true });
+      toast(`Unsaved changes to ${P.basename(path)} from ${whenLabel(at)} were recovered. Save to keep them.`, 'warn', 9000);
+      return true;
+    }
+    // Typed over a text the disk no longer holds: not put in, but not lost either.
+    let kept = false;
+    try {
+      await pageFiles.keepVersion(path, d.text, { force: true, reason: 'conflict' });
+      kept = true;
+    } catch (e) {
+      log(`recovered draft not kept ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+    }
+    if (kept) void dropDraft();
+    log(`draft found ${path}: offered, the file changed since`, 'warn');
+    emit('recovered', { path, at, applied: false });
+    toast(kept
+      ? `Unsaved changes to ${P.basename(path)} from ${whenLabel(at)} could not be applied: the file changed since. They are kept in Versions.`
+      : `Unsaved changes to ${P.basename(path)} from ${whenLabel(at)} could not be applied: the file changed since.`, 'warn', 0);
+    return false;
+  }
 
   /** The grammar, fetched once, after the editor is already on screen. */
   const loaded = loadLanguage(named).then((support) => {
@@ -185,16 +313,11 @@ export function codeEditor(el, opts = {}) {
     if (!path) { await loaded; return; }
     let raw = '';
     try {
-      try {
-        const r = await pageFiles.readFile(path);
-        raw = r.text;
-        diskHash = r.hash || null;
-      } catch (e) {
-        if (!e || e.code !== 'unknown_command') throw e;
-        raw = await bridge.readText(path);
-      }
+      const r = await pageFiles.readFile(path);
+      raw = r.text;
+      diskHash = r.hash ?? null;
     } catch (e) {
-      toast(`cannot open ${path}: ${e && e.message ? e.message : e}`, 'err');
+      toast(`cannot open ${path}: ${errText(e)}`, 'err');
       baseline = null;
       loading = false;
       readOnly = true;
@@ -218,22 +341,21 @@ export function codeEditor(el, opts = {}) {
     else view.setText(baseline, { history: 'drop' });
     view.clearHistory();
     loading = false;
+    if (!dirty) await recoverDraft(raw);
     view.setReadOnly(readOnly);
     await loaded;
   })();
 
   /**
-   * Write, with the page editor's three guards (B1, C18): never a file the user has not
-   * changed, never over a file that moved under us without asking, and never a file that is
-   * no longer there.
+   * Write, with the page editor's guards (B1, C18): never a file the user has not changed,
+   * never over a file that moved under us without asking, and never a file that is no longer
+   * there without asking.
    *
    * **Resolves true when there is nothing left unwritten**, and false whenever text the user
-   * typed is still only in this editor. The old wording was "true when the caller may move
-   * on", and four different paths answered true having written nothing: a conflict the user
-   * had cancelled, a read-only editor holding changes, an editor whose file never loaded, and
-   * a write that finished after the user had typed again. A caller that closes its panel when
-   * `save()` resolves truthy — the obvious reading — threw the text away (A, findings 2, 8).
-   * The rule now has one sentence and `close()` below relies on it.
+   * typed is still only in this editor (and then in its draft). A caller that closes its panel
+   * when `save()` resolves truthy — the obvious reading — must never throw text away
+   * (A, findings 2, 8). `o.closing`: the window is going, so no question can be awaited; a
+   * conflict answers false and the draft keeps the text.
    */
   async function save(o = {}) {
     if (!path) {
@@ -244,113 +366,62 @@ export function codeEditor(el, opts = {}) {
     }
     if (!dirty) return true;
     // Dirty and unwritable: the text is only here, and saying otherwise is the lie that loses
-    // it. A deleted file no longer lands here — it keeps its buffer editable (finding 7).
+    // it.
     if (readOnly || baseline === null) return false;
     if (saving) { await saving; return !dirty; }
     if (hold && !o.explicit) return false;
+    if (hold && o.closing) return false;
     hold = false;
 
     const text = getText();
-    if (text === baseline) { markClean(); return true; }
+    if (text === baseline) { markClean(); void dropDraft(rev); return true; }
 
     let outcome = true;
-    saving = diskHash !== null ? compareAndWrite(text).then((ok) => { if (!ok) outcome = false; }) : (async () => {
-      let onDisk = null;
-      try {
-        onDisk = await bridge.readText(path);
-      } catch (e) {
-        let there = true;
-        try { there = await bridge.exists(path); } catch { /* assume it is */ }
-        if (!there) {
-          // The file went away under a dirty editor. What is in the buffer is now the only
-          // copy of it anywhere, and the old answer — freeze the editor read-only and toast —
-          // put that copy out of the user's reach: `close()` saves nothing on a read-only
-          // editor, so the text went with the view (A, finding 7). Ask instead, and whichever
-          // way it is answered the buffer stays editable and stays dirty.
-          const choice = await choose({
-            title: 'No longer there',
-            body: `${path} has been deleted or moved since it was opened here. `
-              + 'Write it again with what is in the editor, or keep the text here and decide later?',
-            // Shaped like the changed-on-disk dialog above: Cancel first, where the focus
-            // lands and where Esc resolves, the action last.
-            options: [
-              { label: 'Cancel', value: 'hold' },
-              { label: 'Write it again', value: 'write', kind: 'primary' },
-            ],
-            cancel: 'hold',
-          });
-          if (choice === 'write') { await writeOut(text); return; }
-          hold = true;
-          outcome = false;
-          toast(`${path} is not on disk; nothing was written and your text is still here`, 'warn', 9000);
-          return;
-        }
-        throw e;
-      }
-      if (normalize(onDisk) !== baseline) {
-        const choice = await choose({
-          title: 'Changed on disk',
-          body: `${path} was modified by something else since it was opened here. `
-            + 'Keep your version and overwrite the file, or reload the file and lose your edits?',
-          options: [
-            { label: 'Cancel', value: 'cancel' },
-            { label: 'Reload from disk', value: 'reload' },
-            { label: 'Keep mine', value: 'keep', kind: 'primary' },
-          ],
-          cancel: 'cancel',
-        });
-        emit('conflict', { path, choice: choice || 'cancel' });
-        if (choice === 'reload') {
-          eol = endingOf(onDisk);
-          baseline = normalize(onDisk);
-          // An ordinary edit, isolated: the user just agreed to lose their version, and one
-          // Ctrl+Z gives it back rather than landing somewhere in the middle of their typing
-          // (A, finding 12).
-          view.setText(baseline);
-          markClean();
-          return;
-        }
-        if (choice !== 'keep') { hold = true; outcome = false; return; }
-        await keepDiskVersion(path, onDisk);
-      }
-      await writeOut(text);
-    })();
+    const at = rev;
+    saving = compareAndWrite(text, o).then((ok) => { if (!ok) outcome = false; });
     try {
       await saving;
     } catch (e) {
-      console.error('[editor] save', e);
-      toast(`save failed for ${path}: ${e && e.message ? e.message : e}`, 'err');
+      outcome = false;
+      log(`save failed ${path}: ${errCode(e)} ${errText(e)}`, 'error');
+      toast(`save failed for ${path}: ${errText(e)}`, 'err');
     } finally { saving = null; }
-    // A keystroke that landed during the write leaves the editor dirty (writeOut below). An
-    // explicit save means "put what is here on disk", so it goes round once more rather than
-    // leaving the user's last word in no file. Once, not a loop: if they are still typing, the
-    // save after this one gets it, and `dirty` stays true until something does.
+    if (!outcome || dirty) void writeDraft();
+    else void dropDraft(at);
+    // A keystroke that landed during the write leaves the editor dirty. An explicit save means
+    // "put what is here on disk", so it goes round once more rather than leaving the user's
+    // last word in no file. Once, not a loop: if they are still typing, the save after this
+    // one gets it, and `dirty` stays true until something does.
     if (outcome && dirty && o.explicit && !o.again) return save({ ...o, again: true });
     return outcome && !dirty;
   }
 
   /**
-   * The save when the host compares for us (M2): one `saveFile` against the hash the baseline
-   * came from. A conflict asks the same questions as the read-compare path above, and the
-   * answer is written against the hash of what the conflict showed, so an outside write that
-   * lands while the dialog is up is a second conflict and never lost. True when it wrote or
-   * the user took the disk text; false when the text is still only here.
+   * The save itself (M2): one `saveFile` against the hash the baseline came from. A conflict
+   * asks, and the answer is written against the hash of what the conflict showed, so an
+   * outside write that lands while the dialog is up is a second conflict and never lost. True
+   * when it wrote or the user took the disk text; false when the text is still only here.
    */
-  async function compareAndWrite(text) {
+  async function compareAndWrite(text, o = {}) {
     let expectedHash = diskHash;
     let version = 'save';
     for (let round = 0; round < 3; round++) {
       const r = await pageFiles.save(path, onWire(text), { expectedHash, version });
       if (r && r.status === 'saved') {
-        diskHash = r.hash || null;
+        diskHash = r.hash ?? null;
         baseline = text;
-        // As writeOut: a keystroke that landed during the await leaves the editor dirty.
+        // A keystroke that landed during the await leaves the editor dirty.
         if (getText() === text) markClean();
+        log(`save ok ${path}${r.unchanged ? ' (unchanged)' : ''}`, 'info');
         if (typeof opts.onSave === 'function') { try { await opts.onSave(text); } catch (e) { console.error('[editor] onSave', e); } }
         emit('saved', { path, text });
         return true;
       }
-      const disk = (r && r.disk) || { exists: false, text: null, hash: null };
+      if (!r || r.status !== 'conflict') throw Object.assign(new Error('the host gave no answer to the save'), { code: 'unknown_command' });
+      log(`save conflict ${path}`, 'warn');
+      // The window is going: a question cannot be awaited into it. The draft keeps the text.
+      if (o.closing) { hold = true; return false; }
+      const disk = r.disk || { exists: false, text: null, hash: null };
       if (!disk.exists) {
         const choice = await choose({
           title: 'No longer there',
@@ -376,7 +447,7 @@ export function codeEditor(el, opts = {}) {
         title: 'Changed on disk',
         body: `${path} was modified by something else since it was opened here. `
           + (canReload
-            ? 'Keep your version and overwrite the file, or reload the file and lose your edits?'
+            ? 'Keep your version and overwrite the file, or reload the file and lose your edits? Whichever text loses is kept in Versions.'
             : 'Keep your version and overwrite the file? What is on disk is not text this editor can show.'),
         options: [
           { label: 'Cancel', value: 'cancel' },
@@ -387,12 +458,17 @@ export function codeEditor(el, opts = {}) {
       });
       emit('conflict', { path, choice: choice || 'cancel' });
       if (choice === 'reload' && canReload) {
+        // The buffer is kept as a version before it is let go.
+        try { await pageFiles.keepVersion(path, onWire(text), { force: true, reason: 'reload' }); } catch (e) {
+          log(`version not kept ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
+        }
         eol = endingOf(disk.text);
         baseline = normalize(disk.text);
-        diskHash = disk.hash || null;
-        // One undoable edit, as in the read-compare path (A, finding 12).
+        diskHash = disk.hash ?? null;
+        // One undoable edit (A, finding 12).
         view.setText(baseline);
         markClean();
+        void dropDraft();
         return true;
       }
       if (choice !== 'keep') { hold = true; return false; }
@@ -405,18 +481,31 @@ export function codeEditor(el, opts = {}) {
     return false;
   }
 
-  async function writeOut(text) {
-    await keepVersion(path, baseline, text);
-    await bridge.writeText(path, onWire(text));
-    baseline = text;
-    // Not `markClean()` outright. There are two awaits above, and a keystroke that landed
-    // during them is in the buffer and in no file: saying "clean" then left it there, because
-    // `close()` only saves a dirty editor, so it went to the bin with the view (A, finding 2).
-    // The editor stays dirty and the next save — `close()`'s included — writes what is there.
-    if (getText() === text) markClean();
-    if (typeof opts.onSave === 'function') { try { await opts.onSave(text); } catch (e) { console.error('[editor] onSave', e); } }
-    emit('saved', { path, text });
+  // -------------------------------------------------------------------------
+  // the window (C5)
+
+  // The leave gate: closing the window, reloading it and switching vaults wait for this
+  // editor's save, and a save that does not land keeps the window, with the text in a draft.
+  const offLeave = path ? onWindowLeave(async () => {
+    if (closed || !dirty) return true;
+    let ok = false;
+    try { ok = await save({ explicit: true, closing: true }); } catch { ok = false; }
+    if (!ok && dirty) await writeDraft();
+    return ok || !dirty;
+  }) : null;
+  // A window that is hidden may be the last thing that happens to it (logout, a killed process).
+  const onHidden = () => { if (document.visibilityState === 'hidden' && dirty) void writeDraft(); };
+  const onUnload = () => { if (dirty) void writeDraft(); };
+  if (path) {
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('beforeunload', onUnload);
   }
+  const unwire = () => {
+    try { if (typeof offLeave === 'function') offLeave(); } catch { /* already off */ }
+    document.removeEventListener('visibilitychange', onHidden);
+    window.removeEventListener('beforeunload', onUnload);
+    clearTimeout(draftTimer);
+  };
 
   return {
     get path() { return path; },
@@ -428,8 +517,7 @@ export function codeEditor(el, opts = {}) {
      * A `setText` from outside is an edit: the caller means the buffer to hold this and, for a
      * path editor, the next `save()` to write it. It used to go in without marking the editor
      * dirty, so `save()` short-circuited on `if (!dirty)` and answered true having written
-     * nothing — and the Code plugin seeds a student's empty answer file exactly this
-     * way, then submits it to the judge.
+     * nothing.
      */
     setText(text) { if (view.setText(String(text ?? ''))) markDirty(); },
     setReadOnly(on) {
@@ -445,15 +533,14 @@ export function codeEditor(el, opts = {}) {
      *
      * `close()` saves once, and when the save could not happen it asks before tearing the view
      * down, answering **false** when the user chose to keep editing — the editor is then still
-     * mounted and still theirs. It used to throw `save()`'s answer away and destroy the view
-     * regardless, so cancelling the changed-on-disk dialog and then closing lost the text
-     * (A, finding 3).
+     * mounted and still theirs. Choosing to lose the changes drops the draft as well.
      *
      * A conflict the user has already cancelled is not put back up here: they answered that
      * question, and asking it again for permission to close is a dialog for nothing
      * (A, finding 9). What is asked instead is the question closing actually raises.
      *
-     * `{ force: true }` closes whatever the state, for a caller that is going away regardless.
+     * `{ force: true }` closes whatever the state, for a caller that is going away regardless;
+     * the draft of a dirty buffer stays on this machine and the next open offers it back.
      */
     async close(o = {}) {
       if (closed) return true;
@@ -477,9 +564,13 @@ export function codeEditor(el, opts = {}) {
             cancel: 'keep',
           });
           if (choice !== 'discard') return false;
+          await dropDraft();
         }
+      } else if (dirty && o.force) {
+        await writeDraft();
       }
       closed = true;
+      unwire();
       view.destroy();
       if (host.parentNode) host.remove();
       emit('closed', { path });

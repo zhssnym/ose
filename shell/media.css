@@ -125,3 +125,38 @@
   border-color: var(--accent);
 }
 .media-leave:hover { background: var(--accent-soft); filter: brightness(1.06); }
+
+/* A file that is not text (media.js `binaryPage`): one box in the page column, the name in
+   the chrome's mono voice, three facts, one sentence and the ways out. Boxes, not rules. */
+.binary-page { padding-top: var(--page-pad-top); }
+.binary-page:focus { outline: none; }
+.binary-box {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+.binary-head { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.binary-icon { flex: none; display: grid; place-items: center; color: var(--fg-3); }
+.binary-icon svg {
+  width: 1rem; height: 1rem;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.binary-name {
+  flex: 1; min-width: 0; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.binary-facts {
+  display: grid; grid-template-columns: max-content 1fr;
+  column-gap: var(--sp-4); row-gap: var(--sp-1);
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-chrome);
+}
+.binary-facts dt { color: var(--fg-3); }
+.binary-facts dd { margin: 0; color: var(--fg-2); }
+.binary-why { margin: var(--sp-4) 0 0; color: var(--fg-3); font-size: var(--fs-chrome); }
+.binary-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); }
+.binary-actions .btn { gap: var(--sp-1); }
+.binary-actions .btn svg { width: 0.75rem; height: 0.75rem; }

@@ -11,7 +11,7 @@ pub struct Args {
     pub log: Option<PathBuf>,
     /// Serve the shell from this folder instead of the copy inside the executable.
     /// Development: the repository's own `shell/`, edited in place and reloaded with Ctrl+R.
-    /// It works with no vault at all, and it never changes where the plugins come from.
+    /// It works with no vault at all, and it changes nothing but where the shell is read from.
     pub shell: Option<PathBuf>,
     /// Print `ose <version> (<commit>, <date>)` and exit 0.
     pub version: bool,

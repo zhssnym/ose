@@ -1,156 +1,247 @@
-// The dashboard: the home of the shell, and the first tab.
+// Home (H19): where a new tab starts, where the last tab closes to, and what `app.home` opens.
 //
-// It is a view like any other (`ose.views.register('dashboard', …)`), so the router mounts it,
-// the history remembers it and a tab holds it without anything new in the kernel. What it
-// draws is one card per plugin the loader has seen — its name, its one-line description, and
-// the chord that opens its view when a command owns one. Nothing is counted, nothing is
-// fetched: the dashboard reads `ose.plugins.list()` and that is all. A launcher would put
-// numbers on it; this is the same page column, the same title, the same boxes as everywhere
-// else in Ose, so arriving here does not feel like leaving the app.
+// It is a view like any other (`ose.views.register('home', …)`), so the router mounts it, the
+// history remembers it and a tab holds it without anything new in the kernel; the kernel is
+// told it is the home (`ose.route.setHome`) and that is all it knows. What it draws, top to
+// bottom, with whitespace between the groups and no cards:
 //
-// Plugins activate after `ose.init`, so the view redraws on `booted` (main.js emits it once
-// the loader has answered) and on a later `plugins` change if one is ever announced.
+//   1. the planner row: one button per view the planner registered (`section: 'planner'`),
+//      in their own order, each with its chord when it has one. Nothing when there is none.
+//   2. pins, from shell/pins.js: a pin whose file is gone stays, greyed, marked missing (L22).
+//   3. recent files, up to eight, each name with its folder.
+//   4. the vault root, as the folder view's own list in its compact form, with a way to the
+//      whole folder view.
+//
+// Nothing is counted and nothing is fetched beyond one listing and a handful of stats. It is
+// the same page column, the same title and the same rows as everywhere else in Ose, so
+// arriving here does not feel like leaving the app.
 
 import { ose } from 'ose:kernel';
-import { esc } from 'ose:ui';
+import { esc, icon, hasIcon } from 'ose:ui';
 import { openInNewTab } from './tabs.js';
-import { byViewOrder, byPluginOrder } from './order.js';
+import { byViewOrder } from './order.js';
+import * as pins from './pins.js';
+import { mountFolderList, folderRoute } from './folder.js';
+import { iconName } from './folder-model.js';
+import { baseName, dirName, titleOf } from './paths.js';
 
-const { bus, commands, route, keys, plugins } = ose;
+const { bus, commands, route, keys } = ose;
 
 /** The home route. `tabs.js` and `start.js` both ask here rather than spelling the name. */
-export const HOME = { type: 'view', name: 'dashboard' };
+export const HOME = { type: 'view', name: 'home' };
 export const HOME_TITLE = 'Home';
 
-let el = null;
-let root = null;
-let ro = null;
-let offBooted = null;
+const RECENT = 8;
 
-// Under this many pixels of page column the grid is one column. The cards are the page's, not
-// the window's: the sidebar changes how much room there is (the Day view measures the same way).
-const NARROW = 640;
+const iconSvg = (name, fallback = 'file') => icon(hasIcon(name) ? name : fallback);
 
-/**
- * The command that opens a view, by the convention every stock plugin follows: `view.<name>`
- * navigates to `{ type:'view', name }`. A plugin that names its command something else simply
- * gets no chord on its card, which is better than printing one that does something else.
- */
-function chordFor(view) {
-  if (!view) return '';
-  const id = 'view.' + view.name;
+/** A file's name as the chrome shows it (W8): whole, `.md` stripped only when hideMdExt is on. */
+const display = (path) => titleOf(path) || baseName(path);
+
+/** The planner's views, in their own order: `order`, then title (order.js). */
+function plannerViews() {
+  return ose.views.list().filter((v) => v && v.section === 'planner').sort(byViewOrder);
+}
+
+/** The chord of `view.<name>`, when a command of that name has one. */
+function chordFor(name) {
+  const id = 'view.' + name;
   if (!commands.get(id)) return '';
   return keys.shortcutFor(id) || '';
 }
 
-/** The plugins, in the sidebar's order: their views' `order`, then title (order.js). */
-function rows() {
-  return plugins.list().slice().sort(byPluginOrder);
+/** A row of the pins or the recent list: the icon, the name, the folder, and a note. */
+function rowHtml({ path, kind, missing = false }) {
+  const folder = dirName(path);
+  const name = kind === 'dir' ? (baseName(path) || (ose.vault && ose.vault.name) || 'Vault') : display(path);
+  const glyph = iconSvg(iconName({ name: baseName(path), kind }), kind === 'dir' ? 'folder' : 'file');
+  const hint = missing ? 'missing' : folder;
+  return `<button type="button" class="row home-row${missing ? ' missing' : ''}" data-path="${esc(path)}" data-kind="${kind}" title="${esc(path)}${missing ? ' (missing)' : ''}">
+    ${glyph}<span class="grow">${esc(name)}</span>${hint ? `<span class="hint">${esc(hint)}</span>` : ''}
+  </button>`;
 }
 
-/** The view a card opens: the first of the plugin's, in the order the sidebar lists them. */
-const mainView = (p) => ((p && p.views) || []).slice().sort(byViewOrder)[0] || null;
+const routeOfRow = (row) => (row.dataset.kind === 'dir'
+  ? folderRoute(row.dataset.path)
+  : { type: 'page', path: row.dataset.path });
 
-function cardHtml(p, view) {
-  const chord = chordFor(view);
-  return `
-    <button type="button" class="dash-card" data-view="${esc(view.name)}">
-      <span class="dash-name">${esc(p.name || p.id)}</span>
-      <span class="dash-desc">${esc(p.description || '')}</span>
-      ${chord ? `<span class="dash-key kbd">${esc(chord)}</span>` : ''}
+let el = null;
+let root = null;
+let rootList = null;
+let offs = [];
+let recentSeq = 0;
+
+function renderPlanner() {
+  const box = root && root.querySelector('.home-planner');
+  if (!box) return;
+  const list = plannerViews();
+  box.hidden = !list.length;
+  box.innerHTML = list.map((v) => {
+    const chord = chordFor(v.name);
+    return `<button type="button" class="btn home-plan" data-view="${esc(v.name)}" title="${esc(v.title || v.name)}${chord ? ` (${esc(chord)})` : ''}">
+      ${iconSvg(v.icon || 'view', 'view')}<span>${esc(v.title || v.name)}</span>${chord ? `<span class="kbd">${esc(chord)}</span>` : ''}
     </button>`;
+  }).join('');
+}
+
+function renderPins() {
+  const sec = root && root.querySelector('.home-pins');
+  if (!sec) return;
+  let list = [];
+  try { list = pins.list(); } catch (e) { console.warn('[home] pins', e); }
+  sec.hidden = !list.length;
+  sec.querySelector('.home-rows').innerHTML = list.map(rowHtml).join('');
+}
+
+async function renderRecent() {
+  const sec = root && root.querySelector('.home-recent');
+  if (!sec) return;
+  const my = ++recentSeq;
+  const candidates = (route.recent() || []).slice(0, RECENT * 2);
+  // A recent file that is gone is left out of the list, not out of the record: it comes back
+  // if the file does. One stat per row, after the rest of Home is up.
+  const alive = await Promise.all(candidates.map((p) => ose.files.exists(p).catch(() => false)));
+  if (my !== recentSeq || !root) return;
+  const list = candidates.filter((_, i) => alive[i]).slice(0, RECENT);
+  sec.hidden = !list.length;
+  sec.querySelector('.home-rows').innerHTML = list.map((p) => rowHtml({ path: p, kind: 'file' })).join('');
+}
+
+function renderRootHead() {
+  const name = root && root.querySelector('.home-root-name');
+  if (name) name.textContent = (ose.vault && ose.vault.name) || 'Vault';
 }
 
 function render() {
   if (!root) return;
-  const all = rows();
-  const cards = all.filter((p) => p.state === 'active' && mainView(p));
-  const bare = all.filter((p) => p.state === 'active' && !mainView(p));
-  const off = all.filter((p) => p.state !== 'active');
+  renderPlanner();
+  renderPins();
+  void renderRecent();
+  renderRootHead();
+}
 
-  const grid = root.querySelector('.dash-grid');
-  const rest = root.querySelector('.dash-rest');
-  grid.innerHTML = cards.map((p) => cardHtml(p, mainView(p))).join('');
-  // A vault with no plugins is a plain editor, and the home page says so in one quiet line
-  // rather than looking like something failed. With plugins but no cards the lines below
-  // carry the whole story already.
-  if (!all.length) grid.innerHTML = `<div class="empty">No plugins. A plugin is a folder in .ose/plugins.</div>`;
-
-  // A plugin with no view of its own is a line under the grid, not a card that opens nothing.
-  // A disabled one says why, in the same line shape, in the error colour.
-  const lines = [];
-  if (bare.length) {
-    lines.push(`<div class="dash-line mono-sm">also loaded: ${bare.map((p) => esc(p.name || p.id)).join(', ')}</div>`);
+/** Up and Down walk the rows of one group, so Enter opens without a Tab per row. */
+function walk(e) {
+  const t = e.target;
+  if (!(t instanceof Element)) return;
+  if (t.closest('.home-plan') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+    const all = [...root.querySelectorAll('.home-plan')];
+    const at = all.indexOf(t.closest('.home-plan'));
+    const next = all[(at + (e.key === 'ArrowRight' ? 1 : -1) + all.length) % all.length];
+    e.preventDefault();
+    next.focus();
+    return;
   }
-  for (const p of off) {
-    lines.push(`<div class="dash-line mono-sm err">${esc(p.name || p.id)} is disabled: ${esc(p.error || 'unknown')}</div>`);
-  }
-  rest.innerHTML = lines.join('');
+  const row = t.closest('.home-row');
+  if (!row || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+  const all = [...root.querySelectorAll('.home-row')];
+  const at = all.indexOf(row);
+  const next = all[Math.max(0, Math.min(all.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+  e.preventDefault();
+  if (next) next.focus();
 }
 
 const view = {
   title: HOME_TITLE,
-  icon: 'view',
-  // Never in a sidebar list of views: it is the page the app opens on, not a plugin's way in.
-  order: 0,
+  icon: 'home',
 
   mount(host) {
     el = host;
     el.innerHTML = `
-<div class="view-root dash" tabindex="-1">
+<div class="view-root home" tabindex="-1">
   <div class="page-col">
     <h1 class="page-title view-title">${esc(HOME_TITLE)}</h1>
-    <div class="dash-grid"></div>
-    <div class="dash-rest"></div>
+    <div class="home-planner" role="group" aria-label="Planner" hidden></div>
+    <section class="home-sec home-pins" hidden aria-label="Pinned">
+      <div class="label">Pinned</div>
+      <div class="home-rows"></div>
+    </section>
+    <section class="home-sec home-recent" hidden aria-label="Recent">
+      <div class="label">Recent</div>
+      <div class="home-rows"></div>
+    </section>
+    <section class="home-sec home-root" aria-label="Vault">
+      <div class="home-root-head">
+        <div class="label home-root-name"></div>
+        <button type="button" class="v-link home-open-root mono-sm">Open folder view</button>
+      </div>
+      <div class="home-list"></div>
+    </section>
   </div>
 </div>`;
     root = el.querySelector('.view-root');
 
     // A plain click replaces what is in front; Ctrl (or Cmd) click and the middle button make
-    // a tab of it, which is the same gesture every row in the app answers to (shell/tabs.js).
-    const open = (card, aside) => {
-      const r = { type: 'view', name: card.dataset.view };
-      if (aside) void openInNewTab(r); else void route.navigate(r);
-    };
+    // a tab of it, the gesture every row in the app answers to (shell/tabs.js).
+    const go = (r, aside) => { if (aside) void openInNewTab(r); else void route.navigate(r); };
     root.addEventListener('click', (e) => {
-      const card = e.target.closest('.dash-card');
-      if (!card) return;
-      open(card, e.ctrlKey || e.metaKey);
+      const aside = e.ctrlKey || e.metaKey;
+      const plan = e.target.closest('.home-plan');
+      if (plan) { go({ type: 'view', name: plan.dataset.view }, aside); return; }
+      const row = e.target.closest('.home-row');
+      if (row) { go(routeOfRow(row), aside); return; }
+      if (e.target.closest('.home-open-root')) go(folderRoute(''), aside);
     });
     root.addEventListener('auxclick', (e) => {
-      const card = e.target.closest('.dash-card');
-      if (!card || e.button !== 1) return;
+      if (e.button !== 1) return;
+      const plan = e.target.closest('.home-plan');
+      const row = e.target.closest('.home-row');
+      if (!plan && !row && !e.target.closest('.home-open-root')) return;
       e.preventDefault();
-      open(card, true);
+      go(plan ? { type: 'view', name: plan.dataset.view } : row ? routeOfRow(row) : folderRoute(''), true);
+    });
+    root.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        const b = e.target instanceof Element ? e.target.closest('.home-row, .home-plan, .home-open-root') : null;
+        if (!b) return;
+        e.preventDefault();
+        go(b.classList.contains('home-plan') ? { type: 'view', name: b.dataset.view }
+          : b.classList.contains('home-row') ? routeOfRow(b) : folderRoute(''), true);
+        return;
+      }
+      walk(e);
     });
 
-    const fit = (w) => { if (root) root.classList.toggle('narrow', w < NARROW); };
-    fit(el.clientWidth);
-    if (typeof ResizeObserver === 'function') {
-      ro = new ResizeObserver((entries) => fit(entries[0].contentRect.width));
-      ro.observe(el);
-    }
+    rootList = mountFolderList(root.querySelector('.home-list'), '', { compact: true });
 
     render();
-    // The loader answers after `ose.init`: the cards appear the moment it does, in place,
-    // rather than the dashboard being drawn twice or waiting for the plugins to open at all.
-    offBooted = bus.on('booted', render);
-    return { unmount: view.unmount, refresh: render };
+    offs = [
+      // The planner registers after the shell; its row appears the moment it has.
+      bus.on('booted', renderPlanner),
+      pins.on(renderPins),
+      bus.on('paths:moved', () => void renderRecent()),
+      bus.on('paths:trashed', () => void renderRecent()),
+      bus.on('paths:restored', () => void renderRecent()),
+    ];
+    return { unmount: view.unmount, refresh: view.refresh };
+  },
+
+  refresh() {
+    if (!root) return;
+    render();
+    if (rootList) void rootList.refresh();
   },
 
   unmount() {
-    if (offBooted) { offBooted(); offBooted = null; }
-    if (ro) { ro.disconnect(); ro = null; }
+    for (const off of offs) { try { off && off(); } catch { /* gone */ } }
+    offs = [];
+    recentSeq++;
+    if (rootList) { rootList.unmount(); rootList = null; }
     el = null;
     root = null;
   },
 };
 
+/**
+ * Register Home: the view, `app.home`, and the kernel's home route (the tab the last close
+ * falls back to). Before `ose.init`, so it is there for the first navigation.
+ */
 export function initDashboard() {
-  ose.views.register('dashboard', view);
+  ose.views.register('home', view);
+  route.setHome(HOME);
   commands.register({
     id: 'app.home', title: 'Home', group: 'navigate',
-    hint: 'the dashboard: one card per plugin',
-    run: () => { void route.navigate(HOME); },
+    hint: 'the planner, pins, recent files and the vault folder',
+    run: () => route.navigate(HOME),
   });
 }

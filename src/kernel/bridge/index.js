@@ -158,9 +158,13 @@ export const bridge = {
   // The host's own description of itself: {os, version, exe, exeDir, root}. The chooser names
   // `exeDir` as its suggestion; nothing else needs it.
   platformInfo: () => call('platform'),
-  tree: () => call('tree'),
-  list: (path) => call('list', path),
-  stat: (path) => call('stat', path),
+  // Listings (docs/HOST.md "The one hide rule"): `opts { hidden }` lists hidden entries too
+  // (a dotfile, or the OS hidden attribute); what is excluded (`.ose`, `.git`, the exe, temp
+  // files) is never listed. The facade passes the user's Show hidden setting when the caller
+  // names none. `stat` with `{ sniff: true }` adds `text`: whether the file reads as text.
+  tree: (opts) => (opts === undefined ? call('tree') : call('tree', opts)),
+  list: (path, opts) => (opts === undefined ? call('list', path) : call('list', path, opts)),
+  stat: (path, opts) => (opts === undefined ? call('stat', path) : call('stat', path, opts)),
   exists: (path) => call('exists', path),
   readText: (path) => call('readText', path),
   writeText: (path, text, opts) => call('writeText', path, text, withEpoch(opts)),
@@ -172,9 +176,32 @@ export const bridge = {
   mkdir: (path, opts) => call('mkdir', path, withEpoch(opts)),
   rename: (from, to, opts) => call('rename', from, to, withEpoch(opts)),
   // `mode`: 'system' (the recycle bin, the default) or 'vault' (`.trash` inside the vault),
-  // from settings (S37). The same object carries the epoch.
-  trash: (path, opts) => call('trash', path, withEpoch(opts)),
+  // from settings (S37). The same object carries the epoch. -> `{ id, where }`: `id` is what
+  // `trashRestore` takes, null where the platform cannot restore; a host from before wave 2
+  // answered null, and that reads as `{ id: null, where: mode }`.
+  trash: async (path, opts) => {
+    const o = withEpoch(opts);
+    const r = await call('trash', path, o);
+    if (r && typeof r === 'object') return { id: r.id ?? null, where: r.where === 'vault' ? 'vault' : 'system' };
+    return { id: null, where: o.mode === 'vault' ? 'vault' : 'system' };
+  },
+  /** -> `{ where: 'system' | 'vault' }`, where `trash` would put `path` with the current mode. */
+  trashWhere: (path, opts) => (opts === undefined ? valued('trashWhere', path) : valued('trashWhere', path, opts)),
+  /** -> TrashItem[], newest first: what can be restored, inside the open vault. */
+  trashList: () => valued('trashList'),
+  /** -> `{ restored: [{id, path}], failed: [{id, error}] }`. Never overwrites (`[exists]`). */
+  trashRestore: (ids, opts) => valued('trashRestore', ids, withEpoch(opts)),
+  /** A file or a whole folder, bytes, create-only, links copied as links. -> `{ path, files }` */
+  copyPath: (from, to, opts) => valued('copyPath', from, to, withEpoch(opts)),
   search: (query, opts = {}) => call('search', query, opts),
+
+  // The per-machine store (docs/HOST.md "Local state", W5): `app` for this machine, `vault`
+  // for this machine and the open vault. Outside the vault, never synced. `localGet` answers
+  // `{}` when there is nothing; `localSet` writes the whole object (at most 1 MB).
+  /** -> object */
+  localGet: (scope) => valued('localGet', scope),
+  /** -> null. The vault scope carries the epoch. */
+  localSet: (scope, value, opts) => call('localSet', scope, value, scope === 'vault' ? withEpoch(opts) : (opts || {})),
 
   // The save path (docs/HOST.md "saveFile"). The JS side never computes a hash: it carries
   // the one `readFile` answered and hands it back as `expectedHash`, and the host compares and
@@ -255,11 +282,6 @@ export const bridge = {
   // `<stamp> <level> ui: <text>` in the host's log (docs/HOST.md "Log"). Never rejects: a log
   // line that cannot be written must not become an error of its own.
   log: (text, level = 'info') => call('log', String(text ?? ''), level).catch(() => null),
-  // Spawn a program (never a shell, docs/HOST.md `run`): `opts` is {cwd, timeout, env, input},
-  // stdout and stderr arrive as the bridge event `run` — {id, stream, line} per line, then
-  // {id, done:true, code, timedOut}.
-  run: (id, cmd, args = [], opts = {}) => call('run', id, cmd, args, opts),
-  runKill: (id) => call('runKill', id),
   // The page the window is on, reloaded: only the host knows where the app's own files are.
   // Nothing calls it except `ose.reload()`, and only once `leaveWindow('reload')` has let go
   // (docs/KERNEL.md "Leaving the window").

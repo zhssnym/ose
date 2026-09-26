@@ -5,11 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ose</title>
 <link rel="icon" href="./logo.png">
-<!-- The kernel rewrites these two hrefs on the way out (docs/KERNEL.md "Origins"), so no file
-     of the shell ever spells an origin. The shell's own sheets follow them, and win. -->
+<!-- The host rewrites the three data-ose hrefs on the way out (docs/HOST.md), so no file of
+     the shell ever spells an origin. The shell's own sheets follow them, and win; theme.css is
+     last so that its token overrides win over everything. -->
 <link data-ose="ui" rel="stylesheet" href="">
 <link data-ose="editor" rel="stylesheet" href="">
+<link data-ose="planner" rel="stylesheet" href="">
 <link rel="stylesheet" href="./shell.css">
+<link rel="stylesheet" href="./tree.css">
+<link rel="stylesheet" href="./places.css">
+<link rel="stylesheet" href="./folder.css">
 <link rel="stylesheet" href="./theme.css">
 </head>
 <body>

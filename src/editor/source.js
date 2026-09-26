@@ -409,6 +409,39 @@ export function createSourceView(o) {
       return true;
     },
     /**
+     * Replace the document with `text` by the smallest change that gets there (wave 2, H7, H5):
+     * the common head and tail are left alone, so the caret and the selection map through the
+     * change instead of jumping to the top. A text from outside (the disk's, a merge) is not
+     * something the user typed: it stays out of the undo history (Ctrl+Z would otherwise revert
+     * it, and autosave write the old text over the disk) and `onChange` is not called, unless
+     * `opts.edit` says it is one (a link rewritten in place), which is one undoable step.
+     * An exact view takes the file's shape from `text`, as `setText` does. Answers true when
+     * the document changed.
+     */
+    replaceText(text, opts = {}) {
+      if (o.exact) fmt = textFormat(text);
+      const next = inView(text);
+      const cur = view.state.doc.toString();
+      if (next === cur) return false;
+      const n = Math.min(cur.length, next.length);
+      let a = 0;
+      while (a < n && cur.charCodeAt(a) === next.charCodeAt(a)) a++;
+      let b = 0;
+      while (b < n - a && cur.charCodeAt(cur.length - 1 - b) === next.charCodeAt(next.length - 1 - b)) b++;
+      quiet = !opts.edit;
+      try {
+        view.dispatch({
+          changes: { from: a, to: cur.length - b, insert: next.slice(a, next.length - b) },
+          // Not an edit: outside the undo history, so Ctrl+Z never reverts the other program's
+          // change and autosaves over it; the user's earlier steps map through it instead.
+          annotations: opts.edit
+            ? isolateHistory.of('full')
+            : [isolateHistory.of('full'), Transaction.addToHistory.of(false)],
+        });
+      } finally { quiet = false; }
+      return true;
+    },
+    /**
      * Throw the undo stack away. Reconfiguring an extension rebuilds the state fields it
      * provides from their `init`, which is the only way CodeMirror offers to empty a history.
      * `setText(…, { history: 'drop' })` calls it; the code editor calls it on its own after a

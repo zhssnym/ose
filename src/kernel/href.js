@@ -99,17 +99,12 @@ export const headingSlug = (s) =>
   String(s || '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s+/g, '-');
 
 /**
- * Files that are text but not markdown: the editor opens them in source mode rather than
- * handing them to the platform (N25). Everything else non-markdown is `bridge.openPath`.
+ * `.md`: the extension the app writes and links by default. Nothing here decides how a file
+ * opens any more (H17): every existing file opens in the app, the page host decides how by its
+ * content (`stat(path, { sniff: true })`), and the extension whitelist that used to live here
+ * is gone. Opening a file in another app (`ose.files.open`) is only ever an explicit command.
  */
-export const TEXT_EXTS = new Set([
-  'txt', 'csv', 'tsv', 'jsonl', 'log', 'tex', 'json', 'yaml', 'yml', 'toml', 'ini', 'xml',
-  'py', 'js', 'mjs', 'ts', 'jsx', 'tsx', 'css', 'html', 'htm', 'sql', 'sh', 'ps1', 'bat', 'rs', 'c', 'h',
-  'cpp', 'java', 'go', 'php', 'rb', 'lua',
-]);
-
 export const isMarkdown = (p) => extname(p) === 'md';
-export const isTextFile = (p) => TEXT_EXTS.has(extname(p));
 
 /** Write a vault path back as an href relative to `fromFile`, with %20-style escaping. */
 export function relativeHref(fromFile, target) {

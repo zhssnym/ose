@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
-// The kernel facade of CONTRACT 4.2 is whole, focus is not restored at boot (H18), and the leave gate reaches the host.
-import { test, expect, vi } from 'vitest';
+// The kernel facade is whole: the wave-1 calls (CONTRACT 4.2 of wave 1), focus not restored at
+// boot (H18), the leave gate reaching the host; and the wave-2 calls (CONTRACT §4) with the
+// plugin runtime gone (W2). The wave-2 half runs once the kernel exposes `ose.tabs`.
+import { describe, expect, it, test, vi } from 'vitest';
 
 const calls = [];
 vi.mock('../../src/kernel/bridge/index.js', async () => {
@@ -13,6 +15,7 @@ vi.mock('../../src/kernel/bridge/index.js', async () => {
     platformInfo: async () => ({ os: 'win' }),
     rootInfo: async () => ({ root: 'D:/v', name: 'v', epoch: 4 }),
     getState: async () => ({ focus: 'old/folder' }), setState: async () => null,
+    localGet: async () => ({}), localSet: async () => null,
     setTitle: async () => null, log: async (t, l) => { calls.push(['log', l, t]); return null; },
     saveFile: async (...a) => { calls.push(['saveFile', ...a]); return { status: 'conflict', disk: { exists: true, text: 'x', hash: 'y' } }; },
     reloadShell: async () => { calls.push(['reloadShell']); return null; },
@@ -73,4 +76,38 @@ test('the close fan-out goes through the gate; onChangeRequested', async () => {
   expect(got).toEqual({ root: 'E:/w', name: 'w' });
   await ose.commands.run('app.close-anyway');
   expect(calls.some((c) => c[0] === 'destroy')).toBe(true);
+});
+
+describe.skipIf(!ose.tabs)('the wave-2 facade (CONTRACT §4)', () => {
+  it('has tabs, the session, the per-machine store and the new file calls', () => {
+    for (const k of ['list', 'active', 'open', 'activate', 'close', 'closeOthers', 'move', 'reopenClosed', 'on']) expect(typeof ose.tabs[k], `tabs.${k}`).toBe('function');
+    for (const k of ['snapshot', 'restore']) expect(typeof ose.session[k], `session.${k}`).toBe('function');
+    expect(typeof ose.local).toBe('function');
+    expect(typeof ose.local.app).toBe('function');
+    for (const k of ['get', 'set', 'flush']) expect(typeof ose.local('x')[k], `local().${k}`).toBe('function');
+    for (const k of ['list', 'tree', 'stat', 'copyPath', 'trashWhere', 'trashList']) expect(typeof ose.files[k], `files.${k}`).toBe('function');
+    for (const k of ['mkdir', 'copy', 'paste', 'restore', 'trashList']) expect(typeof ose.fileops[k], `fileops.${k}`).toBe('function');
+    for (const k of ['list', 'canUndo', 'undo', 'on']) expect(typeof ose.fileops.journal[k], `journal.${k}`).toBe('function');
+    expect(typeof ose.names.display).toBe('function');
+    expect(typeof ose.links.planRewrite).toBe('function');
+    expect(typeof ose.route.setHome).toBe('function');
+    expect(typeof ose.setFolderHost).toBe('function');
+  });
+
+  it('the plugin runtime is gone (W2)', () => {
+    for (const k of ['run', 'schedule', 'tiles', 'api']) expect(ose[k], `ose.${k}`).toBeUndefined();
+    for (const k of ['own', 'index', 'indexed', 'title']) expect(ose.route[k], `ose.route.${k}`).toBeUndefined();
+  });
+
+  it('the settings have their wave-2 keys and defaults (W5, W7, W8)', () => {
+    const s = ose.settings.get();
+    expect(s).toMatchObject({ showHidden: false, restoreSession: true, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
+    expect('newPages' in s).toBe(false);
+  });
+
+  it('names.display shows the full name; .md is stripped only when asked', () => {
+    expect(ose.names.display('notes/a.md')).toBe('a.md');
+    expect(ose.names.display('notes/script.py')).toBe('script.py');
+    expect(ose.names.display('README')).toBe('README');
+  });
 });

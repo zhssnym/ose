@@ -11,10 +11,10 @@ use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
-use ose::{args, log_line, platform, protocol, run, shell, state, vault, vaults, AppState, Root, Source};
+use ose::{args, local, log_line, platform, protocol, shell, state, vault, vaults, AppState, Root, Source};
 
 /// The last geometry the window had while neither maximised nor minimised. Tauri reports the
-/// maximised rectangle while maximised, so this is what gets written to `state.json`.
+/// maximised rectangle while maximised, so this is what gets written to the local store.
 static LAST_NORMAL: Mutex<Option<state::Bounds>> = Mutex::new(None);
 
 fn main() {
@@ -85,9 +85,8 @@ fn main() {
         .register_uri_scheme_protocol("ose", |ctx, request| {
             shell::serve_kernel(ctx.app_handle(), &request)
         })
-        // The app itself: `/plugins/...` from `<vault>/.ose/plugins` on disk, everything else
-        // from the shell inside the executable (or `--shell <dir>`). Files only; `index.html`
-        // gets the import map and the two stylesheet links on the way out.
+        // The app itself: the shell inside the executable (or `--shell <dir>`). Files only;
+        // `index.html` gets the import map and the three stylesheet links on the way out.
         .register_uri_scheme_protocol("app", |ctx, request| {
             let app = ctx.app_handle();
             let st = app.state::<AppState>();
@@ -152,10 +151,7 @@ fn on_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
             api.prevent_exit();
             quit_through_the_save_path(app);
         }
-        tauri::RunEvent::Exit => {
-            save_on_exit(app);
-            run::kill_all(app.state::<AppState>().inner());
-        }
+        tauri::RunEvent::Exit => save_on_exit(app),
         _ => {}
     }
 }
@@ -392,10 +388,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         },
         Err(e) => log_line(st.inner(), &format!("log: no log folder: {e}")),
     }
-    // Drafts live per machine, outside every vault (docs/HOST.md "Drafts").
+    // Drafts live per machine, outside every vault (docs/HOST.md "Drafts"), and so does the
+    // local store: the session, the window, the theme mirror (docs/HOST.md "Local state").
     match handle.path().app_local_data_dir() {
         Ok(dir) => st.set_data_dir(dir),
         Err(e) => log_line(st.inner(), &format!("drafts: no app data folder: {e}")),
+    }
+    match handle.path().app_config_dir() {
+        Ok(dir) => st.set_config_dir(dir),
+        Err(e) => log_line(st.inner(), &format!("local state: no app config folder: {e}")),
     }
 
     // Step 4: the remembered root, now that the app knows its config folder.
@@ -440,21 +441,32 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // under unsaved work without asking (M53, C5). The page still receives the keys.
     platform::disable_browser_keys(&window);
 
-    // Theme first: the background colour has to be right before anything is painted. Without a
-    // vault there is no state file, and the dark default from tauri.conf.json stands.
-    if let Some(root) = &root {
-        let theme = state::theme(root);
-        let _ = window.set_theme(Some(if theme == "dark" {
-            tauri::Theme::Dark
-        } else {
-            tauri::Theme::Light
-        }));
-        let (r, g, b) = state::background_of(theme);
-        let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
-    }
+    // Theme first: the background colour has to be right before anything is painted. The
+    // mirror of the last resolved theme is this machine's (local/app.json), with the vault's
+    // old state file as the fallback of the first launch after the upgrade; with neither, the
+    // system's theme. The window's own theme is left unset (`theme: None`, M26): forcing it
+    // here would pin the web view's `prefers-color-scheme` and a page that follows the system
+    // could never see the system change. The page sets it when the user picks one.
+    let config = st.config_dir();
+    let mirror = config
+        .as_deref()
+        .and_then(|c| state::theme_of(local::host_get(c, "theme").as_ref()))
+        .or_else(|| root.as_deref().and_then(state::theme));
+    let theme = mirror.unwrap_or_else(|| match window.theme() {
+        Ok(tauri::Theme::Light) => "light",
+        _ => "dark",
+    });
+    let (r, g, b) = state::background_of(theme);
+    let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
 
-    // Saved bounds, but only if they still land on a monitor that exists.
-    if let Some(bounds) = root.as_deref().and_then(state::read_window) {
+    // Saved bounds, but only if they still land on a monitor that exists. This machine's first,
+    // then what an older version wrote into the vault.
+    let saved = config
+        .as_deref()
+        .and_then(|c| local::host_get(c, "window"))
+        .and_then(|v| state::bounds_of(&v))
+        .or_else(|| root.as_deref().and_then(state::read_window));
+    if let Some(bounds) = saved {
         let monitors: Vec<state::MonitorRect> = window
             .available_monitors()
             .map(|list| {
@@ -523,8 +535,6 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 
         WindowEvent::Destroyed => {
             *st.watcher.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            // Nothing a module started outlives the window that asked for it.
-            run::kill_all(st.inner());
             log_line(st.inner(), "ose exited");
         }
 
@@ -532,13 +542,13 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     }
 }
 
-/// Bounds and theme into `state.json`. Without a vault there is nowhere to write them.
+/// Bounds and theme into this machine's local store (local/app.json), never into the vault.
 fn save_geometry(window: &tauri::Window) {
     let app = window.app_handle();
     let st = app.state::<AppState>();
-    let Some(root) = st.root() else { return };
+    let Some(config) = st.config_dir() else { return };
     let bounds = current_bounds(window);
-    if let Err(e) = state::save_window(&root, bounds) {
+    if let Err(e) = local::host_set(&config, "window", state::bounds_json(bounds)) {
         log_line(st.inner(), &format!("window state save failed: {e}"));
     }
     // `ThemeChanged` only fires for system theme changes, so the value the adapter set
@@ -556,16 +566,17 @@ fn save_on_exit(app: &tauri::AppHandle) {
     }
 }
 
-/// Mirrors the window theme into `state.json` so the next launch paints the right colour before
-/// the UI has run a line of JavaScript. Returns the name it wrote (or would have, with no vault).
+/// Mirrors the window theme into this machine's local store so the next launch paints the right
+/// colour before the UI has run a line of JavaScript. Returns the name it wrote (or would have,
+/// with no config folder).
 fn persist_theme(st: &AppState, theme: tauri::Theme) -> &'static str {
     let name = if matches!(theme, tauri::Theme::Dark) {
         "dark"
     } else {
         "light"
     };
-    if let Some(root) = st.root() {
-        if let Err(e) = state::patch(&root, "theme", serde_json::Value::String(name.to_string())) {
+    if let Some(config) = st.config_dir() {
+        if let Err(e) = local::host_set(&config, "theme", serde_json::Value::String(name.to_string())) {
             log_line(st, &format!("theme persist failed: {e}"));
         }
     }

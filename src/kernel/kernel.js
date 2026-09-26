@@ -3,11 +3,16 @@
 // serves and it answers.
 //
 // Everything that touches the host is async and goes through `./bridge/index.js`. Everything
-// that is a registry (commands, views, tiles, status, settings sections) lives in
-// `./registry.js` and `./settings-core.js`. The router is `./router.js`, which reaches the
-// page editor through `./pagehost.js` so that `ose:editor` stays a separate bundle.
+// that is a registry (commands, views, status, settings sections) lives in `./registry.js` and
+// `./settings-core.js`. The router is `./router.js`, with the tabs' model in `./tabs.js`; it
+// reaches the page editor and the folder view through `./pagehost.js`, so that `ose:editor`
+// stays a separate bundle and the shell's folder view stays the shell's.
+//
+// There are no plugins any more (W2): Day, Week, Month and Journal are `ose:planner`, a module
+// built into the app that registers through the same seams the shell does (views, commands,
+// settings sections).
 
-import { bus, store, commands, views, tiles, status, uid, debounce, esc } from './registry.js';
+import { bus, store, commands, views, status, uid, debounce, esc } from './registry.js';
 import { bridge, setEpoch, currentEpoch, HostError } from './bridge/index.js';
 import * as router from './router.js';
 import { leaveWindow, stayWindow, onLeave, abandonWindow } from './leave.js';
@@ -16,24 +21,22 @@ import * as fileops from './fileops.js';
 import * as names from './names.js';
 import * as linksLib from './links.js';
 import { linkTarget, relativeHref } from './href.js';
-import * as locate from './locate.js';
 import * as settingsCore from './settings-core.js';
 import { patchState, stateCache, loadState, flushState } from './state.js';
 import { themePref, setTheme, resolvedTheme, initTheme } from './theme.js';
 import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from './keys.js';
 import { watch } from './watch.js';
-import { run, killAll } from './run.js';
-import { schedule, cancelAll as cancelSchedules } from './schedule.js';
-import * as plugins from './plugins.js';
-import { setPageHost, setPageList, pageList } from './pagehost.js';
+import { setPageHost, setFolderHost, setPageList, pageList } from './pagehost.js';
+import * as tabs from './tabs.js';
+import * as session from './session.js';
+import { local, loadLocal, flushLocal, migrateLocal } from './local.js';
+import * as journal from './journal.js';
 import * as focusLib from './focus.js';
 import { toast, confirm } from './dialog.js';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
 export * from './ui-surface.js';
-
-export const API = 2;
 
 /* ------------------------------------------------------------------------------- the stamp */
 
@@ -128,10 +131,15 @@ const ready = (async () => {
         app: String(info.appOrigin || '').replace(/\/+$/, ''),
         vault: String(info.vaultOrigin || '').replace(/\/+$/, ''),
       };
-      if (origins.app) plugins.setBase(origins.app);
     }
   } catch (e) { console.warn('[kernel] platform', e); }
+  journal.setPlatform(ose.platform);
   try { await loadState(); } catch (e) { console.warn('[kernel] state', e); }
+  // The per-machine store (W5), and the one-time copy of what used to live in the synced state
+  // file and belongs to the machine now: recent files, the sidebar, the reading settings.
+  try { await loadLocal(); } catch (e) { console.warn('[kernel] local', e); }
+  try { migrateLocal(stateCache(), [...settingsCore.MACHINE_KEYS]); } catch (e) { console.warn('[kernel] local migration', e); }
+  session.initSession();
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[kernel] focus', e); }
   try { await readRoot(); } catch (e) { console.warn('[kernel] rootInfo', e); }
 })();
@@ -179,6 +187,7 @@ commands.register({
       }
       logLine(lost.length ? 'close anyway: the window goes, and unsaved text with it' : 'close anyway: the window goes without saving', 'warn');
       try { await flushState(); } catch (e) { console.warn('[kernel] state', e); }
+      try { await flushLocal(); } catch (e) { console.warn('[kernel] local', e); }
       return bridge.win.destroy();
     } finally {
       abandoning = false;
@@ -209,10 +218,16 @@ async function saveThrough(path, text, opts) {
   }
 }
 
+/** `opts` with the user's Show hidden setting as `hidden`, unless the caller named one (H16). */
+function withHidden(opts) {
+  const o = opts && typeof opts === 'object' ? { ...opts } : {};
+  if (o.hidden === undefined) o.hidden = settingsCore.showHidden();
+  return o;
+}
+
 /* ------------------------------------------------------------------------------- the object */
 
 export const ose = {
-  api: API,
   version: VERSION,
   platform: 'windows',
   ready,
@@ -237,8 +252,8 @@ export const ose = {
      */
     get epoch() { return currentEpoch(); },
     /**
-     * Kept for plugins that subscribed to it. The host no longer switches a window's vault on
-     * its own (a second launch asks instead: `onChangeRequested`), so it never fires.
+     * Kept for old callers. The host no longer switches a window's vault on its own (a second
+     * launch asks instead: `onChangeRequested`), so it never fires.
      */
     onChange: (fn) => bridge.on('vault', (d) => (d && d.changed ? fn(d) : undefined)),
     /**
@@ -265,15 +280,27 @@ export const ose = {
     // The host speaks base64 over the RPC; KERNEL.md promises bytes out and takes either in.
     readBinary: (path) => bridge.readBinary(path).then(toBytes),
     writeBinary: (path, bytes) => bridge.writeBinary(path, toBase64(bytes)),
-    list: (path) => bridge.list(path),
-    tree: () => bridge.tree(),
-    stat: (path) => bridge.stat(path),
+    // Listings follow the user's Show hidden setting unless the caller says `{ hidden }` (H16).
+    // What the host excludes (`.ose`, `.git`, the executable, temp files) is never listed.
+    /** -> Entry[] `{ name, path, kind, ext, mtime, size, hidden, link?, readable? }`, folders first */
+    list: (path, opts) => bridge.list(path, withHidden(opts)),
+    /** -> the root Entry, `name` the vault's, with `children` */
+    tree: (opts) => bridge.tree(withHidden(opts)),
+    /** -> `{ exists, kind, mtime, size, hidden, link?, text? }`; `text` with `{ sniff: true }` */
+    stat: (path, opts) => bridge.stat(path, opts),
     exists: (path) => bridge.exists(path),
     mkdir: (path) => bridge.mkdir(path),
     rename: (from, to) => bridge.rename(from, to),
     // The destination is the user's setting, not the caller's: `system` (the recycle bin) or
-    // `vault` (`.trash` inside the vault), exactly as the sidebar has always passed it.
+    // `vault` (`.trash` inside the vault). -> `{ id, where }` (`ose.fileops.trash` is the one
+    // the app uses: it asks the open page first and writes the undo journal).
     trash: (path) => bridge.trash(path, { mode: settingsCore.trashMode() }),
+    /** -> `{ where: 'system' | 'vault' }`: where `trash` would put `path`, for honest wording (M18). */
+    trashWhere: (path) => bridge.trashWhere(path, { mode: settingsCore.trashMode() }),
+    /** -> TrashItem[], newest first; a host without the command answers [] */
+    trashList: () => fileops.trashList(),
+    /** A file or a whole folder, bytes, create-only (`[exists]`). -> `{ path, files }` */
+    copyPath: (from, to) => bridge.copyPath(from, to),
     reveal: (path) => bridge.reveal(path),
     open: (path) => bridge.openPath(path),
     assetUrl: (path) => bridge.assetUrl(path),
@@ -335,56 +362,88 @@ export const ose = {
    */
   fileops: {
     create: (folder, name, opts) => fileops.create(folder, name, opts),
+    mkdir: (folder, name) => fileops.mkdir(folder, name),
     rename: (path, name) => fileops.rename(path, name),
     move: (paths, folder) => fileops.move(paths, folder),
+    copy: (paths, folder) => fileops.copy(paths, folder),
+    paste: (clip, folder) => fileops.paste(clip, folder),
     trash: (paths) => fileops.trash(paths),
+    restore: (ids) => fileops.restore(ids),
+    trashList: () => fileops.trashList(),
     duplicate: (path) => fileops.duplicate(path),
+    /** The undo journal of file operations (M17): session memory, newest first. */
+    journal: {
+      list: () => journal.list(),
+      canUndo: () => journal.canUndo(),
+      undo: (id) => journal.undo(id),
+      on: (fn) => journal.on(fn),
+    },
   },
 
   /** File names (docs/KERNEL.md `ose.names`): literal, checked, never rewritten. */
   names: {
     split: (name) => names.split(name),
     check: (name, opts) => names.check(name, opts),
-    free: (folder, name) => names.free(folder, name),
+    free: (folder, name, opts) => names.free(folder, name, opts),
     extChanged: (a, b) => names.extChanged(a, b),
+    /** The name the chrome shows: the real name, `.md` stripped only with `settings.hideMdExt`. */
+    display: (path) => names.display(path),
   },
 
   watch,
-  run,
-  schedule,
   assets,
 
   route: {
     current: () => router.currentRoute(),
     // navigate, back, forward and close answer Promise<boolean>: false when the page on screen
     // could not be left (its save failed or is waiting on a question), and then nothing moved.
+    // `opts.tab`: 'current' (default), 'new', or a tab id (M23).
     navigate: (route, opts) => router.navigate(route, opts),
     back: () => router.back(),
     forward: () => router.forward(),
     canBack: () => router.canBack(),
     canForward: () => router.canForward(),
+    /** Close the active tab (Ctrl+W); the last one goes Home. */
     close: (opts) => router.clearRoute(opts),
-    reopenClosed: () => router.reopenClosed(),
-    /** A file or folder moved and the page followed it: history, tabs and title re-pointed. */
+    reopenClosed: () => router.reopenClosedTab(),
+    /** The route the last tab falls back to instead of the empty surface. */
+    setHome: (route) => router.setHome(route),
+    /** A file or folder moved and the page followed it: every tab, history and title re-pointed. */
     repoint: (moves) => router.repoint(moves),
     recent: () => router.recentFiles(),
-    own: (pattern, mount) => router.own(pattern, mount),
-    index: (pattern, fn) => router.registerIndex(pattern, fn),
-    // What every `route.index` registration answers right now: [{ path, title, pattern }].
-    // Quick open is the shell's, so it reads this and offers the rows beside its own pages
-    // (docs/KERNEL.md `route.index`).
-    indexed: () => router.ownedIndex(),
-    // The window title of the owned route on screen, once the plugin knows it.
-    title: (text) => router.setOwnTitle(text),
     on: (fn) => router.onRoute(fn),
     // The shell mounts the router into its page column; nothing else may. `{ start: false }`
-    // skips the empty surface the mount draws, for a shell that opens on a home of its own.
+    // skips the empty surface the mount draws, for a shell that opens on a surface of its own.
     init: (el, opts) => router.initRouter(el, opts),
   },
 
+  /** The tabs (M23): the kernel owns them, `shell/tabs.js` draws them. */
+  tabs: {
+    list: () => tabs.list(),
+    active: () => tabs.active(),
+    open: (route, opts) => tabs.open(route, opts),
+    activate: (id) => tabs.activate(id),
+    close: (id) => tabs.close(id),
+    closeOthers: (id) => tabs.closeOthers(id),
+    move: (id, index) => tabs.move(id, index),
+    reopenClosed: () => tabs.reopenClosed(),
+    on: (fn) => tabs.on(fn),
+  },
+
+  /** Session restore (H19): the tabs and their histories, per machine and per vault. */
+  session: {
+    snapshot: () => session.snapshot(),
+    restore: (s) => session.restore(s),
+  },
+
+  /**
+   * `ose.local(key)` -> `{ get(), set(value), flush() }`, per machine and per vault;
+   * `ose.local.app(key)`, per machine for every vault (W5). Outside the vault, never synced.
+   */
+  local,
+
   commands,
   views,
-  tiles,
   status,
 
   keys: {
@@ -407,9 +466,9 @@ export const ose = {
   },
 
   /**
-   * `ose.state(key)` — editor-only state in `.ose/state.json`, one key per plugin or shell
-   * concern, written debounced. A dotted key is a path into the object, so a plugin's
-   * `plugins.<id>` subtree never collides with the shell's.
+   * `ose.state(key)` — the vault's own state in `.ose/state.json`, synced with it (pins, the
+   * planner's paths, vault settings), one key per concern, written debounced. A dotted key is
+   * a path into the object. What belongs to this machine is `ose.local`.
    */
   state(key) {
     const path = String(key).split('.').filter(Boolean);
@@ -432,27 +491,15 @@ export const ose = {
   bus,
   store,
 
-  search: (query, opts = {}) => bridge.search(query, opts),
+  search: (query, opts = {}) => bridge.search(query, withHidden(opts)),
 
   links: {
     resolve: (fromPath, href) => linkTarget(fromPath, href),
     href: (fromPath, target) => relativeHref(fromPath, target),
     inbound: (path) => linksLib.findInbound(path),
     rewriteMoved: (pairs) => linksLib.rewriteInboundMany(pairs),
-  },
-
-  /**
-   * `ose.paths` (docs/PLUGINS.md): nothing spells a vault path. An owner declares what it needs
-   * by name and asks for it by key; the kernel finds it in the tree, asks the user once when the
-   * name is not enough, and keeps the answer. A plugin is handed `of(<its id>)` and sees only
-   * its own keys; the shell declares its own under the owner `app`.
-   */
-  paths: {
-    declare: (owner, specs) => locate.declare(owner, specs),
-    of: (owner) => locate.of(owner),
-    all: () => locate.all(),
-    /** Every change, whoever owns it; the scoped `on` only hears its own owner's. */
-    on: (fn) => locate.onAny(fn),
+    /** -> Promise<[{ from, to, insert }]>: the splices a rewrite would make in `text` (H5). */
+    planRewrite: (text, filePath, pairs, opts) => linksLib.planRewrite(text, filePath, pairs, opts),
   },
 
   theme: {
@@ -463,34 +510,22 @@ export const ose = {
   },
 
   /**
-   * The markdown pages the shell offers: quick open, the page picker and the editor's `[[`
-   * menu all ask here, so all three offer the same rows. The shell registers the list through
-   * `setPageList` (the sidebar narrows it to the focused folder); with nothing registered the
-   * vault is walked instead.
+   * The markdown pages the shell offers: the page picker and the editor's `[[` menu ask here,
+   * so both offer the same rows. The shell registers the list through `setPageList` (the
+   * sidebar narrows it to the focused folder); with nothing registered the vault is walked.
    */
-  async pages({ owned = false } = {}) {
+  async pages() {
     const provider = pageList();
+    if (provider) return [...(await provider())];
     const out = [];
-    if (provider) {
-      out.push(...(await provider()));
-    } else {
-      const walk = (n) => {
-        if (!n || !n.children) return;
-        for (const c of n.children) {
-          if (c.kind === 'dir') walk(c);
-          else if (/\.md$/i.test(c.name)) out.push(c.path);
-        }
-      };
-      walk(await bridge.tree());
-    }
-    // A plugin's own pages are not files and are opened as `{ type:'own' }`, so they are off
-    // by default: the editor's `[[` menu and the link picker write a wikilink out of whatever
-    // this answers, and a wikilink to a route is a broken link. A caller that draws rows
-    // rather than links — quick open — asks for them.
-    if (owned) {
-      const seen = new Set(out);
-      for (const row of router.ownedIndex()) if (!seen.has(row.path)) { seen.add(row.path); out.push(row.path); }
-    }
+    const walk = (n) => {
+      if (!n || !n.children) return;
+      for (const c of n.children) {
+        if (c.kind === 'dir') walk(c);
+        else if (/\.md$/i.test(c.name)) out.push(c.path);
+      }
+    };
+    walk(await bridge.tree());
     return out;
   },
 
@@ -561,26 +596,13 @@ export const ose = {
   },
 
   /**
-   * `ose.plugins` (docs/PLUGINS.md): what is in `.ose/plugins` is what is loaded. The shell
-   * calls `load()` once at boot; `list()` is what the sidebar, the home page and Settings draw;
-   * `unload(id)` takes one down whole. Editing a plugin is: save the file, run "Reload plugins".
-   */
-  plugins: {
-    load: () => plugins.load(ose),
-    list: () => plugins.list(),
-    unload: (id) => plugins.unload(id),
-    get: (id) => plugins.get(id),
-    folder: plugins.FOLDER,
-  },
-
-  /**
    * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Log").
    * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
    */
   log: (text, level = 'info') => { logLine(text, level); return Promise.resolve(null); },
   /**
-   * `ose.reload()` (`app.reload`, "Reload plugins"; no chord since D8): the page again, and
-   * therefore every plugin from disk. It leaves the window first (`window.leave('reload')`):
+   * `ose.reload()` (`app.reload`, "Reload window"; no chord since D8): the page again. It
+   * leaves the window first (`window.leave('reload')`):
    * a page that cannot be saved keeps the window, and this answers false. `{skipLeave:true}`
    * is for a caller that has already left (Change vault). Answers true once the reload is on
    * its way.
@@ -603,9 +625,10 @@ export const ose = {
     return true;
   },
 
-  /* The seams the shell fills: whoever draws a markdown page, and whoever knows the page list.
-     Both are documented in ./pagehost.js; neither is something a plugin may call. */
+  /* The seams the shell fills: whoever draws a file, whoever draws a folder, and whoever knows
+     the page list. All three are documented in ./pagehost.js; each is the shell's to call once. */
   setPageHost,
+  setFolderHost,
   setPageList,
 
   /**
@@ -626,10 +649,7 @@ export const ose = {
   toast,
 };
 
-// One kill switch for everything a page started, so a reload or a vault change leaves nothing
-// running (docs/PLUGINS.md: the processes a plugin started are killed).
 if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => { cancelSchedules(); killAll(); });
   window.__ose = ose;   // debugging only, exactly as `window.__bridge` has always been
 }
 

@@ -4,7 +4,7 @@
 import { esc } from './registry.js';
 import { bridge } from './bridge/index.js';
 import { icon } from './icons.js';
-import { isHiddenName, titleOf } from './paths.js';
+import { titleOf } from './paths.js';
 import { highlight, pageItems } from './fuzzy.js';
 import { pageList } from './pagehost.js';
 
@@ -326,7 +326,7 @@ async function vaultFolders() {
   try { tree = await bridge.tree(); } catch { return out; }
   const walk = (n) => {
     if (!n || !n.children) return;
-    const dirs = n.children.filter((c) => c.kind === 'dir' && !isHiddenName(c.name));
+    const dirs = n.children.filter((c) => c.kind === 'dir' && !c.hidden);
     dirs.sort(byName);
     for (const d of dirs) { out.push(d.path); walk(d); }
   };
@@ -346,7 +346,7 @@ async function vaultFiles(exts) {
   };
   const walk = (n) => {
     if (!n || !n.children) return;
-    const kids = n.children.filter((c) => !isHiddenName(c.name));
+    const kids = n.children.filter((c) => !c.hidden);
     const files = kids.filter((c) => c.kind === 'file' && ok(c.name)).sort(byName);
     const dirs = kids.filter((c) => c.kind === 'dir').sort(byName);
     for (const f of files) out.push(f.path);
@@ -455,8 +455,8 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
 export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' } = {}) {
   const all = (await vaultFolders()).filter((p) => !hide || (p !== hide && !p.startsWith(hide + '/')));
   return pickPath({
-    // Only the caller knows what Enter does here: moving a file is a move, naming the folder a
-    // plugin needs is a choice, and the foot used to say "move here" for both.
+    // Only the caller knows what Enter does here: moving a file is a move, naming the folder the
+    // planner reads is a choice, and the foot used to say "move here" for both.
     title, all, current,
     iconName: 'folder', mode: 'folders', enterLabel,
     rootLabel: 'vault root', empty: 'no folder matches',

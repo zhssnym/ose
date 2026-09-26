@@ -1,10 +1,14 @@
-// The settings core (docs/KERNEL.md, `ose.settings`). Every value persists under
-// `.ose/state.json` `settings`. The dialog that draws them is the shell's, not the
-// kernel's; the kernel keeps the defaults, the read and the write, what the rest of the app
-// asks of a setting (zoom, spellcheck, trash, new pages, attachments), applying them to the
-// document, and the registry of the extra sections a plugin contributes.
+// The settings core (docs/KERNEL.md, `ose.settings`). Two scopes (W5, M26): the vault's
+// settings live in `.ose/state.json` `settings` and travel with the vault (where trash goes,
+// where attachments go, title sync); this machine's live in the per-machine store
+// (`ose.local.app('settings')`: reading comfort, Show hidden, the restore switch, `.md` in
+// names). `settings()` merges the defaults with both, `save(partial)` sends each key to its
+// own scope. The page that draws them is the shell's; the kernel keeps the defaults, the read
+// and the write, what the rest of the app asks of a setting, applying them to the document,
+// and the registry of the sections a built-in module contributes.
 import { bus } from './registry.js';
 import { patchState, stateCache } from './state.js';
+import { local } from './local.js';
 
 export const FONT_SIZES = [14, 15, 16, 17];
 // A document's leading, not a web page's. 1.35 is what Word gives a 12pt Cambria body at
@@ -23,8 +27,6 @@ export const LAYOUTS = ['scroll', 'pages'];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
-// The dialog shows the theme, reading comfort, where new files go, the paths the app and its
-// plugins need, and the read-only block.
 export const DEFAULTS = {
   fontSize: 16,
   lineHeight: 1.35,
@@ -32,13 +34,48 @@ export const DEFAULTS = {
   layout: 'scroll',
   readableWidth: true,
   zoom: 100,
-  newPages: 'focus',
+  spellcheck: true,
+  showHidden: false,
+  restoreSession: true,
+  hideMdExt: false,
   attachments: 'beside',
   trash: 'system',
-  spellcheck: true,
+  titleSync: false,
 };
 
-export function settings() { return { ...DEFAULTS, ...(stateCache().settings || {}) }; }
+/**
+ * The keys that belong to this machine rather than to the vault (W5). Every other key,
+ * including one a built-in module invents, is the vault's and goes to `.ose/state.json`.
+ */
+export const MACHINE_KEYS = new Set([
+  'fontSize', 'lineHeight', 'pageFace', 'layout', 'readableWidth', 'zoom', 'spellcheck',
+  'showHidden', 'restoreSession', 'hideMdExt',
+]);
+
+// Settings an older build wrote that mean nothing now: never answered, never written back.
+const RETIRED = new Set(['newPages']);
+
+const machine = () => local.app('settings');
+
+/** The machine half, as stored. */
+function machinePart() {
+  const v = machine().get();
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
+/** The vault half, as stored in the state file. */
+function vaultPart() {
+  const v = stateCache().settings;
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
+/** The defaults, then the vault's keys from the state file, then this machine's keys. */
+export function settings() {
+  const out = { ...DEFAULTS };
+  for (const [k, v] of Object.entries(vaultPart())) if (!MACHINE_KEYS.has(k) && !RETIRED.has(k)) out[k] = v;
+  for (const [k, v] of Object.entries(machinePart())) if (MACHINE_KEYS.has(k)) out[k] = v;
+  return out;
+}
 
 /* --------------------------------------------------------------- repaint and subscription */
 
@@ -55,31 +92,48 @@ function repaint() {
 export function onSettings(fn) { return bus.on('settings', fn); }
 
 /**
- * `ose.settings.section({ id, title, render })` (docs/KERNEL.md): a section the settings
- * dialog draws under the stock rows. The kernel keeps the list in registration order and the
- * shell asks for it; a plugin's section goes with the rest of its registrations on unload.
+ * `ose.settings.section({ id, title, order?, render(el) -> { unmount? } })` (docs/KERNEL.md): a
+ * section the Settings page draws beside its own. The kernel keeps the list, sorted by `order`
+ * (100 when none is given), and the shell asks for it.
  */
 const sectionMap = new Map();
 export const sections = {
   register(def) {
     if (!def || !def.id || typeof def.render !== 'function') throw new Error('settings.section: id and render required');
-    // First registration wins, as it does for a view and a tile (registry.js): a second plugin
-    // taking the same id would silently replace the first one's rows, and unloading it would
-    // take the survivor's section away with it.
+    // First registration wins, as it does for a view (registry.js).
     if (sectionMap.has(def.id)) { console.warn('[settings] section already registered:', def.id); return () => {}; }
-    sectionMap.set(def.id, { order: 100, ...def });
-    return () => sectionMap.delete(def.id);
+    const entry = { order: 100, ...def };
+    sectionMap.set(def.id, entry);
+    return () => { if (sectionMap.get(def.id) === entry) sectionMap.delete(def.id); };
   },
   list: () => [...sectionMap.values()].sort((a, b) => (a.order - b.order) || String(a.id).localeCompare(String(b.id))),
   get: (id) => sectionMap.get(id),
 };
 
+/**
+ * Write `partial`: each key to its scope (machine keys to `ose.local.app('settings')`, every
+ * other key to the state file), then apply and announce. A key set to `undefined` goes back to
+ * its default. Answers the whole merged settings object.
+ */
 export function save(partial) {
-  const next = { ...settings(), ...partial };
-  patchState({ settings: next });
+  const p = partial && typeof partial === 'object' ? partial : {};
+  const mine = { ...machinePart() };
+  const vault = { ...vaultPart() };
+  let toMachine = false;
+  let toVault = false;
+  for (const [k, v] of Object.entries(p)) {
+    if (RETIRED.has(k)) continue;
+    const at = MACHINE_KEYS.has(k) ? mine : vault;
+    if (v === undefined) delete at[k]; else at[k] = v;
+    if (MACHINE_KEYS.has(k)) toMachine = true; else toVault = true;
+  }
+  if (toMachine) machine().set(mine);
+  if (toVault) patchState({ settings: vault });
+  const next = settings();
   applySettings();
   // Whoever reads a setting instead of asking for it every keystroke (the editor's spellcheck
-  // attribute) re-reads here; the payload is the whole settings object.
+  // attribute, a listing that follows Show hidden) re-reads here; the payload is the whole
+  // settings object.
   bus.emit('settings', next);
   return next;
 }
@@ -132,14 +186,11 @@ export function trashMode() { return settings().trash === 'vault' ? 'vault' : 's
 
 /** One line for the trash confirmation, so it says where the file is going (S37). */
 export function trashDestination() {
-  return trashMode() === 'vault' ? '.trash in the vault' : 'the system recycle bin';
+  return trashMode() === 'vault' ? '.trash in this vault' : 'the system recycle bin';
 }
 
-/** Where new pages are created: `focus` (today's behaviour), `scratch`, `page` (S34). */
-export function newPageMode() {
-  const m = settings().newPages;
-  return m === 'scratch' || m === 'page' ? m : 'focus';
-}
+/** Show hidden items (H16): what a listing passes as `hidden` when its caller names none. */
+export function showHidden() { return settings().showHidden === true; }
 
 /**
  * The folder an attachment dropped on `pagePath` belongs in (S35). Default: `attachments/`

@@ -25,7 +25,7 @@ vi.mock('../../src/kernel/bridge/index.js', () => {
   return { bridge, setEpoch() {}, currentEpoch: () => 1, HostError: Error, hostError: (_c, e) => e };
 });
 
-const { rewriteInboundMany, findInbound } = await import('../../src/kernel/links.js');
+const { rewriteInboundMany, findInbound, planRewrite } = await import('../../src/kernel/links.js');
 
 test('rewrite touches only real links, keeps CRLF, conflicts land in failed', async () => {
   const r = await rewriteInboundMany([{ from: 'old.md', to: 'sub/new.md' }]);
@@ -42,4 +42,21 @@ test('findInbound counts real links only', async () => {
   const r = await findInbound('old.md');
   const x = r.find((e) => e.path === 'x.md');
   expect(x.lines.map((l) => l.line)).toEqual([1, 5]);
+});
+
+test('planRewrite is async and plans the same splices, offsets into the text (H5)', async () => {
+  const text = 'See [o](old.md) and `[c](old.md)`.\n';
+  const pending = planRewrite(text, 'a.md', [{ from: 'old.md', to: 'sub/new.md' }]);
+  expect(pending).toBeInstanceOf(Promise);
+  const splices = await pending;
+  expect(splices).toEqual([{ from: 8, to: 14, insert: 'sub/new.md' }]);
+});
+
+test('planRewrite with settled does not treat the file as moved (the second pass)', async () => {
+  // The file itself moved from notes/a.md to a.md: its own relative href is re-pointed ...
+  const moved = await planRewrite('[b](b.md)\n', 'a.md', [{ from: 'notes/a.md', to: 'a.md' }]);
+  expect(moved).toEqual([{ from: 4, to: 8, insert: 'notes/b.md' }]);
+  // ... unless its own hrefs were already rewritten: then nothing moves.
+  const settled = await planRewrite('[b](notes/b.md)\n', 'a.md', [{ from: 'notes/a.md', to: 'a.md' }], { settled: true });
+  expect(settled).toEqual([]);
 });

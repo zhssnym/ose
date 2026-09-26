@@ -1,7 +1,10 @@
-// The dev bridge's filesystem: the Node twin of the host's vault.rs, files.rs, versions.rs and
-// drafts.rs (docs/HOST.md). Same commands, same answers, same `[code] message` errors, same hash,
-// same file names under `.ose/history` and the same draft keys, so a page behaves in the browser
-// exactly as it does in the app. The vite plugin (./bridge-plugin.mjs) serves these over HTTP;
+// The dev bridge's filesystem: the Node twin of the host's vault.rs, hide.rs, files.rs,
+// trashbin.rs, versions.rs, drafts.rs and local.rs (docs/HOST.md). Same commands, same answers,
+// same `[code] message` errors, same hash, the same one hide rule, the same file names under
+// `.ose/history` and `.trash/.info`, and the same draft and local-store keys, so a page behaves in
+// the browser exactly as it does in the app. Two things Node cannot do are said where they
+// matter: it has no system bin (every trash goes to `.trash`), and it reads Windows' hidden flag
+// by asking cmd (`winHidden`), since Node's stat does not carry it. The vite plugin (./bridge-plugin.mjs) serves these over HTTP;
 // tests call them directly on a temp folder:
 //
 //   import { createFiles, hash } from './dev/files.mjs';
@@ -14,6 +17,7 @@
 import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 
 const IS_WIN = process.platform === 'win32';
 const FOLDS_CASE = IS_WIN || process.platform === 'darwin';
@@ -61,7 +65,7 @@ export function hash(data) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const p2 = (n) => String(n).padStart(2, '0');
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 /** The bytes as text, or null when they are not UTF-8. */
 const textOrNull = (buf) => { try { return utf8.decode(buf); } catch { return null; } };
 /** A vault path as the page sees it: forward slashes, no leading or trailing slash. */
@@ -252,9 +256,132 @@ const parseVName = (name) => {
   if (rest.toLowerCase() === 'md') return { id, reason: 'save', session: false };
   return null;
 };
-const HIDE = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', '.tmp.driveupload', '.makemd', '.space',
-  'ose.exe', 'ose.pdb', 'Ose.app', 'os.exe', 'os.pdb', 'os.app']);
-const hiddenSegment = (s) => !s || HIDE.has(s) || s.startsWith('.');
+// ---------------------------------------------------------------- the one hide rule (hide.rs)
+
+// Excluded anywhere, in any letter case: the app's state and git's.
+const EXCLUDED_ANYWHERE = new Set(['.ose', '.git']);
+// Excluded at the vault root only: what the app leaves beside a vault. The host adds the
+// running executable's own name; the dev bridge runs no executable of the app's.
+const EXCLUDED_AT_ROOT = new Set(['ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.old', 'ose.app', 'ose.app.old',
+  'ose-update.zip', 'ose-update-tmp', 'webview2loader.dll', 'os.exe', 'os.pdb', 'os.exe.new', 'os.exe.old',
+  'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp']);
+
+/** Somebody's temp file: the atomic writer's `.<name>.<pid>.<n>.tmp`, a case-only rename's
+ *  `.<name>.<pid>.case`, an Office owner file `~$x`, a LibreOffice lock `.~lock.x#`. */
+function isTemp(name) {
+  return /^\..+\.\d+\.\d+\.tmp$/.test(name) || /^\..+\.\d+\.case$/.test(name)
+    || name.startsWith('~$') || (name.startsWith('.~lock.') && name.endsWith('#'));
+}
+
+const segmentsOf = (rel) => String(rel ?? '').split(/[\\/]/).filter((s) => s && s !== '.');
+
+/** Is the vault path excluded (never listed, walked, searched or reported)? True when any of
+ *  its segments is: a file inside `.git` is as excluded as `.git`. The vault bin's sidecars
+ *  (`.trash/.info`) are the app's bookkeeping, excluded like `.ose`. */
+export function isExcluded(rel) {
+  const segs = segmentsOf(rel);
+  if (segs.length >= 2 && segs[0].toLowerCase() === '.trash' && segs[1].toLowerCase() === '.info') return true;
+  return segs.some((seg, depth) => {
+    const low = seg.toLowerCase();
+    return EXCLUDED_ANYWHERE.has(low) || isTemp(seg) || (depth === 0 && EXCLUDED_AT_ROOT.has(low));
+  });
+}
+
+/** Inside the vault's own bin, `.trash` at the root (hide.rs `in_bin`): never searched. */
+export const isInBin = (rel) => (segmentsOf(rel)[0] || '').toLowerCase() === '.trash';
+
+/** A dotfile or dotfolder. The system's hidden flag is the other half of hidden (`winHidden`). */
+export const isHiddenName = (name) => String(name).startsWith('.');
+
+/**
+ * Windows' hidden flag (hide.rs `os_hidden`), which Node's stat does not carry: `dir /a:h /b`
+ * through cmd, with `/u` so names come back as UTF-16 whatever the code page. Answers the set of
+ * lowercased full paths under `dir` that carry the flag (every level with `deep`); empty
+ * elsewhere than on Windows, and empty when the folder name holds a `%` cmd would expand.
+ * Answers are kept for a second, so one listing, its tree patch and its stats spawn one cmd.
+ */
+const hiddenCache = new Map();
+export function winHidden(dir, deep = false) {
+  if (process.platform !== 'win32' || dir.includes('%') || dir.includes('"')) return Promise.resolve(new Set());
+  const key = `${deep ? 'deep' : 'flat'}|${dir.toLowerCase()}`;
+  const hit = hiddenCache.get(key);
+  if (hit && Date.now() - hit.at < 1000) return hit.set;
+  const set = new Promise((resolve) => {
+    execFile('cmd.exe', ['/d', '/u', '/c', `dir /a:h /b${deep ? ' /s' : ''} "${dir}"`],
+      { encoding: 'buffer', windowsVerbatimArguments: true, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+      (_err, out) => {
+        // No hidden item at all is "File Not Found" and a non-zero exit: an empty set.
+        const lines = out ? out.toString('utf16le').split(/\r?\n/).filter(Boolean) : [];
+        resolve(new Set(lines.map((l) => (deep ? l : path.join(dir, l)).toLowerCase())));
+      });
+  });
+  hiddenCache.set(key, { at: Date.now(), set });
+  if (hiddenCache.size > 256) hiddenCache.delete(hiddenCache.keys().next().value);
+  return set;
+}
+
+/** Does `full` itself carry Windows' hidden flag? */
+export async function osHidden(full) {
+  if (process.platform !== 'win32') return false;
+  return (await winHidden(path.dirname(full))).has(full.toLowerCase());
+}
+
+/** Does any segment of the path start with a dot? The watcher's `hidden` flag. */
+export const isPathHidden = (rel) => segmentsOf(rel).some(isHiddenName);
+
+/** `'excluded' | 'hidden' | 'shown'` for one entry, judged by its own name (hide.rs `classify`). */
+export function classify(rel) {
+  if (isExcluded(rel)) return 'excluded';
+  const segs = segmentsOf(rel);
+  return isHiddenName(segs[segs.length - 1] || '') ? 'hidden' : 'shown';
+}
+
+/** vault.rs `natural_compare`: runs of digits compare as numbers, everything else by lowercased
+ *  code point, so both hosts sort a folder the same way. */
+export function naturalCompare(a, b) {
+  const A = [...String(a)], B = [...String(b)];
+  const digit = (c) => c >= '0' && c <= '9';
+  const lower = (c) => [...c.toLowerCase()][0] || c;
+  let i = 0, j = 0;
+  while (i < A.length && j < B.length) {
+    if (digit(A[i]) && digit(B[j])) {
+      const si = i, sj = j;
+      while (i < A.length && digit(A[i])) i++;
+      while (j < B.length && digit(B[j])) j++;
+      const na = A.slice(si, i).join('').replace(/^0+/, ''), nb = B.slice(sj, j).join('').replace(/^0+/, '');
+      if (na.length !== nb.length) return na.length - nb.length;
+      if (na !== nb) return na < nb ? -1 : 1;
+    } else {
+      const ca = lower(A[i]).codePointAt(0), cb = lower(B[j]).codePointAt(0);
+      if (ca !== cb) return ca - cb;
+      i++; j++;
+    }
+  }
+  return (A.length - i) - (B.length - j);
+}
+
+/** Folders first, then natural name order. */
+export const byEntry = (a, b) => (a.kind === b.kind ? naturalCompare(a.name, b.name) : a.kind === 'dir' ? -1 : 1);
+
+/** Text, by content: no NUL in the first 8 KB and valid UTF-8 there; a character cut by the
+ *  8 KB edge does not count against the file (vault.rs `sniff_text`). */
+export function sniffText(head, full = head.length >= SNIFF_BYTES) {
+  if (head.includes(0)) return false;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(head); return true; } catch { /* maybe cut */ }
+  if (!full) return false;
+  // The file may end its first 8 KB in the middle of a character: the last 1 to 3 bytes are
+  // then a lead byte and continuation bytes, fewer than the lead byte announces.
+  for (let cut = 1; cut <= 3 && cut < head.length; cut++) {
+    const lead = head[head.length - cut];
+    const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc2 ? 2 : 0;
+    if (!need) continue;
+    const tail = head.subarray(head.length - cut + 1);
+    if (need <= cut || tail.some((b) => (b & 0xc0) !== 0x80)) return false;
+    try { new TextDecoder('utf-8', { fatal: true }).decode(head.subarray(0, head.length - cut)); return true; } catch { return false; }
+  }
+  return false;
+}
+const SNIFF_BYTES = 8192;
 
 /** Which versions of one file survive at `now` (newest-first list in, parallel booleans out). */
 function survivors(list, now) {
@@ -294,11 +421,21 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
   const logDir = path.join(dataDir, 'logs');
   const logPath = path.join(logDir, 'ose.log');
 
-  /** The absolute path of a vault path; never outside the root (vault.rs `resolve`). */
+  /** The absolute path of a vault path; never outside the root (vault.rs `resolve`). Taken
+   *  literally (M49): nothing is trimmed, a `..` is refused rather than folded into another
+   *  file, and on Windows a name the system would read as another one is `[bad_name]`. */
   const abs = (p) => {
-    const rel = String(p ?? '').replace(/\\/g, '/').trim().replace(/^\/+/, '');
-    if (rel.split('/').some((s) => s.includes(':') || s.includes('\0'))) throw coded('escapes_vault', `path must be vault-relative: ${p}`);
-    const full = path.resolve(root, rel);
+    const raw = String(p ?? '');
+    const rel = (IS_WIN ? raw.replace(/\\/g, '/') : raw).replace(/^\/+/, '');
+    const segs = rel.split('/').filter((s) => s && s !== '.');
+    for (const s of segs) {
+      if (s === '..') throw coded('escapes_vault', `path escapes the vault: ${p}`);
+      if (s.includes('\0') || (IS_WIN && s.includes(':'))) throw coded('escapes_vault', `path must be vault-relative: ${p}`);
+      if (IS_WIN && (/[. ]$/.test(s) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(s.split('.')[0].trimEnd()))) {
+        throw coded('bad_name', `Windows would read another name for: ${p}`);
+      }
+    }
+    const full = segs.length ? path.join(root, ...segs) : root;
     if (full !== root && !full.startsWith(root + path.sep)) throw coded('escapes_vault', `path escapes the vault: ${p}`);
     return full;
   };
@@ -476,8 +613,8 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
   /** The history follows a rename (versions.rs `move_history`). */
   const moveHistory = async (from, to) => {
     migrate();
-    const hidden = (p) => clean(p).split('/').some(hiddenSegment);
-    if (hidden(from) || hidden(to)) return;
+    // A path the hide rule excludes (a temp file, anything under .git) has no history to move.
+    if (isExcluded(from) || isExcluded(to)) return;
     const src = vDir(from), dst = vDir(to);
     if (!fss.existsSync(src) || src === dst) return;
     await fs.mkdir(path.dirname(dst), { recursive: true });
@@ -600,6 +737,348 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     else writeLog('warn', `save conflict ${rel}`);
   };
 
+  // -------------------------------------------------------------- listings (vault.rs, hide.rs)
+  const MAX_DEPTH = 24;
+  let rootReal = null;
+  const realRoot = () => { if (!rootReal) { try { rootReal = fss.realpathSync.native(root); } catch { rootReal = root; } } return rootReal; };
+  const insideReal = (real) => real === realRoot() || real.startsWith(realRoot() + path.sep);
+
+  /** What a link points at (hide.rs `link_kind`): `file`/`dir` inside the vault, `broken`,
+   *  `outside`, or `loop` for a folder link to its own folder or an ancestor. */
+  const linkKind = async (full) => {
+    let real, st;
+    try { real = await fs.realpath(full); st = await fs.stat(real); } catch { return { link: 'broken', st: null }; }
+    if (!insideReal(real)) return { link: 'outside', st };
+    if (st.isDirectory()) {
+      let parent = null;
+      try { parent = await fs.realpath(path.dirname(full)); } catch { parent = null; }
+      if (parent && (parent === real || parent.startsWith(real + path.sep))) return { link: 'loop', st };
+      return { link: 'dir', st };
+    }
+    return { link: 'file', st };
+  };
+
+  /** One entry (docs/HOST.md "Entry") from its own lstat: a link is described by its target.
+   *  `flagged` is the set of paths carrying Windows' hidden flag (`winHidden`). */
+  const entryOf = async (full, own, flagged = null) => {
+    const name = path.basename(full);
+    let meta = own, link;
+    if (own.isSymbolicLink()) {
+      const k = await linkKind(full);
+      link = k.link;
+      if (k.st) meta = k.st;
+    }
+    const dir = meta.isDirectory();
+    const e = {
+      name, path: relOf(full), kind: dir ? 'dir' : 'file',
+      ext: dir ? '' : (name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''),
+      mtime: Math.floor(meta.mtimeMs), size: dir ? 0 : meta.size,
+      hidden: isHiddenName(name) || !!flagged?.has(full.toLowerCase()),
+    };
+    if (link) e.link = link;
+    return e;
+  };
+
+  /** `list(path, {hidden})`: folders first, natural order; excluded never, hidden on request. */
+  const list = async (p, opts) => {
+    const hidden = !!(isObj(opts) && opts.hidden);
+    if (isExcluded(p)) throw coded('not_found', `not listed: ${p}`);
+    const dir = abs(p);
+    let st;
+    try { st = await fs.stat(dir); } catch (e) { throw ioError(p, e); }
+    if (!st.isDirectory()) throw coded('not_found', `not a folder: ${p}`);
+    try { if (!insideReal(await fs.realpath(dir))) throw coded('escapes_vault', `the folder is a link out of the vault: ${p}`); } catch (e) { if (e.code === 'escapes_vault') throw e; }
+    let ents;
+    try { ents = await fs.readdir(dir, { withFileTypes: true }); } catch (e) { throw ioError(p, e); }
+    const flagged = await winHidden(dir);
+    const out = [];
+    for (const d of ents) {
+      const full = path.join(dir, d.name);
+      let c = classify(relOf(full));
+      if (c === 'shown' && flagged.has(full.toLowerCase())) c = 'hidden';
+      if (c === 'excluded' || (c === 'hidden' && !hidden)) continue;
+      let own;
+      try { own = await fs.lstat(full); } catch { continue; }
+      const e = await entryOf(full, own, flagged);
+      if (e.kind === 'dir' && !e.link) { try { (await fs.opendir(full)).close(); } catch { e.readable = false; } }
+      out.push(e);
+    }
+    return out.sort(byEntry);
+  };
+
+  /** Every entry under `dir` the rule lets through, depth first, never into a link. `visit`
+   *  answers false to stop the walk (a newer search). Unreadable folders are reported.
+   *  `flagged` is Windows' hidden flag for the whole walk (`winHidden`, deep): asked once, and
+   *  only when it decides something (hidden items left out) unless the caller passes it. */
+  const walk = async (dir, hidden, visit, depth = 0, unreadable = null, flagged = undefined) => {
+    if (depth > MAX_DEPTH) return true;
+    if (flagged === undefined) flagged = hidden ? new Set() : await winHidden(dir, true);
+    let ents;
+    try { ents = await fs.readdir(dir, { withFileTypes: true }); } catch { unreadable?.add(dir); return true; }
+    for (const d of ents) {
+      const full = path.join(dir, d.name);
+      let c = classify(relOf(full));
+      if (c === 'shown' && flagged.has(full.toLowerCase())) c = 'hidden';
+      if (c === 'excluded' || (c === 'hidden' && !hidden)) continue;
+      let own;
+      try { own = await fs.lstat(full); } catch { continue; }
+      if (await visit(full, own, flagged) === false) return false;
+      if (own.isDirectory() && !own.isSymbolicLink()) {
+        if (!(await walk(full, hidden, visit, depth + 1, unreadable, flagged))) return false;
+      }
+    }
+    return true;
+  };
+
+  /** `tree({hidden})`: the vault as one entry named after it. */
+  const tree = async (opts) => {
+    const hidden = !!(isObj(opts) && opts.hidden);
+    let st;
+    try { st = await fs.stat(root); } catch (e) { throw coded('io', `cannot read the vault root: ${e.message}`); }
+    const byParent = new Map();
+    const unreadable = new Set();
+    const flagged = await winHidden(root, true);
+    await walk(root, hidden, async (full, own) => {
+      const e = await entryOf(full, own, flagged);
+      const parent = path.dirname(full);
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push([full, e]);
+    }, 0, unreadable, flagged);
+    const assemble = (dir) => (byParent.get(dir) || []).map(([full, e]) => {
+      if (e.kind === 'dir' && !e.link) {
+        if (unreadable.has(full)) e.readable = false;
+        e.children = assemble(full);
+      }
+      return e;
+    }).sort(byEntry);
+    return { name: path.basename(root), path: '', kind: 'dir', ext: '', mtime: Math.floor(st.mtimeMs), size: 0, hidden: false, children: assemble(root) };
+  };
+
+  /** `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?}`. */
+  const stat = async (p, opts) => {
+    const full = abs(p);
+    let own;
+    try { own = await fs.lstat(full); } catch { return { exists: false, kind: null, mtime: 0, size: 0, hidden: false }; }
+    const e = await entryOf(full, own);
+    const out = { exists: true, kind: e.kind, mtime: e.mtime, size: e.size, hidden: classify(clean(p)) !== 'shown' || await osHidden(full) };
+    if (e.link) out.link = e.link;
+    if (isObj(opts) && opts.sniff && e.kind === 'file') {
+      try {
+        const fh = await fs.open(full, 'r');
+        try {
+          const buf = Buffer.alloc(SNIFF_BYTES);
+          const { bytesRead } = await fh.read(buf, 0, SNIFF_BYTES, 0);
+          out.text = sniffText(buf.subarray(0, bytesRead));
+        } finally { await fh.close(); }
+      } catch { out.text = false; }
+    }
+    return out;
+  };
+
+  // -------------------------------------------------------------- copyPath (vault.rs copy_path)
+  const copyOne = async (src, dst) => {
+    const input = await fs.readFile(src);
+    let fh;
+    try { fh = await fs.open(dst, 'wx'); } catch (e) { if (e.code === 'EEXIST') throw coded('exists', `already exists: ${relOf(dst)}`); throw e; }
+    try { await fh.writeFile(input); await fh.sync(); await fh.close(); } catch (e) {
+      try { await fh.close(); } catch { /* closed */ }
+      try { await fs.unlink(dst); } catch { /* gone */ }
+      throw e;
+    }
+  };
+  const copyLink = async (src, dst) => {
+    const target = await fs.readlink(src);
+    let type = 'file';
+    try { if ((await fs.stat(src)).isDirectory()) type = IS_WIN ? 'junction' : 'dir'; } catch { /* broken */ }
+    await fs.symlink(target, dst, type);
+  };
+  const copyTree = async (src, dst, count) => {
+    for (const d of await fs.readdir(src, { withFileTypes: true })) {
+      const from = path.join(src, d.name), to = path.join(dst, d.name);
+      if (d.isSymbolicLink()) {
+        try { await copyLink(from, to); count.n++; } catch (e) {
+          warn(`copyPath: link ${relOf(from)} left out: ${e.message}`);
+          count.leftOut.push(relOf(from));
+        }
+      } else if (d.isDirectory()) {
+        await fs.mkdir(to);
+        await copyTree(from, to, count);
+      } else {
+        await copyOne(from, to);
+        count.n++;
+      }
+    }
+  };
+  /** Is `dst` (which need not exist) `src` or under it (vault.rs `inside_or_same`)? By the
+   *  spelling, case folded on Windows and macOS, and through links by real paths. */
+  const insideOrSame = (dst, src) => {
+    const fold = (p) => (IS_WIN || process.platform === 'darwin' ? p.toLowerCase() : p);
+    const under = (a, b) => fold(a) === fold(b) || fold(a).startsWith(fold(b.endsWith(path.sep) ? b : b + path.sep));
+    if (under(dst, src)) return true;
+    let srcReal;
+    try { srcReal = fss.realpathSync.native(src); } catch { return false; }
+    let base = dst;
+    const rest = [];
+    for (;;) {
+      try { return under(path.join(fss.realpathSync.native(base), ...[...rest].reverse()), srcReal); } catch { /* not there yet */ }
+      const up = path.dirname(base);
+      if (up === base) return false;
+      rest.push(path.basename(base));
+      base = up;
+    }
+  };
+  /** `copyPath(from, to)` -> `{path, files, leftOut?}`: a file or a folder, bytes, create-only;
+   *  `leftOut`, only when there are any, names the links under `from` that could not be made. */
+  const copyPath = async (from, to, opts) => {
+    checkEpoch(opts);
+    const src = abs(from), dst = abs(to);
+    requireVault();
+    if (dst === root) throw coded('bad_name', `not a name to copy to: ${to}`);
+    let own;
+    try { own = await fs.lstat(src); } catch (e) { throw ioError(from, e); }
+    if (fss.existsSync(dst) || (() => { try { fss.lstatSync(dst); return true; } catch { return false; } })()) throw coded('exists', `already exists: ${to}`);
+    if (own.isDirectory() && insideOrSame(dst, src)) throw coded('bad_arg', `a folder cannot be copied into itself: ${from} -> ${to}`);
+    await fs.mkdir(path.dirname(dst), { recursive: true });
+    const count = { n: 0, leftOut: [] };
+    try {
+      if (own.isSymbolicLink()) { await copyLink(src, dst); count.n = 1; }
+      else if (own.isDirectory()) {
+        await fs.mkdir(dst);
+        try { await copyTree(src, dst, count); } catch (e) { await fs.rm(dst, { recursive: true, force: true }); throw e; }
+      } else { await copyOne(src, dst); count.n = 1; }
+    } catch (e) {
+      if (e.code === 'exists' || e.code === 'EEXIST') throw coded('exists', `already exists: ${to}`);
+      throw e.message?.startsWith('[') ? e : coded('io', `${to}: ${e.message}`);
+    }
+    return count.leftOut.length ? { path: relOf(dst), files: count.n, leftOut: count.leftOut } : { path: relOf(dst), files: count.n };
+  };
+
+  // -------------------------------------------------------------- trash (trashbin.rs)
+  // Node has no system bin: every trash goes to `.trash` in the vault, with the host's sidecar,
+  // and `trashWhere` says so honestly.
+  const BIN = '.trash', INFO = '.info';
+  const infoFile = (entry) => path.join(root, BIN, INFO, `${entry}.json`);
+  const validEntry = (e) => !!e && e !== INFO && e !== '.' && e !== '..' && !/[\\/]/.test(e) && !isExcluded(e);
+  const unstamped = (entry) => { const m = /^(\d+)-(.+)$/.exec(entry); return m ? [m[2], Number(m[1])] : [entry, null]; };
+  const sizeOf = async (full, depth = 0) => {
+    let st;
+    try { st = await fs.lstat(full); } catch { return 0; }
+    if (!st.isDirectory()) return st.size;
+    if (depth > 24) return 0;
+    let n = 0;
+    for (const name of await fs.readdir(full).catch(() => [])) n += await sizeOf(path.join(full, name), depth + 1);
+    return n;
+  };
+  const trash = async (p, opts) => {
+    checkEpoch(opts);
+    const full = abs(p);
+    if (full === root) throw coded('bad_arg', 'refusing to trash the vault root');
+    let own;
+    try { own = await fs.lstat(full); } catch { throw coded('not_found', `nothing to trash: ${p}`); }
+    requireVault();
+    await fs.mkdir(path.join(root, BIN, INFO), { recursive: true });
+    const at = Date.now();
+    let entry = `${at}-${path.basename(full)}`;
+    for (let n = 2; fss.existsSync(path.join(root, BIN, entry)); n++) entry = `${at}-${n}-${path.basename(full)}`;
+    try { await fs.rename(full, path.join(root, BIN, entry)); } catch (e) { throw coded('io', `${p}: .trash: ${e.message}`); }
+    try {
+      await writeAtomic(infoFile(entry), JSON.stringify({ v: 1, original: clean(p), deletedAt: at, kind: own.isDirectory() ? 'dir' : 'file' }), { budget: 500, aside: 'discard' });
+    } catch (e) { warn(`trash: sidecar of ${entry}: ${e.message}`); }
+    return { id: `vault:${entry}`, where: 'vault' };
+  };
+  const trashList = async () => {
+    const out = [];
+    let names = [];
+    try { names = await fs.readdir(path.join(root, BIN)); } catch { return out; }
+    for (const entry of names) {
+      if (!validEntry(entry)) continue;
+      const full = path.join(root, BIN, entry);
+      let st;
+      try { st = await fs.lstat(full); } catch { continue; }
+      let info = null;
+      try { info = JSON.parse(await fs.readFile(infoFile(entry), 'utf8')); } catch { info = null; }
+      const [bare, stamp] = unstamped(entry);
+      const known = typeof info?.original === 'string';
+      const original = known ? info.original : bare;
+      out.push({
+        id: `vault:${entry}`, name: original.split('/').pop(), original,
+        // No sidecar: where it was is not known, and a restore puts it at the root (trash.js).
+        ...(known ? {} : { known: false }),
+        deletedAt: typeof info?.deletedAt === 'number' ? info.deletedAt : (stamp ?? Math.floor(st.mtimeMs)),
+        kind: st.isDirectory() ? 'dir' : 'file', size: await sizeOf(full), where: 'vault',
+      });
+    }
+    return out.sort((a, b) => b.deletedAt - a.deletedAt);
+  };
+  const trashRestore = async (ids, opts) => {
+    checkEpoch(opts);
+    requireVault();
+    const restored = [], failed = [];
+    for (const id of Array.isArray(ids) ? ids : [ids]) {
+      try {
+        const entry = typeof id === 'string' && id.startsWith('vault:') ? id.slice(6) : null;
+        if (!entry || !validEntry(entry)) throw coded('bad_arg', `not a trash id: ${id}`);
+        const src = path.join(root, BIN, entry);
+        if (!fss.existsSync(src)) throw coded('not_found', `no longer in .trash: ${entry}`);
+        let original = unstamped(entry)[0];
+        try { const info = JSON.parse(await fs.readFile(infoFile(entry), 'utf8')); if (typeof info.original === 'string') original = info.original; } catch { /* no sidecar */ }
+        const dst = abs(original);
+        let taken = false;
+        try { await fs.lstat(dst); taken = true; } catch { taken = false; }
+        if (taken) throw coded('exists', `A file with that name is already there: ${original}`);
+        await fs.mkdir(path.dirname(dst), { recursive: true });
+        await fs.rename(src, dst);
+        try { await fs.unlink(infoFile(entry)); } catch { /* none */ }
+        restored.push({ id, path: clean(original) });
+      } catch (e) {
+        failed.push({ id, error: errorText(e) });
+      }
+    }
+    return { restored, failed };
+  };
+
+  // -------------------------------------------------------------- local state (local.rs)
+  // `<dataDir>/local/app.json` and `<dataDir>/local/vaults/<vaultKey>.json`; the dev bridge's
+  // data folder stands in for the app's config folder.
+  const LOCAL_MAX = 1024 * 1024;
+  const HOST_KEYS = ['window', 'theme'];
+  const vaultKey = () => { let key = root.replace(/\\/g, '/'); if (FOLDS_CASE) key = key.toLowerCase(); return hash(key); };
+  const localFile = (scope) => {
+    if (scope === 'app') return path.join(dataDir, 'local', 'app.json');
+    if (scope === 'vault') return path.join(dataDir, 'local', 'vaults', `${vaultKey()}.json`);
+    throw coded('bad_arg', `not a local scope: ${scope}`);
+  };
+  const readLocal = async (file) => {
+    try { const o = JSON.parse(await fs.readFile(file, 'utf8')); return isObj(o) ? o : {}; } catch { return {}; }
+  };
+  let localGate = Promise.resolve();
+  const localGated = (fn) => { const run = localGate.then(fn, fn); localGate = run.catch(() => {}); return run; };
+  const localGet = async (scope) => {
+    const file = localFile(scope);
+    return localGated(async () => {
+      const o = await readLocal(file);
+      if (scope === 'app') for (const k of HOST_KEYS) delete o[k];
+      return o;
+    });
+  };
+  const localSet = async (scope, value, opts) => {
+    const file = localFile(scope);
+    if (scope === 'vault') checkEpoch(opts);
+    if (!isObj(value)) throw coded('bad_arg', 'local state is an object');
+    const text = JSON.stringify(value);
+    if (Buffer.byteLength(text, 'utf8') > LOCAL_MAX) throw coded('bad_arg', `local state is ${Buffer.byteLength(text, 'utf8')} bytes, more than the 1 MB it may be`);
+    return localGated(async () => {
+      const next = { ...value };
+      if (scope === 'app') {
+        const disk = await readLocal(file);
+        for (const k of HOST_KEYS) { delete next[k]; if (k in disk) next[k] = disk[k]; }
+      }
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      try { await writeAtomic(file, JSON.stringify(next), { budget: 200, aside: 'discard' }); } catch (e) { throw coded('write_failed', `local state: ${e.message}`); }
+      return null;
+    });
+  };
+
   const files = {
     // ------------------------------------------------------------ plain reads and writes
     readText: async (p) => {
@@ -644,16 +1123,12 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     },
     // `mode` is 'system' or 'vault' (S37). Node has no recycle bin, so this always does what
     // 'vault' means and never deletes anything outright. History and drafts stay.
-    trash: async (p, opts) => {
-      checkEpoch(opts);
-      const full = abs(p);
-      if (full === root) throw coded('bad_arg', 'refusing to trash the vault root');
-      if (!fss.existsSync(full)) throw coded('not_found', `nothing to trash: ${p}`);
-      const t = path.join(root, '.trash');
-      await fs.mkdir(t, { recursive: true });
-      await fs.rename(full, path.join(t, Date.now() + '-' + path.basename(full)));
-      return null;
-    },
+    // Every trash is kept, never deleted; Node has no system bin, so the vault's .trash it is.
+    trash, trashList, trashRestore,
+    trashWhere: async (p) => { abs(p); return { where: 'vault' }; },
+    // Listings under the one hide rule, a copy of a file or a folder, and the local store.
+    list, tree, stat, copyPath, localGet, localSet,
+    exists: async (p) => fss.existsSync(abs(p)),
 
     // ------------------------------------------------------------ the save path (files.rs)
     readFile: async (p) => {
@@ -899,7 +1374,7 @@ export function createFiles({ root, dataDir, epoch = 1, log = () => {} }) {
     },
   };
 
-  return { files, abs, logPath, epoch, checkEpoch, requireVault, moveHistory, rekeyDrafts, writeLog, keepVersion, _survivors: survivors };
+  return { files, abs, relOf, walk, list, tree, stat, logPath, epoch, checkEpoch, requireVault, moveHistory, rekeyDrafts, writeLog, keepVersion, _survivors: survivors };
 }
 
 export { survivors, idFromMs, msFromId };

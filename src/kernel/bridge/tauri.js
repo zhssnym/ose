@@ -68,10 +68,6 @@ export async function create() {
   // only asks now; the shell leaves the window (`ose.window.leave('vault-change')`) and adopts
   // it itself, so an unsaved page is never switched out from under (C5).
   forward('vault');
-  // `ose.run` (K1a): one event per line of a child's stdout or stderr, then one with
-  // `done: true`. The http adapter forwards whatever the SSE stream names, so this list is
-  // the only place the Tauri side has to be told.
-  forward('run');
 
   // ---------------------------------------------------------------- window events
   let maximized = false;

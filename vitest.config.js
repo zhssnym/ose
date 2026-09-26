@@ -5,6 +5,9 @@
 // Node host, the vault resolution and the shell root with it; none of that belongs in a test,
 // and no test ever reads a vault (tests/fixtures holds the corpus).
 //
+// `ose:planner` is the real entry (src/planner): the planner tests import its pure modules by
+// path, and a test that wants the entry wants the real one.
+//
 // The kernel's three library specifiers resolve to small stubs: the editor sources import
 // `ose:kernel` and `ose:ui` at module top level (host.js, deps.js), and the serialiser tests
 // never touch what those stubs stand in for. `@milkdown/crepe` itself, the exact specifier, is
@@ -28,14 +31,19 @@ export default defineConfig({
     alias: [
       { find: /^ose:kernel$/, replacement: here('tests/stubs/kernel.js') },
       { find: /^ose:ui$/, replacement: here('tests/stubs/ui.js') },
-      { find: /^ose:md$/, replacement: here('tests/stubs/md.js') },
+      { find: /^ose:planner$/, replacement: here('src/planner/index.js') },
       { find: /^@milkdown\/crepe$/, replacement: here('tests/stubs/crepe.js') },
       { find: /^.+\.css(\?.*)?$/, replacement: here('tests/stubs/empty.js') },
     ],
   },
   test: {
     environment: 'node',
+    // The repo root, for tests/support/present.js (import.meta.url is not a file URL under
+    // happy-dom).
+    env: { OSE_REPO: here('.') },
     include: ['tests/**/*.test.js'],
+    // tests/e2e is Playwright's (`npm run test:e2e`, playwright.config.js), not vitest's.
+    exclude: ['tests/e2e/**', '**/node_modules/**'],
     // The property tests parse and serialise a few thousand documents; the first file in a
     // worker also pays for loading Milkdown.
     testTimeout: 60_000,

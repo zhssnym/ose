@@ -1,5 +1,6 @@
-// Theme. Preference lives in localStorage 'os.theme' as 'light' | 'dark' | 'system'.
-// Nothing saved means dark; index.html's first-paint script has to agree with this.
+// Theme. Preference lives in localStorage 'os.theme' as 'light' | 'dark' | 'system', which is
+// per machine already (M26). Nothing saved means 'system': the app follows the platform's
+// light or dark setting until the user picks one. shell/first-paint.js has to agree with this.
 // The resolved value ('light'|'dark') goes on <html data-theme>, into store 'theme',
 // out on bus 'theme', and down to the host so it can recolour the native frame.
 import { bus, store, commands } from './registry.js';
@@ -8,7 +9,7 @@ import { bridge } from './bridge/index.js';
 const KEY = 'os.theme';
 const VALID = new Set(['light', 'dark', 'system']);
 
-let pref = 'dark';
+let pref = 'system';
 let mq = null;
 
 export function themePref() { return pref; }

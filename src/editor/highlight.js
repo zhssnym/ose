@@ -60,7 +60,7 @@ export const HIGHLIGHT = HighlightStyle.define([
 /**
  * Aliases the stock pack does not carry. `.jsonl` is one JSON object per line, which every JSON
  * grammar parses line by line, and the pack's JSON entry answers to `json` and `map` only: the
- * vault's `systems.jsonl` and every plugin log opened flat, with no colour at all, beside a
+ * vault's `systems.jsonl` and every JSONL log opened flat, with no colour at all, beside a
  * `meta.json` that had strings and numbers. One palette everywhere code is shown.
  */
 const ALIAS = { jsonl: 'json' };

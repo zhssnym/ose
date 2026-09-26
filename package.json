@@ -15,6 +15,7 @@
     "tauri:build": "node -e \"import('node:child_process').then(({spawnSync})=>process.exit(spawnSync('npm',['exec','--','tauri','build',...(process.platform==='darwin'?['--bundles','app']:['--no-bundle'])],{stdio:'inherit',shell:true}).status??1))\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "lint": "biome check",
     "lint:fix": "biome check --write"
   },
@@ -24,6 +25,7 @@
     "@milkdown/crepe": "^7.22.1",
     "@milkdown/kit": "^7.22.1",
     "@tauri-apps/api": "^2.11.1",
+    "date-fns": "^4.4.0",
     "dompurify": "^3.4.14",
     "marked": "^18.0.11",
     "mdast-util-from-markdown": "^2.0.3",
@@ -31,11 +33,13 @@
     "mdast-util-math": "^3.0.0",
     "micromark-extension-gfm": "^3.0.0",
     "micromark-extension-math": "^3.1.0",
+    "node-diff3": "^3.2.1",
     "temml": "^0.13.5",
     "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.11.4",
     "fast-check": "^4.10.2",
     "happy-dom": "^20.14.5",

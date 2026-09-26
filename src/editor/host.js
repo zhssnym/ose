@@ -2,7 +2,7 @@
 //
 // `ose:editor` is a library: it knows the kernel and nothing else. Every other file under
 // `src/editor/` imports what it needs from here, so the whole bundle has exactly one place
-// that names anything outside the folder — and `ose:kernel`, `ose:ui` and `ose:md` are
+// that names anything outside the folder — and `ose:kernel` and `ose:ui` are
 // external to this bundle (vite.kernel.config.js), so there is one bridge, one overlay stack
 // and one toast queue in a running Ose, never two.
 //
@@ -40,16 +40,41 @@ export const recentFiles = () => ose.route.recent();
 export const navigate = (route, opts) => ose.route.navigate(route, opts);
 export const clearRoute = (opts) => ose.route.close(opts);
 
-/** Where `page.new` writes: the focus folder, the `newPages` setting, the scratch folder. */
+/**
+ * Where `page.new` writes (wave 2): the focused folder, else the folder on screen or the open
+ * page's, else `''`, the vault root. There is no scratch folder any more.
+ */
 export const defaultNewFolder = () => ose.focus.defaultNewFolder();
-/** The shell's scratch folder (`ose.paths`, owner `app`), or '' for the vault root. */
-export const scratchFolder = () => ose.paths.of('app').peek('scratch') || '';
 
 export const findInbound = (path) => ose.links.inbound(path);
+
+/**
+ * The splices the kernel's link rewrite would make in `text`, the file at `path`, for the moves
+ * `pairs` (`ose.links.planRewrite`, H5): `[{from, to, insert}]`, UTF-16 offsets into `text`.
+ * `opts.settled` is the kernel's second pass. Resolves null on a kernel that has no planner, so
+ * the caller can hand the file back to the disk path.
+ */
+export async function planRewrite(text, path, pairs, opts = {}) {
+  const fn = ose.links && ose.links.planRewrite;
+  if (typeof fn !== 'function') return null;
+  const out = await fn(text, path, pairs, opts);
+  return Array.isArray(out) ? out : [];
+}
 export const rewriteInbound = (from, to) => ose.links.rewriteMoved([[from, to]]);
 
-/** `path/to/a-page.md` -> `a-page`. The backlinks box labels a row with it. */
-export const titleOf = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop().replace(/\.md$/i, '');
+/**
+ * `path/to/a-page.md` -> `a-page.md`: the file's name as every surface shows it (W8, M20),
+ * through `ose.names.display`, which strips `.md` only when `hideMdExt` is on. The backlinks
+ * box labels a row with it.
+ */
+export const titleOf = (p) => {
+  const base = String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop();
+  try {
+    const fn = ose.names && ose.names.display;
+    if (typeof fn === 'function') return fn(p) || base;
+  } catch { /* the base name */ }
+  return base;
+};
 
 /**
  * The window is about to go — closed, reloaded, or switched to another vault — and `fn` is
@@ -105,6 +130,12 @@ export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
 
 /** `spellcheck` on the body, on by default (S36). */
 export const spellcheckOn = () => ose.settings.get().spellcheck !== false;
+
+/**
+ * `titleSync` (wave 2, M13): a page still named `Untitled` takes its H1 as its file name when
+ * the title is left. Off by default: a file has one name, and it is the one on disk.
+ */
+export const titleSyncOn = () => ose.settings.get().titleSync === true;
 
 /** One line for the trash confirmation, so it says where the file is going (S37). */
 export const trashDestination = () =>

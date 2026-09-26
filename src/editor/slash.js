@@ -208,12 +208,12 @@ const GROUPS = [
     ],
   },
   {
-    key: 'os', label: 'os', items: [
+    key: 'planner', label: 'planner', items: [
       { key: 'month', label: 'Month', icon: I.month, aliases: ['month'], cmd: 'view.month' },
       { key: 'week', label: 'Week', icon: I.week, aliases: ['week'], cmd: 'view.week' },
       { key: 'day', label: 'Day', icon: I.day, aliases: ['day'], cmd: 'view.day' },
       { key: 'journal', label: 'Journal', icon: I.journal, aliases: ['journal'], cmd: 'view.journal' },
-      { key: 'journal-new', label: 'New journal entry', icon: I.journalNew, aliases: ['entry'], cmd: 'journal.new' },
+      { key: 'journal-today', label: "Today's journal", icon: I.journalNew, aliases: ['journal', 'today', 'entry'], cmd: 'journal.today' },
     ],
   },
 ];

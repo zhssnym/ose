@@ -1,23 +1,29 @@
-// Where the app opens.
+// Where the app opens (H19).
 //
-// What is the shell's here is the *decision*. The kernel has no startup route and its empty
-// surface is still a hose — `ose.route.close()` draws it, and the tab strip leans on that to
-// close a tab. But the shell has a home of its own: the dashboard (shell/dashboard.js), the
-// first tab, one card per plugin, `app.home` in the palette.
+// The window comes back the way it was left: the same tabs, each with its own history, the
+// same one in front, scrolled where it was (`ose.session`, docs/KERNEL.md "Session restore").
+// That is on by default and one machine setting turns it off (`restoreSession`, Settings ›
+// Files). With nothing to restore — the first launch, the setting off, a session none of whose
+// tabs could be rebuilt — the window opens on Home (shell/dashboard.js).
 //
-// There is no `app.start`. A command that landed on the empty surface would land on a surface
-// with no tab in front of it, and "back to nothing" is not a thing the app offers: `app.home`
-// is where nothing-in-particular goes.
+// A tab whose file has gone since is still restored: it shows the router's miss box when it
+// is brought to the front, which is honest and costs nothing at boot. Only the tab in front is
+// mounted; the others are drawn when they are picked.
 
 import { ose } from 'ose:kernel';
 import { HOME } from './dashboard.js';
 
 /**
- * Where the boot ends: the home tab. The router was mounted with `start: false`, so the column
- * is blank until this runs and the kernel's empty surface never flashes under it. A plugin
- * that has already navigated somewhere keeps the window it asked for.
+ * Where the boot ends. The router was mounted with `start: false`, so the column is blank until
+ * this runs. Something that has already navigated somewhere keeps the window it asked for.
+ * @returns {Promise<void>}
  */
-export function startSurface() {
+export async function startSurface() {
   if (ose.route.current()) return;
-  void ose.route.navigate(HOME);
+  if (ose.settings.get().restoreSession !== false) {
+    let restored = false;
+    try { restored = await ose.session.restore(); } catch (e) { console.warn('[shell] session restore', e); }
+    if (restored) return;
+  }
+  await ose.route.navigate(HOME);
 }

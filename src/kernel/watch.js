@@ -3,10 +3,12 @@
 //   ose.watch(fn)             every change
 //   ose.watch(folders, fn)    only changes under those vault folders
 //
-// `fn({ changes: [{ kind, path, to? }], lost?, rescan? })`. `lost` is the host saying the vault
-// itself went away; `rescan` is the host saying it may have missed events (the OS watcher
-// overflowed, or restarted after an error) and the caller should re-read what it shows rather
-// than trust the list. One subscription to the bridge serves every caller; a subscriber that
+// `fn({ changes: [{ kind, path, to?, dir?, hidden? }], lost?, rescan? })`: every change the
+// host's one hide rule does not exclude (`.ose` and `.git` never reach here). `dir` and `hidden`
+// say what the path is, so a tree can patch one row instead of walking again (M16). `lost` is
+// the host saying the vault itself went away; `rescan` is the host saying it may have missed
+// events (the OS watcher overflowed, or restarted after an error) and the caller should re-read
+// what it shows rather than trust the list. One subscription to the bridge serves every caller; a subscriber that
 // throws is logged and the others still run.
 
 import { bridge } from './bridge/index.js';

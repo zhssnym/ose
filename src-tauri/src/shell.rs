@@ -1,14 +1,13 @@
 //! The two origins the app is drawn from, and what the window loads.
 //!
 //! - `ose` serves the kernel's embedded bundles (`dist-kernel/`, `frontendDist` in
-//!   tauri.conf.json): kernel.js, editor.js, ui.js, md.js and the two stylesheets. Read-only,
-//!   CORS open, never cached.
-//! - `app` serves the app itself. Anything under `/plugins/` is a file of
-//!   `<vault>/.ose/plugins` read from disk on every request; everything else is a file of the
-//!   shell, which travels inside the executable (`dist-kernel/shell/`, put there by
-//!   scripts/embed-shell.mjs) unless `--shell <dir>` names a folder to read it from instead.
+//!   tauri.conf.json): kernel.js, editor.js, planner.js, ui.js and the three
+//!   stylesheets. Read-only, CORS open, never cached.
+//! - `app` serves the app itself: the shell, which travels inside the executable
+//!   (`dist-kernel/shell/`, put there by scripts/embed-shell.mjs) unless `--shell <dir>` names
+//!   a folder to read it from instead. Nothing on this origin comes from the vault.
 //!   `index.html` is rewritten on the way out, so no file of the shell ever spells an origin:
-//!   the import map and the two stylesheet links are inserted by the host.
+//!   the import map and the three stylesheet links are inserted by the host.
 //!
 //! Tauri maps a custom scheme to `http://<scheme>.localhost/...` on Windows and to
 //! `<scheme>://localhost/...` on macOS and Linux; `origin()` is the one place that knows.
@@ -21,9 +20,6 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::{Manager as _, Runtime};
 
 use crate::{log_line, protocol, vault, AppState, Ctx};
-
-/// The `ose.api` this kernel implements (docs/PLUGINS.md).
-pub const API: u64 = 2;
 
 /// `--shell <dir>`, settled once at startup and read on every request.
 #[derive(Clone, Debug, Default)]
@@ -88,11 +84,7 @@ fn is_the_index_fallback(asset_mime: &str, wanted: &str) -> bool {
     asset_mime.starts_with("text/html") && !wanted.starts_with("text/html")
 }
 
-// ---- the `app` protocol: the shell and the vault's plugins -----------------
-
-/// `<app origin>/plugins/<id>/<file>` is `<vault>/.ose/plugins/<id>/<file>`, and nothing else
-/// on this origin comes from the vault.
-const PLUGINS: &str = "plugins/";
+// ---- the `app` protocol: the shell ----------------------------------------
 
 /// One file of the shell inside the executable: its bytes and the mime the embedder recorded.
 pub type Embedded = (Vec<u8>, String);
@@ -100,13 +92,11 @@ pub type Embedded = (Vec<u8>, String);
 /// Where a request to the `app` origin is answered from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
-    /// A file of `<vault>/.ose/plugins`, on disk.
-    Plugin(PathBuf),
     /// A file of the folder `--shell <dir>` names, on disk.
     Disk(PathBuf),
     /// A file of the shell inside the executable, by its name under `shell/`.
     Embedded(String),
-    /// A plain 404: no vault for a plugin, or a path that leaves its folder.
+    /// A plain 404: a path that leaves its folder.
     Nothing,
 }
 
@@ -115,20 +105,6 @@ pub enum Target {
 pub fn route(st: &AppState, path: &str) -> (String, Target) {
     let rel = path.trim_start_matches('/');
     let rel = if rel.is_empty() { "index.html".to_string() } else { rel.to_string() };
-
-    if let Some(name) = rel.strip_prefix(PLUGINS) {
-        if name.is_empty() {
-            return (rel, Target::Nothing);
-        }
-        // No vault, no plugins: the shell still loads and draws its own vault chooser.
-        let Some(root) = st.root() else { return (rel, Target::Nothing) };
-        let dir = root.join(".ose").join("plugins");
-        let target = match vault::resolve(&dir, name) {
-            Ok(full) => Target::Plugin(full),
-            Err(_) => Target::Nothing,
-        };
-        return (rel, target);
-    }
 
     match st.shell_options().dir {
         Some(dir) => {
@@ -169,13 +145,6 @@ pub fn serve_app(
 
     match target {
         Target::Nothing => plain(StatusCode::NOT_FOUND, "not found"),
-
-        // A plugin is the vault owner's own code, edited in place and reloaded with Ctrl+R, so
-        // the web view is told to ask every time rather than trust what it already has.
-        Target::Plugin(full) => match read(&full) {
-            Some(bytes) => file(bytes, mime, "no-cache", None),
-            None => plain(StatusCode::NOT_FOUND, "not found"),
-        },
 
         Target::Disk(full) => match read(&full) {
             Some(bytes) => shell_file(bytes, &rel, mime),
@@ -284,8 +253,8 @@ fn import_map_body() -> String {
         "{{\"imports\":{{\
 \"ose:kernel\":\"{k}/kernel.js\",\
 \"ose:editor\":\"{k}/editor.js\",\
-\"ose:ui\":\"{k}/ui.js\",\
-\"ose:md\":\"{k}/md.js\"\
+\"ose:planner\":\"{k}/planner.js\",\
+\"ose:ui\":\"{k}/ui.js\"\
 }}}}"
     )
 }
@@ -308,15 +277,16 @@ fn import_map_hash() -> String {
 ///
 /// 1. the import map goes in immediately after `<head>` — or at the very top of the document
 ///    when the file has no `<head>` — so every `import 'ose:kernel'` in the page resolves;
-/// 2. `<link data-ose="ui">` and `<link data-ose="editor">` are given the kernel origin's
-///    `ui.css` and `editor.css`, whatever href they carried.
+/// 2. `<link data-ose="ui">`, `<link data-ose="editor">` and `<link data-ose="planner">` are
+///    given the kernel origin's `ui.css`, `editor.css` and `planner.css`, whatever href they
+///    carried.
 ///
 /// The rewrite is textual on purpose: the shell is a folder of hand-written files, and an HTML
 /// parser that reformatted them would make what the author wrote and what the browser sees two
 /// different things.
 pub fn rewrite_index(html: &str) -> String {
     let mut out = insert_after_head(html, &import_map());
-    for (which, name) in [("ui", "ui.css"), ("editor", "editor.css")] {
+    for (which, name) in [("ui", "ui.css"), ("editor", "editor.css"), ("planner", "planner.css")] {
         out = rewrite_link(&out, which, &format!("{}/{}", kernel_origin(), name));
     }
     out
@@ -473,8 +443,9 @@ fn navigate(app: &tauri::AppHandle, window: &tauri::WebviewWindow, url: &str) {
 
 pub fn handle(ctx: &Ctx, cmd: &str, _args: &[Value]) -> Option<Result<Value, String>> {
     match cmd {
-        // Ctrl+R. Back to the shell's index.html: a fresh page, and therefore every plugin
-        // read from disk again. `reloadRice` is the name the 0.5.0 kernel calls it by.
+        // Reload window. Back to the shell's index.html: a fresh page, and with `--shell` every
+        // file of the shell read from disk again. `reloadRice` is the name the 0.5.0 kernel
+        // calls it by.
         "reloadRice" | "reloadShell" => Some(reload(ctx)),
         _ => None,
     }
@@ -610,38 +581,6 @@ mod tests {
     }
 
     #[test]
-    fn a_plugin_file_comes_from_the_vault_on_disk() {
-        let t = Tmp::new("plugins");
-        let day = t.0.join(".ose").join("plugins").join("day");
-        fs::create_dir_all(&day).unwrap();
-        fs::write(day.join("index.js"), "export function activate() {}\n").unwrap();
-
-        let st = state(Some(&t.0), None);
-        let r = serve_app(&st, &get("/plugins/day/index.js"), shell());
-        assert_eq!(r.status(), StatusCode::OK);
-        assert_eq!(body(&r), "export function activate() {}\n");
-        assert_eq!(header_of(&r, "content-type"), "text/javascript; charset=utf-8");
-        assert_eq!(header_of(&r, "cache-control"), "no-cache");
-
-        // A file that is not there, a folder, and a path that leaves the plugins folder.
-        for path in ["/plugins/day/nope.js", "/plugins/day", "/plugins/", "/plugins/../../secret.md"] {
-            assert_eq!(serve_app(&st, &get(path), shell()).status(), StatusCode::NOT_FOUND, "{path}");
-        }
-        // The index is still the shell's, not the vault's.
-        assert!(body(&serve_app(&st, &get("/index.html"), shell())).contains("importmap"));
-    }
-
-    #[test]
-    fn with_no_vault_plugins_are_404_and_the_shell_still_loads() {
-        let st = state(None, None);
-        assert_eq!(
-            serve_app(&st, &get("/plugins/day/index.js"), shell()).status(),
-            StatusCode::NOT_FOUND
-        );
-        assert_eq!(serve_app(&st, &get("/index.html"), shell()).status(), StatusCode::OK);
-    }
-
-    #[test]
     fn shell_from_a_folder_on_disk_replaces_the_embedded_copy() {
         let t = Tmp::new("shell");
         fs::write(t.0.join("index.html"), INDEX).unwrap();
@@ -657,20 +596,6 @@ mod tests {
         assert_eq!(serve_app(&st, &get("/../secret.md"), shell()).status(), StatusCode::NOT_FOUND);
     }
 
-    /// `--shell` says where the shell is; it never says where the plugins are.
-    #[test]
-    fn plugins_still_come_from_the_vault_while_the_shell_is_a_folder() {
-        let vault_dir = Tmp::new("vault");
-        let shell_dir = Tmp::new("shell-only");
-        let week = vault_dir.0.join(".ose").join("plugins").join("week");
-        fs::create_dir_all(&week).unwrap();
-        fs::write(week.join("index.js"), "// week\n").unwrap();
-        fs::write(shell_dir.0.join("index.html"), INDEX).unwrap();
-
-        let st = state(Some(&vault_dir.0), Some(&shell_dir.0));
-        assert_eq!(body(&serve_app(&st, &get("/plugins/week/index.js"), shell())), "// week\n");
-    }
-
     #[test]
     fn only_get_is_answered() {
         let st = state(None, None);
@@ -683,19 +608,6 @@ mod tests {
     }
 
     #[test]
-    fn a_percent_encoded_name_is_decoded_once() {
-        let t = Tmp::new("encoded");
-        let dir = t.0.join(".ose").join("plugins").join("maths");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("corrige exercices.js"), "// spaces\n").unwrap();
-        let st = state(Some(&t.0), None);
-        assert_eq!(
-            body(&serve_app(&st, &get("/plugins/maths/corrige%20exercices.js"), shell())),
-            "// spaces\n"
-        );
-    }
-
-    #[test]
     fn the_import_map_goes_after_head() {
         let html = "<!doctype html>\n<html>\n<head>\n<title>x</title>\n</head>\n<body></body>\n</html>\n";
         let out = rewrite_index(html);
@@ -704,7 +616,9 @@ mod tests {
         let title = out.find("<title>").unwrap();
         assert!(head < map && map < title, "the map sits between <head> and the first child");
         assert!(out.contains(&format!("{}/kernel.js", kernel_origin())));
-        assert!(out.contains("\"ose:md\""));
+        assert!(out.contains("\"ose:ui\""));
+        assert!(!out.contains("\"ose:md\""), "ose:md is gone (wave 2)");
+        assert!(out.contains(&format!("\"ose:planner\":\"{}/planner.js\"", kernel_origin())), "{out}");
         // Everything else is untouched, byte for byte.
         assert!(out.starts_with("<!doctype html>\n<html>\n<head>"));
         assert!(out.ends_with("</head>\n<body></body>\n</html>\n"));
@@ -738,6 +652,8 @@ mod tests {
         let k = kernel_origin();
         assert!(out.contains(&format!("data-ose=\"ui\" href=\"{k}/ui.css\"")), "{out}");
         assert!(out.contains(&format!("{k}/editor.css")), "{out}");
+        let planner = rewrite_index("<head><link data-ose=\"planner\" rel=\"stylesheet\" href=\"\"></head>");
+        assert!(planner.contains(&format!("href=\"{k}/planner.css\"")), "{planner}");
         // A link of the shell's own is left exactly as it was.
         assert!(out.contains("<link rel=\"stylesheet\" href=\"theme.css\">"), "{out}");
     }
@@ -799,8 +715,8 @@ mod tests {
     #[test]
     fn an_extension_is_the_last_one_of_the_last_segment() {
         assert_eq!(extension("index.html"), "html");
-        assert_eq!(extension("plugins/day/index.JS"), "js");
-        assert_eq!(extension("plugins/day/README"), "");
+        assert_eq!(extension("shell/sub/index.JS"), "js");
+        assert_eq!(extension("shell/sub/README"), "");
         assert_eq!(extension(".keep"), "");
         assert_eq!(extension("a.b/c"), "");
     }

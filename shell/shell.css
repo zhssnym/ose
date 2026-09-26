@@ -1,4 +1,6 @@
-/* os editor: the shell. Chrome, layout, overlays. Tokens only, no literal colours, and every
+/* Ose: the shell's frame, overlays, the vault chooser, the status bar, search, settings, Go to
+   file, and the empty and miss boxes. The tree is tree.css, the title bar, tabs and page column
+   places.css, the folder view folder.css. Tokens only, no literal colours, and every
    padding, margin and gap a step of the spacing scale (DESIGN.md "Space"); the few pixel
    numbers left are geometry (icon sizes, hit zones, the tree grid) and say so.
    Canonical components (.btn .input .row .chip .kbd .surface .section-label) come from base.css. */
@@ -25,283 +27,7 @@
   overflow: hidden;
 }
 
-/* ------------------------------------------------------------------ titlebar */
-
-.titlebar {
-  height: var(--titlebar-h);
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding-left: var(--sp-3);
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-}
-
-/* The logo (logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
-.tb-mark {
-  width: 1.125rem; height: 1.125rem; flex: none;
-  display: grid; place-items: center;
-  border-radius: var(--radius); overflow: hidden;
-}
-.tb-mark img { width: 100%; height: 100%; display: block; }
-
-.tb-crumbs {
-  display: flex; align-items: center; gap: var(--sp-1);
-  margin-left: var(--sp-3); min-width: 0;
-  font-size: var(--fs-chrome); color: var(--fg-2);
-  white-space: nowrap; overflow: hidden;
-}
-.tb-crumb {
-  height: 1.25rem; padding: 0 var(--sp-1); line-height: 1.25rem;
-  flex: 0 1 auto; min-width: 0; max-width: 20rem;
-  display: inline-block; overflow: hidden; text-overflow: ellipsis;
-  color: inherit; border-radius: var(--radius);
-  font: inherit; white-space: nowrap;
-  transition: background var(--t-fast), color var(--t-fast);
-}
-button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
-.tb-crumb.cur { color: var(--fg); flex: 0 1 auto; }
-.tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
-.tb-crumb.focus { color: var(--accent); }
-
-/* The sidebar's one control, in the title bar's left corner and in the same spot whether the
-   sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
-   inside the padding the bar already had, where the sidebar begins. Only the glyph turns —
-   pointing left at an open sidebar, right at a folded one. */
-.tb-fold {
-  width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
-  display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tb-fold:hover { background: var(--bg-3); color: var(--fg); }
-.tb-fold svg {
-  width: 0.75rem; height: 0.75rem;
-  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
-  transform: rotate(180deg); transition: transform var(--t-fast);
-}
-.shell.no-sidebar .tb-fold svg { transform: none; }
-
-.tb-dirty {
-  width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
-  border-radius: 50%; background: var(--accent);
-}
-
-.tb-drag { flex: 1; align-self: stretch; min-width: 1rem; }
-
-.tb-win { display: flex; align-self: stretch; margin-left: auto; flex: none; }
-.tb-btn {
-  width: 2.875rem; align-self: stretch;
-  display: grid; place-items: center;
-  color: var(--fg-2);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tb-btn:hover { background: var(--bg-3); color: var(--fg); }
-.tb-btn.close:hover { background: var(--err); color: var(--accent-fg); }
-.tb-win.dim .tb-btn { opacity: .4; pointer-events: none; }
-
-/* macOS: the window keeps its decorations with an overlay title bar, so the native traffic
-   lights sit on top of ours. Leave them 78px and drop our buttons; the strip still drags. */
-html.mac .titlebar { padding-left: 78px; }
-html.mac .tb-win { display: none; }
-
-.glyph {
-  width: 0.625rem; height: 0.625rem;
-  stroke: currentColor; fill: none; stroke-width: 1;
-  shape-rendering: crispEdges;
-}
-
-/* ------------------------------------------------------------------ sidebar */
-
-.sidebar {
-  width: var(--sidebar-w); flex: none;
-  display: flex; flex-direction: column;
-  background: var(--bg-2);
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
-.shell.no-sidebar .sidebar, .shell.no-sidebar .rs-sidebar { display: none; }
-
-.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
-.sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
-
-
-/* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
-   optional mono tail. A folder and a page at the same depth put their text at the same x.
-   The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 + 1rem + --sp-1 +
-   0.875rem + --sp-1 = 3rem at 100 %, and each depth steps in by one glyph width. Those two
-   widths are geometry, not spacing, and stay as numbers — in rem, so the whole row follows
-   the zoom; change one and --tree-inset in tokens.css moves with it. */
-.sb-row {
-  width: 100%; text-align: left; cursor: default;
-  display: grid;
-  grid-template-columns: 1rem 0.875rem minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--sp-1);
-  padding-left: calc(var(--sp-2) + var(--d, 0) * 0.875rem);
-  padding-right: var(--sp-2);
-}
-.sb-row .tw { width: 1rem; height: 1rem; display: grid; place-items: center; }
-.sb-row .tw svg { width: 0.6875rem; height: 0.6875rem; color: var(--fg-3); transition: transform var(--t-fast); }
-.sb-row .tw.open svg { transform: rotate(90deg); }
-.sb-row .gl { width: 0.875rem; height: 0.875rem; display: grid; place-items: center; }
-/* The glyphs are the 16-unit icon set drawn at 0.875rem, which would thin their 1.5 stroke
-   to 1.31px on screen; 1.5 x 16 / 14 = 1.71 in the viewBox puts it back at 1.5 (E7). */
-.sb-row svg { width: 0.875rem; height: 0.875rem; stroke-width: 1.71; }
-.sb-row .grow { overflow: hidden; text-overflow: ellipsis; }
-/* A symlink or a junction: shown, because it is there, and greyed, because the app does not
-   walk into it. The `title` says so in words (S31). */
-.sb-row.link .gl, .sb-row.link .grow { color: var(--fg-3); }
-/* The parent folder of an ambiguous pin: right-aligned, mono, capped. `width: max-content`
-   is what stops the auto track from collapsing next to the 1fr name column. */
-.sb-row .par {
-  justify-self: end; width: max-content; max-width: 7.5rem;
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sb-row.dir { color: var(--fg); }
-.sb-row.file { color: var(--fg-2); }
-.sb-row.file:hover { color: var(--fg); }
-.sb-row.file.other .grow { color: var(--fg-3); }
-.sb-row.archive { color: var(--fg-3); }
-.sb-row.current { color: var(--fg); }
-.sb-view svg { color: var(--fg-3); }
-.sb-view.current svg { color: var(--accent); }
-.sb-row.current .gl svg { color: var(--accent); }
-/* Multi-select (C17): a selected row sits one surface up; the current page keeps its accent
-   over that, so the open page is never lost inside a selection. That one surface up is --bg-4,
-   the one ground --fg-3 does not clear 4.5:1 on (4.05 light / 4.00 dark — tokens.css says so),
-   so the dim spans on a selected row step up to --fg-2: 5.00 / 5.07 (QA F17). */
-.sb-row.selected { background: var(--bg-4); }
-.sb-row.selected.current { background: var(--accent-soft); }
-.sb-row.selected .par,
-.sb-row.selected.file.other .grow,
-.sb-row.selected.archive,
-.sb-row.selected.link .gl,
-.sb-row.selected.link .grow { color: var(--fg-2); }
-/* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
-   anything drawn outside it, which is where the base 2px offset would put it. */
-.sb-row:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
-/* Empty lines start where the name of a depth-0 row does (E9). One size for both, from `.empty`. */
-.sb-empty { padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--tree-inset); text-align: left; }
-
-/* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
-.sb-row[draggable="true"] { -webkit-user-drag: element; }
-.sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
-.sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
-
-/* focus mode: the `pages` label, replaced. One line, on the label's own baseline. */
-.sb-focus-label {
-  display: flex; align-items: baseline; gap: var(--sp-2);
-  padding-right: var(--sp-2);
-}
-.sb-focus-key { flex: none; color: var(--accent); }
-.sb-focus-path {
-  flex: 1; min-width: 0; color: var(--fg-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sb-focus-exit {
-  flex: none; align-self: center;
-  width: 1rem; height: 1rem; display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.sb-focus-exit svg { width: 0.6875rem; height: 0.6875rem; }
-.sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
-
-/* ------------------------------------------------------------------ main */
-
-/* The main column is the tab strip and the page column under it. The router clears `.main`
-   on every navigation, so the strip lives outside it. */
-.maincol { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
-/* `position: relative` is for the loading line below; nothing else in the column is absolute.
-   The gutter is held whether or not there is a scrollbar, so the page column does not step 6px
-   sideways between a short page and a long one, nor while a page grows past the window under
-   the caret (R4). */
-.main-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-.page-host { min-height: 100%; }
-/* The one "loading…" line the router prints while a page column takes longer than a blink
-   to mount (D9). It is the shared .empty, laid over the column where the title will be
-   rather than in the flow, so the page does not jump down and back when the editor lands. */
-.main-loading { position: absolute; left: 0; right: 0; top: var(--page-pad-top); padding: 0; pointer-events: none; }
-
-/* ------------------------------------------------------------------ tabs */
-
-/* One tab per open route (shell/tabs.js). Text only: no borders between tabs, no surface on
-   the active one, a 2px accent line under it and nothing else. The strip is the one taller
-   bar, the line the sidebar's fold chevron sits on, and it scrolls sideways rather than
-   wrapping — a second row of tabs is a second thing to read before you have read the first. */
-/* One tab is no strip: `[hidden]` has to beat the `display: flex` below, and the page column
-   takes the 44px back (shell/tabs.js). */
-.tabs[hidden] { display: none; }
-.tabs {
-  height: var(--barhead-h); flex: none;
-  display: flex; align-items: stretch;
-  padding: 0 var(--sp-2);
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto; overflow-y: hidden;
-  color: var(--fg-3);
-}
-/* The one scrollbar in the app that is not 12px: a 44px bar with a 12px scrollbar across it
-   has 32px left for the names. The wheel scrolls the strip and a tab scrolls itself into view
-   when it is opened, so nothing here needs to be dragged. */
-.tabs::-webkit-scrollbar { height: 0; }
-
-.tab {
-  flex: none; max-width: 14rem; min-width: 0;
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: 0 var(--sp-3);
-  color: var(--fg-3); white-space: nowrap;
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tab:hover { background: var(--bg-3); color: var(--fg-2); }
-/* The 2px bar is drawn inside the tab so it sits over the strip's own hairline instead of
-   pushing the row up by a pixel; the sidebar's drop target is drawn the same way. */
-.tab.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
-.tab:focus-visible { outline-offset: -2px; }
-.tab-name { overflow: hidden; text-overflow: ellipsis; }
-/* The same dot the title bar draws for an unsaved page, in the same place in the reading order. */
-.tab-dot { width: 0.375rem; height: 0.375rem; flex: none; border-radius: 50%; background: var(--accent); }
-.tab-x {
-  width: 1rem; height: 1rem; flex: none;
-  display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius); opacity: 0;
-  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
-}
-.tab-x svg { width: 0.5rem; height: 0.5rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
-/* Kept out of the way until the tab is wanted; it holds its box either way, so no label moves
-   when it appears. Delete on a focused tab closes without it.  */
-.tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
-.tab-x:hover { background: var(--bg-4); color: var(--fg); }
-
-/* ------------------------------------------------------------------ dashboard */
-
-/* The home tab (shell/dashboard.js): one card per plugin, in the page column, under the same
-   title as any other view. The same box every time — border, --bg-2, the hairline radius — no
-   icons, no counts, no colour. Two across the column, one under 40rem of it. */
-.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
-.dash.narrow .dash-grid { grid-template-columns: minmax(0, 1fr); }
-.dash-card {
-  display: grid; gap: var(--sp-2); align-content: start;
-  padding: var(--sp-4); text-align: left;
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
-  transition: background var(--t-fast), border-color var(--t-fast);
-}
-.dash-card:hover { background: var(--bg-3); border-color: var(--border-strong); }
-/* The title face is a view's title and nothing else (DESIGN.md "Four typefaces, strict roles").
-   A card name is the name of a thing in a list, so it wears the interface face (R16). */
-.dash-name { font-size: var(--fs-content); color: var(--fg); line-height: 1.2; }
-.dash-desc { font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2); }
-.dash-key { justify-self: start; }
-/* A plugin with no view of its own, and one that is disabled: a line under the grid, in
-   the chrome voice, not a card that opens nothing. */
-.dash-rest { display: flex; flex-direction: column; gap: var(--sp-1); }
-.dash-rest:not(:empty) { margin-top: var(--sp-5); }
-.dash-line { color: var(--fg-3); }
-.dash-line.err { color: var(--err); }
+/* ------------------------------------------------------------------ the empty and miss boxes */
 
 /* The empty surface (D7): a `recent` label, its rows, and one line of chords. The label sits
    at the top of the column, where the page air is its gap; the rows are pulled left by their
@@ -328,10 +54,7 @@ html.mac .tb-win { display: none; }
   display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
   padding-top: calc(var(--page-pad-top) + var(--sp-4)); text-align: center;
 }
-.miss-title {
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
-}
+.miss-title { font-size: var(--fs-ui); color: var(--fg-2); }
 .miss-path { color: var(--fg-2); max-width: 100%; word-break: break-all; }
 .miss-why {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
@@ -387,21 +110,6 @@ html.mac .tb-win { display: none; }
 .vault-pick .dlg-body { padding-bottom: var(--sp-2); }
 .vault-pick .vault-list { margin: 0 calc(-1 * var(--sp-3)); }
 
-/* ------------------------------------------------------------------ resizers */
-
-/* A 7px grab zone centred on the 1px border it drags: 3px either side. Geometry, not spacing. */
-.rs { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 5; cursor: col-resize; }
-.rs-sidebar { left: calc(var(--sidebar-w) - 3px); }
-.rs::after {
-  content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px;
-  background: transparent; transition: background var(--t-fast);
-}
-.rs:hover::after, .rs.on::after, .rs:focus-visible::after { background: var(--accent); }
-/* The separator is a tab stop (D6); the lit line is its focus ring, not an outline box. */
-.rs:focus-visible { outline: none; }
-body.resizing { cursor: col-resize; }
-body.resizing * { cursor: col-resize !important; }
-
 /* ------------------------------------------------------------------ statusbar */
 
 .statusbar {
@@ -410,79 +118,139 @@ body.resizing * { cursor: col-resize !important; }
   padding: 0 var(--sp-3);
   background: var(--bg-2);
   border-top: 1px solid var(--border);
+  font-size: var(--fs-chrome-sm);
   color: var(--fg-3);
 }
 .st-left { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-right { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
 .st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
-/* the `ctrl+, settings` hint: a shade up from the rest of the bar so it reads as a way in (E15) */
-.st-hint { color: var(--fg-2); }
 /* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
    bar's own colour and only warms up under the pointer (S4) */
 .st-zoom { color: var(--fg-2); }
 .st-zoom:hover { color: var(--fg); }
 
-/* ------------------------------------------------------------------ window edges */
+/* ------------------------------------------------------------------ search panel (M25) */
 
-/* 8px hit zones along the frameless window's edges; the number is a grab size, not spacing. */
-.edge { position: fixed; z-index: 300; }
-.edge-top { top: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
-.edge-bottom { bottom: 0; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
-.edge-left { left: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
-.edge-right { right: 0; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
-.edge-topleft { top: 0; left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-.edge-topright { top: 0; right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
-.edge-bottomleft { bottom: 0; left: 0; width: 8px; height: 8px; cursor: nesw-resize; }
-.edge-bottomright { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-html.maximized .edge { display: none; }
-
-/* search overlay (Ctrl+F). Hits group under their file the way palette rows group under a
-   section label: the name in mono with the label's own air above it, no rule (E5, E3). */
-.sr-file {
-  display: flex; align-items: baseline; gap: var(--sp-2);
-  padding: var(--sp-4) var(--sp-3) var(--sp-1);
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  overflow: hidden;
+/* Search lives in the side panel (layout.js `panel`): a field at the top, one quiet line of
+   counts, and the hits grouped under their file the way palette rows group under a section
+   label. The panel's own frame and title are the layout's; this is what is inside it. */
+.sp { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sp-field {
+  flex: none; display: flex; align-items: center; gap: var(--sp-2);
+  height: var(--ctl-h); margin: var(--sp-2) var(--sp-3); padding: 0 var(--sp-2);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color var(--t-fast);
 }
-.sr-file .g-name { color: var(--fg); flex: none; }
-.sr-file .g-dir { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sr-row { height: var(--row-h); cursor: default; padding-right: var(--sp-3); }
-.sr-row .grow {
+.sp-field:focus-within { border-color: var(--accent); }
+.sp-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
+/* the 16-unit icon at 0.875rem: geometry, like every glyph in the chrome */
+.sp-icon svg {
+  width: 0.875rem; height: 0.875rem;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.sp-input {
+  flex: 1; min-width: 0; height: 100%; padding: 0;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  background: none; border: 0; outline: none;
+}
+.sp-input::placeholder { color: var(--fg-3); }
+.sp-meta { flex: none; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.sp-meta:empty { display: none; }
+.sp-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--sp-3); }
+.sp-list .empty { padding: var(--sp-6) var(--sp-3); font-family: var(--font-ui); font-size: var(--fs-ui); }
+.sp-file {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+  font-size: var(--fs-ui); overflow: hidden;
+}
+.sp-name { flex: none; max-width: 70%; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-dir { font-size: var(--fs-chrome-sm); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-row { cursor: default; padding-right: var(--sp-3); }
+.sp-row .grow {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
   overflow: hidden; text-overflow: ellipsis;
 }
-.sr-row b { color: var(--accent-ink); font-weight: 700; }
-.sr-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
-.sr-row.active .grow { color: var(--fg); }
+.sp-row b { color: var(--accent-ink); font-weight: 700; }
+.sp-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.sp-row.active .grow { color: var(--fg); }
+.sp-row.active .hint { color: var(--fg-2); }
+/* A hit with no line is a file or folder whose *name* matched (N35). */
+.sp-what { font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg-3); }
+/* "Showing 100 of 412 files" under the last row: the answer saying it is not the whole answer. */
+.sp-list .sp-note { padding: var(--sp-3) var(--sp-3); text-align: left; }
 
-/* settings. Rows are grouped by whitespace, not by hairlines (E4): the rules in one dialog
-   read as a form; twelve pixels of air between rows read as a list. A row is the same grid as
-   a source row — name and control on one line, one sentence underneath — so the whole dialog
-   is one list of the same thing (DESIGN.md's settings pattern). */
-.set-body { padding: var(--sp-2) var(--sp-3) var(--sp-3); overflow-y: auto; }
+/* ------------------------------------------------------------------ settings (M26) */
+
+/* Settings is a page (settings.js): the section list on the left, one section's rows on the
+   right, in the page column's own air. The list is a vertical tab list; the current section
+   carries the same bar and ground as the current row in the tree. Under a narrow column the
+   list goes across the top. */
+.set-page { container-type: inline-size; }
+.set-wrap {
+  display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--sp-6);
+  max-width: calc(var(--page-w) + 11rem + var(--sp-6) + var(--page-pad-x) * 2);
+  margin: 0 auto;
+  padding: var(--page-pad-top) var(--page-pad-x) calc(2 * var(--page-pad-top));
+}
+.set-nav {
+  position: sticky; top: var(--sp-4); align-self: start;
+  display: flex; flex-direction: column; gap: var(--sp-half);
+  /* level with the section's title: its line box is the title face's */
+  padding-top: var(--sp-2);
+}
+.set-tab {
+  height: var(--row-h); padding: 0 var(--sp-3) 0 calc(var(--sp-3) - 2px);
+  display: flex; align-items: center;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg-2); text-align: left;
+  background: none; border: 0; border-left: 2px solid transparent; border-radius: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.set-tab:hover { background: var(--bg-3); color: var(--fg); }
+.set-tab.on { background: var(--accent-soft); border-left-color: var(--accent); color: var(--fg); }
+.set-tab:focus-visible { outline-offset: -2px; }
+.set-pane { min-width: 0; }
+@container (max-width: 40rem) {
+  .set-wrap { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .set-nav { position: static; flex-direction: row; flex-wrap: wrap; padding-top: 0; }
+  .set-tab { border-left: 0; border-bottom: 2px solid transparent; padding: 0 var(--sp-3); }
+  .set-tab.on { border-bottom-color: var(--accent); }
+}
+
+/* Rows are grouped by whitespace, not by hairlines (E4): name and control on one line, one
+   sentence underneath, so a section is one list of the same thing. */
 .set-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start; gap: var(--sp-1) var(--sp-3);
+  align-items: start; gap: var(--sp-1) var(--sp-4);
   padding: var(--sp-3) 0;
 }
+.set-row:first-child { padding-top: 0; }
 .set-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
 .set-ctl { grid-column: 2; grid-row: 1; justify-self: end; }
 .set-note {
   grid-column: 1; grid-row: 2; max-width: 64ch;
   font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
 }
+.set-note.err { color: var(--err); }
 .set-note code { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
-/* the folder chosen for attachments, in the same slot a source row shows its path */
-.set-attach-path {
-  grid-column: 1; grid-row: 3; margin-top: var(--sp-1);
-  color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* a third line under a row: the folder chosen for attachments, or what the trash really does */
+.set-extra {
+  grid-column: 1; grid-row: 3; margin-top: var(--sp-1); max-width: 64ch;
+  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2);
 }
+.set-attach-path { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-lead { margin: 0 0 var(--sp-4); max-width: 64ch; font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3); }
+/* A section another part of the app registered (the planner's): its own rows, in a box of
+   its own, with the same gutter every other section has. */
+.set-section { padding-bottom: var(--sp-3); }
+
 .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .seg-b {
   height: var(--ctl-h); padding: 0 var(--sp-3);
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+  font-family: var(--font-ui); font-size: var(--fs-chrome-sm);
   color: var(--fg-2); background: var(--bg);
   border-right: 1px solid var(--border);
+  white-space: nowrap;
   transition: background var(--t-fast), color var(--t-fast);
 }
 .seg-b:last-child { border-right: 0; }
@@ -491,106 +259,28 @@ html.maximized .edge { display: none; }
 /* The ring sits inside the button: `.seg` clips its own corners, so the base 2px offset put
    the outline under the seg's border and left a 1px sliver of it (R2). */
 .seg-b:focus-visible { outline-offset: -2px; }
-/* a declared path (docs/PLUGINS.md `ose.paths`): its label, one sentence about the shape
-   expected there, where it resolved, and the two controls. The heading above a list of them is
-   a plain .label: flush with the rows, its own top padding the gap. */
-.set-path {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start; gap: var(--sp-1) var(--sp-3);
-  padding: var(--sp-3) 0;
-}
-.set-path-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
-.set-path-act {
-  grid-column: 2; grid-row: 1 / span 3;
-  display: flex; gap: var(--sp-2); align-items: center; justify-content: flex-end;
-}
-.set-path-note {
-  grid-column: 1; grid-row: 2; max-width: 64ch;
-  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
-}
-.set-path-value {
-  grid-column: 1; grid-row: 3; margin-top: var(--sp-1);
-  display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0;
-  color: var(--fg-2);
-}
-.set-path-value span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* `missing` or `ambiguous`: nothing will draw until someone points at the right thing */
-.set-path-bad { font-style: normal; color: var(--err); letter-spacing: .06em; }
-/* the row is answered by another owner's choice: who gave it, and where to release it */
-.set-path-shared { flex: none; font-style: normal; color: var(--fg-3); }
-.set-path-shared::before { content: "· "; }
+
+/* The keys, read only: the kernel's table component, the chord in its key cap. */
+.set-keys td { font-size: var(--fs-ui); }
+.set-keys .kbd { white-space: nowrap; }
+.set-keys-keys { white-space: nowrap; }
+.set-keys-where { color: var(--fg-3); white-space: nowrap; }
 
 .set-info {
-  margin-top: var(--sp-4); padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
   color: var(--fg-2); line-height: 1.75;
 }
 .set-info > div { display: flex; gap: var(--sp-3); white-space: nowrap; overflow: hidden; }
-/* the key column: wide enough for `bridge`, the longest key. rem, so it zooms with the text. */
-.set-info > div > span {
-  width: 3rem; flex: none; color: var(--fg-3);
-  text-transform: uppercase; letter-spacing: .06em;
-}
+/* the key column: wide enough for `Version`, the longest key. rem, so it zooms with the text. */
+.set-info > div > span { width: 4.5rem; flex: none; color: var(--fg-3); }
 .set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
 /* the vault line carries `Change vault…`: the one control in the read-only block, kept small */
 .set-info .btn { margin-left: auto; flex: none; align-self: center; }
 
-/* ------------------------------------------------------------------ tight windows */
+/* ------------------------------------------------------------ Go to file rows */
 
-/* a short window gives up one --sp-5 of the page's top air */
-@media (max-height: 720px) {
-  .page-col { padding-top: calc(var(--page-pad-top) - var(--sp-5)); }
-}
-/* Navigation chrome added in batch 12 (package P7): the title bar's back and forward arrows,
-   quick open's two-line page rows, and the search overlay's cut-list note. It sits beside
-   shell.css rather than inside it only because shell.css has another owner this batch; it is
-   the same visual system and belongs in shell.css whenever the two are next in one hand.
-
-   Every value is a token (DESIGN.md): a bare pixel here would be a bug. */
-
-/* ------------------------------------------------------- title bar: back, forward */
-
-/* Two icon buttons between the app mark and the breadcrumb, the height of the bar so they
-   read as part of the chrome and not as a floating toolbar (N45, L23). Same hover as the
-   window buttons, same 120ms, same square corners. */
-.tb-nav {
-  display: flex;
-  align-self: stretch;
-  flex: none;
-  margin-left: var(--sp-3);
-}
-
-/* No cursor of its own: one policy for every control in the app, the arrow the body sets (R20). */
-.tb-nav-btn {
-  width: 1.625rem;
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  background: none;
-  border: 0;
-  color: var(--fg-2);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-
-.tb-nav-btn svg {
-  width: 0.875rem;
-  height: 0.875rem;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.tb-nav-btn:hover:not(:disabled) { background: var(--bg-3); color: var(--fg); }
-.tb-nav-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-
-/* Nowhere to go: half visible and inert, the app's one disabled treatment. */
-.tb-nav-btn:disabled { opacity: .35; cursor: default; }
-
-/* ------------------------------------------------------------ quick open rows */
-
-/* A page row carries what the page calls itself and, under it, where the file is (L26). The
+/* A file row in Go to file carries the file's name and, under it, the folder it is in. The
    row grows by exactly one mono line; the height token still sets the rhythm of the list. */
 .pal-row.pal-row-2 {
   height: auto;
@@ -621,52 +311,10 @@ html.maximized .edge { display: none; }
 /* The foot's Shift+Enter hint, shown only in quick open (N41). */
 .pal-create { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
-/* -------------------------------------------------------------- search results */
+/* ------------------------------------------------------------------ the shell's views */
 
-/* "showing 100 of 412 files" under the last row: the answer saying it is not the whole
-   answer (N34). One `.empty` line, so it is the same voice as every other note in a list. */
-.sr-note { padding: var(--sp-3) var(--sp-4); }
-
-/* A hit with no line is a file or folder whose *name* matched (N35). */
-.sr-name {
-  font-family: var(--font-mono);
-  font-size: var(--fs-chrome-sm);
-  color: var(--fg-3);
-  letter-spacing: .06em;
-}
-
-/* ------------------------------------- settings: what a plugin contributes */
-
-/* A plugin's section is drawn into an empty box under the stock rows; the rows inside it are
-   the plugin's own, so this only gives it the same gutter every other block has. */
-.set-section { padding-bottom: var(--sp-3); }
-
-/* One line per plugin: its name, what it says it does, and whether it is running. Its paths
-   follow it as .set-path rows, so a plugin reads as a heading and the things it needs. */
-.set-plug {
-  display: flex;
-  align-items: baseline;
-  gap: var(--sp-3);
-  min-width: 0;
-  padding: var(--sp-3) 0 0;
-  color: var(--fg-2);
-}
-.set-plug-name { flex: none; font-size: var(--fs-ui); color: var(--fg); }
-.set-plug .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.set-plug-state { flex: none; color: var(--fg-3); }
-.set-plug-state.err { color: var(--err); }
-/* why a plugin is disabled: its own line under the name, because the sentence is a stack
-   trace's first line and never fits beside anything */
-.set-plug-why { padding-top: var(--sp-1); color: var(--err); line-height: 1.5; }
-/* the two buttons under the list: reload every plugin from disk, open the folder */
-.set-plug-act { display: flex; gap: var(--sp-2); padding: var(--sp-3) 0; }
-
-
-/* --------------------------------------- the page column's view chrome */
-
-/* A view is a plugin drawing into the page column, and this is the column's own furniture:
-   the root a view mounts into, the title row with its period navigation, and a path that
-   navigates when it is clicked. The stock views use it; any plugin may. */
+/* Home, Settings and Trash are views: the root they mount into, and a path that navigates when
+   it is clicked. The planner keeps its own furniture (src/planner/planner.css). */
 
 /* The shell's .main-scroll is the scroller; a view must not open a second one. */
 .view-root { min-height: 100%; }
@@ -675,16 +323,8 @@ html.maximized .edge { display: none; }
    it, so it never wears a focus ring either, however focus reached it. */
 .page-title:not([contenteditable="true"]):focus-visible { outline: none; }
 
-/* title row with the previous / today / next group on the right, and the keys that drive it
-   said once, quietly, in front of the buttons (a plugin's navHtml) */
-.v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
-.v-nav { display: flex; align-items: center; flex: none; margin-top: var(--sp-2); }
-/* adjacent buttons share one border: the overlap is the border width, not spacing */
-.v-nav .btn + .btn { margin-left: -1px; }
-.v-keys { color: var(--fg-3); margin-right: var(--sp-3); white-space: nowrap; }
-
-/* a source path in .page-meta, or any path that navigates when clicked: a button that reads
-   as the text around it, so it is in the tab order and lights up on focus like any control */
+/* any path that navigates when clicked: a button that reads as the text around it, so it is in
+   the tab order and lights up on focus like any control */
 .v-link {
   display: inline; padding: 0; margin: 0; text-align: left;
   font: inherit; color: inherit; cursor: default;
@@ -692,6 +332,8 @@ html.maximized .edge { display: none; }
 }
 .v-link:hover { color: var(--accent-ink); }
 .v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+
+/* ------------------------------------------------------------------ statusbar fields */
 
 /* A status field that carries an `onClick` is a button; one that carries a `kind` says so in
    the one colour that kind owns. The separator between fields is the same dot the start

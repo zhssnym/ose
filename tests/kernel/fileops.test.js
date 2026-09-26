@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 //
 // ose.fileops (CONTRACT 4.5, C6, H12, H13): the one create, rename, move, trash and duplicate.
+// Wave 2 adds an `entry` (the undo journal, tests/kernel/journal.test.js) to every result.
 // What matters is the order: the page is asked first and a refusal touches nothing on disk; the
 // host call comes next; only after it succeeded is the router re-pointed, the page told, the bus
 // told and the links rewritten. A failed host call tells the page `ok:false` and rethrows.
@@ -170,7 +171,10 @@ describe('trash', () => {
     const h = host();
     unhost = setPageHost(h);
     const r = await trash(['b.txt']);
-    expect(r).toEqual({ trashed: ['b.txt'], failed: [] });
+    expect(r).toMatchObject({ trashed: ['b.txt'], failed: [] });
+    // Wave 2 (CONTRACT §4.7): where each item went, and the journal entry that undoes it.
+    expect(r.items).toEqual([{ path: 'b.txt', id: expect.any(String), where: 'system' }]);
+    expect(r.entry).toMatchObject({ verb: 'trash', undoable: true });
     const order = steps();
     expect(order.indexOf('beforePathChange')).toBeLessThan(order.indexOf('trash'));
     expect(order.indexOf('trash')).toBeLessThan(order.indexOf('afterPathChange'));
@@ -202,7 +206,7 @@ describe('trash', () => {
 
 describe('create', () => {
   it('a markdown file gets its title, anything else starts empty', async () => {
-    expect(await create('notes', 'Untitled.md')).toEqual({ path: 'notes/Untitled.md' });
+    expect(await create('notes', 'Untitled.md')).toMatchObject({ path: 'notes/Untitled.md' });
     expect(vault.files.get('notes/Untitled.md')).toBe('# Untitled\n');
     await create('', 'data.json');
     expect(vault.files.get('data.json')).toBe('');
@@ -216,14 +220,14 @@ describe('create', () => {
   });
 
   it('a name with folders in it makes the folders', async () => {
-    expect(await create('notes', 'a/b/c.ext')).toEqual({ path: 'notes/a/b/c.ext' });
+    expect(await create('notes', 'a/b/c.ext')).toMatchObject({ path: 'notes/a/b/c.ext' });
     expect(vault.dirs.has('notes/a/b')).toBe(true);
   });
 
   it('never overwrites: exists, or the next free name when unique', async () => {
     await expect(create('notes', 'a.md')).rejects.toMatchObject({ code: 'exists' });
     expect(vault.files.get('notes/a.md')).toBe('# a\n');
-    expect(await create('notes', 'a.md', { unique: true })).toEqual({ path: 'notes/a 2.md' });
+    expect(await create('notes', 'a.md', { unique: true })).toMatchObject({ path: 'notes/a 2.md' });
     expect(vault.files.get('notes/a 2.md')).toBe('# a\n');
   });
 
@@ -237,7 +241,7 @@ describe('duplicate', () => {
   it('a byte copy beside the file, stem 2 with the extension kept, the page asked first', async () => {
     const h = host();
     unhost = setPageHost(h);
-    expect(await duplicate('script.py')).toEqual({ path: 'script 2.py' });
+    expect(await duplicate('script.py')).toMatchObject({ path: 'script 2.py' });
     expect(vault.files.get('script 2.py')).toBe('print(1)\n');
     expect(h.before).toEqual([{ kind: 'copy', from: 'script.py', to: 'script 2.py' }]);
     expect(steps().indexOf('beforePathChange')).toBeLessThan(steps().indexOf('copyFile'));

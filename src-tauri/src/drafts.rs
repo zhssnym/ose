@@ -36,13 +36,20 @@ fn is_draft_name(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The folder of one vault's drafts, under the app's data folder.
-fn vault_dir(data: &Path, root: &Path) -> PathBuf {
+/// The key of one vault on this machine: the hash of its normalised absolute root, lowercased
+/// where the filesystem folds case. The drafts and the per-machine local store (local.rs) are
+/// both filed under it.
+pub(crate) fn vault_key(root: &Path) -> String {
     let mut key = vault::normalize(root).to_string_lossy().replace('\\', "/");
     if cfg!(any(windows, target_os = "macos")) {
         key = key.to_lowercase();
     }
-    data.join("drafts").join(vault::hash(key.as_bytes()))
+    vault::hash(key.as_bytes())
+}
+
+/// The folder of one vault's drafts, under the app's data folder.
+fn vault_dir(data: &Path, root: &Path) -> PathBuf {
+    data.join("drafts").join(vault_key(root))
 }
 
 /// A vault path as drafts key it: forward slashes, no leading or trailing slash.

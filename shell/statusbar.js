@@ -1,21 +1,36 @@
-// Status bar. Left: every field `ose.status.all()` answers, in the bar's own order, joined by
-// ' · ' — the shell's five and then whatever a plugin set, each one a button when it carries
-// an `onClick` and coloured when it carries a `kind`.
-// Right: the zoom while it is not 100 %, the settings hint, the resolved theme, and which
-// kernel is answering.
+// Status bar. It says something only when there is something worth saying (M27).
+//
+// Left: the fields `ose.status.all()` answers, in the bar's own order, joined by ' · ' — the
+// page's Rich/Source switch, its word count, the focus chip, and a save state *when it is bad*
+// (not saved, changed on disk, deleted). A page that saved fine says nothing here: the tab's
+// dot is the whole story of an ordinary edit. Each field is a button when it carries an
+// `onClick` and coloured when it carries a `kind`.
+// Right: the zoom while it is not 100 %, and nothing else.
+//
+// What the bar no longer draws, on purpose: the file's path (the address bar has it), `watch
+// on`, the theme, the host kind and a settings hint. Those were facts about the machinery,
+// and the bar is for the page.
 import { ose } from 'ose:kernel';
 import { esc } from 'ose:ui';
-import { hostKind, isHost } from './host.js';
 import { zoomLabel } from './settings.js';
 
 const { bus, status, commands } = ose;
 
+// Fields that are set by someone and never drawn here. `path` is the editor's, for whoever
+// wants to read it; `watch` is what an older shell set, kept out in case anything still does.
+const NEVER = new Set(['path', 'watch']);
+
 let leftEl = null, rightEl = null;
-let sawFs = false;
-let watchTimer = null;
+
+/** A field worth a place in the bar. The save state only when it carries a kind (bad news). */
+function shown(s) {
+  if (!s.text || NEVER.has(s.key)) return false;
+  if (s.key === 'save') return !!s.kind;
+  return true;
+}
 
 function renderLeft() {
-  const all = status.all().filter((s) => s.text);
+  const all = status.all().filter(shown);
   leftEl.innerHTML = all.map((s) => {
     const cls = `st-item${s.kind ? ' ' + esc(s.kind) : ''}`;
     return s.onClick
@@ -30,61 +45,33 @@ function renderRight() {
   // anything, and one that says `110%` explains why the window looks different (S4). It is a
   // button, so clicking or tabbing to it and pressing Enter puts the app back to 100 %.
   const zoom = zoomLabel();
-  rightEl.innerHTML =
-    (zoom ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button><span class="st-sep"></span>` : '') +
-    `<span class="st-item st-hint">ctrl+, settings</span>` +
-    `<span class="st-sep"></span>` +
-    `<span class="st-item">${esc(ose.theme.resolved())}</span>` +
-    `<span class="st-sep"></span>` +
-    `<span class="st-item">${esc(hostKind())}</span>`;
+  rightEl.innerHTML = zoom
+    ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button>`
+    : '';
 }
 
+/**
+ * Draw the bar into `node` and keep it current. Called once by `layout.js`.
+ * @param {HTMLElement} node
+ */
 export function initStatusbar(node) {
   node.className = 'statusbar';
-  node.innerHTML = `<div class="st-left mono-sm"></div><div class="st-right mono-sm"></div>`;
+  node.innerHTML = `<div class="st-left"></div><div class="st-right"></div>`;
   leftEl = node.querySelector('.st-left');
   rightEl = node.querySelector('.st-right');
 
   status.watch(renderLeft);
-  // A field a plugin set with an `onClick` is a button, and this is where it is pressed.
+  // A field set with an `onClick` is a button, and this is where it is pressed.
   leftEl.addEventListener('click', (e) => {
     const b = e.target.closest('.st-click');
     if (!b) return;
     const item = status.all().find((s) => s.key === b.dataset.key);
     if (item && item.onClick) { try { item.onClick(); } catch (err) { console.error('[shell] status', err); } }
   });
-  bus.on('theme', renderRight);
   bus.on('settings', renderRight);
   rightEl.addEventListener('click', (e) => {
     if (e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
   });
   renderLeft();
   renderRight();
-
-  // 'watch on' the moment the first fs event lands.
-  bus.on('fs', () => {
-    if (sawFs) return;
-    sawFs = true;
-    clearTimeout(watchTimer);
-    status.set('watch', 'watch on');
-  });
-
-  if (isHost()) {
-    // The host starts its watcher before the first navigation; an idle vault is simply quiet.
-    status.set('watch', 'watch on');
-  } else {
-    // Dev: an idle vault emits nothing for minutes, so ask the stream directly instead of
-    // waiting for a change. If SSE is not available at all, say nothing rather than lie.
-    try {
-      const probe = new EventSource('/__bridge/events');
-      const done = (ok) => {
-        probe.onopen = probe.onerror = null;
-        probe.close();
-        if (ok && !sawFs) { sawFs = true; clearTimeout(watchTimer); status.set('watch', 'watch on'); }
-      };
-      probe.onopen = () => done(true);
-      probe.onerror = () => done(false);
-      watchTimer = setTimeout(() => done(false), 8000);
-    } catch { /* no EventSource: leave 'watch' unset */ }
-  }
 }

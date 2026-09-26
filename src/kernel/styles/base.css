@@ -1,5 +1,5 @@
 /* Ose: reset, scrollbars, and the canonical components from DESIGN.md.
-   The shell and the plugins use these classes; they do not redefine them. Every padding, margin
+   The shell and the built-in modules use these classes; they do not redefine them. Every padding, margin
    and gap is a step of the spacing scale in tokens.css (DESIGN.md "Space"); the geometry that is
    not spacing (a 16px icon, a 12px scrollbar, a 2px bar) is written as the number it is. */
 
@@ -47,10 +47,11 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 /* One section label (E3). `.section-label` is the component, with the horizontal inset a
    panel needs; `.label` is the same thing flush with the text around it, for a page column
    or a dialog body that already has an inset of its own. The top padding is the gap above a
-   section everywhere, so no view carries a margin of its own to space one. */
+   section everywhere, so no view carries a margin of its own to space one. Sentence case, as
+   every label in the app is (M27): the text is written the way it reads, never shouted. */
 .section-label, .label {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3);
+  color: var(--fg-3);
   padding: var(--sp-4) var(--sp-3) var(--sp-1);
 }
 .label { padding-left: 0; padding-right: 0; }
@@ -186,26 +187,6 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   text-align: center; padding: var(--sp-7) var(--sp-4);
 }
 
-/* `ose.paths`: the box a view is given when the file or folder it asked for is not there, or
-   when several things match the name (docs/PLUGINS.md). The kernel draws it, into the element
-   the view handed to `get(key, { el })`, so every plugin asks the same question the same way.
-   Everything in it is a real button and focus lands on Choose…. */
-.path-box {
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  width: 100%; max-width: 34rem; padding: var(--sp-4);
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
-  /* The view hands the box whatever element it was drawing into, which may be one cell of a
-     grid it laid out for something else. Spanning every column is ignored anywhere else and
-     keeps the box from collapsing to the width of its longest word where it is not. */
-  grid-column: 1 / -1;
-}
-.path-box-title { font-size: var(--fs-ui); color: var(--fg); }
-.path-box-hint, .path-box-what, .path-box-near { font-size: var(--fs-ui); color: var(--fg-2); }
-.path-box-what code { font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg); }
-.path-box-picks { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
-.path-box-pick { max-width: 100%; overflow: hidden; }
-.path-box-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
-
 /* page column shared by editor and views. The bottom air is twice the top air: room to
    scroll the last line up into the middle of the window. */
 .page-col {
@@ -270,7 +251,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 /* generic data table */
 .table { border-collapse: collapse; width: 100%; font-size: var(--fs-ui); }
 .table th, .table td { border: 1px solid var(--border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
-.table th { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); background: var(--bg-2); font-weight: 400; }
+.table th { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); background: var(--bg-2); font-weight: 400; }
 
 /* `choose` (ose:ui): one question, a short list of answers. Rows, like every other picker in
    the app, so Up and Down walk them and Enter takes the focused one. The dialog frame itself
@@ -358,7 +339,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
   padding: 0 var(--sp-3);
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-  text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2);
+  color: var(--fg-2);
 }
 .dlg-body { padding: var(--sp-4) var(--sp-3); overflow-y: auto; }
 .dlg-text { margin: 0 0 var(--sp-3); font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }

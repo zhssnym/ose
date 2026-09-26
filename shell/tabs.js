@@ -1,189 +1,121 @@
-// The tab strip: one tab per open route, above the page column.
+// The tab strip: one tab per open place, above the page column (M23).
 //
-// The kernel has one current route and a history stack, and it does not know the word "tab".
-// This file is the whole of it: a shell-side list of routes that follows `ose.route.on` — a
-// route that is not in the list joins it, a route that is becomes the active one — plus the
-// close, cycle and reopen commands. A tab's identity is the kernel's own route key
-// (`page:<path>`, `own:<path>`, `view:<name>`), so a page reached from the tree, from quick
-// open and from a link is one tab, not three.
+// The kernel owns the tabs (docs/KERNEL.md `ose.tabs`): each tab has its own back and forward
+// history, one tab is in front, and only its current entry is mounted in the column. This file
+// draws what `ose.tabs.on` says and nothing more — it keeps no list of its own — and registers
+// the tab commands. A page in a background tab keeps its editor alive, parked, so switching
+// back is instant and keeps the undo history (docs/KERNEL.md "How a page is left").
 //
 // The model is the editor's, not the browser's. An **ordinary** open — a click or Enter in the
-// tree, quick open, a link, back, forward, a plugin's own `route.navigate` — replaces what is
-// in the tab you are looking at. The strip never grows on its own, because a strip that does
-// is a strip nobody closes. A tab is made **on purpose**: middle click, Ctrl+Enter on a tree
-// row, Ctrl+click on a pinned row or a dashboard card, `tab.new` (Ctrl+T), Ctrl+Shift+T. One
-// tab is no strip at all — it appears at two and the page column takes the room back.
-//
-// There is no home tab. The dashboard is a route like any other: the one the app boots into,
-// the one `app.home` opens, and the one the last tab goes to rather than disappearing, so the
-// page column is never blank and the strip never empty.
-//
-// Tabs are not restored across restarts. A window that opens on yesterday's twelve tabs is a
-// window that owes you twelve decisions before you have made one.
+// tree, quick open, a link, back, forward — goes into the tab in front, into its history. A tab
+// is made **on purpose**: middle click or Ctrl+Enter on a row, Ctrl+click, `tab.new` (Ctrl+T),
+// Ctrl+Shift+T. One tab is no strip at all: it appears at two and the page column takes the
+// room back. Closing the last tab sends it Home rather than leaving the strip empty.
 
 import { ose } from 'ose:kernel';
-import { icon, esc } from 'ose:ui';
-import { clean, titleOf } from './paths.js';
-import { HOME, HOME_TITLE } from './dashboard.js';
+import { icon } from 'ose:ui';
+import { HOME } from './dashboard.js';
+import { clean, baseName, titleOf } from './paths.js';
 
-const { bus, store, commands, route } = ose;
-
-// How many closed tabs Ctrl+Shift+T walks back through. The kernel keeps its own stack for
-// `route.close()`; this one also holds the tabs closed while another one was in front.
-const MAX_CLOSED = 20;
+const { bus, commands } = ose;
 
 let strip = null;
-// The page column: the strip's `tabpanel`, so a reader can be told which tab names what is
-// on screen. The router owns everything inside it; only the two aria attributes are ours.
+// The page column: the strip's `tabpanel`, so a reader can be told which tab names what is on
+// screen. The router owns everything inside it; only the two aria attributes are ours.
 let panelEl = null;
-// [{ key, route }] in the order they are drawn. tabs[0] is always the home tab.
-let tabs = [];
-let activeKey = null;
-// The tab that was in front before this one: where a close goes back to.
-let prevKey = null;
-let closed = [];
-// Route keys whose page has unsaved changes, from the editor's own `doc:dirty`.
+// The last snapshot the kernel sent: `{ tabs: Tab[], active: id|null }`.
+let snap = { tabs: [], active: null };
+// Paths whose page has unsaved changes, from the editor's own `doc:dirty` / `doc:state`.
 const dirty = new Set();
-// Route keys whose page could not be written, or is gone from disk, from `doc:state` (H8):
-// `{ status, message }` for `not-saved`, `conflict` and `deleted`. A clean or dirty page has no
-// entry; the dot says dirty.
+// Paths whose page could not be written, or is gone from disk, from `doc:state` (H8):
+// `{ status, message }` for `not-saved`, `conflict` and `deleted`.
 const trouble = new Map();
-// Until the shell has navigated once, a null route is the boot, not a close.
-let armed = false;
-// Set by `openInNewTab` for the length of one navigation: the next route makes a tab of its
-// own instead of replacing what is in front. Nothing else in the file writes it.
-let pendingNew = false;
 // Where the keyboard goes once a tab closed with Delete has been drawn away: the place in the
-// strip that tab held. Set by the Delete key alone and spent by the next render, because
-// closing the active tab goes through the kernel and comes back a frame or two later (R22).
+// strip that tab held. Set by the Delete key and spent by the next draw.
 let refocusAt = -1;
 let refocusTimer = null;
 
-/* ------------------------------------------------------------------ routes */
+const api = ose.tabs;
+const keyOf = (r) => (!r ? '' : r.type === 'view' ? 'view:' + r.name : `${r.type}:${clean(r.path)}`);
+const isHome = (r) => keyOf(r) === keyOf(HOME);
 
-/** The kernel's own route key (src/kernel/router.js `routeKey`), spelled once here. */
-function keyOf(r) {
-  if (!r) return '';
-  if (r.type === 'page') return 'page:' + clean(r.path);
-  if (r.type === 'own') return 'own:' + clean(r.path);
-  return 'view:' + r.name;
-}
+/* ------------------------------------------------------------------ labels */
 
-/**
- * What the tab reopens with. A line, a column, a heading or a query says where *one* open
- * lands and is not part of the page (the router spends them on the way in); the tab is the
- * page. An owned route keeps every field it came with: those are the plugin's, not ours.
- */
-function keepRoute(r) {
-  if (r.type === 'page') return { type: 'page', path: clean(r.path) };
-  if (r.type === 'view') return { type: 'view', name: r.name };
-  const out = { ...r, path: clean(r.path) };
-  delete out.line; delete out.col; delete out.heading; delete out.query; delete out.selection;
-  return out;
-}
-
-/**
- * A tab's label is what the window title says for that route: a page's H1 (the editor
- * publishes it on `pageTitle`) or its stem, a view's title, an owned route's title as its
- * plugin registered it through `ose.route.index`.
- */
+/** What a tab says: the file's name, the folder's (the vault's at the root), the view's title. */
 function labelOf(r) {
   if (!r) return '';
   if (r.type === 'view') {
     const v = ose.views.get(r.name);
     return (v && v.title) || r.name;
   }
-  if (r.type === 'page') {
-    return pageTitles.get('page:' + clean(r.path)) || titleOf(r.path);
-  }
-  const own = ownTitles.get('own:' + clean(r.path));
-  if (own) return own;
-  const row = ose.route.indexed().find((x) => x.path === r.path);
-  return (row && row.title) || titleOf(r.path);
+  if (r.type === 'folder') return clean(r.path) ? baseName(r.path) : ((ose.vault && ose.vault.name) || 'Vault');
+  return titleOf(r.path) || baseName(r.path);
 }
 
-// What `ose.route.title(text)` (or a mount's `title`) said for an owned route, by route key,
-// off the kernel's `route:title` event; the index is the fallback for a route never mounted.
-const ownTitles = new Map();
-
-// The same thing for a page: its H1, by route key, kept as `pageTitle` announces it.
-// `ose.store`'s `pageTitle` holds one page — the open one — so reading it live named the
-// active tab and left every other one wearing its file stem, flipping back and forth as the
-// user cycled (QA-5 finding 1). A page cannot have a tab without having been opened, so this
-// map has an entry for every page tab by the time it is drawn. Capped, and oldest out first,
-// so a long session does not accumulate the titles of pages nothing points at any more.
-const MAX_TITLES = 200;
-const pageTitles = new Map();
-
-function rememberTitle(key, title) {
-  const text = String(title || '').trim();
-  if (!text) return false;
-  if (pageTitles.get(key) === text) return false;
-  pageTitles.delete(key);
-  pageTitles.set(key, text);
-  while (pageTitles.size > MAX_TITLES) pageTitles.delete(pageTitles.keys().next().value);
-  return true;
+/** The tooltip: the whole vault path of a file or a folder, the title of a view. */
+function tipOf(r) {
+  if (!r) return '';
+  if (r.type === 'view') return labelOf(r);
+  const p = clean(r.path);
+  return p || ((ose.vault && ose.vault.name) || 'Vault');
 }
-
-const isHome = (key) => key === keyOf(HOME);
-const indexOf = (key) => tabs.findIndex((t) => t.key === key);
 
 /**
- * Open a route in a tab of its own: the only way a tab is ever made. A route that already has
- * a tab is brought to the front instead of duplicated — two rows for one page is the thing a
- * key-per-tab strip exists to prevent.
+ * Open a route in a tab of its own: the one way a tab is made on purpose. A route that already
+ * has a tab brings that tab forward instead of a second one. Answers whether it is on screen.
+ * @param {object} route
+ * @returns {Promise<boolean>}
  */
 export function openInNewTab(route) {
   if (!route) return Promise.resolve(false);
-  pendingNew = true;
-  // A navigation the page on screen refused (C1) makes no tab, and the flag is spent here
-  // whatever the answer, so the next ordinary open replaces what is in front as usual.
-  return Promise.resolve(ose.route.navigate(route))
-    .then((shown) => shown !== false, () => false)
-    .finally(() => { pendingNew = false; });
+  return Promise.resolve(api.open(route))
+    .then((r) => !!r && r.shown !== false, (e) => { console.error('[shell] open tab', e); return false; });
 }
 
 /* ------------------------------------------------------------------- draw */
 
 function render() {
   if (!strip) return;
+  const tabs = snap.tabs || [];
   // One tab is not a strip: it says nothing the title bar does not, and it costs the page
-  // column 44px for the privilege. It comes back the moment there are two.
+  // column a bar for the privilege. It comes back the moment there are two.
   strip.hidden = tabs.length < 2;
   // The nodes are kept, not redrawn. A click on a tab while the page in front is dirty blurs
   // the editor on mousedown, the blur saves, and the save's `doc:state` draws the strip again
-  // before mouseup: a strip rebuilt from a string had by then thrown away the node the mouse
-  // went down on, and the browser sends no click for it. So each key keeps its element, only
-  // what changed is written, and a node is moved only when the order really changed.
+  // before mouseup: a node rebuilt in between would never get the click. So each tab id keeps
+  // its element, only what changed is written, and a node moves only when the order did.
   const have = new Map();
-  for (const el of tabEls()) have.set(el.dataset.key, el);
-  const wanted = new Set(tabs.map((t) => t.key));
-  for (const [key, el] of have) if (!wanted.has(key)) el.remove();
-  let activeId = '';
+  for (const el of tabEls()) have.set(el.dataset.id, el);
+  const wanted = new Set(tabs.map((t) => t.id));
+  for (const [id, el] of have) if (!wanted.has(id)) el.remove();
+  let activeDom = '';
   tabs.forEach((t, i) => {
-    const on = t.key === activeKey;
-    const id = 'tab-' + i;
-    if (on) activeId = id;
-    const bad = trouble.get(t.key);
+    const on = t.id === snap.active;
+    const domId = 'tab-' + t.id;
+    if (on) activeDom = domId;
+    const r = t.route;
+    const path = r && r.type === 'page' ? clean(r.path) : null;
+    const bad = path ? trouble.get(path) : null;
     const gone = !!bad && bad.status === 'deleted';
-    const label = labelOf(t.route) + (gone ? ' (deleted)' : '');
-    // Not saved, or changed on disk under an unsaved page: the error mark, and the tooltip is
-    // the editor's own sentence for it. A page deleted on disk says so in its label, and wears
-    // the mark only while it holds text that exists nowhere else.
-    const err = !!bad && (bad.status !== 'deleted' || dirty.has(t.key));
-    const tip = bad && bad.message ? `${label}: ${bad.message}` : label;
-    const mark = err ? 'err' : dirty.has(t.key) ? 'dot' : '';
-    let el = have.get(t.key);
+    const isDirty = !!path && dirty.has(path);
+    const label = labelOf(r) + (gone ? ' (deleted)' : '');
+    // Not saved, or changed on disk under an unsaved page: the error mark, with the editor's
+    // own sentence as the tooltip. A page deleted on disk says so in its label, and wears the
+    // mark only while it holds text that exists nowhere else.
+    const err = !!bad && (bad.status !== 'deleted' || isDirty);
+    const tip = bad && bad.message ? `${tipOf(r)}: ${bad.message}` : tipOf(r);
+    const mark = err ? 'err' : isDirty ? 'dot' : '';
+    let el = have.get(t.id);
     if (!el) {
       el = document.createElement('div');
       el.setAttribute('role', 'tab');
-      el.dataset.key = t.key;
-      el.innerHTML = `<span class="tab-name"></span>`
+      el.dataset.id = t.id;
+      el.innerHTML = '<span class="tab-name"></span>'
         + `<button type="button" class="tab-x" tabindex="-1" title="Close">${icon('close')}</button>`;
     }
     const cls = `tab${on ? ' on' : ''}${err ? ' err' : ''}`;
     if (el.className !== cls) el.className = cls;
-    if (el.id !== id) el.id = id;
+    if (el.id !== domId) el.id = domId;
     setAttr(el, 'aria-selected', on ? 'true' : 'false');
     setAttr(el, 'tabindex', on ? '0' : '-1');
     setAttr(el, 'title', tip);
@@ -202,41 +134,31 @@ function render() {
         el.insertBefore(m, name);
       }
     }
-    // In place already: left alone, so a node under the pointer is never taken out and put back.
     const at = strip.children[i];
     if (at !== el) strip.insertBefore(el, at || null);
   });
-  // Nothing is selected while a close is in flight: the strip keeps one tab stop all the same,
-  // so Tab never falls through a bar that is still on screen.
-  if (!activeId && strip.firstElementChild) strip.firstElementChild.tabIndex = 0;
-  // The page column is this strip's panel; say so, and say which tab names it. With the strip
-  // off screen there is no tab to name it, and a dangling `aria-labelledby` would point at one.
+  if (!activeDom && strip.firstElementChild) strip.firstElementChild.tabIndex = 0;
   if (panelEl) {
-    if (activeId && !strip.hidden) panelEl.setAttribute('aria-labelledby', activeId);
+    if (activeDom && !strip.hidden) panelEl.setAttribute('aria-labelledby', activeDom);
     else panelEl.removeAttribute('aria-labelledby');
   }
   const on = strip.querySelector('.tab.on');
   if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (refocusAt >= 0) {
     const rest = tabEls();
-    // One tab left is no strip, and there is nothing in it to stand on: the page takes the
-    // keyboard back, as it does after any other close.
     if (rest.length && !strip.hidden) focusTab(rest[Math.min(refocusAt, rest.length - 1)]);
-    else clearRefocus();
+    clearRefocus();
   }
 }
 
-/** An attribute written only when it differs: a render that changes nothing touches nothing. */
+/** An attribute written only when it differs: a draw that changes nothing touches nothing. */
 function setAttr(el, name, value) {
   if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
 }
 
-/** Delete on a focused tab: where the keyboard lands once the strip has been drawn again. */
 function refocusAfterClose(at) {
   refocusAt = at;
   clearTimeout(refocusTimer);
-  // Closing the *active* tab goes out to the kernel and comes back as a route event, so the
-  // strip is drawn more than once for one close. The window covers every draw of the one act.
   refocusTimer = setTimeout(clearRefocus, 300);
 }
 
@@ -246,179 +168,34 @@ function clearRefocus() {
   refocusTimer = null;
 }
 
-/* ------------------------------------------------------------------ the list */
+/* ------------------------------------------------------------------ acting */
 
-function onRoute(r) {
-  if (!r) { onEmptySurface(); return; }
-  armed = true;
-  const wanted = pendingNew;
-  pendingNew = false;
-  const key = keyOf(r);
-  const at = indexOf(key);
-  if (at >= 0) {
-    // Already open somewhere: that tab comes to the front, however the route was asked for.
-    tabs[at].route = keepRoute(r);
-  } else if (wanted || !tabs.length || indexOf(activeKey) < 0) {
-    // On purpose, or the first route of the session, or nothing in front to replace (a close
-    // has just dropped the tab that was): a tab of its own.
-    tabs.push({ key, route: keepRoute(r) });
-  } else {
-    // The ordinary case: this is what the tab in front now holds. The page it held is gone,
-    // so its dot goes with it; its remembered title does not, because the page may come back.
-    const me = indexOf(activeKey);
-    dirty.delete(tabs[me].key);
-    trouble.delete(tabs[me].key);
-    tabs[me] = { key, route: keepRoute(r) };
-    if (prevKey === activeKey) prevKey = null;
-    activeKey = key;
-    render();
-    return;
-  }
-  if (key !== activeKey) { prevKey = activeKey; activeKey = key; }
-  render();
+function activate(id) {
+  if (!id || id === snap.active) return;
+  void api.activate(id);
 }
 
 /**
- * The route went away: `route.close()`, which is what Ctrl+W and a trashed open page both
- * end at. The kernel has already put it on its own closed stack; the list drops the tab and
- * goes where a close goes. Called inside the `route` event, so the navigation happens before
- * the kernel has drawn its empty surface and nothing flashes.
+ * Close one tab. The kernel asks its page first: a page that cannot be saved refuses (C1, H8),
+ * the answer is false, its banner says why, and nothing on the strip changes.
+ * @returns {Promise<boolean>}
  */
-function onEmptySurface() {
-  if (!armed || !activeKey) return;
-  const key = activeKey;
-  remember(key);
-  // The last tab does not disappear: it goes home. Nothing in this shell lands on the kernel's
-  // empty surface (QA-5 finding 2), and with no home tab to fall back to this is what says so
-  // — the ordinary replace in `onRoute` puts the dashboard where the closed page was.
-  if (tabs.length <= 1) {
-    if (isHome(key)) return;
-    void ose.route.navigate(HOME);
-    return;
-  }
-  const next = neighbourOf(key);
-  drop(key);
-  activeKey = null;
-  render();
-  if (next) void ose.route.navigate(next.route, { force: true });
+async function closeTab(id) {
+  if (!id) return false;
+  let ok = false;
+  try { ok = (await api.close(id)) !== false; } catch (e) { console.error('[shell] close tab', e); ok = false; }
+  if (!ok) clearRefocus();
+  return ok;
 }
 
-/** Where closing `key` goes: the tab that was in front before it, else its neighbour, else home. */
-function neighbourOf(key) {
-  const at = indexOf(key);
-  const rest = tabs.filter((t) => t.key !== key);
-  if (!rest.length) return null;
-  const prev = prevKey && prevKey !== key ? rest.find((t) => t.key === prevKey) : null;
-  return prev || rest[Math.min(Math.max(0, at), rest.length - 1)];
+function step(delta) {
+  const tabs = snap.tabs || [];
+  if (tabs.length < 2) return;
+  const at = Math.max(0, tabs.findIndex((t) => t.id === snap.active));
+  activate(tabs[(at + delta + tabs.length) % tabs.length].id);
 }
 
-function remember(key) {
-  const t = tabs[indexOf(key)];
-  // The dashboard is one command away and is where a close lands anyway: it is not something
-  // Ctrl+Shift+T should spend a slot on.
-  if (!t || isHome(key)) return;
-  closed = [t.route, ...closed.filter((r) => keyOf(r) !== key)].slice(0, MAX_CLOSED);
-}
-
-function drop(key) {
-  const at = indexOf(key);
-  if (at < 0) return;
-  tabs.splice(at, 1);
-  dirty.delete(key);
-  trouble.delete(key);
-  if (prevKey === key) prevKey = null;
-}
-
-/**
- * Close one tab. The active one goes through the kernel — the editor's own `page.close` when
- * it is a page, which is `ose.route.close()` asking the page first — so the kernel's closed
- * stack is fed and `onEmptySurface` above does the rest. A page that cannot be saved refuses
- * (C1, H8): the answer is false, the page's banner says why, and the strip drops nothing. An
- * inactive tab is only a row in this list, with nothing mounted behind it, and goes here.
- * @returns {Promise<boolean>} whether the tab went
- */
-async function closeTab(key) {
-  if (indexOf(key) < 0) return false;
-  if (key !== activeKey) { remember(key); drop(key); render(); return true; }
-  const t = tabs[indexOf(key)];
-  const close = commands.get('page.close');
-  let answer;
-  try {
-    answer = t.route.type === 'page' && close && (!close.when || close.when())
-      ? await commands.run('page.close')
-      : await ose.route.close();
-  } catch (e) {
-    console.error('[shell] close tab', e);
-    answer = false;
-  }
-  if (answer === false) {
-    // Refused: the keyboard stays where it was, not on a tab that did not take this one's place.
-    clearRefocus();
-    return false;
-  }
-  return true;
-}
-
-/* ------------------------------------------------- what the tree does to a tab */
-
-const under = (p, folder) => p === folder || p.startsWith(folder + '/');
-
-/**
- * A page was renamed or moved: its tab follows it. Driven by the router's `route:repointed`
- * (docs/KERNEL.md `ose.route.repoint`), which every rename and move goes through, so the page
- * keeps one tab instead of leaving a dead one behind at the old path, and is not reopened: it
- * followed its file. A folder move carries every tab under it.
- */
-export function moveTabs(from, to) {
-  const a = clean(from), b = clean(to);
-  let touched = false;
-  // The closed list follows too, so Ctrl+Shift+T brings a page back under the name it has now.
-  closed = closed.map((r) => (r.type === 'page' && under(clean(r.path), a) ? { ...r, path: b + clean(r.path).slice(a.length) } : r));
-  for (const t of tabs) {
-    if (t.route.type !== 'page' || !under(t.route.path, a)) continue;
-    const path = b + t.route.path.slice(a.length);
-    const key = 'page:' + path;
-    if (dirty.delete(t.key)) dirty.add(key);
-    const bad = trouble.get(t.key);
-    if (bad) { trouble.delete(t.key); trouble.set(key, bad); }
-    // The H1 did not change because the file name did: the tab keeps the label it had.
-    const title = pageTitles.get(t.key);
-    if (title) { pageTitles.delete(t.key); pageTitles.set(key, title); }
-    if (activeKey === t.key) activeKey = key;
-    if (prevKey === t.key) prevKey = key;
-    t.key = key;
-    t.route = { type: 'page', path };
-    touched = true;
-  }
-  // A move onto a path that already had a tab leaves two rows with one key: keep the first.
-  const seen = new Set();
-  tabs = tabs.filter((t) => (seen.has(t.key) ? false : (seen.add(t.key), true)));
-  if (touched) render();
-  return touched;
-}
-
-/**
- * A page (or a folder of them) was trashed: its tabs go, and if one of them was in front the
- * strip moves to where a close would have gone. Nothing is remembered — a trashed page is not
- * something Ctrl+Shift+T should bring back — and the editor is never asked to save it.
- */
-export function closeTabsUnder(path, { focus = true } = {}) {
-  const p = clean(path);
-  const hits = tabs.filter((t) => t.route.type === 'page' && under(t.route.path, p));
-  if (!hits.length) return false;
-  const wasActive = hits.some((t) => t.key === activeKey);
-  let next = wasActive ? neighbourOf(activeKey) : null;
-  // The last tab is not removed: the ordinary replace puts the dashboard in it below.
-  const last = wasActive && tabs.length === hits.length;
-  for (const t of hits) if (!last || t.key !== activeKey) drop(t.key);
-  if (!wasActive) { render(); return true; }
-  if (last) { void ose.route.navigate(HOME, { focus }); return true; }
-  if (!next || indexOf(next.key) < 0) next = tabs[0] || null;
-  activeKey = null;
-  render();
-  if (next) void ose.route.navigate(next.route, { focus });
-  return true;
-}
+const activeTab = () => (snap.tabs || []).find((t) => t.id === snap.active) || null;
 
 /* -------------------------------------------------------------- the keyboard */
 
@@ -431,20 +208,18 @@ function focusTab(el) {
   el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
-function step(delta) {
-  if (tabs.length < 2) return;
-  const at = Math.max(0, indexOf(activeKey));
-  const next = tabs[(at + delta + tabs.length) % tabs.length];
-  void ose.route.navigate(next.route);
-}
-
 function onKey(e) {
   const el = e.target.closest && e.target.closest('.tab');
   if (!el) return;
   const list = tabEls();
   const at = list.indexOf(el);
   const k = e.key;
-  if (k === 'ArrowRight' || k === 'ArrowLeft') {
+  if ((k === 'ArrowRight' || k === 'ArrowLeft') && e.ctrlKey && e.shiftKey) {
+    // Ctrl+Shift+Arrow carries the tab along the strip: the keyboard's drag.
+    e.preventDefault();
+    const to = Math.max(0, Math.min(list.length - 1, at + (k === 'ArrowRight' ? 1 : -1)));
+    if (to !== at) { api.move(el.dataset.id, to); requestAnimationFrame(() => focusTab(strip.querySelector(`.tab[data-id="${CSS.escape(el.dataset.id)}"]`))); }
+  } else if (k === 'ArrowRight' || k === 'ArrowLeft') {
     const next = list[(at + (k === 'ArrowRight' ? 1 : -1) + list.length) % list.length];
     e.preventDefault();
     focusTab(next);
@@ -453,140 +228,127 @@ function onKey(e) {
     focusTab(k === 'Home' ? list[0] : list[list.length - 1]);
   } else if (k === 'Enter' || k === ' ') {
     e.preventDefault();
-    const t = tabs[indexOf(el.dataset.key)];
-    if (t) void ose.route.navigate(t.route);
+    activate(el.dataset.id);
   } else if (k === 'Delete' || k === 'Backspace') {
     e.preventDefault();
-    // The strip keeps the keyboard: the tab that takes this one's place is focused when the
-    // list is drawn again, instead of the ring starting over from the title bar (R22).
     refocusAfterClose(at);
-    closeTab(el.dataset.key);
+    void closeTab(el.dataset.id);
   }
 }
 
 /* ------------------------------------------------------------------- mount */
 
+/**
+ * Build the strip into `node` and register the tab commands. `panel` is the page column, which
+ * the strip names as its tabpanel. Before `ose.init`, so the first tab event is heard.
+ * @param {HTMLElement} node
+ * @param {HTMLElement} [panel]
+ */
 export function initTabs(node, panel) {
   strip = node;
   panelEl = panel || null;
   strip.className = 'tabs mono';
   strip.setAttribute('role', 'tablist');
-  strip.setAttribute('aria-label', 'Open pages');
+  strip.setAttribute('aria-label', 'Open tabs');
   if (panelEl) panelEl.setAttribute('role', 'tabpanel');
 
   strip.addEventListener('click', (e) => {
     const el = e.target.closest('.tab');
     if (!el) return;
-    if (e.target.closest('.tab-x')) { closeTab(el.dataset.key); return; }
-    const t = tabs[indexOf(el.dataset.key)];
-    if (t && t.key !== activeKey) void ose.route.navigate(t.route);
+    if (e.target.closest('.tab-x')) { void closeTab(el.dataset.id); return; }
+    activate(el.dataset.id);
   });
   // Middle click closes, as it does in every browser and every editor.
+  strip.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.tab')) e.preventDefault(); });
   strip.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
     const el = e.target.closest('.tab');
     if (!el) return;
     e.preventDefault();
-    closeTab(el.dataset.key);
+    void closeTab(el.dataset.id);
   });
   strip.addEventListener('keydown', onKey);
 
-  bus.on('route', onRoute);
-  // A renamed H1 renames the tab, the same way it renames the window title (the editor
-  // publishes `pageTitle` on the mount and on every keystroke in the title strip). What it
-  // says is kept per page, not read live, so every tab keeps its H1 and not only the one in
-  // front (QA-5 finding 1).
-  store.watch('pageTitle', (v) => {
-    if (!v || !v.path) return;
-    if (rememberTitle('page:' + clean(v.path), v.title)) render();
-  });
-  bus.on('route:title', (d) => {
-    if (!d || !d.route || d.route.type !== 'own') return;
-    ownTitles.set('own:' + clean(d.route.path), String(d.title || ''));
+  api.on((d) => {
+    snap = { tabs: (d && d.tabs) || api.list(), active: d && d.active !== undefined ? d.active : (api.active() || {}).id || null };
     render();
   });
-  // The dot: the same two events the title bar reads, so one page is never dirty in one place
-  // and clean in the other.
+  snap = { tabs: api.list(), active: (api.active() || {}).id || null };
+
+  // The marks: the same events the title bar reads, so one page is never dirty in one place
+  // and clean in the other. By path, so a file open in two tabs is marked in both.
   bus.on('doc:dirty', (d) => {
     if (!d || !d.path) return;
-    const key = 'page:' + clean(d.path);
-    if (d.dirty) dirty.add(key); else dirty.delete(key);
+    if (d.dirty) dirty.add(clean(d.path)); else dirty.delete(clean(d.path));
     render();
   });
   bus.on('doc:saved', (d) => {
     if (!d || !d.path) return;
-    dirty.delete('page:' + clean(d.path));
+    dirty.delete(clean(d.path));
     render();
   });
-  // The save state, for every open page and not only the one in front (docs/SHELL.md "Save
-  // state on screen", H8): a page that could not be written, or was changed or deleted on disk
-  // under it, marks its tab until it is saved or put right.
   bus.on('doc:state', (d) => {
     if (!d || !d.path) return;
-    const key = 'page:' + clean(d.path);
+    const p = clean(d.path);
     if (d.status === 'not-saved' || d.status === 'conflict' || d.status === 'deleted') {
-      trouble.set(key, { status: d.status, message: d.message || '' });
+      trouble.set(p, { status: d.status, message: d.message || '' });
     } else {
-      trouble.delete(key);
+      trouble.delete(p);
     }
-    if (d.dirty) dirty.add(key); else dirty.delete(key);
+    if (d.dirty) dirty.add(p); else dirty.delete(p);
     render();
   });
-  // A rename or a move re-pointed the router without a remount (C6): the tabs follow it.
-  bus.on('route:repointed', (d) => {
-    const moves = d && Array.isArray(d.moves) ? d.moves : [];
-    for (const m of moves) if (m && m.from && m.to) moveTabs(m.from, m.to);
+  // A rename moves the marks with the page: the tab follows its file (the kernel re-points it).
+  bus.on('paths:moved', (d) => {
+    for (const m of (d && d.moves) || []) {
+      if (!m || !m.from || !m.to) continue;
+      const a = clean(m.from), b = clean(m.to);
+      const under = (p) => p === a || p.startsWith(a + '/');
+      for (const p of [...dirty]) if (under(p)) { dirty.delete(p); dirty.add(b + p.slice(a.length)); }
+      for (const [p, v] of [...trouble]) if (under(p)) { trouble.delete(p); trouble.set(b + p.slice(a.length), v); }
+    }
+    render();
   });
+  // Labels follow the settings (hideMdExt) and the views the planner registers after boot.
+  bus.on('settings', render);
+  bus.on('booted', render);
 
-  // Nothing is open yet and the strip stays off screen: the first navigation — the boot's own
-  // to the dashboard — makes the one tab it holds.
   render();
 
   commands.register({
     id: 'tab.close', title: 'Close tab', group: 'navigate',
-    hint: 'the page or view in front', shortcut: 'Mod+W',
-    // With one tab left on the dashboard there is nothing to close and the chord says so,
-    // rather than closing a tab into the state it is already in.
-    when: () => !!activeKey && (tabs.length > 1 || !isHome(activeKey)),
-    run: () => closeTab(activeKey),
+    hint: 'the tab in front', shortcut: 'Mod+W',
+    // One tab left, on Home: there is nothing to close, and the chord says so.
+    when: () => { const t = activeTab(); return !!t && ((snap.tabs || []).length > 1 || !isHome(t.route)); },
+    run: () => closeTab(snap.active),
   });
-  // The one command that makes an empty tab. It opens the dashboard, because a tab has to
-  // hold a route and the dashboard is the route that means "I have not picked yet".
+  commands.register({
+    id: 'tab.close-others', title: 'Close other tabs', group: 'navigate',
+    hint: 'every tab but the one in front',
+    when: () => (snap.tabs || []).length > 1,
+    run: () => (snap.active ? api.closeOthers(snap.active) : false),
+  });
+  // A new tab opens Home: a tab has to hold a place, and Home is the place that means "I have
+  // not picked yet".
   commands.register({
     id: 'tab.new', title: 'New tab', group: 'navigate',
-    hint: 'a second tab, on the dashboard', shortcut: 'Mod+T',
-    run: () => void openInNewTab(HOME),
+    hint: 'a new tab, on Home', shortcut: 'Mod+T',
+    run: () => api.open(HOME, { reuse: false }),
   });
   commands.register({
     id: 'tab.next', title: 'Next tab', group: 'navigate',
-    shortcut: 'Mod+Tab', when: () => tabs.length > 1,
+    shortcut: 'Mod+Tab', when: () => (snap.tabs || []).length > 1,
     run: () => step(1),
   });
   commands.register({
     id: 'tab.prev', title: 'Previous tab', group: 'navigate',
-    shortcut: 'Mod+Shift+Tab', when: () => tabs.length > 1,
+    shortcut: 'Mod+Shift+Tab', when: () => (snap.tabs || []).length > 1,
     run: () => step(-1),
-  });
-  // Ctrl+Shift+T. This list's own stack first — it holds the tabs closed while another one
-  // was in front, which the kernel never saw — and the kernel's `app.reopen-closed` behind it,
-  // so a page closed by anything but a tab still comes back.
-  commands.register({
-    id: 'tab.reopen', title: 'Reopen closed tab', group: 'navigate',
-    hint: 'the last tab closed', shortcut: 'Mod+Shift+T',
-    run: () => {
-      // Into a tab of its own: reopening is a deliberate act, and dropping the page back over
-      // whatever is in front would be a second close nobody asked for.
-      const r = closed.shift();
-      if (r) { void openInNewTab(r); return; }
-      commands.run('app.reopen-closed');
-    },
   });
   commands.register({
     id: 'tab.focus', title: 'Focus tabs', group: 'navigate',
     hint: 'arrows walk the strip, Enter opens, Delete closes',
+    when: () => !!strip && !strip.hidden,
     run: () => { const on = strip && (strip.querySelector('.tab.on') || strip.querySelector('.tab')); focusTab(on); },
   });
 }
-
-/** Whether a route has a tab: for a caller that wants to know before it acts. */
-export const hasTab = (r) => indexOf(keyOf(r)) >= 0;

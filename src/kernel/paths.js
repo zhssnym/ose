@@ -32,7 +32,3 @@ export const stripMd = (name) => String(name).replace(/\.md$/i, '');
 export const titleOf = (p) => stripMd(baseName(p));
 export const join = (...parts) => parts.map(clean).filter(Boolean).join('/');
 export const segments = (p) => clean(p).split('/').filter(Boolean);
-
-// Segments never shown in the tree or search. _Archive is shown, last.
-const HIDDEN = new Set(['.git', '.obsidian', '.claude', '.vscode', '.trash', 'node_modules', 'App', 'dist', 'dist-host', 'os.exe', 'os.pdb']);
-export const isHiddenName = (name) => !name || name.startsWith('.') || HIDDEN.has(name);

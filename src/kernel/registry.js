@@ -36,8 +36,8 @@ export const store = {
 const cmdMap = new Map();
 // Bumped on every register and unregister. `keys.js` reads it to know when to rebuild its
 // index, because a command's `shortcut` is a real binding (docs/KERNEL.md
-// `ose.commands.register`, docs/PLUGINS.md rule 4): registering the command arms the chord and
-// the unsubscribe takes it back. The counter is how that happens without the registry — the
+// `ose.commands.register`): registering the command arms the chord and the unsubscribe takes
+// it back. The counter is how that happens without the registry — the
 // one file in the kernel that imports nothing — importing the key engine.
 let cmdRev = 0;
 export const commandsRevision = () => cmdRev;
@@ -75,16 +75,14 @@ export const commands = {
 };
 
 /**
- * A name is one owner's for as long as it is registered: the first registration of a name wins,
- * the way `route.own` already settles a collision. A plugin registering a view called
- * `dashboard` or `day` used to take the home page or the Day view, and unloading that plugin
- * then deleted the name, so home landed on "view not registered" for the rest of the session.
- * The same owner re-registering its own name still replaces, which is what a reload needs.
+ * A name is one owner's for as long as it is registered: the first registration of a name wins.
+ * A second registration of a view called `home` or `day` used to take the home page or the Day
+ * view from whoever held it; now it keeps nothing and the console says so. The unsubscribe of
+ * the first registration frees the name again.
  */
-function takenBy(map, key, plugin, what) {
-  const held = map.get(key);
-  if (!held || held.plugin === plugin) return false;
-  console.warn(`[${what}] ${key} is already registered by ${held.plugin || 'the shell'}: ${plugin || 'the shell'} keeps none`);
+function taken(map, key, what) {
+  if (!map.has(key)) return false;
+  console.warn(`[${what}] ${key} is already registered: the second registration keeps nothing`);
   return true;
 }
 
@@ -92,49 +90,23 @@ const noop = () => {};
 
 const viewMap = new Map();
 export const views = {
-  // Answers an unsubscribe (docs/KERNEL.md), so a plugin's view goes with the rest of its
-  // registrations on unload.
+  /**
+   * `register(name, { title, mount(el, route), unmount?, refresh?, ...extra })`. Every extra
+   * field is kept as it was given (`section`, `order`, `icon`, …): the kernel reads none of
+   * them, and whoever draws a list of views does. Answers an unsubscribe.
+   */
   register(name, def) {
-    if (takenBy(viewMap, name, def && def.plugin, 'views')) return noop;
-    viewMap.set(name, { name, ...def });
-    return () => { if (viewMap.get(name) && viewMap.get(name).mount === def.mount) viewMap.delete(name); };
+    if (taken(viewMap, name, 'views')) return noop;
+    const entry = { name, ...def };
+    viewMap.set(name, entry);
+    return () => { if (viewMap.get(name) === entry) viewMap.delete(name); };
   },
   get: (name) => viewMap.get(name),
   list: () => [...viewMap.values()],
 };
 
-/**
- * Tiles (docs/KERNEL.md `ose.tiles`): a card a plugin contributes to whichever view asks for
- * tiles; the stock Day view does. `render(el)` is called once when the view mounts and may
- * answer `{ refresh?, unmount? }`; `refresh(id)` calls one tile's refresh, `refresh()` calls
- * every mounted one. The kernel holds the list and the live handles, and nothing else: which
- * view draws them, and where, is the shell's business.
- */
-const tileMap = new Map();
-const tileLive = new Map();   // id -> the handle render() answered, while it is on screen
-export const tiles = {
-  register(def) {
-    if (!def || !def.id || typeof def.render !== 'function') throw new Error('tiles.register: id and render required');
-    if (takenBy(tileMap, def.id, def.plugin, 'tiles')) return noop;
-    tileMap.set(def.id, { order: 100, title: def.id, ...def });
-    return () => { tiles.forget(def.id); tileMap.delete(def.id); };
-  },
-  get: (id) => tileMap.get(id),
-  list: () => [...tileMap.values()].sort((a, b) => (a.order - b.order) || String(a.id).localeCompare(String(b.id))),
-  /** The view calls this as it mounts a tile, so `refresh` can reach the handle later. */
-  mounted(id, handle) { if (handle) tileLive.set(id, handle); else tileLive.delete(id); },
-  forget(id) { const h = tileLive.get(id); tileLive.delete(id); if (h && typeof h.unmount === 'function') { try { h.unmount(); } catch (e) { console.error(`[tile:${id}]`, e); } } },
-  refresh(id) {
-    const ids = id === undefined ? [...tileLive.keys()] : [id];
-    for (const key of ids) {
-      const h = tileLive.get(key);
-      if (h && typeof h.refresh === 'function') { try { h.refresh(); } catch (e) { console.error(`[tile:${key}]`, e); } }
-    }
-  },
-};
-
 // `focus` is the kernel's own (./focus.js): while the app is narrowed to a folder, the bar says so.
-const STATUS_ORDER = ['mode', 'focus', 'path', 'doc', 'save', 'watch'];
+const STATUS_ORDER = ['mode', 'focus', 'doc', 'save'];
 const statusData = new Map();
 const statusWatchers = makeEmitter();
 export const status = {
@@ -153,9 +125,9 @@ export const status = {
   },
   clear(key) { status.set(key, null); },
   /**
-   * The bar's own order first, then every other field in the order it was first set. A plugin
-   * that calls `ose.status.set('nsi', …)` gets a field in the bar (docs/KERNEL.md), instead of
-   * one that is stored and never listed; the shell's five keep their fixed places on the left.
+   * The bar's own order first, then every other field in the order it was first set, so a
+   * built-in module's `ose.status.set('week', …)` is a field the bar draws, instead of one that
+   * is stored and never listed; the shell's four keep their fixed places on the left.
    */
   all: () => [
     ...STATUS_ORDER.filter(k => statusData.has(k)),

@@ -1,6 +1,8 @@
-// A page for a file nobody edits: a PDF, or an image.
+// A page for a file nobody edits: a PDF, an image, or any other file that is not text.
 //
-// `shell/page.js` branches on the extension and hands these two here. The shape is
+// `shell/page.js` branches on the extension and hands the first two here; a file whose first
+// bytes are not text (the host's sniff) gets `binaryPage`, a box that says what it is and
+// offers the ways out, because every file in the vault opens in the app (H17). The shape is
 // `markdownPage`'s, because the kernel's page host contract is one shape (docs/KERNEL.md
 // `ose.setPageHost`): a handle with `ready`, `close()`, `goToLine()` and `selection()`. The
 // last two answer "no" honestly — there is no line and no caret in a picture — and the router
@@ -28,7 +30,8 @@
 
 import { ose } from 'ose:kernel';
 import { icon, toast, esc } from 'ose:ui';
-import { baseName, extOf } from './paths.js';
+import { baseName, dirName, extOf } from './paths.js';
+import { typeLabel, sizeLabel, dateLabel } from './folder-model.js';
 
 /** The extensions this file claims. `page.js` asks; nothing else needs to know. */
 export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico']);
@@ -36,9 +39,8 @@ export const isImageFile = (p) => IMAGE_EXTS.has(extOf(p));
 export const isPdfFile = (p) => extOf(p) === 'pdf';
 export const isMediaFile = (p) => isPdfFile(p) || isImageFile(p);
 
-// docs/PLUGINS.md rule 3, and the same trick a plugin's style.css uses: the stylesheet is a
-// <link> this file adds, resolved against itself, so no line of the shell spells an origin. The
-// shell lives as long as the window, so it is added once and left.
+// The stylesheet is a <link> this file adds, resolved against itself, so no line of the shell
+// spells an origin. The shell lives as long as the window, so it is added once and left.
 let sheet = null;
 function addStyles() {
   if (sheet) return;
@@ -283,8 +285,8 @@ export function mediaPage(el, path) {
     root.focus({ preventScroll: true });
   });
 
-  // ---- the status bar: the path, and one line about the file. The editor's fields are its
-  // own and are already cleared by the close that preceded this mount.
+  // ---- the status bar: one line about the file. The editor's fields are its own and are
+  // already cleared by the close that preceded this mount. The path is the title bar's.
   function status(field, text) { try { ose.status.set(field, text); } catch { /* no bar */ } }
 
   let docTail = '';
@@ -292,7 +294,6 @@ export function mediaPage(el, path) {
     let size = 0;
     try { size = (await ose.files.stat(path)).size || 0; } catch { size = 0; }
     if (closed) return;
-    status('path', path);
     const tail = sizeText(size);
     docTail = tail;
     if (kind === 'pdf') {
@@ -371,7 +372,6 @@ export function mediaPage(el, path) {
       if (img) { img.removeAttribute('src'); img.remove(); img = null; }
       root.remove();
       el.classList.remove('media-host');
-      status('path', null);
       status('doc', null);
       return true;
     },
@@ -401,7 +401,6 @@ export function mediaMissingPage(el, path) {
   col.appendChild(box);
   mediaMiss(box, path);
   el.appendChild(col);
-  try { ose.status.set('path', path); } catch { /* no bar */ }
   return {
     path: () => path,
     kind: 'missing',
@@ -413,7 +412,92 @@ export function mediaMissingPage(el, path) {
     release() {},
     async close() {
       col.remove();
-      try { ose.status.set('path', null); } catch { /* no bar */ }
+      return true;
+    },
+    goToLine: () => false,
+    selection: () => null,
+  };
+}
+
+/**
+ * A file that is not text and that the app cannot draw: a spreadsheet, an archive, a font.
+ * It still opens in the app (H17) — as a box that says what it is (name, type, size, when it
+ * changed) and the three ways out: the platform's own app for it, its folder in the app, and
+ * its folder in the platform's file manager. Nothing reads its bytes. It answers the same
+ * handle as a media page.
+ *
+ * @param {HTMLElement} el   the router's `.page-host`
+ * @param {string} path      a vault path that exists and is not text
+ * @returns a page-host handle: { path, kind, ready, focus, close, goToLine, selection }
+ */
+export function binaryPage(el, path) {
+  addStyles();
+  let closed = false;
+  const name = baseName(path);
+  const col = document.createElement('div');
+  col.className = 'page-col binary-page';
+  col.tabIndex = -1;
+  col.innerHTML = `
+    <div class="binary-box">
+      <div class="binary-head">
+        <span class="binary-icon">${icon('file')}</span>
+        <span class="binary-name mono" title="${esc(path)}">${esc(name)}</span>
+      </div>
+      <dl class="binary-facts">
+        <dt>Type</dt><dd class="binary-type">${esc(typeLabel({ name, kind: 'file', ext: extOf(path) }))}</dd>
+        <dt>Size</dt><dd class="binary-size mono">…</dd>
+        <dt>Modified</dt><dd class="binary-date">…</dd>
+      </dl>
+      <p class="binary-why">This file is not text, so it is not shown here.</p>
+      <div class="binary-actions"></div>
+    </div>`;
+  const actions = col.querySelector('.binary-actions');
+  const button = (label, iconName, run, primary = false) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn' + (primary ? ' primary' : '');
+    b.innerHTML = `${icon(iconName)}<span>${esc(label)}</span>`;
+    b.addEventListener('click', () => {
+      try {
+        const out = run();
+        if (out && typeof out.catch === 'function') out.catch((err) => toast(err.message || String(err), 'err', 0));
+      } catch (err) { toast(err.message || String(err), 'err', 0); }
+    });
+    actions.appendChild(b);
+    return b;
+  };
+  const first = button('Open with default app', 'reveal', () => ose.files.open(path), true);
+  button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
+  button('Reveal in Explorer', 'reveal', () => ose.files.reveal(path));
+
+  el.appendChild(col);
+
+  const ready = (async () => {
+    let st = null;
+    try { st = await ose.files.stat(path); } catch { st = null; }
+    if (closed) return;
+    const size = col.querySelector('.binary-size');
+    const date = col.querySelector('.binary-date');
+    if (size) size.textContent = st ? sizeLabel(st.size || 0, 'file') || '0 bytes' : 'unknown';
+    if (date) date.textContent = st && st.mtime ? dateLabel(st.mtime) : 'unknown';
+    try { ose.status.set('doc', typeLabel({ name, kind: 'file', ext: extOf(path) })); } catch { /* no bar */ }
+  })();
+
+  return {
+    path: () => path,
+    kind: 'binary',
+    media: true,
+    get ready() { return ready; },
+    // The first way out takes the keyboard, so Enter on arrival opens it where it belongs.
+    focus: () => first.focus({ preventScroll: true }),
+    canLeave: async () => true,
+    stay() {},
+    release() {},
+    async close() {
+      if (closed) return true;
+      closed = true;
+      col.remove();
+      try { ose.status.set('doc', null); } catch { /* no bar */ }
       return true;
     },
     goToLine: () => false,

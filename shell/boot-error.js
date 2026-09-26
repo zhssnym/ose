@@ -69,8 +69,7 @@ export async function showBootError(err, { stage = 'Ose could not start.', ose =
     stage,
     message,
     stack,
-    `version: ${(ose && ose.version) || 'unknown'}`,
-    `api: ${(ose && ose.api) || 'unknown'}`,
+    `version: ${versionOf(ose)}`,
     `platform: ${(ose && ose.platform) || 'unknown'} · host: ${(ose && ose.host) || 'unknown'}`,
     `log: ${log || 'unknown'}`,
     `agent: ${navigator.userAgent}`,
@@ -90,6 +89,14 @@ export async function showBootError(err, { stage = 'Ose could not start.', ose =
       .catch(() => location.reload());
   });
   setTimeout(() => again.focus(), 0);
+}
+
+/** `1.2.0 (a1b2c3d)`, or `unknown` when the kernel did not load. */
+function versionOf(ose) {
+  const v = ose && ose.version;
+  if (!v) return 'unknown';
+  if (typeof v === 'string') return v;
+  return `${v.kernel || 'unknown'}${v.short ? ` (${v.short})` : ''}`;
 }
 
 /** One line for the error, whatever was thrown. */

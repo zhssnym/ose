@@ -1,30 +1,29 @@
-// The settings dialog (Ctrl+,). Small, flat, one dialog. The values themselves are the
-// kernel's (src/kernel/settings-core.js, docs/KERNEL.md `ose.settings`); this file draws them.
+// Settings, as a page (M26): the view `settings`, opened in a tab by Ctrl+, like any other
+// place in the app, with the sections listed on the left and the rows of one section on the
+// right. `route.arg` names the section to show (`{type:'view', name:'settings', arg:'planner'}`).
+//
+// The values are the kernel's (`ose.settings`, docs/KERNEL.md): it knows which key is kept per
+// machine and which one belongs to the vault, and it validates what it is handed. This file
+// only draws them, and draws the sections other parts of the app register through
+// `ose.settings.section()` — the planner's among them — each into a box of its own.
 import { ose } from 'ose:kernel';
-import { esc, openOverlay, pickFolder, toast } from 'ose:ui';
+import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault } from './vault.js';
 import { hostKind } from './host.js';
-import { byPluginOrder } from './order.js';
 
 const { bus, commands, store } = ose;
 
-// The values are the kernel's (`ose.settings`); the steps a person can pick between are the
-// dialog's, because they are what this dialog draws. The kernel validates against its own
-// copy, so a shell that offers a step the kernel does not know simply gets 100 %.
+// The steps a person can pick between are the page's, because they are what it draws. The
+// kernel validates against its own copy, so a step it does not know simply gets the default.
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
-const PAGE_FACES = [{ value: 'document', label: 'document' }, { value: 'plain', label: 'plain' }];
-const LAYOUTS = [{ value: 'scroll', label: 'scroll' }, { value: 'pages', label: 'pages' }];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
+const ON_OFF = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
 
 const settings = () => ose.settings.get();
 const save = (partial) => ose.settings.set(partial);
 const zoom = () => ose.settings.zoom();
 const setZoom = (pct) => ose.settings.setZoom(pct);
-const applySettings = () => ose.settings.apply();
-const onRepaint = (fn) => ose.settings.onRepaint(fn);
-const themePref = () => ose.theme.get();
-const setTheme = (next) => ose.theme.set(next);
 
 /** One step in or out, clamped at the ends rather than wrapping. */
 function stepZoom(dir) {
@@ -33,379 +32,280 @@ function stepZoom(dir) {
   setZoom(ZOOM_STEPS[next]);
 }
 
-/** `110%` while zoomed, null at 100: what the status bar draws (S4). */
+/**
+ * `110%` while zoomed, null at 100: what the status bar draws (S4).
+ * @returns {string|null}
+ */
 export const zoomLabel = () => (zoom() === 100 ? null : `${zoom()}%`);
 
-/** `system` (the recycle bin) or `vault` (`.trash` inside the vault). */
-const trashMode = () => (settings().trash === 'vault' ? 'vault' : 'system');
+/** What the system's bin is called here, in the words the platform uses. */
+const binName = () => (ose.platform === 'windows' ? 'Recycle Bin' : 'Trash');
 
-/** Where new pages are created: `focus`, `scratch`, `page` (S34). */
-function newPageMode() {
-  const m = settings().newPages;
-  return m === 'scratch' || m === 'page' ? m : 'focus';
-}
-
-let openOv = null;
+/* ------------------------------------------------------------------ controls */
 
 function seg(name, options, value) {
-  return `<div class="seg" data-seg="${name}">` + options.map((o) =>
-    `<button type="button" class="seg-b${String(o.value) === String(value) ? ' on' : ''}" data-v="${esc(o.value)}">${esc(o.label)}</button>`
+  return `<div class="seg" data-seg="${name}" role="group">` + options.map((o) =>
+    `<button type="button" class="seg-b${String(o.value) === String(value) ? ' on' : ''}" data-v="${esc(o.value)}" aria-pressed="${String(o.value) === String(value)}">${esc(o.label)}</button>`
   ).join('') + '</div>';
 }
 
-/* ------------------------------------------------------------------- paths */
-
-// One row per declared path (docs/PLUGINS.md `ose.paths`): its label, one sentence saying what
-// the thing must contain, where it resolved, and the two controls. The value is mono because
-// it is a path; `missing` and `ambiguous` are the danger colour, because a path that did not
-// resolve is a view that cannot draw until someone points at the right folder.
-//
-// A row's `candidates` (the near misses, which the kernel offers but never adopts) are not
-// drawn here: `ose.paths.of(owner)` has no call that saves a path it is handed, so a button
-// here could not do what it says. The box inside the view offers them, one click each.
-function pathRow(row) {
-  // A row is named like the rows around it. A plugin that gives no label is named by its key,
-  // which is a lowercase word (`scratch`, `calendar`) where every neighbour is a Sentence case
-  // name, so the row capitalises it rather than the plugin having to (R8). The label itself is
-  // left alone: `ose.paths` spends it mid-sentence too ("Choose the calendar file…").
-  const name = row.label || row.key;
-  // `sharedFrom`: the row is answered by another owner's choice. The calendar is one file and
-  // Day and Week both ask for it, so there is one answer and one place it was given. Nothing is
-  // saved under this owner, so a Reset here would have nothing to undo: the line says who chose
-  // it, and releasing it there releases this row too.
-  const shared = row.sharedFrom ? `chosen in ${ownerName(row.sharedFrom)} · reset it there` : '';
-  return `<div class="set-path" data-owner="${esc(row.owner)}" data-key="${esc(row.key)}">
-      <div class="set-path-name">${esc(name.charAt(0).toUpperCase() + name.slice(1))}</div>
-      <div class="set-path-act">
-        <button class="btn" data-act="choose">Choose…</button>
-        <button class="btn" data-act="reset"${row.saved && !row.sharedFrom ? '' : ' hidden'}>Reset</button>
-      </div>
-      <div class="set-path-note">${esc(row.hint || '')}</div>
-      <div class="set-path-value mono-sm">${row.status === 'ok'
-        ? `<span class="text-select" title="${esc(row.path)}">${esc(row.path)}</span>`
-        : `<i class="set-path-bad">${esc(row.status)}</i>`
-      }${shared ? `<i class="set-path-shared">${esc(shared)}</i>` : ''}</div>
-    </div>`;
-}
-
-/** The name a person knows an owner by: the plugin's, or the section the shell's own sits in. */
-function ownerName(owner) {
-  if (owner === 'app') return 'Files';
-  const p = ose.plugins.list().find((x) => x.id === owner);
-  return (p && p.name) || owner;
-}
-
-/** Every declared path of one owner, in the order it was declared. */
-const pathsOf = (owner) => {
-  try { return ose.paths.of(owner).list(); } catch (e) { console.warn('[shell] paths', owner, e); return []; }
-};
-
-/** Settings › Files: the shell's own path, where a new page lands (main.js declares it). */
-function paintFiles(box) {
-  const host = box.querySelector('.set-files');
-  if (!host) return;
-  host.innerHTML = pathsOf('app').map(pathRow).join('');
-}
-
-/* ----------------------------------------------------------------- plugins */
-
-/**
- * Every plugin of this vault, what it says it is, whether it is running, and the paths it
- * needs. A plugin that threw on import or in `activate` is disabled for the session and says
- * so here as well as in its toast, which is the one place a person can go and look afterwards.
- */
-function paintPlugins(box) {
-  const host = box.querySelector('.set-plugins');
-  if (!host) return;
-  // The same order as the sidebar and the home cards: a plugin sits where the view it opens
-  // sits (order.js), not where the loader happened to finish it (R8).
-  const list = ose.plugins.list().slice().sort(byPluginOrder);
-  if (!list.length) {
-    host.innerHTML = `<div class="set-note">No plugins. A plugin is a folder in .ose/plugins.</div>`;
-    return;
-  }
-  host.innerHTML = list.map((p) => `<div class="set-plug">
-        <span class="set-plug-name">${esc(p.name || p.id)}</span>
-        <span class="grow mono-sm">${esc(p.description || '')}</span>
-        <span class="set-plug-state mono-sm${p.state === 'active' ? '' : ' err'}">${esc(p.state)}</span>
-      </div>`
-    + (p.error ? `<div class="set-plug-why mono-sm">${esc(String(p.error))}</div>` : '')
-    + pathsOf(p.id).map(pathRow).join('')).join('');
-}
-
-/** Both path lists at once: one repaint, whichever of them a choice touched. */
-function paintPaths(box) {
-  paintFiles(box);
-  paintPlugins(box);
-}
-
-/** Choose… and Reset, for a row of either list. A cancelled picker changes nothing. */
-async function pathAction(owner, key, act, box) {
-  const scope = ose.paths.of(owner);
-  try {
-    if (act === 'reset') scope.reset(key);
-    else await scope.choose(key);
-  } catch (e) {
-    toast(String(e && e.message ? e.message : e), 'err');
-  }
-  paintPaths(box);
-}
-
-/** The plugins folder, for `Open plugins folder`: a vault with none gets one rather than an error. */
-async function revealPlugins() {
-  const dir = '.ose/plugins';
-  try {
-    if (!(await ose.files.exists(dir))) await ose.files.mkdir(dir);
-    await ose.files.reveal(dir);
-  } catch (e) {
-    toast(String(e && e.message ? e.message : e), 'err');
-  }
-}
-
-/* --------------------------------------------------------- what the plugins contribute */
-
-/**
- * A plugin's own section (`ose.settings.section`), drawn under the stock rows in the order the
- * kernel keeps them. The plugin is handed one empty box and draws into it; a section that
- * throws is one line saying so, never a dialog that fails to open: one bad plugin is one bad
- * row.
- */
-function paintSections(box) {
-  const host = box.querySelector('.set-sections');
-  if (!host) return;
-  host.textContent = '';
-  for (const sec of ose.settings.sections()) {
-    const label = document.createElement('div');
-    label.className = 'label';
-    label.textContent = sec.title || sec.id;
-    host.appendChild(label);
-    const body = document.createElement('div');
-    body.className = 'set-section';
-    host.appendChild(body);
-    try { sec.render(body); } catch (e) {
-      console.error('[shell] settings section', sec.id, e);
-      body.innerHTML = `<div class="set-note err">${esc(String(e.message || e))}</div>`;
-    }
-  }
-}
-
-/* ------------------------------------------------------------------ the dialog */
-
 /**
  * One settings row: the name, its control on the right, and one sentence underneath saying
- * what the choice does (DESIGN.md's settings pattern). Same grid as a path row, so the whole
- * dialog reads as one list.
+ * what the choice does (DESIGN.md's settings pattern). `note` and `extra` are HTML, written in
+ * this file: anything that comes from elsewhere is escaped before it gets here.
  */
-function row(label, control, note = '') {
+function row(label, control, note = '', extra = '') {
   return `<div class="set-row">
       <div class="set-name">${esc(label)}</div>
       <div class="set-ctl">${control}</div>
-      <div class="set-note">${esc(note)}</div>
+      <div class="set-note">${note}</div>${extra}
     </div>`;
 }
 
-function paintZoom(box) {
-  const el = box.querySelector('[data-seg="zoom"]');
-  if (!el) return;
-  const z = String(zoom());
-  el.querySelectorAll('.seg-b').forEach((n) => n.classList.toggle('on', n.dataset.v === z));
+const onOff = (v) => (v ? 'on' : 'off');
+
+/** What each segmented control stands for right now: the page re-reads it after every change. */
+function currentValues() {
+  const s = settings();
+  return {
+    theme: ose.theme.get() || 'system',
+    zoom: zoom(),
+    font: s.fontSize,
+    lh: s.lineHeight,
+    face: s.pageFace === 'plain' ? 'plain' : 'document',
+    layout: s.layout === 'pages' ? 'pages' : 'scroll',
+    full: onOff(s.readableWidth === false),
+    spell: onOff(s.spellcheck !== false),
+    titlesync: onOff(s.titleSync === true),
+    trash: s.trash === 'vault' ? 'vault' : 'system',
+    attach: s.attachments === 'beside' || s.attachments === undefined ? 'beside' : 'folder',
+    hidden: onOff(s.showHidden === true),
+    restore: onOff(s.restoreSession !== false),
+    mdext: onOff(s.hideMdExt === true),
+  };
 }
 
-/** The attachments row's second line: the folder, or nothing while it is `beside the page`. */
+/** A click on a segment, written through to the kernel. */
+function applySeg(group, v, box) {
+  if (group === 'theme') ose.theme.set(v);
+  else if (group === 'zoom') setZoom(+v);
+  else if (group === 'font') save({ fontSize: +v });
+  else if (group === 'lh') save({ lineHeight: +v });
+  else if (group === 'face') save({ pageFace: v });
+  else if (group === 'layout') save({ layout: v });
+  else if (group === 'full') save({ readableWidth: v !== 'on' });
+  else if (group === 'spell') save({ spellcheck: v === 'on' });
+  else if (group === 'titlesync') save({ titleSync: v === 'on' });
+  else if (group === 'trash') { save({ trash: v }); void paintTrashNote(box); }
+  else if (group === 'attach') void chooseAttachments(v, box);
+  else if (group === 'hidden') save({ showHidden: v === 'on' });
+  else if (group === 'restore') save({ restoreSession: v === 'on' });
+  else if (group === 'mdext') save({ hideMdExt: v === 'on' });
+}
+
+/** Every segmented control on the page, lit to match what the kernel now says. */
+function syncControls(box) {
+  if (!box) return;
+  const now = currentValues();
+  for (const el of box.querySelectorAll('.seg[data-seg]')) {
+    const v = now[el.dataset.seg];
+    if (v === undefined) continue;
+    el.querySelectorAll('.seg-b').forEach((b) => {
+      const on = b.dataset.v === String(v);
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+  paintAttachments(box);
+}
+
+/* ------------------------------------------------------------------ sections */
+
+function appearanceHtml() {
+  const v = currentValues();
+  return row('Theme',
+    seg('theme', [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], v.theme),
+    'System follows the light or dark setting of the computer, and changes when it does.')
+    + row('Zoom',
+      seg('zoom', ZOOM_STEPS.map((n) => ({ value: n, label: n + '%' })), v.zoom),
+      'The size of everything in the window. Ctrl+= and Ctrl+- step it, and Ctrl+0 goes back to '
+      + '100% everywhere except in a page, where Ctrl+0 is Paragraph.')
+    + row('Text size',
+      seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), v.font),
+      "The size of a page's own text. The chrome around it keeps its size.")
+    + row('Line height',
+      seg('lh', LINE_HEIGHTS.map((n) => ({ value: n, label: String(n) })), v.lh),
+      'How much air there is between the lines of a page.')
+    + row('Page face',
+      seg('face', [{ value: 'document', label: 'Document' }, { value: 'plain', label: 'Plain' }], v.face),
+      'The face a page is set in: the document serif, or the face the interface uses. Printing follows it.')
+    + row('Page layout',
+      seg('layout', [{ value: 'scroll', label: 'Scroll' }, { value: 'pages', label: 'Pages' }], v.layout),
+      'Scroll is one continuous column. Pages is the A4 sheet the page prints on, so every line breaks where it will on paper.')
+    + row('Full width',
+      seg('full', ON_OFF, v.full),
+      'Off, a page is a readable column in the middle of the window. On, it fills the window.');
+}
+
+function editorHtml() {
+  const v = currentValues();
+  return row('Spellcheck',
+    seg('spell', ON_OFF, v.spell),
+    "The web view's own checker, in the display language of the system. Shift+right-click a word for its suggestions.")
+    + row('Name new pages after their heading',
+      seg('titlesync', ON_OFF, v.titlesync),
+      'On, a new page still called Untitled takes the name of the first heading you type in it. '
+      + 'Off, a file keeps the name it was given until you rename it.');
+}
+
+function filesHtml() {
+  const v = currentValues();
+  const bin = binName();
+  return row('Deleted files go to',
+    seg('trash', [{ value: 'system', label: `The ${bin}` }, { value: 'vault', label: '.trash in this vault' }], v.trash),
+    `Nothing is deleted outright. The ${esc(bin)} is the system's own; .trash is a folder inside this vault. `
+    + 'Show trash lists both and restores from them.',
+    '<div class="set-extra set-trash-note" hidden></div>')
+    + row('Attachments go to',
+      seg('attach', [{ value: 'beside', label: 'Beside the page' }, { value: 'folder', label: 'A folder…' }], v.attach),
+      "A file dropped on a page is copied here, then linked. Beside the page means <code>attachments/</code> in the page's own folder.",
+      '<div class="set-extra set-attach-path mono-sm text-select" hidden></div>')
+    + row('Show hidden items',
+      seg('hidden', ON_OFF, v.hidden),
+      'Names that start with a dot, and files the system marks as hidden, greyed in the tree and in folders. .ose and .git are never listed.')
+    + row('Restore tabs at start',
+      seg('restore', ON_OFF, v.restore),
+      'On, the app opens with the tabs you left open. Off, it opens on Home.')
+    + row('Hide .md in names',
+      seg('mdext', ON_OFF, v.mdext),
+      'On, the .md at the end of a page\'s name is left out in the tree, the tabs and the title bar. The file keeps its name.');
+}
+
+/**
+ * The Keys section: every chord the app answers to, read only. The kernel's defaults
+ * (`ose.keys.defaults()`) with the shell's `keys.json` over them, the way the key engine
+ * resolves them. A chord used in a page's text belongs to the editor while the caret is there,
+ * and says so in the last column.
+ */
+async function keysHtml() {
+  let shellMap = {};
+  try {
+    const res = await fetch(new URL('./keys.json', import.meta.url), { cache: 'no-store' });
+    if (res.ok) shellMap = (await res.json()) || {};
+  } catch { shellMap = {}; }
+  const mac = document.documentElement.dataset.os === 'mac';
+  const win = new Map();
+  const body = [];
+  for (const k of ose.keys.defaults()) {
+    const combo = (mac && k.mac) || k.combo;
+    const entry = { combo, cmd: k.cmd };
+    if (/^(format|block|table)\./.test(k.cmd)) body.push(entry);
+    else win.set(combo, entry);
+  }
+  for (const [combo, cmd] of Object.entries(shellMap)) {
+    if (typeof cmd === 'string' && cmd) win.set(combo, { combo, cmd });
+  }
+  const title = (id) => { const c = commands.get(id); return (c && c.title) || id; };
+  // One row per action and place: Go to file answers to Ctrl+P and Ctrl+O, and says so once.
+  const byAct = new Map();
+  for (const [where, list] of [['Everywhere', [...win.values()]], ['In a page', body]]) {
+    for (const e of list) {
+      const key = where + '|' + e.cmd;
+      if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, combos: [] });
+      byAct.get(key).combos.push(e.combo);
+    }
+  }
+  const rows = [...byAct.values()];
+  rows.sort((a, b) => (a.where === b.where ? 0 : a.where === 'Everywhere' ? -1 : 1) || title(a.cmd).localeCompare(title(b.cmd)));
+  return `<p class="set-lead">Read only. These are the chords the app answers to on this computer.</p>
+    <table class="table set-keys">
+      <thead><tr><th scope="col">Action</th><th scope="col">Keys</th><th scope="col">Where</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td>${esc(title(r.cmd))}</td>
+        <td class="set-keys-keys">${r.combos.map((c) => `<span class="kbd">${esc(ose.keys.label(c))}</span>`).join(' ')}</td>
+        <td class="set-keys-where">${esc(r.where)}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function vaultHtml() {
+  const root = store.get('root') || {};
+  return `<div class="set-info mono-sm text-select">
+      <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
+      <div><span>From</span><i class="set-vault-src">—</i></div>
+      <div><span>Version</span><i>${esc(`${ose.version.kernel} · ${hostKind()} · ${ose.platform}`)}</i></div>
+      <div><span>Log</span><i class="set-log">—</i></div>
+    </div>`;
+}
+
+/** Where the root came from and where the log is, in the host's words; asked each time. */
+function paintVaultInfo(box) {
+  const src = box.querySelector('.set-vault-src');
+  const log = box.querySelector('.set-log');
+  if (!src) return;
+  ose.vault.info()
+    .then((v) => {
+      if (src.isConnected) src.textContent = v && v.source ? `${v.source}${v.remembered ? ', remembered' : ''}` : '—';
+      if (log && log.isConnected) { log.textContent = (v && v.logPath) || '—'; log.title = (v && v.logPath) || ''; }
+    })
+    .catch((e) => { if (src.isConnected) src.textContent = String(e.message || e); });
+}
+
+/** The attachments row's second line: the folder, or nothing while it is beside the page. */
 function paintAttachments(box) {
-  const s = settings().attachments;
-  const el = box.querySelector('.set-attach-path');
+  const el = box && box.querySelector('.set-attach-path');
   if (!el) return;
+  const s = settings().attachments;
   const custom = typeof s === 'string' && s !== 'beside';
   el.hidden = !custom;
   if (custom) {
-    el.textContent = s === '' ? 'the vault root' : s;
+    el.textContent = s === '' ? 'The vault root' : s;
     el.title = String(s);
   }
 }
 
-/** Ctrl+, is a toggle: a second press closes the dialog instead of stacking another one. */
-export function toggleSettings() {
-  if (openOv) { openOv.close(); return; }
-  void openSettings();
-}
-
-export async function openSettings() {
-  const s = settings();
-  // The rows need the width; the body scrolls when the window is short, so the dialog stays
-  // inside 1280x800 without clipping anything.
-  let unwatchPaths = null;
-  let unwatchTheme = null;
-  // The zoom chords change the value from outside the dialog; the kernel's settings core
-  // announces a write and the segmented control follows it (it used to reach in the other way,
-  // from the core into this file's DOM, which the kernel is not allowed to know about).
-  let offRepaint = null;
-  const ov = openOverlay({
-    width: 620, top: '10vh', className: 'set', title: 'Settings',
-    onClose: () => {
-      openOv = null;
-      offRepaint && offRepaint();
-      unwatchPaths && unwatchPaths();
-      unwatchTheme && unwatchTheme();
-    },
-  });
-  openOv = ov;
-  offRepaint = onRepaint(() => { if (openOv) paintZoom(openOv.box); });
-  const root = store.get('root') || {};
-
-  ov.box.innerHTML = `
-    <div class="dlg-head" id="set-title">Settings</div>
-    <div class="set-body">
-      <div class="label">theme</div>
-      ${row('Theme',
-        seg('theme', [{ value: 'light', label: 'light' }, { value: 'dark', label: 'dark' }, { value: 'system', label: 'system' }], themePref()),
-        'Light, dark, or whatever the system is set to.')}
-
-      <div class="label">reading</div>
-      ${row('Zoom',
-        seg('zoom', ZOOM_STEPS.map((n) => ({ value: n, label: n + '%' })), zoom()),
-        'The size of everything in the window. Ctrl+= and Ctrl+- step it, and Ctrl+0 goes back '
-        + 'to 100% everywhere except in a page, where Ctrl+0 is Paragraph.')}
-      ${row('Body text',
-        seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), s.fontSize),
-        "The size of a page's own text. The chrome around it keeps its size.")}
-      ${row('Line height',
-        seg('lh', LINE_HEIGHTS.map((n) => ({ value: n, label: String(n) })), s.lineHeight),
-        'How much air there is between the lines of a page.')}
-      ${row('Page face',
-        seg('face', PAGE_FACES, s.pageFace === 'plain' ? 'plain' : 'document'),
-        'The face a page is set in: the document serif, or the face the interface uses. Nothing else about a page changes, and printing follows it.')}
-      ${row('Layout',
-        seg('layout', LAYOUTS, s.layout === 'pages' ? 'pages' : 'scroll'),
-        'Scroll is one continuous column. Pages is the A4 sheet the page prints on, at the print size, so every line breaks where it will on paper, with a dashed rule where each sheet ends.')}
-      ${row('Readable width',
-        seg('width', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.readableWidth === false ? 'off' : 'on'),
-        'On, a page is a column in the middle of the window. Off, it fills it.')}
-
-      <div class="label">files</div>
-      ${row('New pages go to',
-        seg('newpages', [{ value: 'focus', label: 'focused folder' }, { value: 'scratch', label: 'scratch' }, { value: 'page', label: 'same folder' }], newPageMode()),
-        'Where Ctrl+N puts a page: the folder in focus, the scratch folder, or the folder of the page you are on.')}
-      <div class="set-row">
-        <div class="set-name">Attachments go to</div>
-        <div class="set-ctl">
-          ${seg('attach', [{ value: 'beside', label: 'beside the page' }, { value: 'folder', label: 'a folder…' }], s.attachments === 'beside' ? 'beside' : 'folder')}
-        </div>
-        <div class="set-note">A file dropped on a page is copied here, then linked. Beside the page means <code>attachments/</code> in the page's own folder.</div>
-        <div class="set-attach-path mono-sm text-select" hidden></div>
-      </div>
-      ${row('Deleted files go to',
-        seg('trash', [{ value: 'system', label: 'recycle bin' }, { value: 'vault', label: '.trash in the vault' }], trashMode()),
-        'Nothing is ever deleted outright. The recycle bin is the system one; .trash is a hidden folder inside the vault.')}
-      ${row('Spellcheck',
-        seg('spell', [{ value: 'on', label: 'on' }, { value: 'off', label: 'off' }], s.spellcheck === false ? 'off' : 'on'),
-        "The web view's own checker, in the display language of the system.")}
-      <div class="set-files"></div>
-
-      <div class="label">plugins</div>
-      <div class="set-plugins"></div>
-      <div class="set-plug-act">
-        <button class="btn sm" data-act="reload">Reload plugins</button>
-        <button class="btn sm" data-act="plugins-folder">Open plugins folder</button>
-      </div>
-
-      <div class="set-sections"></div>
-
-      <div class="label">about</div>
-      <div class="set-info mono-sm text-select">
-        <div><span>vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button class="btn sm" data-act="vault">Change vault…</button></div>
-        <div><span>from</span><i class="set-vault-src">—</i></div>
-        <div><span>version</span>${esc(`${ose.version.kernel} · ${hostKind()} · ${ose.platform}`)}</div>
-      </div>
-    </div>
-    <div class="dlg-foot"><span class="grow mono-sm faint">changes apply immediately</span><button class="btn primary" data-act="done">Done</button></div>`;
-
-  ov.box.setAttribute('aria-labelledby', 'set-title');
-  ov.box.querySelector('[data-act="done"]').addEventListener('click', () => ov.close());
-  ov.box.querySelector('[data-act="vault"]').addEventListener('click', () => commands.run('app.vault-change'));
-
-  // Where the root came from, in the host's words: arg, exe, env, remembered, picked (dev in
-  // the browser). Asked each time the dialog opens; the answer can change within one run.
-  const srcEl = ov.box.querySelector('.set-vault-src');
-  ose.vault.info()
-    .then((v) => { if (srcEl.isConnected) srcEl.textContent = v && v.source ? `${v.source}${v.remembered ? ' · remembered' : ''}` : '—'; })
-    .catch((e) => { if (srcEl.isConnected) srcEl.textContent = String(e.message || e); });
-
-  ov.box.querySelector('[data-act="reload"]').addEventListener('click', () => { void commands.run('app.reload'); });
-  ov.box.querySelector('[data-act="plugins-folder"]').addEventListener('click', () => { void revealPlugins(); });
-
-  // A path chosen from a view's own box, or by another window on the same vault, moves the
-  // row here while the dialog is open.
-  unwatchPaths = ose.paths.on(() => { if (openOv) paintPaths(ov.box); });
-
-  // Ctrl+Shift+L works with the dialog open, and the dialog must not then be the one place in
-  // the app still claiming the old theme.
-  unwatchTheme = bus.on('theme', () => {
-    const pref = themePref();
-    ov.box.querySelectorAll('[data-seg="theme"] .seg-b').forEach((n) => n.classList.toggle('on', n.dataset.v === pref));
-  });
-
-  paintSections(ov.box);
-  paintPaths(ov.box);
-  paintAttachments(ov.box);
-  ov.box.addEventListener('click', (e) => {
-    const b = e.target.closest('.set-path-act .btn');
-    if (!b) return;
-    const el = b.closest('.set-path');
-    void pathAction(el.dataset.owner, el.dataset.key, b.dataset.act, ov.box);
-  });
-
-  ov.box.addEventListener('click', (e) => {
-    const b = e.target.closest('.seg-b');
-    if (!b) return;
-    const group = b.closest('.seg').dataset.seg;
-    const v = b.dataset.v;
-    b.parentElement.querySelectorAll('.seg-b').forEach((n) => n.classList.toggle('on', n === b));
-    if (group === 'theme') setTheme(v);
-    else if (group === 'font') save({ fontSize: +v });
-    else if (group === 'lh') save({ lineHeight: +v });
-    else if (group === 'face') save({ pageFace: v });
-    else if (group === 'layout') save({ layout: v });
-    else if (group === 'zoom') setZoom(+v);
-    else if (group === 'width') save({ readableWidth: v === 'on' });
-    else if (group === 'newpages') save({ newPages: v });
-    else if (group === 'trash') save({ trash: v });
-    else if (group === 'spell') save({ spellcheck: v === 'on' });
-    else if (group === 'attach') void chooseAttachments(v, ov.box);
-  });
-
-  requestAnimationFrame(() => ov.box.querySelector('.seg-b')?.focus());
+/**
+ * The trash row's honest second line. A drive with no recycle bin sends a deleted file to
+ * .trash in the vault even with the system setting, and the host says so (`trashWhere`); on
+ * macOS the system Trash cannot be listed, so only the vault's .trash is restorable here.
+ */
+async function paintTrashNote(box) {
+  const el = box && box.querySelector('.set-trash-note');
+  if (!el) return;
+  const lines = [];
+  if (settings().trash !== 'vault') {
+    try {
+      const r = typeof ose.files.trashWhere === 'function' ? await ose.files.trashWhere('') : null;
+      if (r && r.where === 'vault') lines.push(`This drive has no ${binName()}, so deleted files go to .trash in this vault.`);
+    } catch { /* no answer: the sentence above is still true */ }
+    if (ose.platform === 'macos') lines.push('Items in the system Trash cannot be listed here. Only items moved to this vault\'s .trash can be restored in Show trash.');
+  }
+  if (!el.isConnected) return;
+  el.textContent = lines.join(' ');
+  el.hidden = !lines.length;
 }
 
 /**
- * `Attachments go to`: `beside the page` needs no folder, `a folder…` opens the same picker
- * every other folder choice in the app uses. Cancelling leaves the setting where it was, and
- * the segment goes back to what it says.
+ * `Attachments go to`: beside the page needs no folder, a folder… opens the same picker every
+ * other folder choice in the app uses. Cancelling leaves the setting where it was, and the
+ * segment goes back to what it says.
  */
 async function chooseAttachments(which, box) {
-  if (which === 'beside') { save({ attachments: 'beside' }); paintAttachments(box); return; }
+  if (which === 'beside') { save({ attachments: 'beside' }); syncControls(box); return; }
   const current = settings().attachments;
   const picked = await pickFolder({
     title: 'Attachments folder…',
     current: current === 'beside' ? null : current,
     // The foot names the act: nothing is moved here (R6).
-    enterLabel: 'choose',
+    enterLabel: 'Choose',
   });
-  if (picked === null) {
-    const back = settings().attachments === 'beside' ? 'beside' : 'folder';
-    box.querySelectorAll('[data-seg="attach"] .seg-b').forEach((n) => n.classList.toggle('on', n.dataset.v === back));
-    paintAttachments(box);
-    return;
-  }
-  save({ attachments: picked });
-  paintAttachments(box);
+  if (picked !== null) save({ attachments: picked });
+  syncControls(box);
 }
 
 /**
  * `Change vault…` (C5), in this order: choose a folder without adopting it, let the window go
  * (the open page is saved into *this* vault, or the switch stops with the page's reason on
- * screen), adopt the folder, and boot again on it (`switchVault`, shell/vault.js). The old
- * order adopted first, so the last save of the page landed in the other vault.
+ * screen), adopt the folder, and boot again on it (`switchVault`, shell/vault.js).
  */
 async function changeVault() {
   let picked;
@@ -419,14 +319,198 @@ async function changeVault() {
   await switchVault(picked.root);
 }
 
+/* ------------------------------------------------------------------ the page */
+
+/** The stock sections, in the order the list shows them. Registered ones go before Keys. */
+const HEAD = [
+  { id: 'appearance', title: 'Appearance', html: appearanceHtml },
+  { id: 'editor', title: 'Editor', html: editorHtml },
+  { id: 'files', title: 'Files', html: filesHtml },
+];
+const TAIL = [
+  { id: 'keys', title: 'Keys', html: keysHtml },
+  { id: 'vault', title: 'Vault', html: vaultHtml },
+];
+
+/** Every section, stock and registered, in list order. */
+function allSections() {
+  const reg = (ose.settings.sections() || [])
+    .filter((s) => s && s.id && typeof s.render === 'function')
+    .map((s) => ({ id: s.id, title: s.title || s.id, render: s.render }));
+  return [...HEAD, ...reg, ...TAIL];
+}
+
+// The page on screen, while it is: `{ show(id), focus() }`. `openSettings` reaches it to change
+// section when the tab was already open.
+let live = null;
+
+/**
+ * Draw the page into `el`. `route.arg` picks the first section shown.
+ * @param {HTMLElement} el
+ * @param {{ arg?: string }} [route]
+ */
+function mountPage(el, route = {}) {
+  el.innerHTML = `
+<div class="view-root set-page" tabindex="-1">
+  <div class="set-wrap">
+    <nav class="set-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections"></nav>
+    <section class="set-pane" role="tabpanel" aria-labelledby="set-title">
+      <h1 class="page-title view-title" id="set-title">Settings</h1>
+      <div class="set-body"></div>
+    </section>
+  </div>
+</div>`;
+  const root = el.querySelector('.set-page');
+  const nav = root.querySelector('.set-nav');
+  const titleEl = root.querySelector('#set-title');
+  const body = root.querySelector('.set-body');
+
+  let current = null;
+  let sectionHandle = null;
+  let seq = 0;
+  let unmounted = false;
+
+  const dropSection = () => {
+    if (sectionHandle && typeof sectionHandle.unmount === 'function') {
+      try { sectionHandle.unmount(); } catch (e) { console.error('[shell] settings section', e); }
+    }
+    sectionHandle = null;
+  };
+
+  function paintNav() {
+    const secs = allSections();
+    nav.innerHTML = secs.map((s) => `<button type="button" role="tab" class="set-tab${s.id === current ? ' on' : ''}"
+        data-sec="${esc(s.id)}" aria-selected="${s.id === current}" tabindex="${s.id === current ? 0 : -1}">${esc(s.title)}</button>`).join('');
+  }
+
+  async function show(id) {
+    const secs = allSections();
+    const sec = secs.find((s) => s.id === id) || secs[0];
+    const my = ++seq;
+    dropSection();
+    current = sec.id;
+    paintNav();
+    titleEl.textContent = sec.title;
+    body.textContent = '';
+    body.dataset.sec = sec.id;
+    if (sec.render) {
+      // A section someone else registered draws into a box of its own. One that throws is one
+      // line saying so, never a page that fails to open.
+      const box = document.createElement('div');
+      box.className = 'set-section';
+      body.appendChild(box);
+      try {
+        const h = await Promise.resolve(sec.render(box));
+        if (my !== seq || unmounted) { if (h && typeof h.unmount === 'function') h.unmount(); return; }
+        sectionHandle = h && typeof h === 'object' ? h : null;
+      } catch (e) {
+        console.error('[shell] settings section', sec.id, e);
+        box.innerHTML = `<div class="set-note err">This section could not be drawn: ${esc(String(e.message || e))}</div>`;
+      }
+      return;
+    }
+    const html = await Promise.resolve(sec.html());
+    if (my !== seq || unmounted) return;
+    body.innerHTML = html;
+    syncControls(body);
+    if (sec.id === 'files') void paintTrashNote(body);
+    if (sec.id === 'vault') paintVaultInfo(body);
+  }
+
+  nav.addEventListener('click', (e) => {
+    const b = e.target.closest('.set-tab');
+    if (b) void show(b.dataset.sec).then(() => nav.querySelector('.set-tab.on')?.focus());
+  });
+  // A vertical tab list: Up and Down move and show, Home and End go to the ends, Tab leaves
+  // for the rows.
+  nav.addEventListener('keydown', (e) => {
+    const tabs = [...nav.querySelectorAll('.set-tab')];
+    const at = tabs.findIndex((t) => t.dataset.sec === current);
+    let next = -1;
+    if (e.key === 'ArrowDown') next = (at + 1) % tabs.length;
+    else if (e.key === 'ArrowUp') next = (at - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    void show(tabs[next].dataset.sec).then(() => nav.querySelector('.set-tab.on')?.focus());
+  });
+
+  body.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]');
+    if (act && act.dataset.act === 'vault') { void commands.run('app.vault-change'); return; }
+    const b = e.target.closest('.seg-b');
+    if (!b) return;
+    const group = b.closest('.seg').dataset.seg;
+    b.parentElement.querySelectorAll('.seg-b').forEach((n) => {
+      n.classList.toggle('on', n === b);
+      n.setAttribute('aria-pressed', String(n === b));
+    });
+    applySeg(group, b.dataset.v, body);
+  });
+
+  // The chords change values from outside the page (zoom, the theme toggle, full width), and
+  // another window on the same vault can too: the controls follow, nothing is redrawn.
+  const offs = [
+    bus.on('settings', () => syncControls(body)),
+    bus.on('theme', () => syncControls(body)),
+    ose.settings.onRepaint(() => syncControls(body)),
+  ];
+
+  live = {
+    show: (id) => show(id),
+    focus: () => nav.querySelector('.set-tab.on')?.focus(),
+  };
+  const first = show(route && route.arg);
+
+  return {
+    ready: first,
+    unmount() {
+      unmounted = true;
+      seq++;
+      dropSection();
+      for (const off of offs) { try { off && off(); } catch { /* already gone */ } }
+      live = null;
+    },
+  };
+}
+
+const view = {
+  title: 'Settings',
+  icon: 'settings',
+  async mount(el, route) {
+    const h = mountPage(el, route);
+    await h.ready;
+    return { unmount: h.unmount };
+  },
+  unmount() { /* the handle answered by mount does the work */ },
+};
+
+/**
+ * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named.
+ * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'keys', 'vault', or a registered one
+ * @returns {Promise<void>}
+ */
+export async function openSettings(arg) {
+  const route = { type: 'view', name: 'settings' };
+  if (arg) route.arg = arg;
+  if (ose.tabs && typeof ose.tabs.open === 'function') await ose.tabs.open(route);
+  else await ose.route.navigate(route);
+  if (live && arg) await live.show(arg);
+  if (live) live.focus();
+}
+
+/** Register the Settings view and its commands, and apply the settings once. Called by `boot.js`. */
 export function initSettings() {
-  applySettings();
-  commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: toggleSettings });
+  ose.settings.apply();
+  ose.views.register('settings', view);
+  commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: () => openSettings() });
+  commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Keys', run: () => openSettings('keys') });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
 
   // The page view is one command too, so switching between the scroll and the sheet is a
-  // palette away rather than a dialog away.
+  // palette away rather than a page away.
   commands.register({
     id: 'app.layout', title: 'Toggle page view', group: 'app', hint: 'scroll or A4 pages',
     run: () => {
@@ -435,8 +519,8 @@ export function initSettings() {
     },
   });
 
-  // Zoom is three commands, so the palette has it and P3's chords (Ctrl+=, Ctrl+-, Ctrl+0)
-  // have something to bind to. The percentage is remembered per vault under settings.zoom.
+  // Zoom is three commands, so the palette has them and the chords (Ctrl+=, Ctrl+-, Ctrl+0)
+  // have something to bind to.
   commands.register({
     id: 'app.zoom-in', title: 'Zoom in', group: 'app', hint: 'bigger text and chrome',
     when: () => zoom() < ZOOM_STEPS[ZOOM_STEPS.length - 1],

@@ -111,7 +111,7 @@
   --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
   /* The document face. Page CONTENT wears it and nothing else does: the block editor's column,
      the page title strip, anything drawn through `render()`, and paper. The chrome (sidebar,
-     tabs, palette, status bar, settings, a plugin's own controls) keeps --font-ui, and code
+     tabs, palette, status bar, settings, a view's own controls) keeps --font-ui, and code
      keeps --font-mono everywhere. Cambria is the face the owner's maths teacher writes his
      handouts in; it ships with Windows and with Office. */
   --font-doc: Cambria, "Times New Roman", Georgia, serif;
@@ -149,7 +149,7 @@
   --doc-title-rule: 3px;        /* the title's double rule: 1px, 1px gap, 1px */
   --print-figure: 22cm;         /* the tallest a picture prints, so its label keeps its sheet */
 
-  /* space. The only paddings, margins and gaps a plugin stylesheet may use. Optical nudges
+  /* space. The only paddings, margins and gaps a stylesheet may use. Optical nudges
      (a 1px baseline shift, a 2px inset) are the one exception and say so in a comment. */
   --sp-half: 0.125rem;      /* 2 */
   --sp-1: 0.25rem;          /* 4 */

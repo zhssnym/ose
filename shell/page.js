@@ -3,9 +3,18 @@
 // The kernel's router never imports `ose:editor` — the editor is a bundle of its own and the
 // kernel must not know it exists (docs/KERNEL.md). The shell joins them here, and this file is
 // the whole of the page host the router and `ose.fileops` talk to (docs/SHELL.md "The page
-// seam"): open, leave, close, and the two halves of a rename, a move or a trash of the page on
-// screen. Everything else the editor does (its commands, its chords, its dialogs, its
-// autosave) it does for itself.
+// seam"): open, leave, park, close, release, the two halves of a rename, a move or a trash of
+// the page on screen, and link rewrites into pages that are open. Everything else the editor
+// does (its commands, its chords, its dialogs, its autosave) it does for itself.
+//
+// Every file in the vault opens (H17). What draws it is decided here and nowhere else: a PDF
+// or an image goes to `media.js`; anything else is asked of the host (`stat` with `sniff`),
+// and text goes to the editor — markdown with its Rich/Source switch, the rest as plain
+// Source — while bytes that are not text get `binaryPage`, a box with the ways out.
+//
+// A tab that goes to the background does not tear its page down (M12, M24): the router asks
+// for `close({ park: true })` and the editor keeps that file's one live instance, buffer and
+// undo, until the tab comes back or the file is released.
 //
 // The editor is imported, not loaded by a static `import`: a bundle that fails to evaluate on
 // some web view must cost the pages, not the whole window (M38). Without it the router shows a
@@ -15,7 +24,7 @@ import { ose } from 'ose:kernel';
 import { toast } from 'ose:ui';
 import { allPages } from './sidebar.js';
 import { clean } from './paths.js';
-import { isMediaFile, mediaPage, mediaMissingPage } from './media.js';
+import { isMediaFile, mediaPage, mediaMissingPage, binaryPage } from './media.js';
 
 let editorLoad = null;
 let editor = null;
@@ -42,12 +51,25 @@ export function loadEditor() {
   return editorLoad;
 }
 
+/**
+ * Whether the bytes of `path` are text, asked of the host: the first 8 KB hold no NUL and are
+ * UTF-8 (docs/HOST.md `stat` with `sniff`). A host that does not sniff, a file that is not
+ * there, a stat that fails: all answer true, and the editor or the router says the rest.
+ */
+async function isText(path) {
+  try {
+    const st = await ose.files.stat(path, { sniff: true });
+    if (st && st.exists !== false && st.kind !== 'dir' && st.text === false) return false;
+  } catch { /* the editor's turn */ }
+  return true;
+}
+
 /** The page host (docs/SHELL.md "The page seam"). Every method but `open` is optional to the router. */
 const host = {
-  // The branch is the extension and nothing else: a PDF and an image are drawn by `media.js`,
-  // everything else — markdown, and the text files the editor shows as source — by
-  // `markdownPage`. Both answer the same handle, so the calls below do not know which they
-  // are holding.
+  // A PDF and an image are drawn by `media.js`; a file whose bytes are not text by
+  // `binaryPage`; everything else by `markdownPage`, which reattaches a parked instance of the
+  // same file when there is one. All three answer the same handle, so the calls below do not
+  // know which they are holding.
   async open(el, path, opts) {
     released = null;
     if (isMediaFile(path)) {
@@ -56,6 +78,10 @@ const host = {
       let there = true;
       try { there = !!(await ose.files.exists(path)); } catch { there = true; }
       page = there ? mediaPage(el, path) : mediaMissingPage(el, path);
+      return page.ready;
+    }
+    if (!(await isText(path))) {
+      page = binaryPage(el, path);
       return page.ready;
     }
     // No editor: draw nothing, and the router shows the file as text.
@@ -75,15 +101,45 @@ const host = {
     if (page && typeof page.stay === 'function') page.stay();
   },
 
-  /** Tear the page down. False: it refused, and it is still mounted with nothing torn down. */
-  async close() {
+  /**
+   * Take the page off the screen. With `park` (its tab went to the background, or another tab
+   * still shows the file) an editor page is detached and kept alive, buffer and undo intact,
+   * and this always answers true; a media page has nothing to keep and simply closes.
+   * Otherwise it is torn down, and false means it refused and is still mounted, untouched.
+   */
+  async close(opts = {}) {
     if (!page) return true;
     const closing = page;
+    if (opts && opts.park && typeof closing.park === 'function') {
+      try { await closing.park(); } catch (e) { console.error('[shell] park', e); }
+      if (page === closing) page = null;
+      released = null;
+      return true;
+    }
     const answer = await closing.close();
     if (answer === false) return false;
     if (page === closing) page = null;
     released = null;
     return true;
+  },
+
+  /**
+   * A parked page of `path` is saved and destroyed: its last tab closed while it was in the
+   * background. False: it could not be saved, and it stays parked (the close is refused).
+   */
+  async release(path) {
+    if (!editor || typeof editor.releasePage !== 'function') return true;
+    return (await editor.releasePage(clean(path))) !== false;
+  },
+
+  /**
+   * Links in a file that is open (on screen or parked) are rewritten as an edit of its buffer,
+   * undoable, and saved by its autosave (H5). Undefined when the editor cannot: the kernel
+   * then rewrites the file on disk as before.
+   */
+  async rewriteLinksIn(path, pairs) {
+    if (!editor || typeof editor.rewriteLinksIn !== 'function') return undefined;
+    return editor.rewriteLinksIn(clean(path), pairs);
   },
 
   scrollToLine: (line, col) => !!page && page.goToLine(line, col),

@@ -1,5 +1,6 @@
-//! The filesystem, confined to the vault root. A direct port of the .NET host's `Vault.cs`:
-//! same hidden names, same natural sort, same node shape, same error strings.
+//! The filesystem, confined to the vault root: paths, listings, the tree, the search, the
+//! atomic writer and the plain writes. What is listed follows the one hide rule (hide.rs); the
+//! trash is trashbin.rs.
 
 use std::cmp::Ordering;
 use std::fs;
@@ -15,53 +16,10 @@ use tauri::Manager as _;
 
 use crate::{arg_str, arg_str_or, opt_field_i64, Ctx, Source};
 
-/// Never listed, never searched, never walked. Any name starting with a dot is hidden too,
-/// which covers `.ose` (the state folder) and every dotfile.
-const HIDDEN: &[&str] = &[
-    ".git",
-    ".obsidian",
-    ".claude",
-    ".vscode",
-    ".trash",
-    "node_modules",
-    "App",
-    ".tmp.driveupload",
-    ".makemd",
-    ".space",
-    ".ose",
-    // The executable normally lives at the root of its own vault, so it hides itself, and so
-    // does the bundle when it sits at the root on macOS. `WebView2Loader.dll` sits beside a
-    // local MinGW build, which loads it from there (scripts/ship.mjs copies it); the MSVC
-    // build CI publishes links it statically and ships no such file. The old names and the
-    // `.new`, `.old` and `-update` leftovers are what a pre-1.0 build that updated itself may
-    // have left behind, and they stay hidden so an old vault does not suddenly grow clutter.
-    "ose.exe",
-    "ose.pdb",
-    "ose.exe.new",
-    "ose.exe.old",
-    "Ose.app",
-    "Ose.app.old",
-    "ose-update.zip",
-    "ose-update-tmp",
-    "WebView2Loader.dll",
-    "os.exe",
-    "os.pdb",
-    "os.exe.new",
-    "os.exe.old",
-    "os.app",
-    "os.app.old",
-    "os-update.zip",
-    "os-update-tmp",
-];
-
 const MAX_DEPTH: usize = 24;
 /// Files, not lines (N34): the answer says "showing N of M files" when it cut the list.
 const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SNIPPET: usize = 240;
-
-pub fn is_hidden(name: &str) -> bool {
-    name.starts_with('.') || HIDDEN.iter().any(|h| h.eq_ignore_ascii_case(name))
-}
 
 // ---- root resolution -------------------------------------------------------
 
@@ -193,14 +151,9 @@ pub fn adopt(ctx: &Ctx, dir: &Path, source: Source) -> Result<Value, String> {
     if !full.is_dir() {
         return Err(crate::coded("not_found", format!("not a folder: {}", full.display())));
     }
-    let before = ctx.st.root();
     remember(ctx.app, &full).map_err(|e| crate::coded("io", e))?;
     let epoch = ctx.st.adopt_root(full.clone(), source);
     ctx.st.watch(ctx.app, full.clone());
-    // Whatever the previous vault's plugins were running belongs to a world that is gone.
-    if before.as_deref().map(|b| !crate::vaults::same(b, &full)).unwrap_or(false) {
-        crate::run::kill_all(ctx.st);
-    }
     crate::log_line(
         ctx.st,
         &format!("vault root: {} (from {}, epoch {epoch})", full.display(), source.as_str()),
@@ -293,42 +246,56 @@ pub fn root_name(root: &Path) -> String {
 
 // ---- paths -----------------------------------------------------------------
 
-/// Vault-relative, forward slashes, no leading slash, never escaping the root.
-/// Built segment by segment from the root, so escaping is impossible rather than merely checked.
+/// Vault-relative, forward slashes (a backslash too on Windows, where it is a separator), no
+/// leading slash, never escaping the root. Built segment by segment from the root, so escaping
+/// is impossible rather than merely checked.
+///
+/// The path is taken literally (M49): nothing is trimmed, and nothing is redirected. A `..`
+/// is refused rather than folded into its parent, and on Windows a segment the system would
+/// silently turn into another name — one ending in a dot or a space, or a device name such as
+/// `CON` or `nul.md` — is refused as `[bad_name]` instead of reaching a different file.
 pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let cleaned = rel.replace('\\', "/");
-    let cleaned = cleaned.trim().trim_start_matches('/');
+    let cleaned = if cfg!(windows) { rel.replace('\\', "/") } else { rel.to_string() };
+    let cleaned = cleaned.trim_start_matches('/');
     if cleaned.is_empty() {
         return Ok(root.to_path_buf());
     }
 
     let mut out = root.to_path_buf();
-    let mut depth = 0usize;
     for seg in cleaned.split('/') {
         match seg {
             "" | "." => continue,
             ".." => {
-                if depth == 0 {
-                    return Err(crate::coded("escapes_vault", format!("path escapes the vault: {rel}")));
-                }
-                out.pop();
-                depth -= 1;
+                return Err(crate::coded("escapes_vault", format!("path escapes the vault: {rel}")));
             }
             s => {
                 // A segment holding a drive letter or a NUL would rewrite the path instead of
                 // extending it, so it is rejected outright.
-                if s.contains(':') {
+                if s.contains('\0') || (cfg!(windows) && s.contains(':')) {
                     return Err(crate::coded("escapes_vault", format!("path must be vault-relative: {rel}")));
                 }
-                if s.contains('\0') {
-                    return Err(crate::coded("escapes_vault", format!("path escapes the vault: {rel}")));
+                if cfg!(windows) && redirected_on_windows(s) {
+                    return Err(crate::coded("bad_name", format!("Windows would read another name for: {rel}")));
                 }
                 out.push(s);
-                depth += 1;
             }
         }
     }
     Ok(out)
+}
+
+/// A segment Windows does not take as written: a trailing dot or space is dropped by the
+/// system, and a device stem (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with
+/// any extension) names a device instead of a file.
+fn redirected_on_windows(seg: &str) -> bool {
+    if seg.ends_with('.') || seg.ends_with(' ') {
+        return true;
+    }
+    let stem = seg.split('.').next().unwrap_or(seg).trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
 }
 
 /// The inverse: an absolute path back to its vault-relative form.
@@ -351,7 +318,10 @@ fn mtime_of(meta: &fs::Metadata) -> i64 {
 
 // ---- nodes -----------------------------------------------------------------
 
-#[derive(Serialize)]
+/// One entry of a listing or of the tree (docs/HOST.md "Entry"). `kind` is what a link points
+/// at when the entry is a link; `link` says it is one and what kind; `readable: false` marks a
+/// folder the host could not open; `children` is filled by `tree` alone, never under a link.
+#[derive(Serialize, Debug)]
 pub struct Node {
     pub name: String,
     pub path: String,
@@ -359,15 +329,30 @@ pub struct Node {
     pub ext: String,
     pub mtime: i64,
     pub size: u64,
+    pub hidden: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<Node>>,
 }
 
-fn node_of(root: &Path, full: &Path, meta: &fs::Metadata) -> Node {
+/// The node for `full`, whose own metadata (never followed through a link) is `own`. A link is
+/// described by its target when the target is there (`hide::link_kind`); a broken one by the
+/// link itself.
+fn node_of(root: &Path, root_canon: &Path, full: &Path, own: &fs::Metadata) -> Node {
     let name = full
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+    let (link, target) = if own.file_type().is_symlink() {
+        let (kind, meta) = crate::hide::link_kind(root_canon, full);
+        (Some(kind), meta)
+    } else {
+        (None, None)
+    };
+    let meta = target.as_ref().unwrap_or(own);
     let is_dir = meta.is_dir();
     Node {
         ext: if is_dir {
@@ -378,35 +363,15 @@ fn node_of(root: &Path, full: &Path, meta: &fs::Metadata) -> Node {
                 .unwrap_or_default()
         },
         path: relative(root, full),
+        hidden: crate::hide::hidden_name(&name) || crate::hide::os_hidden(own),
         name,
         kind: if is_dir { "dir" } else { "file" },
         mtime: mtime_of(meta),
         size: if is_dir { 0 } else { meta.len() },
+        link,
+        readable: None,
         children: None,
     }
-}
-
-/// Entries of one folder minus the hidden names and the symlinks. An unreadable folder is
-/// empty, not an error: one locked subfolder must not break the whole tree.
-fn visible(dir: &Path) -> Vec<(PathBuf, fs::Metadata)> {
-    let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if is_hidden(&name) {
-            continue;
-        }
-        match entry.file_type() {
-            Ok(t) if t.is_symlink() => continue,
-            Ok(_) => {}
-            Err(_) => continue,
-        }
-        let Ok(meta) = entry.metadata() else { continue };
-        out.push((entry.path(), meta));
-    }
-    out
 }
 
 fn sort(nodes: &mut [Node]) {
@@ -478,21 +443,83 @@ pub fn root_info(root: &Path) -> Value {
     json!({ "root": root.to_string_lossy(), "name": root_name(root) })
 }
 
-pub fn list(root: &Path, rel: &str) -> Result<Vec<Node>, String> {
-    let dir = resolve(root, rel)?;
-    if !dir.is_dir() {
-        return Err(format!("not a folder: {rel}"));
+/// A vault path the rule excludes is not there as far as a listing is concerned.
+fn refuse_excluded(rel: &str) -> Result<(), String> {
+    if crate::hide::excluded(rel) {
+        return Err(crate::coded("not_found", format!("not listed: {rel}")));
     }
-    let mut nodes: Vec<Node> = visible(&dir)
-        .iter()
-        .map(|(p, m)| node_of(root, p, m))
-        .collect();
+    Ok(())
+}
+
+/// `list(path, {hidden})`: the entries of one folder, folders first, then natural name order.
+/// Excluded entries never appear; hidden ones only with `hidden`. A folder reached through a
+/// link is listed only when the link's target is inside the vault (`[escapes_vault]`
+/// otherwise). A child folder that cannot be opened says `readable: false`.
+pub fn list(root: &Path, rel: &str, hidden: bool) -> Result<Vec<Node>, String> {
+    refuse_excluded(rel)?;
+    let dir = resolve(root, rel)?;
+    match fs::metadata(&dir) {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => return Err(crate::coded("not_found", format!("not a folder: {rel}"))),
+        Err(e) => return Err(crate::io_error(rel, &e)),
+    }
+    let root_canon = crate::hide::canonical_root(root);
+    if let Ok(real) = fs::canonicalize(&dir) {
+        if !real.starts_with(&root_canon) {
+            return Err(crate::coded("escapes_vault", format!("the folder is a link out of the vault: {rel}")));
+        }
+    }
+    let entries = fs::read_dir(&dir).map_err(|e| crate::io_error(rel, &e))?;
+    let mut nodes = Vec::new();
+    for entry in entries.flatten() {
+        let full = entry.path();
+        let child = relative(root, &full);
+        let Ok(own) = entry.metadata() else { continue };
+        match crate::hide::classify(&child, Some(&own)) {
+            crate::hide::Visibility::Excluded => continue,
+            crate::hide::Visibility::Hidden if !hidden => continue,
+            _ => {}
+        }
+        let mut node = node_of(root, &root_canon, &full, &own);
+        if node.kind == "dir" && node.link.is_none() && fs::read_dir(&full).is_err() {
+            node.readable = Some(false);
+        }
+        nodes.push(node);
+    }
     sort(&mut nodes);
     Ok(nodes)
 }
 
-pub fn tree(root: &Path) -> Result<Node, String> {
-    let meta = fs::metadata(root).map_err(|e| format!("cannot read the vault root: {e}"))?;
+type ByParent = std::collections::HashMap<PathBuf, Vec<(PathBuf, Node)>>;
+
+/// `tree({hidden})`: the whole vault as one node named after it, walked by the `ignore` crate
+/// under the one rule (hide.rs `walker`), never into a link, at most `MAX_DEPTH` folders deep.
+pub fn tree(root: &Path, hidden: bool) -> Result<Node, String> {
+    let meta = fs::metadata(root).map_err(|e| crate::coded("io", format!("cannot read the vault root: {e}")))?;
+    let root_canon = crate::hide::canonical_root(root);
+    // Every entry under the folder that holds it, and the folders that could not be read.
+    let mut by_parent: ByParent = Default::default();
+    let mut unreadable: std::collections::HashSet<PathBuf> = Default::default();
+    for item in crate::hide::walker(root, root, hidden, MAX_DEPTH + 1) {
+        match item {
+            Ok(e) if e.depth() > 0 => {
+                let full = e.path().to_path_buf();
+                // The walker's own metadata of the entry, never followed through a link (on
+                // Windows it comes with the directory listing, no extra call per file).
+                let Ok(own) = e.metadata() else { continue };
+                let node = node_of(root, &root_canon, &full, &own);
+                let parent = full.parent().map(Path::to_path_buf).unwrap_or_default();
+                by_parent.entry(parent).or_default().push((full, node));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                if let Some(p) = crate::hide::error_path(&e) {
+                    unreadable.insert(p);
+                }
+            }
+        }
+    }
+    let children = assemble(root, &mut by_parent, &unreadable);
     Ok(Node {
         name: root_name(root),
         path: String::new(),
@@ -500,37 +527,76 @@ pub fn tree(root: &Path) -> Result<Node, String> {
         ext: String::new(),
         mtime: mtime_of(&meta),
         size: 0,
-        children: Some(walk(root, root, 0)),
+        hidden: false,
+        link: None,
+        readable: None,
+        children: Some(children),
     })
 }
 
-fn walk(root: &Path, dir: &Path, depth: usize) -> Vec<Node> {
-    let mut nodes = Vec::new();
-    if depth > MAX_DEPTH {
-        return nodes;
-    }
-    for (path, meta) in visible(dir) {
-        let mut node = node_of(root, &path, &meta);
-        if node.kind == "dir" {
-            node.children = Some(walk(root, &path, depth + 1));
+/// The nodes under `dir`, each folder (not a link) given its own, sorted at every level.
+fn assemble(dir: &Path, by_parent: &mut ByParent, unreadable: &std::collections::HashSet<PathBuf>) -> Vec<Node> {
+    let mut out = Vec::new();
+    for (full, mut node) in by_parent.remove(dir).unwrap_or_default() {
+        if node.kind == "dir" && node.link.is_none() {
+            if unreadable.contains(&full) {
+                node.readable = Some(false);
+            }
+            node.children = Some(assemble(&full, by_parent, unreadable));
         }
-        nodes.push(node);
+        out.push(node);
     }
-    sort(&mut nodes);
-    nodes
+    sort(&mut out);
+    out
 }
 
-pub fn stat(root: &Path, rel: &str) -> Result<Value, String> {
-    let full = resolve(root, rel)?;
-    match fs::metadata(&full) {
-        Ok(m) if m.is_dir() => Ok(json!({
-            "exists": true, "kind": "dir", "mtime": mtime_of(&m), "size": 0,
-        })),
-        Ok(m) => Ok(json!({
-            "exists": true, "kind": "file", "mtime": mtime_of(&m), "size": m.len(),
-        })),
-        Err(_) => Ok(json!({ "exists": false, "kind": null, "mtime": 0, "size": 0 })),
+/// How many bytes `stat(path, {sniff})` looks at.
+const SNIFF_BYTES: usize = 8192;
+
+/// Text, by content: no NUL in the first 8 KB and valid UTF-8 there (a byte-order mark is
+/// UTF-8 too). A character cut in two by the 8 KB edge does not count against the file.
+pub fn sniff_text(head: &[u8]) -> bool {
+    if head.contains(&0) {
+        return false;
     }
+    match std::str::from_utf8(head) {
+        Ok(_) => true,
+        Err(e) => e.error_len().is_none() && head.len() >= SNIFF_BYTES,
+    }
+}
+
+fn read_head(full: &Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let f = fs::File::open(full).ok()?;
+    let mut buf = Vec::with_capacity(SNIFF_BYTES);
+    f.take(SNIFF_BYTES as u64).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// `stat(path, {sniff})` -> `{exists, kind, mtime, size, hidden, link?, text?}`. A link is
+/// described by its target and says what kind of link it is. `text` only with `sniff`, for a
+/// file: whether it reads as text (`sniff_text`).
+pub fn stat(root: &Path, rel: &str, sniff: bool) -> Result<Value, String> {
+    let full = resolve(root, rel)?;
+    let Ok(own) = fs::symlink_metadata(&full) else {
+        return Ok(json!({ "exists": false, "kind": null, "mtime": 0, "size": 0, "hidden": false }));
+    };
+    let root_canon = crate::hide::canonical_root(root);
+    let node = node_of(root, &root_canon, &full, &own);
+    let mut out = json!({
+        "exists": true,
+        "kind": node.kind,
+        "mtime": node.mtime,
+        "size": node.size,
+        "hidden": crate::hide::classify(rel, Some(&own)) != crate::hide::Visibility::Shown,
+    });
+    if let Some(link) = node.link {
+        out["link"] = json!(link);
+    }
+    if sniff && node.kind == "file" {
+        out["text"] = json!(read_head(&full).map(|h| sniff_text(&h)).unwrap_or(false));
+    }
+    Ok(out)
 }
 
 pub fn exists(root: &Path, rel: &str) -> Result<bool, String> {
@@ -863,110 +929,466 @@ pub fn mkdir(root: &Path, rel: &str) -> Result<(), String> {
 }
 
 /// Never overwrites: the .NET host moved with `overwrite: false` and the UI relies on that
-/// to keep a rename from swallowing an existing page.
+/// to keep a rename from swallowing an existing page. The move itself refuses to replace
+/// (`rename_noreplace`), so a file that appears at the target between the look and the move
+/// is not replaced either (M50).
 ///
 /// `Notes.md` -> `notes.md` is a real rename, not a collision (N17). On a case-insensitive
-/// filesystem `dst.exists()` is true because it is the same file, and `fs::rename` may or may
-/// not change the name on disk, so a case-only change goes through a temporary name: two
-/// renames, neither of which can be mistaken for an overwrite.
+/// filesystem the target "exists" because it is the same file, and `fs::rename` may or may not
+/// change the name on disk, so a case-only change of one file goes through a temporary name:
+/// two renames, neither of which can be mistaken for an overwrite. On a case-sensitive volume
+/// the two names can be two files; `same_file` tells them apart, and a different file there is
+/// `[exists]`, never replaced.
 pub fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     let src = resolve(root, from)?;
     let dst = resolve(root, to)?;
-    if !src.exists() {
+    if fs::symlink_metadata(&src).is_err() {
         return Err(crate::coded("not_found", format!("nothing to rename: {from}")));
     }
     if src == dst {
         return Ok(());
     }
-    if case_only(&src, &dst) {
+    let taken = fs::symlink_metadata(&dst).is_ok();
+    if case_only(&src, &dst) && taken {
+        if !same_file::is_same_file(&src, &dst).unwrap_or(false) {
+            return Err(crate::coded("exists", format!("target already exists: {to}")));
+        }
         ensure_parent(root, &dst)?;
         let name = dst
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "item".into());
         let via = src.with_file_name(format!(".{name}.{}.case", std::process::id()));
-        let _ = fs::remove_file(&via);
+        if fs::symlink_metadata(&via).is_ok() {
+            return Err(crate::coded("io", format!("{from} -> {to}: {} is in the way", via.display())));
+        }
         fs::rename(&src, &via).map_err(|e| crate::coded("io", format!("{from} -> {to}: {e}")))?;
-        return match fs::rename(&via, &dst) {
+        return match rename_noreplace(&via, &dst) {
             Ok(()) => Ok(()),
             Err(e) => {
                 let _ = fs::rename(&via, &src);
-                Err(crate::coded("io", format!("{from} -> {to}: {e}")))
+                Err(move_error(from, to, &e))
             }
         };
     }
-    if dst.exists() {
+    if taken {
         return Err(crate::coded("exists", format!("target already exists: {to}")));
     }
     ensure_parent(root, &dst)?;
-    fs::rename(&src, &dst).map_err(|e| crate::coded("io", format!("{from} -> {to}: {e}")))
+    rename_noreplace(&src, &dst).map_err(|e| move_error(from, to, &e))
+}
+
+fn move_error(from: &str, to: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::AlreadyExists {
+        crate::coded("exists", format!("target already exists: {to}"))
+    } else {
+        crate::coded("io", format!("{from} -> {to}: {e}"))
+    }
+}
+
+/// A rename that never replaces what is at `to`: `MoveFileExW` without
+/// `MOVEFILE_REPLACE_EXISTING` on Windows, `renamex_np(RENAME_EXCL)` on macOS. Elsewhere a look
+/// then a rename, which is what the other platforms had before. `AlreadyExists` when taken.
+#[cfg(windows)]
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(std::iter::once(0)).collect() };
+    let (a, b) = (wide(from), wide(to));
+    // Safe: both strings are NUL-terminated and outlive the call; flags 0 never replaces.
+    let ok = unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 0) };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt as _;
+    extern "C" {
+        fn renamex_np(from: *const std::ffi::c_char, to: *const std::ffi::c_char, flags: std::ffi::c_uint) -> std::ffi::c_int;
+    }
+    const RENAME_EXCL: std::ffi::c_uint = 0x0000_0004;
+    let c = |p: &Path| CString::new(p.as_os_str().as_bytes()).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    let (a, b) = (c(from)?, c(to)?);
+    // Safe: both are NUL-terminated C strings that outlive the call.
+    if unsafe { renamex_np(a.as_ptr(), b.as_ptr(), RENAME_EXCL) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+    }
+    fs::rename(from, to)
 }
 
 /// Two vault paths that differ only in letter case — the same file on Windows and on a
-/// default macOS volume, a different one on Linux (where the plain rename does the right
-/// thing anyway, and the two-step is merely a longer way to the same result).
+/// default macOS volume, possibly two files on a case-sensitive one (`rename` asks
+/// `same_file` which it is).
 pub(crate) fn case_only(a: &Path, b: &Path) -> bool {
     let (a, b) = (a.to_string_lossy(), b.to_string_lossy());
     a != b && a.to_lowercase() == b.to_lowercase()
 }
 
-/// The recycle bin, never a permanent delete.
-pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
-    let full = resolve(root, rel)?;
-    if full == root {
-        return Err(crate::coded("bad_arg", "refusing to trash the vault root"));
+// ---- copying a file or a folder --------------------------------------------
+
+/// `copyPath(from, to)` -> `{path, files, leftOut?}`: a file or a whole folder, byte for byte,
+/// into a new `to`. Create-only: `[exists]` when anything is at `to`, and every file inside is
+/// opened exclusively. Missing parents are made. A link is copied as a link, never followed: a
+/// junction as a junction, a symlink as a symlink, and on Windows a folder symlink the system
+/// will not let this process create (no Developer Mode, not elevated) as a junction to the same
+/// folder. A file symlink that cannot be made is left out, logged, and named in `leftOut` (the
+/// vault paths of the links under `from` that were not copied, present only when there are
+/// any), so the page can say the copy is
+/// not whole; copying such a link on its own is an error. A folder cannot be copied into itself,
+/// compared the way the filesystem compares (case-insensitively on Windows and macOS, and
+/// through links). When a folder copy fails half-way, the new folder is removed: it was created
+/// by this call and holds nothing that is not still at `from`. `files` counts the files and
+/// links written.
+pub fn copy_path(root: &Path, from: &str, to: &str) -> Result<Value, String> {
+    let src = resolve(root, from)?;
+    let dst = resolve(root, to)?;
+    require_vault(root)?;
+    if dst == *root || dst.file_name().is_none() {
+        return Err(crate::coded("bad_name", format!("not a name to copy to: {to}")));
     }
-    if !full.exists() {
-        return Err(crate::coded("not_found", format!("nothing to trash: {rel}")));
+    let own = fs::symlink_metadata(&src).map_err(|e| crate::io_error(from, &e))?;
+    if fs::symlink_metadata(&dst).is_ok() {
+        return Err(crate::coded("exists", format!("already exists: {to}")));
     }
-    // The Recycle Bin call goes through COM and wants a thread of its own (an apartment already
-    // initialised differently makes the shell abort the operation). If the shell still refuses,
-    // fall back to a hidden `.trash` folder inside the vault: never a permanent delete.
-    let target = full.clone();
-    let shell = std::thread::spawn(move || trash::delete(&target).map_err(|e| e.to_string()))
-        .join()
-        .unwrap_or_else(|_| Err("trash thread panicked".to_string()));
-    match shell {
-        Ok(()) => Ok(()),
-        Err(first) => into_vault_bin(root, rel, &full, &first),
+    if own.is_dir() && inside_or_same(&dst, &src) {
+        return Err(crate::coded("bad_arg", format!("a folder cannot be copied into itself: {from} -> {to}")));
     }
+    ensure_parent(root, &dst)?;
+    let mut files = 0usize;
+    let mut left_out: Vec<String> = Vec::new();
+    if own.file_type().is_symlink() {
+        copy_link(&src, &dst).map_err(|e| copy_error(to, &e))?;
+        files = 1;
+    } else if own.is_dir() {
+        fs::create_dir(&dst).map_err(|e| copy_error(to, &e))?;
+        let mut left = |link: &Path, e: &std::io::Error| {
+            let rel = relative(root, link);
+            log::warn!("copyPath: link {rel} left out: {e}");
+            left_out.push(rel);
+        };
+        if let Err(e) = copy_tree(&src, &dst, &mut files, &mut left) {
+            let _ = fs::remove_dir_all(&dst);
+            return Err(copy_error(to, &e));
+        }
+    } else {
+        copy_one(&src, &dst).map_err(|e| copy_error(to, &e))?;
+        files = 1;
+    }
+    let mut out = json!({ "path": relative(root, &dst), "files": files });
+    if !left_out.is_empty() {
+        out["leftOut"] = json!(left_out);
+    }
+    Ok(out)
 }
 
-/// `.trash/<stamp>-<name>` inside the vault: the settings choice "deleted files go to the
-/// vault" (S37), and the fallback when the platform's bin refuses. Still never a permanent
-/// delete, and the folder is hidden from the tree, the search and the watcher.
-pub fn trash_into_vault(root: &Path, rel: &str) -> Result<(), String> {
-    let full = resolve(root, rel)?;
-    if full == root {
-        return Err(crate::coded("bad_arg", "refusing to trash the vault root"));
+/// Is `dst` (which need not exist yet) `src` or somewhere under it? By the spelling, ignoring
+/// case where the filesystem folds it (`Notes` -> `notes/Notes copy` is inside), and by the
+/// canonical paths of `src` and of `dst`'s nearest existing ancestor, so a link or a junction on
+/// the way cannot hide it.
+pub(crate) fn inside_or_same(dst: &Path, src: &Path) -> bool {
+    let folded = |p: &Path| -> PathBuf {
+        let s = p.to_string_lossy().replace('\\', "/");
+        PathBuf::from(if cfg!(any(windows, target_os = "macos")) { s.to_lowercase() } else { s })
+    };
+    if folded(dst).starts_with(folded(src)) {
+        return true;
     }
-    if !full.exists() {
-        return Err(crate::coded("not_found", format!("nothing to trash: {rel}")));
-    }
-    into_vault_bin(root, rel, &full, "")
-}
-
-fn into_vault_bin(root: &Path, rel: &str, full: &Path, first: &str) -> Result<(), String> {
-    // `first` is the platform bin's complaint when this is a fallback, and empty when the vault
-    // bin is what the user asked for; the error says which of the two failed either way.
-    let why = |e: std::io::Error| {
-        if first.is_empty() {
-            format!("{rel}: .trash: {e}")
-        } else {
-            format!("{rel}: {first}; and .trash: {e}")
+    let Ok(src_canon) = fs::canonicalize(src) else { return false };
+    let mut base = dst;
+    let mut rest: Vec<&std::ffi::OsStr> = Vec::new();
+    let canon = loop {
+        if let Ok(c) = fs::canonicalize(base) {
+            break c;
+        }
+        match (base.file_name(), base.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                base = parent;
+            }
+            _ => return false,
         }
     };
-    let bin = root.join(".trash");
-    std::fs::create_dir_all(&bin).map_err(why)?;
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let name = full
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "item".into());
-    std::fs::rename(full, bin.join(format!("{stamp}-{name}"))).map_err(why)
+    let dst_canon = rest.iter().rev().fold(canon, |acc, n| acc.join(n));
+    folded(&dst_canon).starts_with(folded(&src_canon))
+}
+
+fn copy_error(to: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::AlreadyExists {
+        crate::coded("exists", format!("already exists: {to}"))
+    } else {
+        crate::coded("io", format!("{to}: {e}"))
+    }
+}
+
+/// One file's bytes into a new file, opened exclusively and synced.
+fn copy_one(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let mut input = fs::File::open(src)?;
+    let mut out = fs::OpenOptions::new().write(true).create_new(true).open(dst)?;
+    let copied = std::io::copy(&mut input, &mut out).and_then(|_| out.sync_all());
+    if copied.is_err() {
+        drop(out);
+        let _ = fs::remove_file(dst);
+    }
+    copied
+}
+
+/// Everything under `src` into the existing, empty `dst`. A link that cannot be recreated is
+/// handed to `left_out` and the copy goes on.
+fn copy_tree(
+    src: &Path,
+    dst: &Path,
+    files: &mut usize,
+    left_out: &mut dyn FnMut(&Path, &std::io::Error),
+) -> std::io::Result<()> {
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let (from, to) = (entry.path(), dst.join(entry.file_name()));
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            match copy_link(&from, &to) {
+                Ok(()) => *files += 1,
+                Err(e) => left_out(&from, &e),
+            }
+        } else if kind.is_dir() {
+            fs::create_dir(&to)?;
+            copy_tree(&from, &to, files, left_out)?;
+        } else {
+            copy_one(&from, &to)?;
+            *files += 1;
+        }
+    }
+    Ok(())
+}
+
+/// A link as a link: the same target text, never what it points at.
+fn copy_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let target = fs::read_link(src)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt as _;
+        let dir_link = fs::symlink_metadata(src).map(|m| m.file_type().is_symlink_dir()).unwrap_or(false);
+        if !dir_link {
+            return std::os::windows::fs::symlink_file(&target, dst);
+        }
+        // A junction stays a junction; a folder symlink stays a symlink when the system allows
+        // it, and becomes a junction to the same folder when it does not (a junction needs no
+        // privilege, and resolves to the same place).
+        let absolute = || if target.is_absolute() { target.clone() } else { src.parent().unwrap_or(src).join(&target) };
+        if junction::is_junction(src) {
+            return junction::create(&absolute(), dst);
+        }
+        match std::os::windows::fs::symlink_dir(&target, dst) {
+            Err(e) if e.raw_os_error() == Some(junction::ERROR_PRIVILEGE_NOT_HELD) => junction::create(&absolute(), dst),
+            other => other,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::os::unix::fs::symlink(&target, dst)
+    }
+}
+
+/// NTFS junctions (mount points), which `std` reads through `read_link` but can neither tell
+/// apart from folder symlinks nor make. A junction needs no privilege: it is how a folder link
+/// is copied on a Windows machine without Developer Mode, as `mklink /J` would make it.
+#[cfg(windows)]
+pub(crate) mod junction {
+    use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::path::Path;
+
+    pub const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+    const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+    const FSCTL_SET_REPARSE_POINT: u32 = 0x0009_00A4;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_READ_ATTRIBUTES: u32 = 0x80;
+    const FILE_SHARE_ALL: u32 = 7;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    const FILE_ATTRIBUTE_TAG_INFO: i32 = 9;
+    const INVALID_HANDLE_VALUE: isize = -1;
+
+    #[repr(C)]
+    struct AttributeTagInfo {
+        attributes: u32,
+        tag: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateFileW(name: *const u16, access: u32, share: u32, sec: *mut c_void, disposition: u32, flags: u32, template: isize) -> isize;
+        fn DeviceIoControl(
+            h: isize,
+            code: u32,
+            inbuf: *const c_void,
+            inlen: u32,
+            outbuf: *mut c_void,
+            outlen: u32,
+            ret: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+        fn GetFileInformationByHandleEx(h: isize, class: i32, out: *mut c_void, len: u32) -> i32;
+        fn CloseHandle(h: isize) -> i32;
+    }
+
+    /// The entry itself, never what it points at.
+    fn open(p: &Path, access: u32) -> io::Result<isize> {
+        let name: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        // Safe: a NUL-terminated name, no security attributes, no template.
+        let h = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                access,
+                FILE_SHARE_ALL,
+                std::ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                0,
+            )
+        };
+        if h == INVALID_HANDLE_VALUE {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(h)
+        }
+    }
+
+    /// Is `p` itself a junction?
+    pub fn is_junction(p: &Path) -> bool {
+        let Ok(h) = open(p, FILE_READ_ATTRIBUTES) else { return false };
+        let mut info = AttributeTagInfo { attributes: 0, tag: 0 };
+        // Safe: the handle is open, the out buffer is ours and its size is passed.
+        let ok = unsafe {
+            let ok = GetFileInformationByHandleEx(
+                h,
+                FILE_ATTRIBUTE_TAG_INFO,
+                (&mut info as *mut AttributeTagInfo).cast(),
+                std::mem::size_of::<AttributeTagInfo>() as u32,
+            );
+            CloseHandle(h);
+            ok
+        };
+        ok != 0 && info.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 && info.tag == IO_REPARSE_TAG_MOUNT_POINT
+    }
+
+    /// (`\??\C:\x`, `C:\x`): the substitute name a mount point takes, and the name it prints.
+    fn names(target: &Path) -> (String, String) {
+        let t = target.to_string_lossy().replace('/', "\\");
+        let plain = if let Some(unc) = t.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{unc}")
+        } else if let Some(rest) = t.strip_prefix(r"\\?\").or_else(|| t.strip_prefix(r"\??\")) {
+            rest.to_string()
+        } else {
+            t
+        };
+        let nt = match plain.strip_prefix(r"\\") {
+            Some(unc) => format!(r"\??\UNC\{unc}"),
+            None => format!(r"\??\{plain}"),
+        };
+        (nt, plain)
+    }
+
+    /// A new junction at `link` (which must not exist) to the folder `target` (absolute).
+    pub fn create(target: &Path, link: &Path) -> io::Result<()> {
+        let (nt, print) = names(&crate::vault::normalize(target));
+        let nt: Vec<u16> = nt.encode_utf16().collect();
+        let print: Vec<u16> = print.encode_utf16().collect();
+        let (nt_bytes, print_bytes) = (nt.len() * 2, print.len() * 2);
+        // The header's four offsets and lengths, then the substitute name, NUL, the print
+        // name, NUL.
+        let data_len = 8 + nt_bytes + 2 + print_bytes + 2;
+        if data_len > 16 * 1024 - 8 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "junction target too long"));
+        }
+        let mut buf: Vec<u8> = Vec::with_capacity(8 + data_len);
+        buf.extend_from_slice(&IO_REPARSE_TAG_MOUNT_POINT.to_le_bytes());
+        buf.extend_from_slice(&(data_len as u16).to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&(nt_bytes as u16).to_le_bytes());
+        buf.extend_from_slice(&((nt_bytes + 2) as u16).to_le_bytes());
+        buf.extend_from_slice(&(print_bytes as u16).to_le_bytes());
+        for u in nt.iter().chain(&[0]).chain(&print).chain(&[0]) {
+            buf.extend_from_slice(&u.to_le_bytes());
+        }
+        std::fs::create_dir(link)?;
+        let made = open(link, GENERIC_WRITE).and_then(|h| {
+            let mut ret = 0u32;
+            // Safe: the handle is open, the input buffer is ours and its length is passed.
+            unsafe {
+                let ok = DeviceIoControl(
+                    h,
+                    FSCTL_SET_REPARSE_POINT,
+                    buf.as_ptr().cast(),
+                    buf.len() as u32,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut ret,
+                    std::ptr::null_mut(),
+                );
+                let e = io::Error::last_os_error();
+                CloseHandle(h);
+                if ok == 0 {
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            }
+        });
+        if made.is_err() {
+            let _ = std::fs::remove_dir(link);
+        }
+        made
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_names_of_a_target() {
+            assert_eq!(names(Path::new(r"D:\os\app")), (r"\??\D:\os\app".into(), r"D:\os\app".into()));
+            assert_eq!(names(Path::new(r"\\?\D:\os")), (r"\??\D:\os".into(), r"D:\os".into()));
+            assert_eq!(names(Path::new(r"\\?\UNC\srv\share\x")), (r"\??\UNC\srv\share\x".into(), r"\\srv\share\x".into()));
+        }
+
+        /// A junction made here is one the system reads back: a folder link to its target.
+        #[test]
+        fn a_junction_is_made_without_privilege() {
+            let base = std::env::temp_dir().join(format!("ose-junction-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            std::fs::create_dir_all(base.join("target")).unwrap();
+            std::fs::write(base.join("target/a.md"), "a").unwrap();
+            create(&base.join("target"), &base.join("link")).unwrap();
+            assert!(is_junction(&base.join("link")));
+            assert!(!is_junction(&base.join("target")));
+            assert_eq!(std::fs::read_to_string(base.join("link/a.md")).unwrap(), "a");
+            assert!(create(&base.join("target"), &base.join("link")).is_err(), "never over something");
+            std::fs::remove_dir(base.join("link")).unwrap();
+            assert!(base.join("target/a.md").exists(), "removing the junction leaves the target");
+            let _ = std::fs::remove_dir_all(&base);
+        }
+    }
 }
 
 // ---- search ----------------------------------------------------------------
@@ -1084,16 +1506,18 @@ fn gen_is_current(chan: &str, gen: u64) -> bool {
 
 /// The vault search (N32 to N39). Every term must appear in the file (or in its path); the
 /// lines reported are the ones holding any term. `limit` counts **files**; 0 means no cap,
-/// which is what the rename pass asks for. The answer is
+/// which is what the rename pass asks for. `hidden` searches hidden items too; excluded ones
+/// never. The walk is hide.rs's `walker`: never into a link, and a link's content is never
+/// read (it may point out of the vault), only its name matched. The answer is
 /// `{hits, files, total, capped, stale}` — `hits` flat and ordered, file by file.
-pub fn search(root: &Path, query: &str, limit: usize, chan: Option<&str>) -> Value {
+pub fn search(root: &Path, query: &str, limit: usize, chan: Option<&str>, hidden: bool) -> Value {
     let q = parse_query(query);
     if q.is_empty() {
         return json!({ "hits": [], "files": 0, "total": 0, "capped": false, "stale": false });
     }
     let gen = chan.map(|c| (c.to_string(), next_gen(c)));
     let mut found: Vec<FileHit> = Vec::new();
-    let stale = !search_dir(root, root, &q, gen.as_ref(), &mut found, 0);
+    let stale = !search_walk(root, &q, gen.as_ref(), &mut found, hidden);
 
     // A name match first, then the file with the most hits, then the path so two equal files
     // never swap places between two identical searches.
@@ -1124,58 +1548,59 @@ pub fn search(root: &Path, query: &str, limit: usize, chan: Option<&str>) -> Val
     })
 }
 
-/// False when a newer search has started and this one gave up.
-fn search_dir(
-    root: &Path,
-    dir: &Path,
-    q: &Query,
-    gen: Option<&(String, u64)>,
-    found: &mut Vec<FileHit>,
-    depth: usize,
-) -> bool {
-    if depth > MAX_DEPTH {
-        return true;
-    }
-    if let Some((chan, n)) = gen {
-        if !gen_is_current(chan, *n) {
-            return false;
+/// False when a newer search on the same channel has started and this one gave up.
+fn search_walk(root: &Path, q: &Query, gen: Option<&(String, u64)>, found: &mut Vec<FileHit>, hidden: bool) -> bool {
+    for (seen, item) in crate::hide::walker(root, root, hidden, MAX_DEPTH + 1).enumerate() {
+        if seen % 64 == 0 {
+            if let Some((chan, n)) = gen {
+                if !gen_is_current(chan, *n) {
+                    return false;
+                }
+            }
         }
-    }
-    for (path, meta) in visible(dir) {
-        let rel = relative(root, &path);
+        let Ok(entry) = item else { continue };
+        if entry.depth() == 0 {
+            continue;
+        }
+        let path = entry.path();
+        let rel = relative(root, path);
+        // The vault bin is never searched, hidden items or not (hide.rs `in_bin`): a trashed
+        // page is neither a result, a backlink nor a link to rewrite on a rename.
+        if crate::hide::in_bin(&rel) {
+            continue;
+        }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if meta.is_dir() {
+        let name_hit = !q.terms.is_empty() && q.terms.iter().all(|t| name.contains(t));
+        let kind = entry.file_type();
+        if kind.is_some_and(|k| k.is_dir()) {
             // A folder is a name and nothing else: it matches when every term is in its name
             // and the filters allow it (N35).
-            if allowed(q, &rel, &name) && !q.terms.is_empty() && q.terms.iter().all(|t| name.contains(t)) {
-                found.push(FileHit { path: rel.clone(), kind: "dir", name_hit: true, total: 0, lines: Vec::new() });
-            }
-            if !search_dir(root, &path, q, gen, found, depth + 1) {
-                return false;
+            if name_hit && allowed(q, &rel, &name) {
+                found.push(FileHit { path: rel, kind: "dir", name_hit: true, total: 0, lines: Vec::new() });
             }
             continue;
         }
         if !allowed(q, &rel, &name) {
             continue;
         }
-        let name_hit = !q.terms.is_empty() && q.terms.iter().all(|t| name.contains(t));
-        let searchable = path
-            .extension()
-            .map(|e| {
-                let e = e.to_string_lossy().to_lowercase();
-                SEARCH_EXTS.iter().any(|x| *x == e)
-            })
-            .unwrap_or(false);
+        let searchable = !kind.is_some_and(|k| k.is_symlink())
+            && path
+                .extension()
+                .map(|e| {
+                    let e = e.to_string_lossy().to_lowercase();
+                    SEARCH_EXTS.iter().any(|x| *x == e)
+                })
+                .unwrap_or(false);
         if !searchable {
             if name_hit {
                 found.push(FileHit { path: rel, kind: "file", name_hit: true, total: 0, lines: Vec::new() });
             }
             continue;
         }
-        let Ok(bytes) = fs::read(&path) else { continue };
+        let Ok(bytes) = fs::read(path) else { continue };
         let text = String::from_utf8_lossy(&bytes);
         let lower = text.to_lowercase();
         let path_lower = rel.to_lowercase();
@@ -1236,14 +1661,14 @@ const COMMANDS: &[&str] = &[
     "readBinary",
     "mkdir",
     "rename",
-    "trash",
+    "copyPath",
     "search",
 ];
 
-/// The two commands that walk the whole vault. `rpc` (lib.rs) sends these to a blocking worker
-/// instead of running them inline on a tokio worker thread; the dispatch below is the same
-/// either way.
-pub const BLOCKING: &[&str] = &["tree", "search"];
+/// The commands that may take a while: the two that walk the whole vault, and a copy of a
+/// whole folder. `rpc` (lib.rs) sends these to a blocking worker instead of running them inline
+/// on a tokio worker thread; the dispatch below is the same either way.
+pub const BLOCKING: &[&str] = &["tree", "search", "copyPath"];
 
 pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, String>> {
     if !COMMANDS.contains(&cmd) {
@@ -1286,9 +1711,10 @@ pub fn handle(ctx: &Ctx, cmd: &str, args: &[Value]) -> Option<Result<Value, Stri
 pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, String> {
     let ok = Ok(Value::Null);
     match cmd {
-        "tree" => to_value(tree(root)?),
-        "list" => to_value(list(root, &arg_str_or(args, 0, ""))?),
-        "stat" => stat(root, &arg_str(args, 0)?),
+        // `{hidden}` in the trailing options: hidden items are listed only when asked for.
+        "tree" => to_value(tree(root, opt_bool(args, 0, "hidden"))?),
+        "list" => to_value(list(root, &arg_str_or(args, 0, ""), opt_bool(args, 1, "hidden"))?),
+        "stat" => stat(root, &arg_str(args, 0)?, opt_bool(args, 1, "sniff")),
         "exists" => Ok(Value::Bool(exists(root, &arg_str(args, 0)?)?)),
         "readText" => Ok(Value::String(read_text(root, &arg_str(args, 0)?)?)),
         "writeText" => {
@@ -1318,15 +1744,7 @@ pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, 
             }
             ok
         }
-        "trash" => {
-            // {mode: "system"|"vault"} from settings (S37); anything else means the bin.
-            if crate::opt_field_str(args, 1, "mode").as_deref() == Some("vault") {
-                trash_into_vault(root, &arg_str(args, 0)?)?;
-            } else {
-                trash(root, &arg_str(args, 0)?)?;
-            }
-            ok
-        }
+        "copyPath" => copy_path(root, &arg_str(args, 0)?, &arg_str(args, 1)?),
         "search" => {
             // `limit: 0` is "no cap", which the rename pass asks for so it finds every inbound
             // link (N20); a negative number is nonsense and takes the default.
@@ -1342,10 +1760,15 @@ pub(crate) fn dispatch(root: &Path, cmd: &str, args: &[Value]) -> Result<Value, 
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
                 .map(str::to_string);
-            Ok(search(root, &arg_str(args, 0)?, limit, chan.as_deref()))
+            Ok(search(root, &arg_str(args, 0)?, limit, chan.as_deref(), opt_bool(args, 1, "hidden")))
         }
         _ => Err(format!("unknown command: {cmd}")),
     }
+}
+
+/// A boolean field of the options object at `i`; anything else is false.
+fn opt_bool(args: &[Value], i: usize, key: &str) -> bool {
+    args.get(i).and_then(|o| o.get(key)).and_then(Value::as_bool).unwrap_or(false)
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, String> {
@@ -1361,65 +1784,235 @@ mod tests {
         let root = Path::new("/vault");
         assert_eq!(resolve(root, "").unwrap(), root);
         assert_eq!(resolve(root, "/a/b").unwrap(), root.join("a").join("b"));
-        assert_eq!(resolve(root, "a\\b").unwrap(), root.join("a").join("b"));
         assert_eq!(resolve(root, "a/./b").unwrap(), root.join("a").join("b"));
-        assert_eq!(resolve(root, "a/x/../b").unwrap(), root.join("a").join("b"));
+        assert_eq!(resolve(root, "a//b").unwrap(), root.join("a").join("b"));
         assert!(resolve(root, "../etc").is_err());
         assert!(resolve(root, "a/../../etc").is_err());
-        assert!(resolve(root, "C:/Windows").is_err());
-    }
-
-    /// The plugin loader lists `.ose/plugins`, a folder inside a hidden one, and filters the
-    /// `_` names itself (docs/PLUGINS.md: `_lib/` is shared files, not a plugin). Both have to
-    /// come back out of `list`: hidden means "not in the tree", not "unreachable".
-    #[test]
-    fn the_plugins_folder_lists_and_keeps_its_underscore_names() {
-        let t = Tmp::new("plugins");
-        let plugins = t.0.join(".ose").join("plugins");
-        fs::create_dir_all(plugins.join("_lib")).unwrap();
-        fs::create_dir_all(plugins.join("day")).unwrap();
-        fs::write(plugins.join("week.js"), "").unwrap();
-        fs::write(plugins.join(".half-written.js"), "").unwrap();
-
-        let names: Vec<String> = list(&t.0, ".ose/plugins")
-            .unwrap()
-            .into_iter()
-            .map(|n| n.name)
-            .collect();
-        assert_eq!(names, ["_lib", "day", "week.js"]);
-
-        // A vault with no plugins folder: an error the caller reads as "no plugins".
-        let bare = Tmp::new("no-plugins");
-        assert!(list(&bare.0, ".ose/plugins").is_err());
-    }
-
-    #[test]
-    fn hidden_names() {
-        assert!(is_hidden(".git"));
-        assert!(is_hidden(".ose"));
-        assert!(is_hidden("App"));
-        assert!(is_hidden(".anything"));
-        assert!(!is_hidden("_Archive"));
-        assert!(!is_hidden("Personal"));
-    }
-
-    /// Everything the app itself leaves at the root of a vault, under both names and in any
-    /// case. A visible `ose.exe` in the tree would be a bug people would see at once, and so
-    /// would the DLL a local build needs beside it.
-    #[test]
-    fn what_the_app_leaves_beside_a_vault_is_hidden() {
-        for name in [
-            "ose.exe", "ose.pdb", "ose.exe.new", "ose.exe.old", "Ose.app", "Ose.app.old",
-            "ose-update.zip", "ose-update-tmp", "WebView2Loader.dll",
-            "os.exe", "os.pdb", "os.exe.new", "os.exe.old", "os.app", "os.app.old",
-            "os-update.zip", "os-update-tmp",
-        ] {
-            assert!(is_hidden(name), "{name} should be hidden");
-            assert!(is_hidden(&name.to_uppercase()), "{name} should be hidden whatever its case");
+        if cfg!(windows) {
+            assert_eq!(resolve(root, "a\\b").unwrap(), root.join("a").join("b"));
+            assert!(resolve(root, "C:/Windows").is_err());
         }
-        // Nothing wider than that: a page called `ose.md` or a folder called `ose` is content.
-        assert!(!is_hidden("ose"));
-        assert!(!is_hidden("ose.md"));
+    }
+
+    /// M49: a path is taken as written. Nothing is trimmed, a `..` is refused rather than folded
+    /// into another file, and on Windows a name the system would read as another one is refused.
+    #[test]
+    fn resolve_never_trims_or_redirects() {
+        let root = Path::new("/vault");
+        assert_eq!(resolve(root, " notes.md").unwrap(), root.join(" notes.md"));
+        let e = resolve(root, "a/x/../b").unwrap_err();
+        assert!(e.starts_with("[escapes_vault]"), "{e}");
+        if cfg!(windows) {
+            for bad in ["notes.md ", "notes.", "CON", "nul.md", "com1.txt", "Lpt9", "a/aux/b.md"] {
+                let e = resolve(root, bad).unwrap_err();
+                assert!(e.starts_with("[bad_name]"), "{bad}: {e}");
+            }
+            for fine in ["console.md", "com10.md", "nullable.md", ".env", "a.b.c"] {
+                assert!(resolve(root, fine).is_ok(), "{fine}");
+            }
+        } else {
+            // A backslash is an ordinary character of a name off Windows.
+            assert_eq!(resolve(root, "a\\b").unwrap(), root.join("a\\b"));
+        }
+    }
+
+    /// H16: nothing is hidden by name. `app` and `node_modules` are listed, `.git` and `.ose`
+    /// never are, a dotfile only when hidden items are asked for, and the listing says which
+    /// entries are hidden.
+    #[test]
+    fn a_listing_follows_the_one_rule() {
+        let t = Tmp::new("rule");
+        let root = &t.0;
+        for d in ["app", "node_modules", "_Archive", ".git", ".ose", ".obsidian"] {
+            fs::create_dir_all(root.join(d)).unwrap();
+        }
+        fs::write(root.join("page.md"), "# p\n").unwrap();
+        fs::write(root.join(".env"), "A=1\n").unwrap();
+        fs::write(root.join(".page.md.99.3.tmp"), "half").unwrap();
+        fs::write(root.join("ose.exe"), "").unwrap();
+        fs::create_dir_all(root.join("tools")).unwrap();
+        fs::write(root.join("tools/ose.exe"), "").unwrap();
+
+        let names = |hidden: bool| -> Vec<String> { list(root, "", hidden).unwrap().into_iter().map(|n| n.name).collect() };
+        assert_eq!(names(false), ["_Archive", "app", "node_modules", "tools", "page.md"]);
+        assert_eq!(names(true), [".obsidian", "_Archive", "app", "node_modules", "tools", ".env", "page.md"]);
+        let all = list(root, "", true).unwrap();
+        assert!(all.iter().find(|n| n.name == ".env").unwrap().hidden);
+        assert!(!all.iter().find(|n| n.name == "app").unwrap().hidden);
+        // The exe is excluded at the root only.
+        assert_eq!(list(root, "tools", false).unwrap()[0].name, "ose.exe");
+        // An excluded folder is not there as far as listing goes.
+        assert!(list(root, ".ose", true).unwrap_err().starts_with("[not_found]"));
+        assert!(list(root, "missing", false).unwrap_err().starts_with("[not_found]"));
+
+        // The tree and the search apply the same rule.
+        let tree = tree(root, false).unwrap();
+        let top: Vec<String> = tree.children.unwrap().into_iter().map(|n| n.name).collect();
+        assert_eq!(top, ["_Archive", "app", "node_modules", "tools", "page.md"]);
+        let with_hidden = super::tree(root, true).unwrap();
+        assert!(with_hidden.children.unwrap().iter().any(|n| n.name == ".env"));
+        let r = search(root, "ose", 100, None, true);
+        let paths: Vec<&str> = r["hits"].as_array().unwrap().iter().map(|h| h["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["tools/ose.exe"], "the root exe is never found, the copy in tools is");
+    }
+
+    /// `stat` says hidden, and with `sniff` whether the file reads as text (H17).
+    #[test]
+    fn stat_sniffs_text_by_content() {
+        let t = Tmp::new("sniff");
+        let root = &t.0;
+        fs::write(root.join("notes"), "no extension, plain text\n").unwrap();
+        fs::write(root.join("bom.txt"), "\u{feff}with a mark\n").unwrap();
+        fs::write(root.join("blob.bin"), [0x89u8, b'P', b'N', b'G', 0, 0, 1]).unwrap();
+        fs::write(root.join("latin1.txt"), [b'c', b'a', b'f', 0xe9]).unwrap();
+        fs::write(root.join(".hidden.md"), "x").unwrap();
+        // A multi-byte character cut by the 8 KB edge is still text.
+        let mut long = "a".repeat(SNIFF_BYTES - 1).into_bytes();
+        long.extend("é and more".as_bytes());
+        fs::write(root.join("long.md"), &long).unwrap();
+
+        let text = |p: &str| stat(root, p, true).unwrap()["text"].clone();
+        assert_eq!(text("notes"), true);
+        assert_eq!(text("bom.txt"), true);
+        assert_eq!(text("blob.bin"), false);
+        assert_eq!(text("latin1.txt"), false);
+        assert_eq!(text("long.md"), true);
+        assert!(stat(root, "notes", false).unwrap().get("text").is_none(), "only with sniff");
+        assert_eq!(stat(root, ".hidden.md", false).unwrap()["hidden"], true);
+        assert_eq!(stat(root, "gone.md", true).unwrap()["exists"], false);
+    }
+
+    /// A folder link, a junction on Windows when symlinks need a privilege this process lacks.
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+                return true;
+            }
+            match junction::create(target, link) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("junction {}: {e}", link.display());
+                    false
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+    }
+
+    /// A folder link to its own parent is a loop: listed with its badge, never walked, and the
+    /// tree still finishes. A link out of the vault says so, and cannot be listed.
+    #[test]
+    fn a_symlink_loop_is_listed_and_never_walked() {
+        let t = Tmp::new("loop");
+        let outside = Tmp::new("outside");
+        let root = &t.0;
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a/page.md"), "x").unwrap();
+        fs::write(outside.0.join("secret.md"), "no").unwrap();
+        if !link_dir(&root.join("a"), &root.join("a").join("loop")) || !link_dir(&outside.0, &root.join("out")) {
+            eprintln!("no folder links on this machine; skipped");
+            return;
+        }
+        let a = list(root, "a", false).unwrap();
+        let lp = a.iter().find(|n| n.name == "loop").unwrap();
+        assert_eq!(lp.link, Some("loop"));
+        assert_eq!(lp.kind, "dir");
+        let top = list(root, "", false).unwrap();
+        assert_eq!(top.iter().find(|n| n.name == "out").unwrap().link, Some("outside"));
+        assert!(list(root, "out", false).unwrap_err().starts_with("[escapes_vault]"));
+
+        let tree = tree(root, false).unwrap();
+        let a = tree.children.as_ref().unwrap().iter().find(|n| n.name == "a").unwrap();
+        let lp = a.children.as_ref().unwrap().iter().find(|n| n.name == "loop").unwrap();
+        assert!(lp.children.is_none(), "a link is never walked");
+        let r = search(root, "no", 100, None, false);
+        assert!(r["hits"].as_array().unwrap().iter().all(|h| h["path"] != "out/secret.md"));
+    }
+
+    /// `copyPath`: a whole folder, byte for byte, and never over anything.
+    #[test]
+    fn copy_path_copies_a_folder_and_never_overwrites() {
+        let t = Tmp::new("copy");
+        let root = &t.0;
+        fs::create_dir_all(root.join("proj/src/deep")).unwrap();
+        fs::write(root.join("proj/readme.md"), "# r\r\n").unwrap();
+        fs::write(root.join("proj/src/deep/a.bin"), [0u8, 1, 2, 255]).unwrap();
+        fs::create_dir_all(root.join("proj/empty")).unwrap();
+
+        let r = copy_path(root, "proj", "backup/proj 2").unwrap();
+        assert_eq!(r["path"], "backup/proj 2");
+        assert_eq!(r["files"], 2);
+        assert_eq!(fs::read(root.join("backup/proj 2/readme.md")).unwrap(), b"# r\r\n");
+        assert_eq!(fs::read(root.join("backup/proj 2/src/deep/a.bin")).unwrap(), [0u8, 1, 2, 255]);
+        assert!(root.join("backup/proj 2/empty").is_dir());
+
+        // Create-only: a folder or a file already there is refused, and left as it was.
+        let e = copy_path(root, "proj", "backup/proj 2").unwrap_err();
+        assert!(e.starts_with("[exists]"), "{e}");
+        let e = copy_path(root, "proj/readme.md", "backup/proj 2/readme.md").unwrap_err();
+        assert!(e.starts_with("[exists]"), "{e}");
+        // One file, and nothing to copy.
+        assert_eq!(copy_path(root, "proj/readme.md", "readme copy.md").unwrap()["files"], 1);
+        assert!(copy_path(root, "nope", "x").unwrap_err().starts_with("[not_found]"));
+        // Never into itself, whatever the letter case says on a volume that folds it.
+        assert!(copy_path(root, "proj", "proj/inside").unwrap_err().starts_with("[bad_arg]"));
+        if cfg!(any(windows, target_os = "macos")) {
+            assert!(copy_path(root, "Proj", "proj/Proj copy").unwrap_err().starts_with("[bad_arg]"));
+            assert!(!root.join("proj/Proj copy").exists());
+        }
+        // A file may be copied beside itself under a longer name.
+        assert_eq!(copy_path(root, "readme copy.md", "readme copy.md 2").unwrap()["files"], 1);
+        assert!(copy_path(root, "proj", "proj2").unwrap().get("leftOut").is_none());
+    }
+
+    /// A folder link inside a copied folder comes back as a link to the same folder: a junction
+    /// as a junction, and on Windows without the symlink right a folder symlink as a junction.
+    /// Nothing is left out, and a link copied on its own works too.
+    #[test]
+    fn copy_path_keeps_folder_links() {
+        let t = Tmp::new("copylinks");
+        let root = &t.0;
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(root.join("app/index.md"), "# app\n").unwrap();
+        fs::create_dir_all(root.join("proj")).unwrap();
+        if !link_dir(&root.join("app"), &root.join("proj/link-to-app")) {
+            eprintln!("no folder links on this machine; skipped");
+            return;
+        }
+        let r = copy_path(root, "proj", "proj 2").unwrap();
+        assert_eq!(r["files"], 1, "{r}");
+        assert!(r.get("leftOut").is_none(), "{r}");
+        let copied = root.join("proj 2/link-to-app");
+        assert!(fs::symlink_metadata(&copied).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(copied.join("index.md")).unwrap(), "# app\n");
+        #[cfg(windows)]
+        assert_eq!(junction::is_junction(&copied), junction::is_junction(&root.join("proj/link-to-app")));
+
+        let r = copy_path(root, "proj/link-to-app", "link 2").unwrap();
+        assert_eq!(r["files"], 1);
+        assert!(fs::symlink_metadata(root.join("link 2")).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(root.join("link 2/index.md")).unwrap(), "# app\n");
+        // Copying the target into the link to it is copying a folder into itself.
+        assert!(copy_path(root, "app", "proj/link-to-app/app 2").unwrap_err().starts_with("[bad_arg]"));
+    }
+
+    /// M50: a rename never replaces what is at the target, even when the look said it was free.
+    #[test]
+    fn a_rename_never_replaces() {
+        let t = Tmp::new("noreplace");
+        let root = &t.0;
+        fs::write(root.join("a.md"), "a").unwrap();
+        fs::write(root.join("b.md"), "b").unwrap();
+        let e = rename_noreplace(&root.join("a.md"), &root.join("b.md")).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(root.join("b.md")).unwrap(), "b");
+        rename(root, "a.md", "sub/c.md").unwrap();
+        assert_eq!(fs::read_to_string(root.join("sub/c.md")).unwrap(), "a");
+        assert!(rename(root, "sub/c.md", "b.md").unwrap_err().starts_with("[exists]"));
     }
 
     /// A fresh folder under the system temp dir, removed when dropped.
@@ -1513,7 +2106,7 @@ mod tests {
         fs::write(root.join("notes/gamma.txt"), "ethics and kant in a text file\n").unwrap();
         fs::write(root.join("kant.md"), "nothing relevant\n").unwrap();
 
-        let r = search(root, "kant ethics", 100, None);
+        let r = search(root, "kant ethics", 100, None, false);
         let hits = r["hits"].as_array().unwrap();
         let paths: Vec<&str> = hits.iter().map(|h| h["path"].as_str().unwrap()).collect();
         // beta.md has no `ethics` anywhere: the terms are ANDed within a file (N33).
@@ -1525,7 +2118,7 @@ mod tests {
         assert!(name_hit.is_none(), "kant.md does not hold `ethics`, so it is not a hit");
 
         // A one-term search does match the name, and the name hit comes first (N34 ordering).
-        let r = search(root, "kant", 100, None);
+        let r = search(root, "kant", 100, None, false);
         let hits = r["hits"].as_array().unwrap();
         assert_eq!(hits[0]["path"], "kant.md");
         assert_eq!(hits[0]["line"], 0);
@@ -1533,18 +2126,18 @@ mod tests {
         assert_eq!(r["capped"], false);
 
         // The cap counts files, and the answer says how many there were (N34).
-        let r = search(root, "kant", 2, None);
+        let r = search(root, "kant", 2, None, false);
         assert_eq!(r["files"], 2);
         assert_eq!(r["total"], 4);
         assert_eq!(r["capped"], true);
 
         // limit 0 is no cap at all: what the rename pass asks for (N20).
-        let r = search(root, "kant", 0, None);
+        let r = search(root, "kant", 0, None, false);
         assert_eq!(r["files"], 4);
         assert_eq!(r["capped"], false);
 
         // `col` is 1-based in the trimmed line (N36).
-        let r = search(root, "again", 100, None);
+        let r = search(root, "again", 100, None, false);
         let h = &r["hits"].as_array().unwrap()[0];
         assert_eq!(h["line"], 3);
         assert_eq!(h["col"], 6);
@@ -1560,18 +2153,18 @@ mod tests {
         fs::write(root.join("a/one.md"), "word\n").unwrap();
         fs::write(root.join("b/two.md"), "word\n").unwrap();
 
-        let r = search(root, "path:a word", 100, None);
+        let r = search(root, "path:a word", 100, None, false);
         let hits = r["hits"].as_array().unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0]["path"], "a/one.md");
 
-        let r = search(root, "file:two word", 100, None);
+        let r = search(root, "file:two word", 100, None, false);
         let hits = r["hits"].as_array().unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0]["path"], "b/two.md");
 
         // A folder whose name matches is a hit of its own, with line 0 (N35).
-        let r = search(root, "a", 100, None);
+        let r = search(root, "a", 100, None, false);
         let hits = r["hits"].as_array().unwrap();
         assert!(hits.iter().any(|h| h["path"] == "a" && h["kind"] == "dir"));
     }

@@ -3,9 +3,9 @@
 // Versions… dialog that lists, compares and restores. Host side in src-tauri/src/versions.rs,
 // dev side in dev/bridge-plugin.mjs. See docs/HOST.md "Versions".
 //
-// `keepVersion` and `keepDiskVersion` are what the code editor still calls before its own
-// writes. Neither is on the critical path of a save: a version is insurance, never a
-// precondition, and every call is swallowed and logged.
+// Nothing in the editor keeps a version of its own before a write any more: the code editor
+// saves through the same compare-and-write the page does (wave 2), and the host keeps the
+// replaced bytes itself.
 
 import { bridge, commands } from './host.js';
 import { choose, openOverlay, toast } from './deps.js';
@@ -13,37 +13,6 @@ import { compareTexts } from './compare.js';
 
 /** The api handed over by index.js at boot (registerExtensionCommands). */
 let api = null;
-
-/**
- * Keep `previous` (the text the page was opened from or last wrote) before `next` replaces it
- * on disk. Must never throw and never block a save for long.
- * @param {string} path  vault-relative
- * @param {string} previous
- * @param {string} next
- */
-export async function keepVersion(path, previous, next) {
-  if (!path || !previous || previous === next) return;
-  try {
-    await bridge.versionKeep(path, previous, false);
-  } catch (e) {
-    // An old host has no `versionKeep`; a full disk has no room. Neither may stop a save.
-    console.warn('[editor] version not kept', e && e.message ? e.message : e);
-  }
-}
-
-/**
- * The one moment a version is not optional: "Keep mine" in the changed-on-disk dialog is about
- * to overwrite text this editor has never seen, so the disk's text is kept whatever the
- * five-minute rule says.
- */
-export async function keepDiskVersion(path, text) {
-  if (!path || !text) return;
-  try {
-    await bridge.versionKeep(path, text, true);
-  } catch (e) {
-    console.warn('[editor] disk version not kept', e && e.message ? e.message : e);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // the dialog

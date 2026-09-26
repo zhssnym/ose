@@ -1,5 +1,10 @@
-//! `<root>/.ose/state.json`: the UI's whole persisted state plus the two keys the host owns,
-//! `window` (bounds) and `theme` (first paint colour). Writes are atomic: `vault::write_atomic`.
+//! `<root>/.ose/state.json`: what belongs to the vault and travels with it (pins, the planner's
+//! paths, the vault's settings). Writes are atomic: `vault::write_atomic_owned`.
+//!
+//! The window bounds and the theme mirror used to live here too, which put one machine's
+//! screen into every synced copy of the vault (M26). They are read and written in the
+//! per-machine store now (local.rs); what is below reads the old keys once, for the first
+//! launch after the upgrade, and never writes them again.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,13 +95,18 @@ pub fn patch(root: &Path, key: &str, value: Value) -> Result<(), String> {
 
 // ---- theme -----------------------------------------------------------------
 
-/// The UI keeps its preference in localStorage and pushes the resolved value down with
-/// `winSetTheme`; the host mirrors it here so the very first paint of the next launch is
-/// already the right colour. Unset means dark, which is what the kernel's theme defaults to.
-pub fn theme(root: &Path) -> &'static str {
-    match get(root).get("theme").and_then(Value::as_str) {
-        Some("light") => "light",
-        _ => "dark",
+/// The resolved theme a vault's state file still carries from before the per-machine store,
+/// if any: `dark` or `light`. Read once, as the fallback of a first launch after the upgrade.
+pub fn theme(root: &Path) -> Option<&'static str> {
+    theme_of(get(root).get("theme"))
+}
+
+/// `"dark"` or `"light"` out of a stored value, anything else `None`.
+pub fn theme_of(v: Option<&Value>) -> Option<&'static str> {
+    match v.and_then(Value::as_str) {
+        Some("light") => Some("light"),
+        Some("dark") => Some("dark"),
+        _ => None,
     }
 }
 
@@ -126,9 +136,14 @@ pub struct Bounds {
 /// A monitor rectangle: position and size, physical pixels.
 pub type MonitorRect = (i32, i32, u32, u32);
 
+/// The bounds a vault's state file still carries from before the per-machine store.
 pub fn read_window(root: &Path) -> Option<Bounds> {
-    let state = get(root);
-    let w = state.get("window")?.as_object()?;
+    bounds_of(get(root).get("window")?)
+}
+
+/// Bounds out of a stored `{x, y, w, h, maximized}`.
+pub fn bounds_of(v: &Value) -> Option<Bounds> {
+    let w = v.as_object()?;
     let num = |k: &str| w.get(k).and_then(Value::as_i64);
     Some(Bounds {
         x: num("x")? as i32,
@@ -139,12 +154,9 @@ pub fn read_window(root: &Path) -> Option<Bounds> {
     })
 }
 
-pub fn save_window(root: &Path, b: Bounds) -> Result<(), String> {
-    patch(
-        root,
-        "window",
-        json!({ "x": b.x, "y": b.y, "w": b.w, "h": b.h, "maximized": b.maximized }),
-    )
+/// Bounds as they are stored.
+pub fn bounds_json(b: Bounds) -> Value {
+    json!({ "x": b.x, "y": b.y, "w": b.w, "h": b.h, "maximized": b.maximized })
 }
 
 /// Saved bounds are only used when they are at least the minimum size and a real corner of the

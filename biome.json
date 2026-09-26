@@ -9,7 +9,6 @@
     "includes": [
       "src/**/*.js",
       "shell/**/*.js",
-      "plugins/**/*.js",
       "dev/**/*.mjs",
       "scripts/**/*.mjs",
       "tests/**/*.js",

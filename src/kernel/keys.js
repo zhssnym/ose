@@ -124,6 +124,14 @@ export const CODE_KEYS = new Set([
 ]);
 
 /**
+ * Of those, Alt+Left and Alt+Right are Back and Forward everywhere but in a code block inside a
+ * page. A whole-file CodeMirror (a text file in `.ed-code`, a page in Source) is where the user
+ * is reading, and every file that is not markdown opens in one (H17): there Back and Forward
+ * win over CodeMirror's move-by-syntax-node. Alt+Up and Alt+Down stay the editor's (move line).
+ */
+export const CODE_BLOCK_ONLY_KEYS = new Set(['alt+arrowleft', 'alt+arrowright']);
+
+/**
  * A standalone `codeEditor` (`.ed-code`) is a document of its own: it binds Ctrl+S to its own
  * save (`src/editor/code-editor.js`) and carries CodeMirror's own search panel on Ctrl+F. A
  * code block inside a page is not one of these — there Ctrl+S saves the page and Ctrl+F opens
@@ -162,34 +170,27 @@ let builtMac = null;
 let builtRev = -1;
 
 /**
- * `ose.keys.bind(combo, commandId, { scope })` (docs/KERNEL.md): the shell's `keys.json` and a
- * plugin's `shortcut` come through here. Bindings are applied after the defaults, so a binding
- * of `mod+shift+j` takes that chord over whatever the shell had on it; removing the
- * binding gives the default back. `scope: 'body'` means the chord only fires with the caret in
- * a page editor, which is what `inBody` has always meant in BODY_KEYS.
+ * `ose.keys.bind(combo, commandId, { scope })` (docs/KERNEL.md): the shell's `keys.json` comes
+ * through here. Bindings are applied after the defaults, so a binding of `mod+shift+j` takes
+ * that chord over whatever the kernel had on it; removing the binding gives the default back.
+ * `scope: 'body'` means the chord only fires with the caret in a page editor, which is what
+ * `inBody` has always meant in BODY_KEYS.
  *
  * Normalised so `Mod+Shift+J`, `mod+shift+j` and `MOD+SHIFT+j` are one chord.
  */
 // combo -> the bindings on it, oldest first, the last one live. A stack rather than one entry:
-// two owners can ask for the same chord (the shell's keys.json binds Mod+Shift+J before a
-// plugin does), and releasing the later binding used to leave the chord on the kernel default
-// with the shell's own binding gone for the session. Releasing one now uncovers the one under.
+// two owners can ask for the same chord, and releasing the later binding used to leave the
+// chord on the kernel default with the earlier binding gone for the session. Releasing one now
+// uncovers the one under.
 const bindings = new Map();   // combo -> [{ combo, cmd, inBody }]
 export const normalizeCombo = (c) => String(c || '').toLowerCase().split('+').map((p) => p.trim()).filter(Boolean).join('+');
 
 /** The binding that holds a combo right now: the last one bound on it. */
 const liveBinding = (list) => (list && list.length ? list[list.length - 1] : null);
 
-export function bindKey(combo, commandId, { scope = 'window', plugin = null } = {}) {
+export function bindKey(combo, commandId, { scope = 'window' } = {}) {
   const key = normalizeCombo(combo);
   if (!key || !commandId) throw new Error('keys.bind: a combo and a command id are required');
-  // A chord the kernel's own keymap holds is not a plugin's to take, here as in a command's
-  // `shortcut` (docs/KERNEL.md): a plugin could take the palette, save, quit, close or quick
-  // open with one line and nothing said it had. The shell is not a plugin and still may.
-  if (plugin) {
-    const held = kernelCombos().get(key);
-    if (held) { warnOnce(key, `${commandId} (plugin ${plugin})`, held); return () => {}; }
-  }
   const entry = { combo: key, cmd: String(commandId), inBody: scope === 'body' };
   const list = bindings.get(key) || [];
   list.push(entry);
@@ -213,54 +214,38 @@ export function bindingFor(combo) {
 }
 
 /**
- * `commands.register({ shortcut })` is a binding, not a printed hint (docs/PLUGINS.md rule 4):
- * the chord fires the command and `shortcutFor` answers it. It is read off the registry here
- * rather than bound inside `commands.register`, so `registry.js` keeps importing nothing and
- * the chord goes with the command — the unsubscribe removes the command, the next index leaves
- * the chord out. Scope is always 'window'; a chord that should stand down inside the editor
- * body is `keys.bind(combo, id, { scope: 'body' })`.
+ * `commands.register({ shortcut })` is a binding, not a printed hint: the chord fires the command
+ * and `shortcutFor` answers it. It is read off the registry here rather than bound inside
+ * `commands.register`, so `registry.js` keeps importing nothing and the chord goes with the
+ * command — the unsubscribe removes the command, the next index leaves the chord out. Scope is
+ * always 'window'; a chord that should stand down inside the editor body is
+ * `keys.bind(combo, id, { scope: 'body' })`. Everything that registers a command is built into
+ * the app, so a `shortcut` may replace a default, as `tab.close` replaces `page.close` on Ctrl+W.
  */
 function commandShortcuts() {
   const out = [];
   for (const c of allCommands()) {
     if (!c.shortcut) continue;
     const combo = normalizeCombo(c.shortcut);
-    if (!combo) continue;
-    // A chord the kernel already owns is not a **plugin's** to take. Installing one used to
-    // move Ctrl+Shift+N from `tree.new-folder` to whatever the plugin asked for, app-wide and
-    // silently, and the sidebar then printed no chord at all for the command it had lost
-    // (ADV-B, first finding). The kernel keeps its binding, the plugin's command keeps none —
-    // it is still in the palette, and the shell may give it a chord in `keys.json` if the
-    // vault's owner wants one. Said once per command per combo: `index()` runs on every
-    // registration.
-    //
-    // The shell is not a plugin: it owns the window, and a shell that replaces `page.close`
-    // with a `tab.close` of its own on Ctrl+W is doing what a shell is for. Only a command the
-    // plugin facade tagged is held to this.
-    const held = c.plugin ? kernelCombos().get(combo) : null;
-    if (held) { warnOnce(combo, c.id, held); continue; }
-    out.push({ combo, cmd: c.id, inBody: false });
+    if (combo) out.push({ combo, cmd: c.id, inBody: false });
   }
   return out;
 }
 
-/** The combos KEYMAP holds on this platform, combo -> the command the kernel gives it. */
-let kernelComboCache = null;
-let kernelComboMac = null;
-function kernelCombos() {
+/**
+ * The chords the editor body binds itself (BODY_KEYS), on this platform. While the caret is in
+ * a page editor these win over any window binding of the same chord (docs/KERNEL.md "Body keys
+ * win"): Alt+Up there moves the block, and `keys.json`'s `folder.up` on the same chord applies
+ * everywhere else.
+ */
+let bodyComboCache = null;
+let bodyComboMac = null;
+function bodyCombos() {
   const mac = isMac();
-  if (kernelComboCache && kernelComboMac === mac) return kernelComboCache;
-  kernelComboMac = mac;
-  kernelComboCache = new Map(KEYMAP.map((k) => [normalizeCombo(comboFor(k)), k.cmd]));
-  return kernelComboCache;
-}
-
-const warned = new Set();
-function warnOnce(combo, cmd, held) {
-  const key = `${combo}|${cmd}`;
-  if (warned.has(key)) return;
-  warned.add(key);
-  console.warn(`[keys] ${cmd} asks for ${combo}, which the kernel binds to ${held}: ${cmd} keeps no chord`);
+  if (bodyComboCache && bodyComboMac === mac) return bodyComboCache;
+  bodyComboMac = mac;
+  bodyComboCache = new Set(BODY_KEYS.filter((k) => !k.hintOnly).map((k) => normalizeCombo(comboFor(k))));
+  return bodyComboCache;
 }
 
 function index() {
@@ -274,11 +259,11 @@ function index() {
   const shortcuts = commandShortcuts();
   for (const k of KEYMAP) byCombo.set(normalizeCombo(comboFor(k)), k);
   // Then a command's own `shortcut`, then the explicit bindings: the shell's keys.json wins
-  // over a plugin's shortcut, and both win over a default rather than fighting it.
+  // over a command's shortcut, and both win over a default rather than fighting it.
   for (const k of shortcuts) byCombo.set(k.combo, k);
   for (const [combo, list] of bindings) { const entry = liveBinding(list); if (entry) byCombo.set(combo, entry); }
   // What a command prints is what its chord **does**. `byCombo` is the arbiter — the shell's
-  // keys.json over a plugin's `shortcut` over a shell default — so the printed hints are read
+  // keys.json over a command's `shortcut` over a kernel default — so the printed hints are read
   // back out of it rather than out of the three tables that fed it. A command whose chord was
   // taken by another command answers null and the palette prints nothing for it, instead of
   // printing a chord that runs something else (QA-K defect 4).
@@ -290,14 +275,11 @@ function index() {
     if (!byCmd.has(entry.cmd)) byCmd.set(entry.cmd, labelOf(entry));
   }
   // Body chords are bound by `editor/commands.js` inside a ProseMirror keymap and are not in
-  // `byCombo` at all. One still loses its chord if a **window** binding took the combo: the
-  // window listener runs in the capture phase and only stands down for an entry of its own
-  // that is marked `inBody`.
+  // `byCombo` at all. A window binding of the same combo does not take one away: inside the
+  // body the window listener stands down for every body chord (body keys win), so the chord
+  // still does what the body command's hint says there.
   for (const k of BODY_KEYS) {
-    if (byCmd.has(k.cmd)) continue;
-    const owner = byCombo.get(normalizeCombo(comboFor(k)));
-    if (owner && owner.cmd !== k.cmd && !owner.inBody) continue;
-    byCmd.set(k.cmd, labelOf(k));
+    if (!byCmd.has(k.cmd)) byCmd.set(k.cmd, labelOf(k));
   }
 }
 
@@ -355,7 +337,7 @@ const UNAVAILABLE = {
   'page.close': 'no page to close',
   'app.back': 'nothing to go back to',
   'app.forward': 'nothing to go forward to',
-  'app.reopen-closed': 'nothing to reopen',
+  'app.reopen-closed': 'no closed tab to reopen',
   'format.link': 'put the caret in the page first',
   'page.follow-link': 'no link under the caret',
 };
@@ -401,11 +383,15 @@ export function initKeys() {
     if (!entry) return;
 
     // A chord CodeMirror owns keeps working inside a code block (Alt+Arrows move by syntax
-    // node there); everywhere else in the app it is the shell's.
-    if (CODE_KEYS.has(combo) && inside(e, '.cm-editor')) return;
+    // node there); everywhere else in the app it is the shell's. Back and Forward only stand
+    // down inside a page's code block, not in a whole-file editor.
+    if (CODE_KEYS.has(combo) && inside(e, CODE_BLOCK_ONLY_KEYS.has(combo) ? '.ProseMirror .cm-editor' : '.cm-editor')) return;
     if (OWN_EDITOR_KEYS.has(combo) && inside(e, '.ed-code')) return;
-    // A chord the body keymap owns (Ctrl+0 = paragraph) falls through inside the body.
+    // A chord the body keymap owns (Ctrl+0 = paragraph) falls through inside the body, and so
+    // does any window binding of a chord the body binds itself: body keys win while the editor
+    // has focus (Alt+Up moves the block there and is `folder.up` everywhere else).
     if (entry.inBody && inside(e, '.ProseMirror')) return;
+    if (bodyCombos().has(normalizeCombo(combo)) && inside(e, '.ProseMirror')) return;
 
     // A chord typed into a dialog's input that is not overlay-safe belongs to the input
     // (Ctrl+A, Ctrl+Z...): leave it entirely alone, no preventDefault, or it dies in silence.

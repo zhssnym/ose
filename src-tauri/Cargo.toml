@@ -33,6 +33,15 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 notify = "8"
+# The watcher's debouncer (H9): pairs the two halves of a rename by file id on Windows and
+# macOS, merges a burst into one change per path, and says when the backend dropped events.
+notify-debouncer-full = "0.7"
+# The walker behind `tree` and `search` (H16), with its own filters off: the one hide rule is
+# hide.rs, and `.gitignore` means nothing to a vault.
+ignore = "0.4"
+# "Is this the same file?" by volume and file id, for a case-only rename on a volume that may
+# or may not fold case (M50). Already in the tree under walkdir; naming it is no extra download.
+same-file = "1"
 trash = "5"
 opener = "0.7"
 percent-encoding = "2"

@@ -27,13 +27,22 @@
 // the last one closes), the watcher and window listeners, and the pointer to the **active**
 // page — the one holding the focus — which is the page the commands and the extension modules
 // act on.
+//
+// Wave 2 (M12, M24): an instance outlives its tab being in the background. `handle.park()`
+// takes the column out of the document and keeps the editor alive; the next `markdownPage` for
+// the same path puts that very instance back, buffer, undo history, mode, caret and scroll
+// included (instances.js is the register). A change made on disk while a page is dirty is
+// merged into it line by line (H7, merge.js), and only lines both sides touched are a question.
 
 import {
-  bus, commands, status, store, bridge, navigate, defaultNewFolder, scratchFolder,
-  copyText, icon, attachmentFolder, spellcheckOn, collectCommands, onWindowLeave, repointRoute,
-  fileops, names, log, pageFiles,
+  bus, commands, status, store, bridge, navigate, defaultNewFolder,
+  copyText, icon, attachmentFolder, spellcheckOn, titleSyncOn, collectCommands, onWindowLeave, repointRoute,
+  fileops, names, log, pageFiles, planRewrite,
 } from './host.js';
-import { prompt, confirm, choose, patchState, toast } from './deps.js';
+import { prompt, confirm, patchState, toast } from './deps.js';
+import { instances, activeInstance, setActive, findParked, overCap, parkedPaths as parkedList } from './instances.js';
+import { merge3, keepBoth } from './merge.js';
+import { docWithoutPad } from './space.js';
 import * as serializer from './crepe.js';
 import { bindPagePath, insertPageLink } from './link.js';
 import { DRAG_TYPE, dropInto, payloadOf } from './drop.js';
@@ -48,6 +57,7 @@ import { createSourceView, rememberSource, renameRemembered, wasInSource } from 
 import { describe, indentFor, loadLanguage } from './highlight.js';
 import { compareTexts } from './compare.js';
 import { TextSelection } from '@milkdown/kit/prose/state';
+import { closeHistory } from '@milkdown/kit/prose/history';
 import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterValue } from './doc.js';
 import * as P from './paths.js';
 import './editor.css';
@@ -86,12 +96,13 @@ const UNTITLED = /^Untitled( \d+)?$/i;
  */
 let revClock = Date.now();
 
-/** Every mounted page, and the one the commands act on (the focused one, or the last mounted). */
-const instances = new Set();
-let active = null;
+/** A change made on disk and merged into a dirty page is announced for this long (H7). */
+const MERGE_NOTE_MS = 8000;
 
-const activeInst = () => active;
-const activeApi = () => (active ? active.api : null);
+// Every live page, on screen or parked, and the one the commands act on (the focused one, or
+// the last mounted) are instances.js's register.
+const activeInst = () => activeInstance();
+const activeApi = () => (activeInstance() ? activeInstance().api : null);
 
 /** `path` is `from`, or a page inside the folder `from`. */
 const covers = (path, from) => !!path && !!from && (path === from || path.startsWith(from + '/'));
@@ -162,6 +173,13 @@ const blankPage = () => ({
   keptCopies: 0, failedAt: 0,
   saveTimer: 0, goneTimer: 0, retry: 0, savedAt: null, savedAtMs: null, saving: null, switching: null,
   lastState: '', lastSave: '', lastBanner: '',
+  // Wave 2 (H7). applying: a text from outside (the disk, a merge) is going into the editor,
+  // and the change it makes is not the user's. conflict: the disk moved on under a dirty page
+  // and the two could not be merged, `{theirs, hash, count, base}`; merged: the last clean merge,
+  // `{ours, theirs, text, at}`, what Undo merge and Show changes work from; mergeNote: the timer
+  // of the banner that says a merge happened. bindParent: moves the blank-click listener to the
+  // element the column is in now (M12).
+  applying: false, conflict: null, merged: null, mergeNote: 0, bindParent: null,
   cleanups: [],
 });
 
@@ -172,8 +190,18 @@ const blankPage = () => ({
  * `opts.line` (1-based, a line of the file as the search overlay counts them) puts the caret in
  * the block that holds that line once the editor is up (C7); `opts.selection` is a `{from,to}`
  * a router remembered; `opts.query` seeds the find bar.
+ *
+ * Wave 2 (M12, M24): when an instance of `path` is parked (`handle.park()`, a tab gone to the
+ * background), that instance is put back into `el` instead — the same buffer, undo history and
+ * mode, its caret and scroll — and the same handle is answered.
  */
 export function markdownPage(el, path, opts = {}) {
+  const again = findParked(P.normalize(String(path ?? '')));
+  if (again) { again.reattach(el, opts); return again.handle; }
+  return buildPage(el, path, opts);
+}
+
+function buildPage(el, path, opts) {
   /** @type {null | ReturnType<typeof blankPage>} */
   let page = null;
   let openToken = 0;
@@ -181,12 +209,23 @@ export function markdownPage(el, path, opts = {}) {
   let closed = false;
   /** The leave in flight: a second `canLeave` awaits the same save. */
   let leaving = null;
+  // Parking (M12): the column is out of the document, in `el`, which is then a holder of the
+  // instance's own. `parkScroll` and `parkFocus` are how it was left.
+  let parked = false;
+  let parkScroll = 0;
+  let parkFocus = false;
 
   const listeners = new Map();
   const inst = {
-    el,
+    get el() { return el; },
     api: null,
     handle: null,
+    get parked() { return parked; },
+    usedAt: Date.now(),
+    /** Parked, clean, and nothing standing between the buffer and the disk: may be let go. */
+    evictable: () => parked && !closed && (!page || (!page.dirty && !page.problem && !page.deleted && !page.saving && !page.hasDraft)),
+    reattach: (host, o) => reattach(host, o),
+    rewriteLinks: (target, pairs, o) => rewriteLinks(target, pairs, o),
     path: () => (page ? page.path : null),
     isDirty: () => !!(page && page.dirty),
     titleEl: () => (page ? page.titleEl : null),
@@ -197,11 +236,18 @@ export function markdownPage(el, path, opts = {}) {
     leaveWindow: () => leaveWindow(),
     writeDraft: () => (page && page.dirty ? writeDraft(page) : Promise.resolve()),
     covers: (from) => !!(page && covers(page.path, from)),
+    /**
+     * The page holds `target`: its path, or where a rename or a move in flight is taking it
+     * (the kernel may rewrite the moved files' links before `afterPathChange` re-points them).
+     */
+    holds: (target) => !!(page && (page.path === target
+      || (page.moving && page.moving.to && covers(page.path, page.moving.from)
+        && mapPath(page.path, page.moving.from, page.moving.to) === target))),
     beforePathChange: (change) => beforePathChange(change),
     afterPathChange: (change) => afterPathChange(change),
   };
 
-  const isActive = () => active === inst;
+  const isActive = () => activeInstance() === inst;
   /** The shell's status bar belongs to one page at a time: the focused one (K1c). */
   const setStatus = (field, value) => { if (isActive()) status.set(field, value); };
 
@@ -238,7 +284,9 @@ export function markdownPage(el, path, opts = {}) {
     const p = blankPage();
     p.path = nextPath;
     page = p;
-    take();
+    // A parked instance reopening itself (a reload from disk in the background) does not take
+    // the status bar from the page on screen.
+    if (!parked) take();
 
     let file;
     try {
@@ -253,7 +301,6 @@ export function markdownPage(el, path, opts = {}) {
       empty.textContent = `cannot open ${nextPath}: ${errText(e)}`;
       el.append(empty);
       log(`open failed ${nextPath}: ${errCode(e)} ${errText(e)}`, 'warn');
-      setStatus('path', nextPath);
       setStatus('doc', null);
       setStatus('save', null);
       setStatus('mode', null);
@@ -319,7 +366,6 @@ export function markdownPage(el, path, opts = {}) {
 
     buildDom(p, el);
     updateMeta(p, true);
-    setStatus('path', nextPath);
 
     if (!await mountBody(p, bodyText, token)) return;
     // C10: what the parser could not hold is not in the rich view, and the next save would
@@ -988,6 +1034,9 @@ export function markdownPage(el, path, opts = {}) {
       void dropDraft(p);
       settle();
       publishState(p);
+      // A parked page of a trashed file has no tab to come back to: it goes now, not when the
+      // cap reaches it.
+      if (parked) void letGo();
       return;
     }
     if (change.to && (change.kind === 'rename' || change.kind === 'move')) {
@@ -997,14 +1046,19 @@ export function markdownPage(el, path, opts = {}) {
       p.path = to;
       void renameRemembered(from, to);
       publishTitle(p);
-      setStatus('path', to);
       updateMeta(p);
       unfreeze(p);
       settle();
       publishState(p);
       // A page that stopped (or started) being markdown is shown by a different editor. It was
       // saved in `beforePathChange`, so a remount loses nothing.
-      if (kindChanged && !p.dirty) { p.reloadPending = false; void navigate({ type: 'page', path: to }, { replace: true, force: true }); return; }
+      // A parked one is simply let go: the next open builds the right editor.
+      if (kindChanged && !p.dirty) {
+        p.reloadPending = false;
+        if (parked) void letGo();
+        else void navigate({ type: 'page', path: to }, { replace: true, force: true });
+        return;
+      }
       reload();
       return;
     }
@@ -1098,6 +1152,8 @@ export function markdownPage(el, path, opts = {}) {
     // Which page the commands act on: the one the caret is in. With one page mounted — the
     // stock shell — this never changes anything.
     col.addEventListener('focusin', take);
+    // The merge note (H7) goes on Esc as well as by itself. Nothing else is taken from the key.
+    col.addEventListener('keydown', (e) => { if (e.key === 'Escape' && p.mergeNote) clearMergeNote(p); }, true);
     renderBanner(p);
   }
 
@@ -1336,9 +1392,13 @@ export function markdownPage(el, path, opts = {}) {
 
     // Notion behaviour: a click in the empty space below the last block puts the caret at the
     // end of the page instead of leaving the editor unfocused.
-    const scroller = host.parentElement;
+    //
+    // The element around the column is the router's, and a parked page comes back into another
+    // one (M12): the listener on it is bound where the column is now, and moved with it
+    // (`p.bindParent`), never left on an element that shows a different page.
+    let scroller = null;
     const onBlankClick = (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || parked) return;
       if (e.target !== host && e.target !== scroller && e.target !== p.bodyEl) return;
       const view = p.crepe ? editorView(p.crepe) : null;
       if (!view) return;
@@ -1347,9 +1407,15 @@ export function markdownPage(el, path, opts = {}) {
       view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(end), -1)));
       view.focus();
     };
+    const unbindParent = () => { if (scroller) scroller.removeEventListener('mousedown', onBlankClick); scroller = null; };
+    p.bindParent = () => {
+      unbindParent();
+      scroller = host.parentElement;
+      if (scroller) scroller.addEventListener('mousedown', onBlankClick);
+    };
     host.addEventListener('mousedown', onBlankClick);
-    scroller && scroller.addEventListener('mousedown', onBlankClick);
-    p.cleanups.push(() => { host.removeEventListener('mousedown', onBlankClick); scroller && scroller.removeEventListener('mousedown', onBlankClick); });
+    p.bindParent();
+    p.cleanups.push(() => { host.removeEventListener('mousedown', onBlankClick); unbindParent(); p.bindParent = null; });
   }
 
   /** The body lost the focus: a save now, and a draft when that save did not land (C4). */
@@ -1494,8 +1560,10 @@ export function markdownPage(el, path, opts = {}) {
   // the save state (H8, §6.4)
 
   /**
-   * The window title is the note's own name, not the file's stem (S13): the router listens on
-   * this store key and titles the window from it. `null` when no page is open.
+   * The note's own title (its H1, or the file's stem), on `store 'pageTitle'` and the handle's
+   * `title` event. Wave 2 (M13, W8): the window, the tab and the address bar name the file by its
+   * real name and no longer read this; it stays for whoever wants the H1. `null` when no page is
+   * open. Only the active page publishes the store key.
    */
   function publishTitle(p) {
     if (!p || !p.path) { if (isActive()) store.set('pageTitle', null); return; }
@@ -1581,10 +1649,23 @@ export function markdownPage(el, path, opts = {}) {
       };
     }
     if (st === 'conflict') {
+      // H7: only what could not be merged gets here. The buffer is untouched until the user
+      // picks one of these; each button is also a command, so the palette reaches them.
+      const c = p.conflict || {};
+      const n = Number(c.count) || 0;
+      if (typeof c.theirs !== 'string') {
+        return {
+          kind: 'err', alert: true,
+          text: `Changed on disk while you were editing: ${name} is no longer text this editor can show.`,
+          buttons: [['Keep mine', 'page.merge-keep-mine'], ['Discard changes', 'page.discard-changes']],
+        };
+      }
       return {
         kind: 'err', alert: true,
-        text: `Not saved: ${p.path} changed on disk.`,
-        buttons: [['Resolve…', 'page.save'], ['Discard changes', 'page.discard-changes']],
+        text: n
+          ? `Changed on disk while you were editing: ${n} part${n === 1 ? ' overlaps' : 's overlap'}.`
+          : 'Changed on disk while you were editing.',
+        buttons: [['Resolve…', 'page.merge-resolve'], ['Keep mine', 'page.merge-keep-mine'], ['Take theirs', 'page.merge-take-theirs']],
       };
     }
     if (st === 'deleted') {
@@ -1608,6 +1689,13 @@ export function markdownPage(el, path, opts = {}) {
           text: `Unsaved changes from ${when} could not be applied: the file changed since.`,
           buttons: [['Compare', 'page.recovered-compare'], ['Restore mine', 'page.recovered-restore'], ['Discard', 'page.discard-changes']],
         };
+    }
+    if (p.mergeNote && p.merged) {
+      return {
+        kind: 'warn', alert: false,
+        text: 'Merged changes made on disk by another program.',
+        buttons: [['Show changes', 'page.merge-show'], ...(canUndoMerge(p) ? [['Undo merge', 'page.merge-undo']] : [])],
+      };
     }
     if (p.notice) return { kind: 'warn', alert: false, text: p.notice, buttons: [] };
     return null;
@@ -1661,7 +1749,9 @@ export function markdownPage(el, path, opts = {}) {
   function setDirty(p, dirty) {
     if (p.dirty === dirty) return;
     p.dirty = dirty;
-    if (isActive()) bus.emit('doc:dirty', { path: p.path, dirty });
+    // Every page says it, on screen or parked (M12): the event carries its path, and a tab in
+    // the background shows the dot of its own page.
+    bus.emit('doc:dirty', { path: p.path, dirty });
     emit('dirty', { path: p.path, dirty });
     updateMeta(p);
   }
@@ -1676,7 +1766,8 @@ export function markdownPage(el, path, opts = {}) {
    * while a refused write is waiting for its next try, a draft keeps the text instead (C4).
    */
   function markDirty(p) {
-    if (p !== page || !p.ready) return;
+    // A text put in from outside (the disk, a merge, H7) is not an edit of the user's.
+    if (p !== page || !p.ready || p.applying) return;
     p.rev = ++revClock;
     setDirty(p, true);
     clearTimeout(p.wordTimer);
@@ -1786,6 +1877,10 @@ export function markdownPage(el, path, opts = {}) {
     const recreate = p.deleted && o.explicit && !o.leaving && !o.closing;
     if (!p.dirty && !recreate) return true;
     if (p.readOnly) return false;
+    // H7: the disk and the buffer overlap. Ctrl+S (a save the user asked for, not a leave, a
+    // close or a path change) opens the resolve view; everything else goes to the host as
+    // usual, where the stale hash keeps it from writing over the disk's text.
+    if (p.conflict && o.explicit && !o.leaving && !o.closing && !o.pathChange && !o.noResolve) return resolveMerge(p);
     // A recovered draft nobody has edited yet waits for a deliberate save (see open): not a
     // blur, not a debounce, not the window being hidden before the user has compared it.
     if (!deliberate && ((p.recovered && p.recovered.applied && p.recovered.rev === p.rev) || unchecked(p))) return false;
@@ -1805,7 +1900,7 @@ export function markdownPage(el, path, opts = {}) {
 
     let outcome = false;
     p.saving = (async () => {
-      outcome = await writeOut(p, text, rev, { expectedHash: p.deleted ? null : p.baselineHash }, o);
+      outcome = await writeOut(p, text, rev, { expectedHash: p.deleted ? null : p.baselineHash });
     })();
     publishState(p);
     try {
@@ -1817,15 +1912,22 @@ export function markdownPage(el, path, opts = {}) {
       p.saving = null;
       publishState(p);
     }
+    // The disk had moved on and its change was merged into the buffer (H7): a deliberate save
+    // writes the merged text now; otherwise the autosave the merge scheduled does.
+    if (outcome === 'again') {
+      const round = (o.round || 0) + 1;
+      return deliberate && round <= 3 ? saveDoc(p, { ...o, round }) : !p.dirty;
+    }
     if (outcome && p.dirty && deliberate && p.rev !== rev) return saveDoc(p, o);
     return outcome && !p.dirty;
   }
 
   /**
    * The write itself, through the host's compare-and-write (§3.2 `saveFile`). Answers true when
-   * the text is on disk.
+   * the text is on disk, and `'again'` when the disk held another text that was merged into the
+   * buffer (H7): the buffer is dirty over the disk's hash now and a save may write it.
    */
-  async function writeOut(p, text, rev, opts, o) {
+  async function writeOut(p, text, rev, opts) {
     const path = p.path;
     let res;
     try {
@@ -1840,9 +1942,10 @@ export function markdownPage(el, path, opts = {}) {
       log(`save conflict ${path}`, 'warn');
       // Expected to be there and it is not: the file left the disk under the page (C7).
       if (!disk.exists && opts.expectedHash !== null) { markDeleted(p); return false; }
-      if (!o.explicit && !o.closing) { holdConflict(p, null); return false; }
-      if (o.closing) { void resolveConflict(p, text, rev, disk, o); return false; }
-      return resolveConflict(p, text, rev, disk, o);
+      // No question here any more: the disk's change is merged into the buffer, and only when
+      // both touched the same lines does the page hold a conflict and say so (H7, §5.3).
+      const m = await mergeExternal(p, { text: disk.text, hash: disk.hash });
+      return m === 'conflict' ? false : 'again';
     }
     saveFailed(p, Object.assign(new Error('the host gave no answer to the save'), { code: 'unknown_command' }));
     return false;
@@ -1854,6 +1957,7 @@ export function markdownPage(el, path, opts = {}) {
     p.baselineHash = res.hash ?? null;
     p.deleted = false;
     p.problem = null;
+    p.conflict = null;
     p.retry = 0;
     // A page the rich view could not write was opened as text for the user to check; saved,
     // it is an ordinary page in source mode. An open-time notice (lossy-open) stays.
@@ -1873,7 +1977,7 @@ export function markdownPage(el, path, opts = {}) {
     p.savedAtMs = Date.now();
     if (Number(res.mtime)) p.mtime = Number(res.mtime);
     log(`save ok ${p.path}${res.unchanged ? ' (unchanged)' : ''}`, 'info');
-    if (isActive()) bus.emit('doc:saved', { path: p.path });
+    bus.emit('doc:saved', { path: p.path });
     emit('saved', { path: p.path, text });
     if (p.rev === rev) {
       settleClean(p, rev);
@@ -1887,16 +1991,19 @@ export function markdownPage(el, path, opts = {}) {
 
   /** Clean: the disk holds the buffer. The draft goes, and so does any problem. */
   function settleClean(p, rev) {
-    const hadConflict = p.problem && p.problem.status === 'conflict';
-    if (!p.deleted) p.problem = null;
+    const conflict = p.conflict;
+    if (!p.deleted) { p.problem = null; p.conflict = null; }
     p.retry = 0;
     setDirty(p, false);
     void dropDraft(p, rev);
     publishState(p);
     updateMeta(p);
     // The buffer went back to the text it was opened from while the disk moved on: nothing of
-    // the user's is left to keep, so the page shows the disk.
-    if (hadConflict && p === page) void reopenInPlace(p);
+    // the user's is left to keep, so the page shows the disk, in place (H7).
+    if (conflict && !p.deleted && p === page) {
+      if (typeof conflict.theirs === 'string') void reloadClean(p, conflict.theirs, conflict.hash);
+      else void reopenInPlace(p);
+    }
   }
 
   /** A write threw. The buffer stays dirty and on this machine; a later try may still land. */
@@ -1946,90 +2053,434 @@ export function markdownPage(el, path, opts = {}) {
     if (p === page) p.uncheckedRev = p.rev;
   }
 
+  // -------------------------------------------------------------------------
+  // changes made on disk (H7, §5.3)
+  //
+  // The page was based on `p.baseline` (hash `p.baselineHash`); the disk holds another text.
+  // A clean page takes it in place, as one transaction, so the undo history survives and the
+  // caret stays where the text allows. A dirty page merges it line by line: the buffer's
+  // changes and the disk's, both made against the baseline, laid over each other (merge.js).
+  // Only where both touched the same lines does the page hold a conflict; the buffer is then
+  // left exactly as it is, autosave stops, leaving is refused, and the banner offers the
+  // resolve view. There is no blind "Changed on disk" question any more.
+
   /**
-   * The file on disk is not the file this page was based on. Ask. "Keep mine" writes the
-   * buffer over it, and the host keeps the disk's text as a version first; "Reload from disk"
-   * keeps the buffer as a version and reopens the page from the disk (or, when the page is
-   * being left, just lets go of it); "Cancel" keeps both and holds autosave. Answers true when
-   * the disk holds what the page shows afterwards.
+   * The disk holds `disk.text` (`null` when it is not text this editor can read) under
+   * `disk.hash`. Answers what came of it: `'same'` (nothing new), `'reloaded'` (a clean page
+   * took the disk), `'merged'` (the disk's change is in the buffer, which is dirty over the
+   * disk's hash now, or clean when the two agree) or `'conflict'`.
+   * @returns {Promise<'same'|'reloaded'|'merged'|'conflict'>}
    */
-  async function resolveConflict(p, text, rev, disk, o = {}) {
-    const gone = !disk.exists;
-    p.asking = true;
-    let choice;
-    try {
-      choice = await choose({
-        title: gone ? 'Deleted on disk' : 'Changed on disk',
-        body: gone
-          ? `${p.path} is no longer on disk. Save your version there again, or let it go?`
-          : `${p.path} was modified by something else since this page was opened. `
-            + 'Keep your version and overwrite the file, or reload the file and lose your edits? '
-            + 'Whichever text loses is kept in Versions….',
-        options: [
-          { label: 'Cancel', value: 'cancel' },
-          { label: gone ? 'Discard mine' : 'Reload from disk', value: 'reload' },
-          { label: gone ? 'Save mine' : 'Keep mine', value: 'keep', kind: 'primary' },
-        ],
-        cancel: 'cancel',
-      });
-    } finally {
-      p.asking = false;
+  async function mergeExternal(p, disk) {
+    if (p !== page || p.trashed) return 'same';
+    const hash = disk.hash ?? null;
+    if (hash !== null && hash === p.baselineHash) return 'same';
+    if (typeof disk.text !== 'string') {
+      holdConflict(p, { theirs: null, hash, count: 0, base: p.baseline });
+      return 'conflict';
     }
-    emit('conflict', { path: p.path, choice: choice || 'cancel' });
-    if (choice === 'keep') {
-      let res;
-      try {
-        res = await pageFiles.save(p.path, text, { expectedHash: gone ? null : disk.hash, version: 'conflict' });
-      } catch (e) {
-        saveFailed(p, e);
-        return false;
-      }
-      if (res && res.status === 'saved') { saved(p, text, res, rev); return p.rev === rev; }
-      // Changed again while the question was open: ask about the new text.
-      if (res && res.status === 'conflict') return resolveConflict(p, text, rev, res.disk || { exists: false }, o);
-      saveFailed(p, Object.assign(new Error('the host gave no answer to the save'), { code: 'unknown_command' }));
-      return false;
+    if (disk.text === p.baseline) { if (hash !== null) p.baselineHash = hash; return 'same'; }
+    // Belt and braces: the disk's text is a version before it goes into the buffer, so whatever
+    // later writes over it, the other program's change can be had back from Versions.
+    await keepDisk(p, disk.text);
+    if (p !== page || p.trashed) return 'same';
+    // A save may have landed while the version was kept.
+    if (hash !== null && hash === p.baselineHash) return 'same';
+    if (disk.text === p.baseline) { if (hash !== null) p.baselineHash = hash; return 'same'; }
+    if (!p.dirty) {
+      await reloadClean(p, disk.text, hash);
+      return 'reloaded';
     }
-    if (choice === 'reload') {
-      await keepBuffer(p, text);
-      await dropDraft(p);
-      p.problem = null;
-      p.recovered = null;
-      setDirty(p, false);
-      if (gone) { publishState(p); return true; }
-      // The buffer on screen is not the user's any more; it must not stay there marked clean
-      // over the disk's hash, or the next keystroke writes it over the text they chose to keep.
-      // Only a teardown (the router closing the page) may skip the rebuild. A path change
-      // rebuilds once the path is settled (`afterPathChange`), a leave that is called off does
-      // it in `stay`; by the time a window that was closing hears the answer, it has stayed.
-      if (typeof disk.text === 'string') {
-        p.baseline = disk.text;
-        p.baselineHash = disk.hash ?? p.baselineHash;
-      }
-      if (p !== page) { publishState(p); return true; }
-      if (o.teardown || o.pathChange) {
-        p.reloadPending = true;
-        publishState(p);
-        return true;
-      }
-      await reopenInPlace(p);
+    // `ours` has to be exactly what a save would write, or the merge would write something the
+    // user never had: a rich page the guard cannot compose exactly goes straight to the question.
+    let r0;
+    try { r0 = composeChecked(p); } catch (e) { r0 = { status: 'unsafe', text: null, reason: errText(e) }; }
+    if (r0.status === 'unsafe' || typeof r0.text !== 'string') {
+      holdConflict(p, { theirs: disk.text, hash, count: 0, base: p.baseline });
+      return 'conflict';
+    }
+    const ours = r0.text;
+    const r = merge3(p.baseline, ours, disk.text);
+    if (!r.clean) {
+      holdConflict(p, { theirs: disk.text, hash, count: r.conflicts.length, base: p.baseline });
+      return 'conflict';
+    }
+    const merged = r.text;
+    const wasUnchecked = unchecked(p);
+    if (merged !== ours) await applyText(p, merged);
+    if (p !== page) return 'merged';
+    p.baseline = disk.text;
+    p.baselineHash = hash;
+    p.conflict = null;
+    if (p.problem && p.problem.status === 'conflict') p.problem = null;
+    log(`merged changes made on disk ${p.path}`, 'info');
+    if (merged === disk.text) {
+      // Both sides made the same change: nothing of the user's is left unwritten.
+      p.merged = null;
+      settleClean(p, p.rev);
+      return 'merged';
+    }
+    p.rev = ++revClock;
+    if (wasUnchecked) p.uncheckedRev = p.rev;
+    setDirty(p, true);
+    if (merged !== ours) {
+      p.merged = { ours, theirs: disk.text, text: merged, at: Date.now(), rev: p.rev };
+      showMergeNote(p);
+    }
+    clearTimeout(p.saveTimer);
+    p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
+    publishState(p);
+    return 'merged';
+  }
+
+  /** A clean page takes the disk's text in place (`applyText`); it is the baseline now. */
+  async function reloadClean(p, text, hash) {
+    await applyText(p, text);
+    if (p !== page) return;
+    p.baseline = text;
+    p.baselineHash = hash ?? p.baselineHash;
+    p.conflict = null;
+    if (p.problem && p.problem.status === 'conflict') p.problem = null;
+    clearTimeout(p.saveTimer);
+    setDirty(p, false);
+    publishState(p);
+    updateMeta(p, true);
+  }
+
+  /**
+   * Put `text` (the whole file) in the editor as one change, not an edit of the user's: the
+   * dirty flag, the baseline and the draft are the caller's business. Source: the smallest
+   * CodeMirror change. Rich: only the top-level blocks that differ are replaced, in one
+   * ProseMirror transaction. Either way the change stays out of the undo history, so Ctrl+Z
+   * never reverts it (only `page.merge-undo` drops a merge); the title and the properties above
+   * the body follow. Answers true when it went in place; false when the page had to be rebuilt
+   * around the text instead (the shape above the body changed, or the editor could not take
+   * it), which keeps the text but not the undo history.
+   */
+  async function applyText(p, text) {
+    if (p.source) {
+      p.applying = true;
+      try { p.source.replaceText(text); } finally { p.applying = false; }
+      p.doc = p.plain ? plainDoc(text) : parseDoc(text);
+      if (p.doc.titleLine !== null) p.title = p.doc.title;
+      if (p.titleEl && p.titleEl.textContent !== p.title) p.titleEl.textContent = p.title;
+      publishTitle(p);
+      updateMeta(p, true);
       return true;
     }
-    holdConflict(p, 'hold');
+    let inPlace = false;
+    try { inPlace = !!(p.crepe && applyRich(p, text)); } catch (e) {
+      console.error('[editor] apply in place', e);
+      inPlace = false;
+    }
+    if (inPlace) {
+      // C10 again: what the rich view could not hold of the new text is not in it.
+      const check = checkOpened(p.crepe, p.doc.body);
+      if (!check.ok) await forceSource(p, text, 'lossy-open', check.reason);
+      updateMeta(p, true);
+      return !!p.crepe;
+    }
+    if (!p.crepe && !p.source) { p.orphan = text; return false; }
+    const wasFrozen = p.frozen;
+    freeze(p);
+    try {
+      await remount(p, p.mode === 'source' ? 'source' : 'block', text);
+      if (p === page && p.crepe) {
+        const check = checkOpened(p.crepe, p.doc.body);
+        if (!check.ok) await forceSource(p, text, 'lossy-open', check.reason);
+      }
+    } catch (e) {
+      console.error('[editor] apply', e);
+      if (p === page) await mountFallback(p, text);
+    }
+    if (p === page && !wasFrozen) unfreeze(p);
     return false;
   }
 
   /**
-   * A conflict waits on the user: autosave stops, the banner and the status bar say so, and the
-   * next deliberate save asks. `reason` is 'hold' after the user said Cancel.
+   * The rich half of `applyText`: the new body parsed with this editor's own parser, compared
+   * block by block with the document (the landing pad aside), and the run of blocks that
+   * differ replaced. False, having changed nothing, when the part above the body changed shape.
    */
-  function holdConflict(p, reason) {
-    const first = !(p.problem && p.problem.status === 'conflict');
+  function applyRich(p, text) {
+    const next = parseDoc(text);
+    const cur = p.doc;
+    if (!cur || (cur.titleLine === null) !== (next.titleLine === null)) return false;
+    if (!!cur.frontmatterRaw !== !!next.frontmatterRaw) return false;
+    const view = editorView(p.crepe);
+    if (!view) return false;
+    const body = serializer.engineOf(p.crepe).parse(next.body);
+    if (!body || body.type !== view.state.doc.type) return false;
+    const { state } = view;
+    const doc = docWithoutPad(state) || state.doc;
+    const max = Math.min(doc.childCount, body.childCount);
+    let start = 0;
+    while (start < max && doc.child(start).eq(body.child(start))) start++;
+    let endA = doc.childCount;
+    let endB = body.childCount;
+    while (endA > start && endB > start && doc.child(endA - 1).eq(body.child(endB - 1))) { endA--; endB--; }
+    if (start < endA || start < endB) {
+      let from = 0;
+      for (let i = 0; i < start; i++) from += doc.child(i).nodeSize;
+      let to = from;
+      for (let i = start; i < endA; i++) to += doc.child(i).nodeSize;
+      const nodes = [];
+      for (let i = start; i < endB; i++) nodes.push(body.child(i));
+      // Outside the undo history: Ctrl+Z must never revert a change made on disk and autosave
+      // the old text over it. The user's earlier steps map through this one.
+      const tr = closeHistory(nodes.length ? state.tr.replaceWith(from, to, nodes) : state.tr.delete(from, to))
+        .setMeta('addToHistory', false);
+      p.applying = true;
+      try { view.dispatch(tr); } finally {
+        // The document watcher reports on a microtask (crepe.js `watchDoc`); this one is queued
+        // after it, so the report is still read as ours.
+        queueMicrotask(() => { p.applying = false; });
+      }
+    }
+    const frontChanged = cur.frontmatterRaw !== next.frontmatterRaw;
+    p.doc = next;
+    if (next.titleLine !== null && p.title !== next.title) {
+      p.title = next.title;
+      if (p.titleEl) p.titleEl.textContent = next.title;
+    }
+    publishTitle(p);
+    if (frontChanged && p.el) {
+      const old = p.el.querySelector('.ed-props');
+      if (old) old.replaceWith(propertiesStrip(p));
+    }
+    return true;
+  }
+
+  /**
+   * The disk and the buffer overlap: the buffer is left as it is, autosave stops, leaving is
+   * refused, a draft keeps the text, and the banner offers the resolve view. `info` is
+   * `{theirs, hash, count, base}`: the disk's text (null when it is not text), its hash, how many
+   * regions overlap (0 when unknown) and the text both were edited from.
+   */
+  function holdConflict(p, info) {
+    const first = !p.conflict;
     clearTimeout(p.saveTimer);
-    p.problem = { status: 'conflict', reason, message: `${p.path} changed on disk` };
-    if (first && reason !== 'hold') toast(`${p.path} changed on disk — your next save will ask what to keep`, 'warn', 6000);
+    p.saveTimer = 0;
+    p.conflict = info;
+    p.problem = {
+      status: 'conflict', reason: 'overlap',
+      message: info.count
+        ? `${p.path} changed on disk while you were editing: ${info.count} part${info.count === 1 ? ' overlaps' : 's overlap'}`
+        : `${p.path} changed on disk while you were editing`,
+    };
+    if (first) log(`save conflict ${p.path}: ${info.count || 'unknown'} overlapping parts`, 'warn');
+    emit('conflict', { path: p.path, count: info.count });
     void writeDraft(p);
     publishState(p);
+  }
+
+  /** The disk as it is now, `{text, hash}`, or null when it cannot be read (a gone file is looked for). */
+  async function readDisk(p) {
+    try {
+      const f = await pageFiles.readFile(p.path);
+      return { text: typeof f.text === 'string' ? f.text : null, hash: f.hash ?? null };
+    } catch (e) {
+      if (errCode(e) === 'not_found') { goneCheck(p); return null; }
+      if (errCode(e) === 'not_utf8') return { text: null, hash: null };
+      toast(`could not read ${p.path}: ${errText(e)}`, 'err');
+      return null;
+    }
+  }
+
+  /**
+   * `page.merge-resolve`: the buffer against the disk in the compare view, with the four ways
+   * out. Keep both (the default) puts the disk's lines after the buffer's wherever they overlap,
+   * for the user to tidy; Keep mine writes the buffer and keeps the disk's text as a version;
+   * Take theirs keeps the buffer as a version and shows the disk; Cancel leaves the banner up.
+   * Answers true when the disk holds what the page shows afterwards.
+   */
+  async function resolveMerge(p) {
+    if (!p || p !== page || !p.conflict) return false;
+    // The disk may have moved again since the banner went up: merge that first.
+    const disk = await readDisk(p);
+    if (p !== page || !p.conflict) return false;
+    if (disk && disk.hash !== null && disk.hash !== p.conflict.hash) {
+      const m = await mergeExternal(p, disk);
+      if (m !== 'conflict') return saveDoc(p, { explicit: true, noResolve: true });
+    }
+    const c = p.conflict;
+    if (!c) return false;
+    let r0;
+    try { r0 = composeChecked(p); } catch (e) { r0 = { status: 'unsafe', text: null, reason: errText(e) }; }
+    const exact = r0.status !== 'unsafe' && typeof r0.text === 'string';
+    const ours = exact ? r0.text : bestEffort(p);
+    if (typeof c.theirs !== 'string') {
+      const ok = await confirm({
+        title: 'Changed on disk',
+        body: `${p.path} was replaced by something this editor cannot show as text. Keep your version and overwrite it? The file on disk is kept in Versions….`,
+        ok: 'Keep mine',
+      });
+      return ok && p === page ? keepMine(p) : false;
+    }
+    const actions = [
+      { label: 'Keep both', value: 'both', kind: 'primary' },
+      ...(exact ? [{ label: 'Keep mine', value: 'mine' }] : []),
+      { label: 'Take theirs', value: 'theirs' },
+    ];
+    const choice = await compareTexts({
+      title: 'Changed on disk',
+      a: ours,
+      b: c.theirs,
+      aLabel: 'yours, in this page',
+      bLabel: 'on disk now',
+      note: c.count
+        ? `${c.count} part${c.count === 1 ? '' : 's'} changed on both sides. Keep both puts the lines on disk after yours where they overlap.`
+        : 'Keep both puts the lines on disk after yours where they differ.',
+      actions,
+    });
+    if (p !== page || p.conflict !== c) return false;
+    if (choice === 'both') return keepBothIn(p, ours, c);
+    if (choice === 'mine') return keepMine(p);
+    if (choice === 'theirs') return takeTheirs(p);
+    return false;
+  }
+
+  /** Keep both: every overlap becomes the buffer's lines, then the disk's; dirty, over the disk's hash. */
+  async function keepBothIn(p, ours, c) {
+    const text = keepBoth(typeof c.base === 'string' ? c.base : '', ours, c.theirs);
+    await applyText(p, text);
+    if (p !== page) return false;
+    p.baseline = c.theirs;
+    p.baselineHash = c.hash;
+    p.conflict = null;
+    p.problem = null;
+    p.merged = null;
+    p.rev = ++revClock;
+    setDirty(p, true);
+    log(`kept both versions ${p.path}`, 'info');
+    clearTimeout(p.saveTimer);
+    p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
+    publishState(p);
+    return false;
+  }
+
+  /**
+   * Keep mine: the buffer over the disk, against the hash of the text the conflict showed, so a
+   * write that lands meanwhile is merged again rather than lost. The host keeps the disk's text
+   * as a `conflict` version.
+   */
+  async function keepMine(p) {
+    if (!p || p !== page) return false;
+    const c = p.conflict;
+    if (!c) return saveNow({ explicit: true });
+    let r0;
+    try { r0 = composeChecked(p); } catch (e) { r0 = { status: 'unsafe', text: null, reason: errText(e) }; }
+    if (r0.status === 'unsafe' || typeof r0.text !== 'string') {
+      toast('Not saved: the rich view could not write this page exactly. Switch to Source, check it, then keep yours.', 'err', 0);
+      return false;
+    }
+    const rev = p.rev;
+    let res;
+    try {
+      res = await pageFiles.save(p.path, r0.text, { expectedHash: c.hash, version: 'conflict' });
+    } catch (e) {
+      saveFailed(p, e);
+      return false;
+    }
+    if (p !== page) return false;
+    if (res && res.status === 'saved') { saved(p, r0.text, res, rev); return !p.dirty; }
+    if (res && res.status === 'conflict') {
+      const d = res.disk || { exists: false, text: null, hash: null };
+      if (!d.exists) { p.conflict = null; p.problem = null; markDeleted(p); return false; }
+      const m = await mergeExternal(p, { text: d.text, hash: d.hash });
+      return m === 'conflict' ? false : saveDoc(p, { explicit: true, noResolve: true });
+    }
+    saveFailed(p, Object.assign(new Error('the host gave no answer to the save'), { code: 'unknown_command' }));
+    return false;
+  }
+
+  /** Take theirs: the buffer goes to Versions (reason `reload`), and the page shows the disk. */
+  async function takeTheirs(p) {
+    if (!p || p !== page) return false;
+    const disk = await readDisk(p);
+    if (!disk || typeof disk.text !== 'string' || p !== page) {
+      if (disk) toast(`${p.path} is not text this editor can show; keep yours, or discard your changes`, 'warn');
+      return false;
+    }
+    let d = null;
+    try { d = draftText(p); } catch { d = null; }
+    if (d && typeof d.text === 'string') await keepBuffer(p, d.text);
+    if (p !== page) return false;
+    p.conflict = null;
+    p.problem = null;
+    p.recovered = null;
+    p.merged = null;
+    clearTimeout(p.saveTimer);
+    await reloadClean(p, disk.text, disk.hash);
+    await dropDraft(p);
+    log(`took the version on disk ${p.path}`, 'info');
+    return true;
+  }
+
+  /** The banner that says a merge happened: up for `MERGE_NOTE_MS`, or until Esc. */
+  function showMergeNote(p) {
+    clearTimeout(p.mergeNote);
+    p.mergeNote = setTimeout(() => { p.mergeNote = 0; if (p === page) publishState(p); }, MERGE_NOTE_MS);
+  }
+
+  function clearMergeNote(p) {
+    if (!p || !p.mergeNote) return;
+    clearTimeout(p.mergeNote);
+    p.mergeNote = 0;
+    publishState(p);
+  }
+
+  /** Undo merge is one step: offered while nothing was typed after the merge. */
+  const canUndoMerge = (p) => !!(p && p.merged && p.merged.rev === p.rev);
+
+  /**
+   * `page.merge-undo`: the buffer goes back to what it held before the merge. The disk's text
+   * is kept as a version first, because the next save writes the buffer over it.
+   */
+  async function undoMerge(p) {
+    if (!canUndoMerge(p) || p !== page) return false;
+    const m = p.merged;
+    clearMergeNote(p);
+    try {
+      await pageFiles.keepVersion(p.path, m.theirs, { force: true, reason: 'conflict' });
+    } catch (e) {
+      log(`version not kept ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+    }
+    if (p !== page) return false;
+    await applyText(p, m.ours);
+    if (p !== page) return false;
+    p.merged = null;
+    p.rev = ++revClock;
+    setDirty(p, true);
+    log(`merge undone ${p.path}`, 'info');
+    clearTimeout(p.saveTimer);
+    p.saveTimer = setTimeout(() => { void saveDoc(p); }, SAVE_DEBOUNCE);
+    publishState(p);
+    return true;
+  }
+
+  /** `page.merge-show`: the buffer before the merge against the buffer after it. */
+  async function showMerge(p) {
+    const m = p && p.merged;
+    if (!m) return;
+    await compareTexts({
+      title: 'Merged changes',
+      a: m.ours,
+      b: m.text,
+      aLabel: 'yours, before the merge',
+      bLabel: 'after the merge',
+      note: 'the changes on the right came from the file on disk',
+    });
+  }
+
+  /** The disk's text, kept as a version before it is put in the buffer (reason `reload`). Never throws. */
+  async function keepDisk(p, text) {
+    if (typeof text !== 'string') return;
+    try {
+      await pageFiles.keepVersion(p.path, text, { force: true, reason: 'reload' });
+    } catch (e) {
+      log(`version not kept ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
+    }
   }
 
   /** The buffer, kept as a version before the page lets it go (reason `reload`). Never throws. */
@@ -2241,13 +2692,17 @@ export function markdownPage(el, path, opts = {}) {
     void checkDisk(p);
   }
 
-  /** `to` is a file the editor would open the way it has `from` open. */
-  const opensAs = (from, to) => P.isMarkdown(from) === P.isMarkdown(to) && (P.isMarkdown(to) || P.isTextFile(to));
+  /**
+   * `to` is a file the editor would open the way it has `from` open: every text file opens now
+   * (H17), so only a change between markdown and the rest changes the editor.
+   */
+  const opensAs = (from, to) => P.isMarkdown(from) === P.isMarkdown(to);
 
   /**
    * Read the file again and decide. The same hash is our own write coming back, or nothing
-   * new (this replaces the old 2.5 s echo window). A clean page follows the disk; a dirty one
-   * holds a conflict for the next save to ask about.
+   * new (this replaces the old 2.5 s echo window). A clean page follows the disk in place; a
+   * dirty one merges the disk's change into the buffer, and holds a conflict only where the two
+   * touched the same lines (H7).
    */
   async function checkDisk(p, depth = 0) {
     if (p !== page || p.trashed) return;
@@ -2269,8 +2724,11 @@ export function markdownPage(el, path, opts = {}) {
       if (file.hash != null) p.baselineHash = file.hash;
       return;
     }
-    if (!p.dirty) { await reopenInPlace(p); return; }
-    holdConflict(p, null);
+    // The overlap the banner already shows: nothing new to merge.
+    if (p.conflict && file.hash != null && file.hash === p.conflict.hash) return;
+    if (Number(file.mtime)) p.mtime = Number(file.mtime);
+    // H7: a clean page takes the disk in place; a dirty one merges it (`mergeExternal`).
+    await mergeExternal(p, { text: file.text, hash: file.hash ?? null });
   }
 
   /**
@@ -2315,13 +2773,13 @@ export function markdownPage(el, path, opts = {}) {
     p.path = to;
     void renameRemembered(from, to);
     publishTitle(p);
-    setStatus('path', to);
     updateMeta(p);
     publishState(p);
-    toast(`moved on disk: ${from} → ${to}`);
+    if (!parked) toast(`moved on disk: ${from} → ${to}`);
     if (typeof ose.route.repoint === 'function') { repointRoute([{ from, to }]); return; }
-    // A kernel with no re-point: the old way, a remount at the new path, which saves first.
-    void navigate({ type: 'page', path: to }, { replace: true });
+    // A kernel with no re-point: the old way, a remount at the new path, which saves first. A
+    // parked page is not on screen to remount: it follows the path and waits for its tab.
+    if (!parked) void navigate({ type: 'page', path: to }, { replace: true });
   }
 
   /**
@@ -2372,9 +2830,11 @@ export function markdownPage(el, path, opts = {}) {
   /**
    * A new page is `Untitled.md` until it has a title (C12): once the H1 is edited and left, the
    * file takes the title as its name, through the one rename there is (`ose.fileops`, H13). The
-   * page keeps its own extension; only files still named `Untitled*` are renamed this way.
+   * page keeps its own extension; only files still named `Untitled*` are renamed this way. One
+   * name per file (M13): this runs only when the vault setting `titleSync` asks for it.
    */
   async function renameUntitledFromTitle(p) {
+    if (!titleSyncOn()) return false;
     if (p !== page || p.deleted || p.trashed || !p.doc || p.doc.titleLine === null) return false;
     if (!UNTITLED.test(P.stem(p.path))) return false;
     const title = cleanStem(p.title);
@@ -2465,10 +2925,9 @@ export function markdownPage(el, path, opts = {}) {
     log(`save ok ${dest} (save as, from ${from})`, 'info');
     if (typeof ose.route.repoint === 'function') repointRoute([{ from, to: dest }]);
     publishTitle(p);
-    setStatus('path', dest);
     if (p.rev === rev) settleClean(p, rev); else publishState(p);
     toast(`saved as ${dest}`);
-    if (typeof ose.route.repoint !== 'function' || P.isMarkdown(from) !== P.isMarkdown(dest)) {
+    if (!parked && (typeof ose.route.repoint !== 'function' || P.isMarkdown(from) !== P.isMarkdown(dest))) {
       void navigate({ type: 'page', path: dest }, { replace: true, force: true });
     }
     return true;
@@ -2522,6 +2981,8 @@ export function markdownPage(el, path, opts = {}) {
     await dropDraft(p);
     clearTimeout(p.saveTimer);
     p.problem = null;
+    p.conflict = null;
+    p.merged = null;
     p.recovered = null;
     setDirty(p, false);
     log(`discarded changes ${p.path}`, 'info');
@@ -2547,8 +3008,8 @@ export function markdownPage(el, path, opts = {}) {
 
   /**
    * `page.recovered-restore`: a draft that could not be applied, put in anyway. It is based on
-   * an older text than the disk holds, so it goes in over that older hash: the next save finds
-   * the file changed and asks what to keep.
+   * an older text than the disk holds, so it goes in as an overlap with the disk, and the
+   * resolve view asks what to keep.
    */
   async function recoveredRestore() {
     const p = page;
@@ -2559,10 +3020,12 @@ export function markdownPage(el, path, opts = {}) {
     const ok = await setMode(mode, { text: r.text, quiet: true });
     if (p !== page) return false;
     if (!ok && !p.source) { r.applied = false; publishState(p); return false; }
-    p.baselineHash = r.baselineHash;
     p.rev = ++revClock;
     setDirty(p, true);
-    holdConflict(p, null);
+    // The draft was typed over an older text than the disk holds, and that text is gone: there
+    // is nothing to merge against. The page holds it as an overlap with the disk, and the
+    // resolve view (Keep both, Keep mine, Take theirs) decides.
+    holdConflict(p, { theirs: p.baseline, hash: p.baselineHash, count: 0, base: null });
     return true;
   }
 
@@ -2624,6 +3087,16 @@ export function markdownPage(el, path, opts = {}) {
     showProblem: () => focusBanner(page),
     recoveredCompare: () => recoveredCompare(),
     recoveredRestore: () => recoveredRestore(),
+    // Wave 2 (H7): an overlap with the disk, and a merge that happened.
+    hasConflict: () => !!(page && page.conflict),
+    conflictIsText: () => !!(page && page.conflict && typeof page.conflict.theirs === 'string'),
+    hasMerge: () => !!(page && page.merged),
+    canUndoMerge: () => canUndoMerge(page),
+    mergeResolve: () => resolveMerge(page),
+    mergeKeepMine: () => keepMine(page),
+    mergeTakeTheirs: () => takeTheirs(page),
+    mergeUndo: () => undoMerge(page),
+    mergeShow: () => showMerge(page),
   };
   inst.api = api;
 
@@ -2634,7 +3107,6 @@ export function markdownPage(el, path, opts = {}) {
   function repaint() {
     if (!page) return;
     publishTitle(page);
-    status.set('path', page.path);
     page.lastSave = '';
     paintSave(page);
     paintMode(page);
@@ -2644,17 +3116,208 @@ export function markdownPage(el, path, opts = {}) {
 
   /** Become the page the commands and the status bar belong to. */
   function take() {
-    if (active === inst) return;
-    active = inst;
+    if (activeInstance() === inst) return;
+    setActive(inst);
     repaint();
   }
 
-  /** Hand the bar and the commands to whatever else is mounted, if anything is. */
+  /** Hand the bar and the commands to whatever else is on screen, if anything is. */
   function release() {
-    if (active !== inst) return;
-    active = null;
-    for (const other of instances) { if (other !== inst) { active = other; break; } }
-    if (active) active.repaint();
+    if (activeInstance() !== inst) return;
+    let next = null;
+    for (const other of instances) { if (other !== inst && !other.parked) { next = other; break; } }
+    setActive(next);
+    if (next) next.repaint();
+  }
+
+  // -------------------------------------------------------------------------
+  // parking (M12, M24)
+
+  /**
+   * The tab this page is in went to the background: the column leaves the document, the
+   * editor stays alive in a holder of its own. Nothing is asked and nothing is refused — the
+   * buffer is kept, not let go — so this always answers true. A dirty page is saved in the
+   * background, and a save that does not land shows through `doc:state` as it always does:
+   * autosave, drafts, the watcher, the leave gate and the path changes all keep covering a
+   * parked page. The status bar and the title go to whatever is on screen next.
+   */
+  function park() {
+    if (closed || parked) return true;
+    const scroller = scrollerOf(el);
+    parkScroll = scroller ? scroller.scrollTop : 0;
+    parkFocus = !!(document.activeElement && el.contains(document.activeElement));
+    const holder = document.createElement('div');
+    holder.className = 'ed-parked';
+    while (el.firstChild) holder.append(el.firstChild);
+    el = holder;
+    parked = true;
+    inst.usedAt = Date.now();
+    const p = page;
+    if (p && p.bindParent) p.bindParent();
+    if (activeInstance() === inst) {
+      status.set('doc', null);
+      status.set('save', null);
+      status.set('mode', null);
+      store.set('pageTitle', null);
+    }
+    release();
+    if (p && p.dirty && !p.saving) {
+      clearTimeout(p.saveTimer);
+      p.saveTimer = 0;
+      void saveDoc(p).then((ok) => { if (!ok && p === page && p.dirty) void writeDraft(p); });
+    }
+    // The cap is a memory budget: the least recently used clean pages past it are let go.
+    for (const other of overCap()) { if (other !== inst) void other.handle.close(); }
+    return true;
+  }
+
+  /**
+   * Back on screen, in `host`: the same column, buffer, undo history and mode. The scroll it
+   * was left at comes back, and the focus when it had it; a `line` or a `query` the router
+   * hands over wins over the old scroll, as it does at an open.
+   */
+  function reattach(host, o = {}) {
+    if (closed || !parked) return;
+    const holder = el;
+    host.innerHTML = '';
+    while (holder.firstChild) host.append(holder.firstChild);
+    el = host;
+    parked = false;
+    inst.usedAt = Date.now();
+    const p = page;
+    if (p && p.bindParent) p.bindParent();
+    take();
+    if (p) {
+      p.lastBanner = '';
+      publishState(p);
+      if (p.source) { try { p.source.view.requestMeasure(); } catch { /* not laid out yet */ } }
+    }
+    const scroll = parkScroll;
+    const focus = parkFocus;
+    afterLayout(() => {
+      if (parked || closed || p !== page) return;
+      if (p && o.line) { scrollToLine(o.line, o.col); openFindWith(p, o.query); return; }
+      if (focus) focusPage();
+      const scroller = scrollerOf(el);
+      if (scroller) scroller.scrollTop = scroll;
+      if (p) openFindWith(p, o.query);
+    });
+  }
+
+  /** Destroy this instance, saving first. False when its text could not be saved. */
+  function letGo() {
+    return handle.close();
+  }
+
+  // -------------------------------------------------------------------------
+  // links into an open page (H5, §4.8)
+
+  /**
+   * The kernel moved files (`pairs`, `[{from, to}]`) and asks this page, which holds `target`,
+   * to rewrite its links instead of the file on disk being written behind it. Source mode
+   * applies `ose.links.planRewrite` as one CodeMirror change; the rich view rewrites the link
+   * marks and images whose target moved, in one ProseMirror transaction. Either is an edit of
+   * its own in the undo history: the page is dirty, and autosave writes it through the guard
+   * as always. `o.settled`: this file's own hrefs were already rewritten for the move, so only
+   * links into the moved files are looked at (the kernel's second pass).
+   * @returns {Promise<{handled: boolean, changed?: number, failed?: string}>}
+   */
+  async function rewriteLinks(target, pairs, o = {}) {
+    const p = page;
+    if (!p || closed || p.trashed) return { handled: false };
+    const list = (Array.isArray(pairs) ? pairs : [])
+      .map((x) => ({ from: P.normalize(String((x && x.from) || '')), to: P.normalize(String((x && x.to) || '')) }))
+      .filter((x) => x.from && x.to && x.from !== x.to);
+    // A file that is not markdown holds no markdown links; the disk path leaves it alone too.
+    if (!list.length || p.plain) return { handled: true, changed: 0 };
+    try {
+      if (p.source) {
+        for (let round = 0; round < 2; round++) {
+          const text = p.source.getText();
+          const splices = await planRewrite(text, target, list, o);
+          if (splices === null) return { handled: false };
+          if (p !== page || !p.source) return { handled: false };
+          // The buffer moved while the plan was being made: plan again over what is there now.
+          if (p.source.getText() !== text) continue;
+          if (!splices.length) return { handled: true, changed: 0 };
+          let out = text;
+          for (const sp of [...splices].sort((a, b) => b.from - a.from)) out = out.slice(0, sp.from) + sp.insert + out.slice(sp.to);
+          p.source.replaceText(out, { edit: true });
+          log(`links rewritten in the open page ${target}: ${splices.length}`, 'info');
+          return { handled: true, changed: splices.length };
+        }
+        return { handled: true, changed: 0, failed: `${target} kept changing while its links were rewritten` };
+      }
+      const view = p.crepe ? editorView(p.crepe) : null;
+      if (!view) return { handled: false };
+      const changed = rewriteRich(view, target, list, o);
+      if (changed) log(`links rewritten in the open page ${target}: ${changed}`, 'info');
+      return { handled: true, changed };
+    } catch (e) {
+      log(`links not rewritten in the open page ${target}: ${errText(e)}`, 'warn');
+      return { handled: true, changed: 0, failed: errText(e) };
+    }
+  }
+
+  /**
+   * The rich half of `rewriteLinks`, the same decisions the kernel's disk path makes
+   * (links.js `rewriteInboundMany`): a href is resolved against where the page was written
+   * (its old path when the page itself moved), and rewritten relative to where it is now when
+   * its target moved, or when the page moved and the href would otherwise stop resolving. A
+   * vault-root href (`/…`) is left as the disk path leaves it. Answers how many links
+   * changed; nothing is dispatched when none did.
+   */
+  function rewriteRich(view, target, list, o) {
+    const toFor = new Map(list.map((x) => [x.from, x.to]));
+    const fromFor = o && o.settled ? new Map() : new Map(list.map((x) => [x.to, x.from]));
+    const was = fromFor.get(target) || target;
+    const moved = was !== target;
+    const nextHref = (href) => {
+      const raw = String(href ?? '').trim();
+      if (!raw || P.isExternal(raw)) return null;
+      const at = raw.search(/[#?]/);
+      const base = at < 0 ? raw : raw.slice(0, at);
+      const tail = at < 0 ? '' : raw.slice(at);
+      if (!base) return null;
+      const t = P.resolveHref(was, base);
+      if (t === null) return null;
+      if (!moved && base.startsWith('/')) return null;
+      const to = toFor.get(t);
+      if (!to && !moved) return null;
+      if (!to && base.startsWith('/')) return null;
+      const n = P.relativeHref(target, to || t) + tail;
+      return n === raw ? null : n;
+    };
+    const { state } = view;
+    const tr = state.tr;
+    let changed = 0;
+    let lastMark = null;
+    let lastEnd = -1;
+    state.doc.descendants((node, pos) => {
+      if (node.isText) {
+        for (const m of node.marks) {
+          if (m.type.name !== 'link') continue;
+          const n = nextHref(m.attrs.href);
+          if (n === null) continue;
+          const end = pos + node.nodeSize;
+          tr.removeMark(pos, end, m);
+          tr.addMark(pos, end, m.type.create({ ...m.attrs, href: n }));
+          // One link over several text nodes (a bold word inside it) is counted once.
+          if (!(lastMark && lastMark.eq(m) && lastEnd === pos)) changed++;
+          lastMark = m;
+          lastEnd = end;
+        }
+        return false;
+      }
+      const name = node.type.name;
+      if ((name === 'image' || name === 'image-block') && typeof node.attrs.src === 'string') {
+        const n = nextHref(node.attrs.src);
+        if (n !== null) { tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: n }); changed++; }
+      }
+      return true;
+    });
+    if (changed) view.dispatch(closeHistory(tr));
+    return changed;
   }
 
   /**
@@ -2694,6 +3357,12 @@ export function markdownPage(el, path, opts = {}) {
       releaseCommands();
       return true;
     },
+    /**
+     * The tab went to the background (M12): the column leaves the document and the editor stays
+     * alive, to be put back by the next `markdownPage` of this path. Always true.
+     */
+    park: () => park(),
+    get parked() { return parked; },
     /** True only when the disk holds the buffer afterwards. */
     save: (o) => saveNow(o),
     focus: () => focusPage(),
@@ -2717,7 +3386,8 @@ export function markdownPage(el, path, opts = {}) {
  * @property {string} path
  * @property {'clean'|'dirty'|'saving'|'not-saved'|'conflict'|'deleted'} status
  * @property {boolean} dirty
- * @property {null|'write-failed'|'unsafe'|'stale-vault'|'hold'|'gone'|'read-only'} reason
+ * @property {null|'write-failed'|'unsafe'|'stale-vault'|'overlap'|'gone'|'read-only'} reason
+ *   `overlap` (wave 2, H7): the disk changed lines the buffer changed too; nothing was merged
  * @property {string|null} message   one sentence, for the tab tooltip and the banner
  * @property {null|'written'|'failed'} draft
  * @property {'rich'|'source'} mode
@@ -2802,7 +3472,7 @@ function wireGlobals() {
   if (globalsWired) return;
   globalsWired = true;
   // link.js turns a picked page into an href relative to the page being edited.
-  bindPagePath(() => (active ? active.path() : null));
+  bindPagePath(() => (activeInstance() ? activeInstance().path() : null));
   // The bridge facade already re-emits 'fs' onto the bus; listening to both would reload twice.
   bus.on('fs', (payload) => { for (const i of [...instances]) i.onFsChange(payload); });
   // Spellcheck is a setting now (L12/E43): a page already open follows a change to it.
@@ -2886,6 +3556,51 @@ export async function afterPathChange(change) {
   }
 }
 
+/**
+ * `PageHost.release(path)` (M12): the parked instance of `path` is saved and destroyed, as a
+ * background tab showing it is closed. True when there is none, or it went; false when its text
+ * could not be saved, and then it stays, with its banner, for the tab to show again.
+ * @param {string} path
+ * @returns {Promise<boolean>}
+ */
+export async function releasePage(path) {
+  const inst = findParked(P.normalize(String(path ?? '')));
+  if (!inst) return true;
+  try { return (await inst.handle.close()) !== false; } catch (e) {
+    console.error('[editor] release', e);
+    return false;
+  }
+}
+
+/**
+ * The paths of the parked instances, most recently used first (M12).
+ * @returns {string[]}
+ */
+export function parkedPaths() { return parkedList(); }
+
+/**
+ * `PageHost.rewriteLinksIn(path, pairs)` (H5, §4.8): the links of an open page — on screen or
+ * parked — into files that moved are rewritten in the editor, as an edit of the page, instead of
+ * the file being written on disk behind it. `{handled: false}` when no page holds `path`: the
+ * kernel then rewrites the file on disk as before. `opts.settled`: the kernel's second pass,
+ * where the file's own hrefs were already rewritten for the move.
+ * @param {string} path
+ * @param {Array<{from: string, to: string}>} pairs
+ * @param {{settled?: boolean}} [opts]
+ * @returns {Promise<{handled: boolean, changed?: number, failed?: string}>}
+ */
+export async function rewriteLinksIn(path, pairs, opts = {}) {
+  const target = P.normalize(String(path ?? ''));
+  if (!target) return { handled: false };
+  for (const i of [...instances]) {
+    if (!i.holds(target)) continue;
+    try { return await i.rewriteLinks(target, pairs, opts || {}); } catch (e) {
+      return { handled: true, changed: 0, failed: errText(e) };
+    }
+  }
+  return { handled: false };
+}
+
 // ---------------------------------------------------------------------------
 // the commands
 //
@@ -2895,8 +3610,8 @@ export async function afterPathChange(change) {
 let cmdRefs = 0;
 let dropCommands = null;
 
-const hasPage = () => !!(active && active.api.hasPage());
-const pageStatus = () => (active ? active.api.status() : 'clean');
+const hasPage = () => !!(activeInstance() && activeInstance().api.hasPage());
+const pageStatus = () => (activeInstance() ? activeInstance().api.status() : 'clean');
 
 /**
  * What the extension modules (extensions.js) get of the open page. Accessors, never the object
@@ -2910,12 +3625,15 @@ for (const name of [
   'openFind', 'isSource', 'isMarkdown', 'toggleSource', 'setMode', 'hasCrepe', 'isReadOnly', 'folder',
   'copyMarkdown', 'link', 'outline', 'find', 'reveal', 'status', 'isDirty', 'hasRecovered',
   'recoveredApplied', 'saveAs', 'discardChanges', 'showProblem', 'recoveredCompare', 'recoveredRestore',
+  'hasConflict', 'conflictIsText', 'hasMerge', 'canUndoMerge', 'mergeResolve', 'mergeKeepMine',
+  'mergeTakeTheirs', 'mergeUndo', 'mergeShow',
 ]) {
   editorApi[name] = (...args) => {
     const a = activeApi();
     if (!a) {
       if (name === 'saveNow') return Promise.resolve(true);
-      return ['hasPage', 'isSource', 'isMarkdown', 'hasCrepe', 'isDirty', 'hasRecovered', 'recoveredApplied'].includes(name)
+      return ['hasPage', 'isSource', 'isMarkdown', 'hasCrepe', 'isDirty', 'hasRecovered', 'recoveredApplied',
+        'hasConflict', 'conflictIsText', 'hasMerge', 'canUndoMerge'].includes(name)
         ? false : undefined;
     }
     return a[name](...args);
@@ -2971,6 +3689,32 @@ function registerCommands() {
     when: () => hasPage() && editorApi.hasRecovered() && !editorApi.recoveredApplied(),
     run: () => editorApi.recoveredRestore(),
   });
+  // H7: a change made on disk. The banner's buttons run these, and so does the palette.
+  commands.register({
+    id: 'page.merge-resolve', title: 'Resolve changes made on disk', group: 'page',
+    when: () => hasPage() && editorApi.hasConflict() && editorApi.conflictIsText(),
+    run: () => editorApi.mergeResolve(),
+  });
+  commands.register({
+    id: 'page.merge-keep-mine', title: 'Keep my version (overwrite the file on disk)', group: 'page',
+    when: () => hasPage() && editorApi.hasConflict(),
+    run: () => editorApi.mergeKeepMine(),
+  });
+  commands.register({
+    id: 'page.merge-take-theirs', title: 'Take the version on disk', group: 'page',
+    when: () => hasPage() && editorApi.hasConflict() && editorApi.conflictIsText(),
+    run: () => editorApi.mergeTakeTheirs(),
+  });
+  commands.register({
+    id: 'page.merge-undo', title: 'Undo merge', group: 'page',
+    when: () => hasPage() && editorApi.canUndoMerge(),
+    run: () => editorApi.mergeUndo(),
+  });
+  commands.register({
+    id: 'page.merge-show', title: 'Show changes merged from disk', group: 'page',
+    when: () => hasPage() && editorApi.hasMerge(),
+    run: () => editorApi.mergeShow(),
+  });
   commands.register({
     id: 'page.reveal', title: 'Reveal in Explorer', group: 'page',
     when: hasPage, run: () => editorApi.reveal(),
@@ -2999,20 +3743,22 @@ function registerCommands() {
   // The heading picker reads the ProseMirror document, so it is the block editor's alone.
   commands.register({
     id: 'page.outline', title: 'Go to heading', group: 'page',
-    when: () => !!(active && active.api.hasCrepe()), run: () => void editorApi.outline(),
+    when: () => !!(activeInstance() && activeInstance().api.hasCrepe()), run: () => void editorApi.outline(),
   });
 }
 
 /**
- * `page.new` (Ctrl+N, M28): `Untitled.md` in the folder the user is in — the open page's,
- * else the focus folder or the `newPages` setting, else the scratch folder — created through
- * the one create there is (`ose.fileops`, never an overwrite). The title is selected, and the
- * name typed there becomes the file's name when the title is left (C12): the inline name.
+ * `page.new` (Ctrl+N, M28): `Untitled.md` in the folder the user is in
+ * (`ose.focus.defaultNewFolder()`: the focused folder, else the folder on screen or the open
+ * page's, else the vault root), created through the one create there is (`ose.fileops`, never
+ * an overwrite). The title is selected. With `titleSync` on, the name typed there becomes the
+ * file's name when the title is left (C12, M13); otherwise the file keeps its name.
  */
 async function newPage() {
   const ops = fileops();
   if (!ops || typeof ops.create !== 'function') { toast('could not create the page: this kernel has no file operations', 'err'); return false; }
-  const folder = hasPage() ? (editorApi.folder() || '') : (defaultNewFolder() || scratchFolder() || '');
+  let folder = '';
+  try { folder = defaultNewFolder() || ''; } catch { folder = ''; }
   let path;
   try {
     ({ path } = await ops.create(folder, 'Untitled.md', { text: '# Untitled\n', unique: true }));
@@ -3096,4 +3842,4 @@ async function printPage() {
 }
 
 /** The page the commands act on, for whoever needs to ask (the compatibility layer). */
-export function activePage() { return active ? active.handle : null; }
+export function activePage() { return activeInstance() ? activeInstance().handle : null; }

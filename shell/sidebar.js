@@ -1,35 +1,47 @@
-// Sidebar: plugins, pinned, pages, scratch. One scrolling column, no search box (search
-// is the Ctrl+F overlay now). Expansion and pins are persisted; the current page is revealed.
-// The plugins section, at the very top, lists what the plugins registered; the dashboard
-// (shell/dashboard.js) is the home page and says the same things in cards, and both are ways
-// in. The sidebar carries
-// no chrome of its own: the one control that folds it lives in the title bar.
-// Rows drag onto folder rows to move files; files dragged in from Explorer are imported.
-// In focus mode the pages section is rooted at one folder and the other sections go away.
-// Several rows can be selected at once (C17) and moved, trashed, pinned or dragged together;
-// every move, however it was made, rewrites the links that pointed at what moved (C13).
-// Create, rename, move, duplicate and trash are not done here: every gesture of the tree ends
-// in shell/fileops.js and from there in `ose.fileops`, which saves the open page first and
-// refuses when it cannot (C6). This file only follows what happened, off `paths:moved`,
-// `paths:trashed` and `paths:created`: expansion, pins, the selection and the focused row.
+// Sidebar: the pins, then one tree of the whole vault rooted at its name, then Trash. One
+// scrolling column under a small tool strip. The vault is shown as it is on disk, the way a
+// file manager shows it (H16, H20, M20, L8): every file with its real name and extension,
+// folders first, nothing hidden by name. Dotfiles and files the OS marks hidden appear only
+// while Show hidden items is on, greyed; `.ose`, `.git` and the exe are the host's to keep out
+// and never arrive here (docs/HOST.md, the one hide rule).
+//
+// A folder row goes to the folder's own view (`{type:'folder'}`) on a click or Enter; its
+// chevron, Left and Right fold it. A file row opens the file, whatever it is: the page host
+// decides how (H17). Each folder sorts the way its folder view says (M22, `folder-model.js`),
+// by name with numbers in number order unless the person chose otherwise.
+//
+// The tree is read once at boot (`ose.files.tree`) and then patched in place (M16): a batch
+// of watcher changes re-lists only the folders those changes are in, and the app's own file
+// operations do the same off their `paths:*` events. Only a watcher `rescan` or `lost`, or
+// Show hidden items flipping, reads the whole tree again. An autosave of a page already in
+// the tree touches that one node and draws nothing.
+//
+// Several rows can be selected at once (C17) and cut, copied, moved, trashed, pinned or dragged
+// together. Create, rename, move, copy, duplicate and trash are not done here: every gesture
+// of the tree ends in shell/fileops.js and from there in `ose.fileops`, which saves the open
+// page first and refuses when it cannot (C6), and journals what it did so Ctrl+Z in the tree
+// takes it back (M17). This file only follows what happened: expansion, the selection and the
+// focused row. Pins are shell/pins.js's; a pin whose file is gone is greyed, never dropped
+// (L22).
 import { ose } from 'ose:kernel';
 import {
-  esc, icon, hasIcon, prompt, confirm, contextMenu, toast, copyText,
+  esc, icon, hasIcon, contextMenu, toast, copyText, confirm,
   focusOrigin, retargetFocusOrigin, overlayCount,
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
-import { clean, join, baseName, dirName, extOf, titleOf, isMd, isTextFile, isHiddenName, segments } from './paths.js';
+import { clean, join, baseName, dirName, extOf, titleOf, segments } from './paths.js';
 import { openSearch } from './search.js';
 import { openInNewTab } from './tabs.js';
 import {
-  newFile, renamePath, movePaths, trashPaths, duplicatePath, setContext, canMoveInto,
+  newFile, newFolder, renamePath, movePaths, trashPaths, duplicatePath, setContext, canMoveInto,
+  cut, copy, paste, clipboard, onClipboard, clearClipboard, undo,
 } from './fileops.js';
-import { HOME } from './dashboard.js';
-import { byViewOrder } from './order.js';
-import { isMediaFile } from './media.js';
+import * as pins from './pins.js';
+import { sortEntries, nextSortSpec, visibleEntries, iconName, SORT_KEYS } from './folder-model.js';
+import { sortSpec, setSortSpec } from './folder.js';
 import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layout.js';
 
-const { bus, store, commands, views, debounce, files, links, route } = ose;
+const { bus, commands, debounce, files, links, route } = ose;
 
 // The kernel's hoses this file leans on, named the way the batch-12 shell named them, so the
 // code below reads as it always did. Everything here is `ose` and nothing else.
@@ -40,216 +52,145 @@ const getFocus = () => ose.focus.get();
 const setFocus = (path) => ose.focus.set(path);
 const exitFocus = () => ose.focus.exit();
 const isUnderFocus = (path) => ose.focus.isUnder(path);
-const defaultNewFolder = () => ose.focus.defaultNewFolder();
 const relativeHref = (from, to) => links.href(from, to);
 const rewriteInboundMany = (pairs) => links.rewriteMoved(pairs);
 const findInbound = (path) => links.inbound(path);
 
-// Two slots of `.ose/state.json`: the tree's own (open folders, width, the open switch) and
-// the pinned list. Every write is read-modify-write of the whole slot, so the layout's writes
-// to `sidebar.open` and this file's to `sidebar.expanded` never clobber each other.
-const sidebarState = ose.state('sidebar');
-const pinState = ose.state('pins');
+/** An icon from the set, or `fallback` while the kernel does not carry that name yet. */
+const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
 
-let el = null, scrollEl = null;
+// Per-machine UI state (`ose.local`, W5): the tree's open folders beside the layout's open
+// switch and width. Every folder's sort is shell/folder.js's (`sortSpec`, `setSortSpec`).
+// Every write is read-modify-write of the whole slot, so the layout's writes to `sidebar.open`
+// and this file's to `sidebar.expanded` never clobber each other. Never the vault's
+// `.ose/state.json`: UI state is per machine and never lands in a synced file.
+const slot = (key) => ose.local(key);
+
+let el = null, scrollEl = null, headEl = null;
 let tree = null;
 let expanded = new Set();
-let pins = [];
+// The root row is open unless the person folded it.
+let rootOpen = true;
 // The one row that is a tab stop (D2). A key, not an element: rows are rebuilt on every render.
 let roving = null;
-// Set by a rename or move so the next render puts focus on the row's new name (B4).
+// Set by a rename, a move or a new file so the next render puts focus on that row (B4).
 let focusAfterRender = null;
 // The multi-selection (C17): tree paths, never pins. Empty means the focused row is
 // the only target, as before; two or more and the tree commands act on all of them. `anchor`
 // is the row a Shift-range grows from, set by every plain click or arrow.
 let selected = new Set();
 let anchor = null;
+// Set while the tree itself tells the pins it changed: it draws right after, once.
+let quietPins = false;
+/** The pins are told the tree changed (missing or back), without a second draw. */
+function pinsRefresh() { quietPins = true; try { pins.refresh(); } finally { quietPins = false; } }
+// Show hidden items as the tree was last read with, so a settings change that flips it reads
+// the tree again and one that does not leaves it be.
+let readHidden = null;
 
-const ARCHIVE = '_Archive';
-
-// The scratch folder is a path the shell declares, not a name in the code: `scratchpad` today,
-// whatever the user points it at tomorrow (docs/PLUGINS.md `ose.paths`). Everything that used
-// to say 'Scratchpad' asks here, and the sidebar re-renders on `ose.paths.on`. Nothing
-// resolved is an empty string: the section is not drawn and a new page lands at the root.
-export function scratchFolder() { return ose.paths.of('app').peek('scratch') || ''; }
+const showHidden = () => !!(ose.settings.get() || {}).showHidden;
 
 /* ------------------------------------------------------------------ tree data */
 
-// Files and folders sort together, in natural numeric order, case- and accent-insensitive,
-// so `0. Index/` and `00-index.md` land next to each other and before any letter. The bridge
-// and the host both hand us folders first; this is where that is undone.
-const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'accent', caseFirst: 'false' });
-export const compareNames = (a, b) => COLLATOR.compare(a, b);
-
-function sortChildren(list, atRoot) {
-  const out = list.filter((c) => !isHiddenName(c.name));
-  out.sort((a, b) => {
-    if (atRoot) {
-      const aa = a.name === ARCHIVE, bb = b.name === ARCHIVE;
-      if (aa !== bb) return aa ? 1 : -1;
-    }
-    return COLLATOR.compare(a.name, b.name);
-  });
-  return out;
-}
-
 function findNode(path) {
-  const segs = segments(path);
+  if (!tree) return null;
   let node = tree;
-  for (const s of segs) {
+  for (const s of segments(path)) {
     if (!node || !node.children) return null;
     node = node.children.find((c) => c.name === s);
   }
   return node || null;
 }
 
-function mdFilesOf(node) {
-  return node && node.children ? node.children.filter((c) => c.kind === 'file' && isMd(c.name)) : [];
+/** A folder's children as they are drawn: hidden ones only when asked for, in its sort. */
+function kidsOf(node) {
+  const list = visibleEntries((node && node.children) || [], { showHidden: showHidden() });
+  return sortEntries(list, sortSpec(node ? node.path || '' : ''));
 }
 
-/** Every .md path in the vault, for the quick-open palette. Focus mode narrows it. */
-export function allPages() {
+const MD_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd']);
+const isMarkdown = (p) => MD_EXTS.has(extOf(p));
+
+/** Every file under `node`, depth first in drawing order, never under a link or into a hidden entry. */
+function walkFiles(keep) {
   const out = [];
-  const walk = (n, atRoot) => {
-    if (!n.children) return;
-    for (const c of sortChildren(n.children, atRoot)) {
-      if (c.kind === 'dir') walk(c, false);
-      else if (isMd(c.name)) out.push(c.path);
+  const walk = (n) => {
+    if (!n || !n.children) return;
+    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec(n.path || ''))) {
+      if (c.kind === 'dir') { if (!c.link) walk(c); } else if (keep(c)) out.push(c.path);
     }
   };
-  if (tree) walk(tree, true);
+  walk(tree);
   return getFocus() ? out.filter((p) => isUnderFocus(p)) : out;
 }
+
+/** Every markdown path in the vault, for the link picker and the page list. Focus mode narrows it. */
+export function allPages() { return walkFiles((c) => isMarkdown(c.name)); }
 
 /**
- * Every file the app can open, in tree order: the pages, and beside them the text and media
- * files the tree opens in the code editor or the viewer. Quick open lists these, so a
- * `notes.txt` made with New file can be found again without the tree. Focus mode narrows it.
+ * Every file in the vault that is not hidden, for quick open (H17): each one opens in the app,
+ * so each one can be found without the tree. Focus mode narrows it.
  */
-export function allFiles() {
-  const out = [];
-  const walk = (n, atRoot) => {
-    if (!n.children) return;
-    for (const c of sortChildren(n.children, atRoot)) {
-      if (c.kind === 'dir') walk(c, false);
-      else if (isMd(c.name) || isTextFile(c.path) || isMediaFile(c.path)) out.push(c.path);
-    }
-  };
-  if (tree) walk(tree, true);
-  return getFocus() ? out.filter((p) => isUnderFocus(p)) : out;
-}
-
-export function treeRoot() { return tree; }
+export function allFiles() { return walkFiles(() => true); }
 
 /* ------------------------------------------------------------------ expansion */
 
 function persistExpanded() {
-  sidebarState.set({ ...(sidebarState.get() || {}), expanded: [...expanded] });
+  const s = slot('sidebar');
+  s.set({ ...(s.get() || {}), expanded: [...expanded], root: rootOpen });
 }
+
+const isOpen = (path) => (path === '' ? rootOpen : expanded.has(path));
 
 function expandAncestors(path) {
   const segs = segments(dirName(path));
   let acc = '';
   for (const s of segs) { acc = acc ? acc + '/' + s : s; expanded.add(acc); }
-}
-
-/* ------------------------------------------------------------------ pins */
-
-function persistPins() { pinState.set([...pins]); }
-
-export function isPinned(path) { return pins.includes(clean(path)); }
-
-function pin(path) {
-  const p = clean(path);
-  if (!p || pins.includes(p)) return;
-  pins.push(p);
-  persistPins();
-  render();
-}
-
-function unpin(path) {
-  const p = clean(path);
-  const i = pins.indexOf(p);
-  if (i < 0) return;
-  pins.splice(i, 1);
-  persistPins();
-  render();
-}
-
-/** A selection pinned or unpinned in one go (C17): one persist, one render. */
-function pinMany(paths) {
-  const add = paths.map(clean).filter((p) => p && !pins.includes(p));
-  if (!add.length) return;
-  pins.push(...add);
-  persistPins();
-  render();
-}
-
-function unpinMany(paths) {
-  const drop = new Set(paths.map(clean));
-  const before = pins.length;
-  pins = pins.filter((p) => !drop.has(p));
-  if (pins.length === before) return;
-  persistPins();
-  render();
-}
-
-/** Follow a rename or a move: a pinned path, and anything under it, keeps its pin. */
-function repinMoved(from, to) {
-  let changed = false;
-  pins = pins.map((p) => {
-    if (p === from) { changed = true; return to; }
-    if (p.startsWith(from + '/')) { changed = true; return to + p.slice(from.length); }
-    return p;
-  });
-  if (changed) persistPins();
-}
-
-function dropPinsUnder(path) {
-  const before = pins.length;
-  pins = pins.filter((p) => p !== path && !p.startsWith(path + '/'));
-  if (pins.length !== before) persistPins();
-}
-
-/** Drop pins whose file is gone (deleted outside the app). Only when the tree is loaded. */
-function prunePins() {
-  if (!tree) return;
-  const before = pins.length;
-  pins = pins.filter((p) => !!findNode(p));
-  if (pins.length !== before) persistPins();
+  if (!getFocus()) rootOpen = true;
 }
 
 /* ------------------------------------------------------------------ rendering */
 
-// Every row is the same three-column grid: 16px chevron slot, 14px glyph, name (plus an
-// optional mono tail). Folders and pages at the same depth put their text at the same x.
-function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail = '', hint = '', data = {} }) {
+/** The glyph of a row: the folder view's own choice (`iconName`), so a file looks the same in both. */
+function glyphFor(node) {
+  const name = iconName(node);
+  return icon(ic(name, name === 'fileText' ? 'page' : 'file'));
+}
+
+const LINK_WORDS = {
+  dir: 'Link to a folder', file: 'Link to a file', broken: 'Broken link: its target is gone',
+  loop: 'Link that points back into itself', outside: 'Link to a place outside the vault',
+};
+
+// Every row is the same grid: 16px chevron slot, 14px glyph, name, an optional tail. Folders
+// and files at the same depth put their text at the same x.
+function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail = '', hint = '', badge = '', title = '', data = {} }) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
-  const inTree = !!data.path && data.pin !== '1';
+  const inTree = data.path !== undefined && data.pin !== '1' && data.root !== '1';
   if (inTree && selected.has(data.path)) b.classList.add('selected');
   b.style.setProperty('--d', depth);
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
-  if (data.path) b.draggable = true; // moves within the vault; see the drag and drop section
-  // A tree to a screen reader, not a list of unrelated buttons (S39, P8's request): the level
-  // is 1-based, `aria-selected` is on every selectable row so the reader can say "not
-  // selected" too, and only a folder claims to expand.
+  if (inTree || data.pin === '1') b.draggable = true; // moves within the vault; see drag and drop
+  // A tree to a screen reader, not a list of unrelated buttons (S39): the level is 1-based,
+  // `aria-selected` is on every selectable row so the reader can say "not selected" too, and
+  // only a folder that unfolds claims to expand.
   b.setAttribute('role', 'treeitem');
   b.setAttribute('aria-level', String(depth + 1));
   if (inTree) b.setAttribute('aria-selected', String(selected.has(data.path)));
   if (chevron !== null) b.setAttribute('aria-expanded', String(!!chevron));
+  if (title) b.title = title;
   b.innerHTML =
     `<span class="tw${chevron ? ' open' : ''}">${chevron === null ? '' : icon('chevron')}</span>` +
     `<span class="gl">${glyphHtml}</span>` +
     `<span class="grow">${esc(text)}</span>` +
+    (badge || '') +
     (tail ? `<span class="par">${esc(tail)}</span>` : '') +
     (hint ? `<span class="hint">${esc(hint)}</span>` : '');
   return b;
 }
 
-// A section label doubles as a drop target when `dropPath` is given: '' is the vault root,
-// 'Scratchpad' the scratch section. Pass nothing for a label that takes no drops.
 function label(text, dropPath) {
   const d = document.createElement('div');
   d.className = 'section-label';
@@ -258,12 +199,12 @@ function label(text, dropPath) {
   return d;
 }
 
-// Views may hand us a raw <svg> string, a name from our icon set, or nothing.
-function viewIcon(v) {
-  const i = v.icon;
-  if (typeof i === 'string' && i.trim().startsWith('<')) return i;
-  if (typeof i === 'string' && hasIcon(i)) return icon(i);
-  return icon(hasIcon(v.name) ? v.name : 'view');
+function emptyLine(text, depth) {
+  const d = document.createElement('div');
+  d.className = 'empty sb-empty';
+  d.style.setProperty('--d', depth);
+  d.textContent = text;
+  return d;
 }
 
 /**
@@ -271,135 +212,83 @@ function viewIcon(v) {
  * One tree per section rather than one for the whole sidebar: the sections are separate lists
  * with separate names, and claiming otherwise would make a reader announce wrong positions.
  */
-function treeBox(frag, label) {
+function treeBox(frag, name, multi = false) {
   const box = document.createElement('div');
   box.className = 'sb-group';
   box.setAttribute('role', 'tree');
-  box.setAttribute('aria-label', label);
+  box.setAttribute('aria-label', name);
+  if (multi) box.setAttribute('aria-multiselectable', 'true');
   frag.appendChild(box);
   return box;
 }
 
-/** Pinned pages and folders, in pin order. Hidden entirely while nothing is pinned. */
-function renderPinned(frag) {
-  if (!pins.length) return;
-  const r = currentRoute();
-  const curPath = r && r.type === 'page' ? r.path : null;
-  const names = new Map();
-  for (const p of pins) names.set(baseName(p), (names.get(baseName(p)) || 0) + 1);
+const cutPaths = () => { const c = clipboard(); return c && c.mode === 'cut' ? new Set(c.paths) : null; };
 
-  frag.appendChild(label('pinned'));
-  const box = treeBox(frag, 'Pinned');
-  for (const p of pins) {
-    const node = findNode(p);
-    const dir = node ? node.kind === 'dir' : !baseName(p).includes('.');
-    const name = dir ? baseName(p) : titleOf(p);
-    const ambiguous = (names.get(baseName(p)) || 0) > 1;
-    const parent = dirName(p);
-    box.appendChild(rowEl({
-      cls: 'sb-pin ' + (dir ? 'dir' : 'file') + (curPath === p ? ' current' : ''),
-      depth: 0,
-      glyphHtml: icon(dir ? 'folder' : 'page'),
-      text: name,
-      tail: ambiguous ? (parent ? baseName(parent) : '/') : '',
-      data: { path: p, kind: dir ? 'dir' : 'file', md: isMd(p) ? '1' : '0', pin: '1' },
-    }));
-  }
-}
-
-/** One row per registered view, at the very top. The dashboard is the home page, not a row. */
-function renderViews(frag) {
-  // `ose.views.list()` answers in registration order, and plugins activate concurrently: the
-  // order a person sees is each view's own `order`, then its title (order.js).
-  const list = [...views.list()]
-    // The dashboard is a view so that the router can mount it, but it is the page the app
-    // opens on and the one `app.home` goes to; a row for it among the plugins' views would be
-    // a second front door pretending to be a plugin.
-    .filter((v) => v.name !== HOME.name)
-    .sort(byViewOrder);
+/** Pinned files and folders, in pin order; a missing one greyed and kept. Nothing while none. */
+function renderPinned(frag, cur) {
+  const list = pins.list();
   if (!list.length) return;
-  // "plugins", not "views": the row is a plugin's way in, and the word a person knows for
-  // Day, Week, Code is the plugin, not the kind of surface it happens to register.
-  frag.appendChild(label('plugins'));
-  const box = treeBox(frag, 'Plugins');
-  const r = currentRoute();
-  for (const v of list) {
+  const names = new Map();
+  for (const p of list) names.set(baseName(p.path), (names.get(baseName(p.path)) || 0) + 1);
+  frag.appendChild(label('Pinned'));
+  const box = treeBox(frag, 'Pinned');
+  for (const p of list) {
+    const dir = p.kind === 'dir';
+    const ambiguous = (names.get(baseName(p.path)) || 0) > 1;
+    const parent = dirName(p.path);
+    const current = dir ? cur.folder === p.path : cur.page === p.path;
     box.appendChild(rowEl({
-      cls: 'sb-view' + (r && r.type === 'view' && r.name === v.name ? ' current' : ''),
+      cls: 'sb-pin ' + (dir ? 'dir' : 'file') + (current ? ' current' : '') + (p.missing ? ' missing' : ''),
       depth: 0,
-      glyphHtml: viewIcon(v),
-      text: v.title || v.name,
-      data: { view: v.name },
+      glyphHtml: dir ? icon('folder') : glyphFor({ name: baseName(p.path), kind: 'file' }),
+      text: dir ? baseName(p.path) : titleOf(p.path),
+      tail: ambiguous ? (parent ? baseName(parent) : '/') : '',
+      hint: p.missing ? 'missing' : '',
+      title: p.missing ? `${p.path} is not there any more. The pin stays until you unpin it.` : '',
+      data: { path: p.path, kind: dir ? 'dir' : 'file', pin: '1' },
     }));
   }
 }
 
-function renderNode(node, depth, frag, curPath) {
-  if (isHiddenName(node.name)) return;
-  // The scratch folder has its own section; it is never drawn twice, wherever it sits.
-  if (node.kind === 'dir' && !getFocus() && node.path === scratchFolder()) return;
+function renderNode(node, depth, box, cur, cuts) {
+  const hidden = !!node.hidden;
+  const link = node.link || '';
+  const badge = link
+    ? `<span class="sb-link" title="${esc(LINK_WORDS[link] || 'Link')}">${icon('link')}</span>`
+    : '';
+  const flags = (hidden ? ' hidden-entry' : '') + (link ? ' link' : '') + (cuts && cuts.has(node.path) ? ' cut' : '');
   if (node.kind === 'dir') {
-    const open = expanded.has(node.path);
-    frag.appendChild(rowEl({
-      cls: 'dir' + (node.name === ARCHIVE ? ' archive' : ''),
-      depth, chevron: open, glyphHtml: icon('folder'), text: node.name,
+    // A link is listed, never walked: the tree does not unfold one, its folder view lists it
+    // when the target is inside the vault.
+    const unfolds = !link;
+    const open = unfolds && isOpen(node.path);
+    box.appendChild(rowEl({
+      cls: 'dir' + flags + (cur.folder === node.path ? ' current' : ''),
+      depth, chevron: unfolds ? open : null, glyphHtml: icon('folder'), text: node.name, badge,
       data: { path: node.path, kind: 'dir' },
     }));
-    if (open && node.children) {
-      for (const c of sortChildren(node.children, false)) renderNode(c, depth + 1, frag, curPath);
-    }
+    if (!open) return;
+    if (node.readable === false) { box.appendChild(emptyLine('No permission to open this folder', depth + 1)); return; }
+    if (!node.children) { box.appendChild(emptyLine('Reading…', depth + 1)); void loadChildren(node.path); return; }
+    for (const c of kidsOf(node)) renderNode(c, depth + 1, box, cur, cuts);
   } else {
-    const md = isMd(node.name);
-    // A non-markdown row says what it is, in the chrome voice, rather than wearing the page
-    // glyph and hoping the extension in the name is noticed (N28). A file with no extension
-    // gets no badge: there is nothing to say.
-    const ext = md ? '' : extOf(node.name);
-    frag.appendChild(rowEl({
-      cls: 'file' + (md ? '' : ' other') + (curPath === node.path ? ' current' : ''),
-      depth, glyphHtml: icon('page'), text: md ? titleOf(node.name) : node.name,
-      hint: ext,
-      data: { path: node.path, kind: 'file', md: md ? '1' : '0' },
+    box.appendChild(rowEl({
+      cls: 'file' + flags + (cur.page === node.path ? ' current' : ''),
+      depth, glyphHtml: glyphFor(node), text: titleOf(node.path), badge,
+      data: { path: node.path, kind: 'file' },
     }));
   }
 }
 
 /**
- * The scratch folder, flat: its files as rows, its folders expandable in place. A vault with
- * no scratch folder has no scratch section: the path is unresolved, Settings › Files is where
- * one is chosen, and a new page lands at the vault root until one is.
- */
-function renderScratch(frag, curPath) {
-  const dir = scratchFolder();
-  const node = dir ? findNode(dir) : null;
-  if (!node || node.kind !== 'dir') return;
-  const kids = sortChildren(node.children || [], false);
-  frag.appendChild(label('scratch', dir));
-  if (!kids.length) {
-    const d = document.createElement('div');
-    d.className = 'empty sb-empty';
-    d.textContent = 'nothing here';
-    frag.appendChild(d);
-    return;
-  }
-  const box = document.createElement('div');
-  box.className = 'sb-scratch';
-  box.setAttribute('role', 'tree');
-  box.setAttribute('aria-label', 'Scratch');
-  box.setAttribute('aria-multiselectable', 'true');
-  for (const c of kids) renderNode(c, 0, box, curPath);
-  frag.appendChild(box);
-}
-
-/**
- * In focus mode the `pages` section label *is* the indicator: same row, same baseline, same
- * padding as every other label, reading `focus · <folder>` with the way out on the right.
- * It replaces the label rather than sitting under it, so focus mode costs no extra line.
+ * In focus mode the tree is rooted at one folder, and its label is the indicator: `focus ·
+ * <folder>` with the way out on the right, where the vault's root row would be.
  */
 function focusLabel(focus) {
   const d = document.createElement('div');
   d.className = 'section-label sb-focus-label';
   d.dataset.drop = focus;
-  d.innerHTML = `<span class="sb-focus-key">focus</span>`
+  d.innerHTML = `<span class="sb-focus-key">Focus</span>`
     + `<span class="sb-focus-path" title="${esc(focus)}">${esc(baseName(focus))}</span>`;
   const b = document.createElement('button');
   b.type = 'button';
@@ -412,50 +301,65 @@ function focusLabel(focus) {
   return d;
 }
 
+function currentOf() {
+  const r = currentRoute();
+  return {
+    page: r && r.type === 'page' ? clean(r.path) : null,
+    folder: r && r.type === 'folder' ? clean(r.path || '') : null,
+    view: r && r.type === 'view' ? r.name : null,
+  };
+}
+
+function vaultName() {
+  return (tree && tree.name) || (ose.vault && ose.vault.name) || 'Vault';
+}
+
 function renderTree() {
   const frag = document.createDocumentFragment();
-  const r = currentRoute();
-  const curPath = r && r.type === 'page' ? r.path : null;
+  const cur = currentOf();
   const focus = getFocus();
+  const cuts = cutPaths();
 
-  // The plugins come first, above everything the vault put there: they are the app's own rows
-  // and they do not move when the tree does. Focused, the sidebar is one folder and the rest of
-  // the app's rows: pins and scratch are noise.
-  renderViews(frag);
-  if (!focus) renderPinned(frag);
+  if (!focus) renderPinned(frag, cur);
 
-  frag.appendChild(focus ? focusLabel(focus) : label('pages', ''));
+  if (focus) frag.appendChild(focusLabel(focus));
+  const box = treeBox(frag, focus ? `Focus: ${baseName(focus)}` : 'Files', true);
+  box.classList.add('sb-files');
   if (!tree) {
-    const d = document.createElement('div');
-    d.className = 'empty';
-    d.textContent = 'reading vault…';
-    frag.appendChild(d);
+    box.appendChild(emptyLine('Reading the vault…', 0));
+  } else if (focus) {
+    const root = findNode(focus);
+    if (!root || root.kind !== 'dir') box.appendChild(emptyLine('The focus folder is gone', 0));
+    else if (!root.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(root.path); }
+    else for (const c of kidsOf(root)) renderNode(c, 0, box, cur, cuts);
   } else {
-    const root = focus ? findNode(focus) : tree;
-    const pages = document.createElement('div');
-    pages.className = 'sb-pages';
-    pages.setAttribute('role', 'tree');
-    pages.setAttribute('aria-label', 'Pages');
-    pages.setAttribute('aria-multiselectable', 'true');
-    if (focus && (!root || root.kind !== 'dir')) {
-      const d = document.createElement('div');
-      d.className = 'empty sb-empty';
-      d.textContent = 'focus folder is gone';
-      pages.appendChild(d);
-    } else {
-      for (const c of sortChildren((root && root.children) || [], !focus)) renderNode(c, 0, pages, curPath);
+    // The root row: the vault by its name. It goes to the vault's own folder view, and folds.
+    box.appendChild(rowEl({
+      cls: 'dir sb-root' + (cur.folder === '' ? ' current' : ''),
+      depth: 0, chevron: rootOpen, glyphHtml: icon('folder'), text: vaultName(),
+      title: (ose.vault && ose.vault.root) || '',
+      data: { path: '', kind: 'dir', root: '1' },
+    }));
+    if (rootOpen) {
+      const kids = kidsOf(tree);
+      if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 1));
+      for (const c of kids) renderNode(c, 1, box, cur, cuts);
     }
-    frag.appendChild(pages);
   }
 
-  if (tree && !focus) renderScratch(frag, curPath);
+  // The last row: what was moved to the trash, and the way back (M18).
+  const tail = treeBox(frag, 'Trash');
+  tail.classList.add('sb-tail');
+  tail.appendChild(rowEl({
+    cls: 'sb-view sb-trash' + (cur.view === 'trash' ? ' current' : ''),
+    depth: 0, glyphHtml: icon('trash'), text: 'Trash', data: { view: 'trash' },
+  }));
 
-  // The rebuild would drop keyboard focus on the floor, and render runs 350ms after every
-  // autosave (B4): note which row had it, rebuild, put it back. A row that is gone (trashed)
-  // hands focus to whatever now sits at its index, so Delete on a run of pages keeps working.
-  // `focusOrigin` rather than activeElement: while a confirm or rename dialog is up, the row
-  // is where focus will return to, and the dialog must be told the row's replacement or it
-  // would hand focus back to a detached node, i.e. to nothing.
+  // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,
+  // put it back. A row that is gone (trashed) hands focus to whatever now sits at its index,
+  // so Delete on a run of files keeps working. `focusOrigin` rather than activeElement: while
+  // a confirm or rename dialog is up, the row is where focus will return to, and the dialog
+  // must be told the row's replacement or it would hand focus back to a detached node.
   const origin = focusOrigin();
   const had = origin && origin !== scrollEl && scrollEl.contains(origin) ? origin : null;
   const hadKey = had ? rowKey(had) : null;
@@ -469,14 +373,15 @@ function renderTree() {
   // selected: a batch must never act on something the user cannot see.
   pruneSelection();
 
-  const renamed = rowByKey(focusAfterRender);
-  focusAfterRender = null;
-  if (renamed) roving = rowKey(renamed);
+  const wanted = rowByKey(focusAfterRender);
+  if (wanted) focusAfterRender = null;
+  if (wanted) roving = rowKey(wanted);
   applyRoving();
+  if (wanted && !had && !overlayCount()) { focusRow(wanted); return; }
   if (had) {
     const list = treeRows();
     // ...or, for a control that was not a row (the focus-mode exit), the tab-stop row.
-    const back = renamed || rowByKey(hadKey) || (hadIndex >= 0 ? list[Math.min(hadIndex, list.length - 1)] : null) || rovingRow();
+    const back = wanted || rowByKey(hadKey) || rowByKey(movedKey(hadKey)) || (hadIndex >= 0 ? list[Math.min(hadIndex, list.length - 1)] : null) || rovingRow();
     if (back) {
       setRoving(back);
       if (overlayCount()) retargetFocusOrigin(back); else back.focus({ preventScroll: true });
@@ -487,17 +392,18 @@ function renderTree() {
 function render() {
   if (!scrollEl) return;
   renderTree();
+  paintHead();
 }
 
 function rowFor(path) {
-  return scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]:not(.sb-pin)`);
+  return scrollEl ? scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]:not(.sb-pin)`) : null;
 }
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: plugins, pins, pages, scratch. It is read out
-// of the DOM, so it is the drawing order by construction
-// and the Up/Down walk can never disagree with what is on screen. Collapsed folders render no children, so this list is exactly the visible rows.
+// Everything a key can land on, top to bottom: pins, the tree, Trash. It is read out of the
+// DOM, so it is the drawing order by construction and the Up/Down walk can never disagree with
+// what is on screen. Folded folders draw no children, so this is exactly the visible rows.
 function treeRows() {
   return scrollEl ? [...scrollEl.querySelectorAll('.sb-row')] : [];
 }
@@ -515,14 +421,15 @@ function rowByKey(key) {
   return treeRows().find((r) => rowKey(r) === key) || null;
 }
 
-/** The row Tab lands on: the remembered one if it still exists, else the current page, else the first. */
+/** The row Tab lands on: the remembered one if it still exists, else the current route's, else the first. */
 function rovingRow() {
   const list = treeRows();
   if (!list.length) return null;
-  const r = currentRoute();
+  const cur = currentOf();
   return rowByKey(roving)
-    || (r && r.type === 'page' && rowFor(r.path))
-    || (r && r.type === 'view' && rowByKey('view:' + r.name))
+    || (cur.page && rowFor(cur.page))
+    || (cur.folder !== null && rowFor(cur.folder))
+    || (cur.view && rowByKey('view:' + cur.view))
     || list[0];
 }
 
@@ -548,11 +455,10 @@ export function focusTree() {
 
 /* -------------------------------------------------------------- selection (C17) */
 
-/** The rows that can be part of a selection: tree rows with a path, so no pins and no views. */
-function selectableRows() {
-  return treeRows().filter((r) => r.dataset.path !== undefined && r.dataset.pin !== '1');
-}
-const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.pin !== '1';
+const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.pin !== '1' && row.dataset.root !== '1';
+
+/** The rows that can be part of a selection: tree rows with a path, so no pins, no root, no views. */
+function selectableRows() { return treeRows().filter(isSelectable); }
 
 function paintSelection() {
   for (const r of selectableRows()) {
@@ -601,55 +507,34 @@ function batchFor(t) {
   return selectableRows().filter((r) => selected.has(r.dataset.path)).map((r) => ({ path: r.dataset.path, kind: r.dataset.kind }));
 }
 
-/** Expand or collapse a tree folder row. Pinned folders reveal instead (they are shortcuts, not tree nodes). */
+/** Fold or unfold a tree folder row. A pinned folder has nothing to unfold: it goes there. */
 function toggleDir(row) {
   const path = row.dataset.path;
-  if (row.dataset.pin === '1') { revealFolder(path); return; }
-  if (expanded.has(path)) expanded.delete(path); else expanded.add(path);
+  if (row.dataset.pin === '1') { void navigate({ type: 'folder', path }); return; }
+  if (row.getAttribute('aria-expanded') === null) return;
+  if (path === '') rootOpen = !rootOpen;
+  else if (expanded.has(path)) expanded.delete(path);
+  else expanded.add(path);
   persistExpanded();
   render();
 }
 
 /**
- * Enter: what a click does. Pages open (and take focus, B3), folders toggle, a pinned folder
- * goes to its folder in the tree.
- */
-function activateRow(row) {
-  if (row.dataset.view) { navigate({ type: 'view', name: row.dataset.view }); return; }
-  const path = row.dataset.path;
-  // A pinned folder is a shortcut to a place, not a branch to unfold — unfolding it in a
-  // section that draws no children was the one row in the sidebar that did nothing. It goes
-  // there: the tree opens down to the folder and its row takes the keyboard. It used to enter
-  // focus mode, which narrowed pins, scratch, search and quick open behind the user's back
-  // (H18); focus is its own command now (`app.focus-enter`), and nothing else enters it.
-  if (row.dataset.pin === '1' && row.dataset.kind === 'dir') {
-    focusFolder(path);
-    return;
-  }
-  if (row.dataset.kind === 'dir') { toggleDir(row); return; }
-  if (row.dataset.md === '1') { navigate({ type: 'page', path }); return; }
-  // A text file the editor can show opens in it (source mode); a PDF or an image opens in the
-  // page column as a media page (round five, shell/media.js, P's); everything else — a
-  // spreadsheet, an archive — goes to the application the platform uses for it (N24, N25).
-  // Revealing it in Explorer, which is what this used to do, is a folder away from useful.
-  if (isTextFile(path) || isMediaFile(path)) { navigate({ type: 'page', path }); return; }
-  openWith(path);
-}
-
-/**
- * The route a row opens, or null when it opens nothing a tab could hold — a folder, a pin that
- * is a folder, a spreadsheet the platform owns. This is what the deliberate gestures need:
- * middle click, Ctrl+Enter, Ctrl+click on a pin. A plain click still goes through
- * `activateRow`, which does the focusing and the toggling those gestures have no business in.
+ * The route a row opens: a folder's view, a file's page, a view. Every file has one (H17): the
+ * page host decides whether it is text, a picture, or a box with the ways out.
  */
 function routeForRow(row) {
   if (!row) return null;
-  // A view row is a route too: the deliberate gestures open it in a tab of its own.
   if (row.dataset.view) return { type: 'view', name: row.dataset.view };
   const path = row.dataset.path;
-  if (!path || row.dataset.kind === 'dir') return null;
-  if (row.dataset.md === '1' || isTextFile(path) || isMediaFile(path)) return { type: 'page', path };
-  return null;
+  if (path === undefined) return null;
+  return row.dataset.kind === 'dir' ? { type: 'folder', path } : { type: 'page', path };
+}
+
+/** Enter, or a click: what the row is, opened in the tab in front. */
+function activateRow(row) {
+  const r = routeForRow(row);
+  if (r) void navigate(r);
 }
 
 /** A row opened on purpose, in a tab of its own. Answers whether there was anything to open. */
@@ -686,29 +571,46 @@ function typeAhead(list, at, ch) {
   return null;
 }
 
+const rowOf = (e) => (e.target && e.target.closest && e.target.closest('.sb-row'))
+  || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row') : null);
+
+const targetOf = (row) => (row && row.dataset.path !== undefined ? { path: row.dataset.path, kind: row.dataset.kind } : null);
+const folderOf = (t) => (!t ? '' : t.kind === 'dir' ? t.path : dirName(t.path));
+
 /**
- * The tree's keys (D1), bound on `.sb-scroll` so they only run while a row has focus. Chords
- * with a modifier are the shell's (keys.js has already stopped the mapped ones) and never
- * type-ahead. Up/Down move focus only: nothing opens until Enter, so browsing the tree never
- * churns the editor (B3). Shift+Up/Down grow the selection from the anchor (C17); a plain
- * move drops it and moves the anchor, so the selection never trails a user who has moved on.
+ * The tree's chords (M17): Ctrl+X, C and V cut, copy and paste, Ctrl+Z undoes the last file
+ * operation, Ctrl+Enter opens in a tab of its own, Cmd+Backspace trashes on a Mac. They are
+ * the tree's only while a row has focus, so the editor and every text field keep their own.
+ * Answers whether the key was handled.
+ */
+function onTreeChord(e, row) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod || e.altKey) return false;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const t = targetOf(row);
+  const batch = t ? batchFor(t) || (isSelectable(row) || row.dataset.pin === '1' ? [t] : []) : [];
+  if (k === 'Enter' && !e.shiftKey) return !!row && openRowAside(row);
+  if (e.shiftKey) return false;
+  if (k === 'x') { if (batch.length) cut(batch); return true; }
+  if (k === 'c') { if (batch.length) copy(batch); return true; }
+  if (k === 'v') { void paste(folderOf(t)); return true; }
+  if (k === 'z') { void undo(); return true; }
+  if (k === 'Backspace' && e.metaKey && batch.length) { void trashPaths(batch); return true; }
+  return false;
+}
+
+/**
+ * The tree's keys (D1), bound on `.sb-scroll` so they only run while a row has focus. Up/Down
+ * move focus only: nothing opens until Enter, so browsing the tree never churns the editor
+ * (B3). Shift+Up/Down grow the selection from the anchor (C17); a plain move drops it and
+ * moves the anchor, so the selection never trails a user who has moved on.
  */
 function onTreeKey(e) {
-  // Ctrl+Enter opens the focused row in a tab of its own. It is free here: `block.toggle-task`
-  // owns the chord only with the caret inside the editor body (src/kernel/keys.js BODY_KEYS),
-  // and the guard below would otherwise drop every modifier on the floor.
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
-    const from = (e.target && e.target.closest && e.target.closest('.sb-row'))
-      || (document.activeElement && document.activeElement.closest && document.activeElement.closest('.sb-row'));
-    if (from && openRowAside(from)) { e.preventDefault(); return; }
-  }
+  const row = rowOf(e);
+  if (row && onTreeChord(e, row)) { e.preventDefault(); e.stopPropagation(); return; }
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const list = treeRows();
   if (!list.length) return;
-  // The row the key was typed at: the event's own target first, which is the focused row in
-  // every ordinary press and is right even when the document itself does not hold focus.
-  const row = (e.target && e.target.closest && e.target.closest('.sb-row'))
-    || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row') : null);
   // A click on the blank space under the tree focuses the scroller itself: the first arrow
   // key steps onto the tab-stop row instead of doing nothing.
   if (!row) {
@@ -717,8 +619,9 @@ function onTreeKey(e) {
   }
   const at = list.indexOf(row);
   const isDir = row.dataset.kind === 'dir';
-  const inTree = isSelectable(row);
-  const target = row.dataset.path !== undefined ? { path: row.dataset.path, kind: row.dataset.kind } : null;
+  const unfolds = isDir && row.getAttribute('aria-expanded') !== null;
+  const inTree = isSelectable(row) || row.dataset.root === '1';
+  const target = targetOf(row);
   const k = e.key;
   let next = null;
 
@@ -727,26 +630,25 @@ function onTreeKey(e) {
   else if (k === 'Home') next = list[0];
   else if (k === 'End') next = list[list.length - 1];
   else if (k === 'ArrowRight') {
-    if (!isDir) return;
-    if (row.dataset.pin === '1') { e.preventDefault(); revealFolder(row.dataset.path); return; }
-    if (!expanded.has(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
+    if (!unfolds) return;
+    if (!isOpen(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
     // Open already: the first child is the very next row, when there is one.
     const kid = list[at + 1];
-    if (kid && kid.dataset.path && dirName(kid.dataset.path) === row.dataset.path) next = kid; else return;
+    if (kid && kid.dataset.path !== undefined && isSelectable(kid) && dirName(kid.dataset.path) === row.dataset.path) next = kid; else return;
   } else if (k === 'ArrowLeft') {
-    if (isDir && inTree && expanded.has(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
-    if (!inTree) return;
+    if (unfolds && inTree && isOpen(row.dataset.path)) { e.preventDefault(); toggleDir(row); return; }
+    if (!isSelectable(row)) return;
     const parent = dirName(row.dataset.path);
-    next = parent ? rowFor(parent) : null;
+    next = rowFor(parent);
     if (!next) return;
   } else if (k === 'Enter') { e.preventDefault(); activateRow(row); return; }
-  else if (k === ' ') { e.preventDefault(); if (isDir) toggleDir(row); return; }
+  else if (k === ' ') { e.preventDefault(); if (unfolds) toggleDir(row); return; }
   // F2 renames in place, with the stem selected (H13). It is `file.rename` on the row: the
   // window's own F2 (keys.json) would reach the same function with the same row.
   else if (k === 'F2') { if (!target || !target.path) return; e.preventDefault(); e.stopPropagation(); void renamePath(target); return; }
-  // Delete is the Windows key, Backspace the macOS one; both do the same thing everywhere,
-  // because a keyboard that has one is not always the machine the vault is on (S21).
-  else if (k === 'Delete' || k === 'Backspace') { if (!target || !target.path) return; e.preventDefault(); void trashPaths(batchFor(target) || [target]); return; }
+  // Delete: to the trash, with Undo in the toast (M18). Backspace does nothing here: on a Mac
+  // it is Cmd+Backspace, as in Finder, and a lone Backspace is too easy to press by accident.
+  else if (k === 'Delete') { if (!target || !target.path) return; e.preventDefault(); void trashPaths(batchFor(target) || [target]); return; }
   // Shift+F10 and the Menu key are the Windows convention for "the context menu of the thing
   // that has focus", and the tree is the one place in the app with a context menu (S12).
   else if (k === 'ContextMenu' || (k === 'F10' && e.shiftKey)) {
@@ -755,9 +657,11 @@ function onTreeKey(e) {
     return;
   }
   else if (k === 'Escape') {
-    // A selection goes first; the page gets focus on the next Esc, so neither is lost.
+    // A selection goes first, then a pending cut; the page gets focus on the next Esc.
     e.preventDefault();
     if (selected.size) { clearSelection(); return; }
+    const c = clipboard();
+    if (c && c.mode === 'cut') { clearClipboard(); return; }
     focusPage();
     return;
   }
@@ -768,8 +672,8 @@ function onTreeKey(e) {
   if (!next) return;
   // Shift + a vertical move extends the range from the anchor to where focus lands; a move
   // without it is a single row again. Only tree rows can be selected, so a range that runs
-  // into the views or the pins simply skips them.
-  if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (inTree || isSelectable(next))) {
+  // into the pins or the root simply skips them.
+  if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (isSelectable(row) || isSelectable(next))) {
     if (!anchor || !rowByKey(anchor)) anchor = rowKey(row);
     if (isSelectable(next)) selectRange(next);
     if (next !== row) focusRow(next);
@@ -781,53 +685,176 @@ function onTreeKey(e) {
 }
 
 function scrollToCurrent() {
-  const r = currentRoute();
-  if (!r || r.type !== 'page') return;
-  const node = rowFor(r.path);
+  const cur = currentOf();
+  const node = cur.page ? rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
   if (node) node.scrollIntoView({ block: 'nearest' });
 }
 
 /* ------------------------------------------------------------------ data load */
 
+const isGone = (e) => /os error 2|no such file|cannot find the path|not a directory/i.test(String((e && e.message) || e));
+const codeOf = (e) => {
+  if (e && e.code) return e.code;
+  const m = /^\[(\w+)\]/.exec(String((e && e.message) || e || ''));
+  return m ? m[1] : null;
+};
+
+let treeLoad = null;
+
+/**
+ * Read the whole tree again. Boot, a watcher `rescan` or `lost`, and Show hidden items
+ * flipping; everything else patches (M16).
+ */
 export async function refreshTree() {
-  try {
-    tree = await files.tree();
-  } catch (e) {
-    console.error('[shell] tree', e);
-    // A read that fails because the folder itself is gone is not a tree bug, and a toast per
-    // failed call is noise on top of a vault that has been unplugged (S29, P8): the shell has
-    // one dialog for it, and `vaultLost` is idempotent while that dialog is up.
-    if (/os error 2|no such file|cannot find the path|not a directory/i.test(String(e.message || e))) {
-      vaultLost();
+  if (treeLoad) return treeLoad;
+  treeLoad = (async () => {
+    const hidden = showHidden();
+    try {
+      tree = await files.tree({ hidden });
+      readHidden = hidden;
+    } catch (e) {
+      console.error('[shell] tree', e);
+      // A read that fails because the folder itself is gone is not a tree bug, and a toast per
+      // failed call is noise on top of a vault that has been unplugged (S29): the shell has
+      // one dialog for it, and `vaultLost` is idempotent while that dialog is up.
+      if (codeOf(e) === 'no_vault' || isGone(e)) { vaultLost(); return; }
+      toast('Could not read the vault: ' + (e.message || e), 'err');
       return;
     }
-    toast('tree failed: ' + (e.message || e), 'err');
-    return;
+    if (tree) { tree.path = ''; if (!tree.children) tree.children = []; }
+    pinsRefresh();
+    render();
+    scrollToCurrent();
+  })();
+  try { await treeLoad; } finally { treeLoad = null; }
+}
+
+/**
+ * List one folder and put its entries in place of the ones the tree holds. A subfolder the tree
+ * had already read keeps its children; one it had not is answered in the list of new folders.
+ * Answers null when the folder could not be listed (and a gone one hands the question up to
+ * its parent).
+ */
+async function relistOne(path) {
+  let entries;
+  try { entries = await files.list(path, { hidden: showHidden() }); } catch (e) {
+    const code = codeOf(e);
+    if ((code === 'not_found' || isGone(e)) && path) { pendingDirs.add(dirName(path)); return null; }
+    if (code === 'no_vault') { vaultLost(); return null; }
+    console.warn('[shell] list', path, e);
+    return null;
   }
-  prunePins();
-  render();
-  scrollToCurrent();
+  const node = findNode(path);
+  if (!node || node.kind !== 'dir') return null;
+  const old = new Map((node.children || []).map((c) => [c.name, c]));
+  const fresh = [];
+  node.children = (entries || []).map((e) => {
+    const n = { ...e, path: e.path != null ? clean(e.path) : join(path, e.name) };
+    const prev = old.get(e.name);
+    if (n.kind === 'dir' && !n.link) {
+      if (prev && prev.kind === 'dir' && prev.children) n.children = prev.children;
+      else fresh.push(n.path);
+    }
+    return n;
+  });
+  return fresh;
 }
 
-/* ------------------------------------------------------------------ mutations */
+// Folders whose listing is out of date, gathered from a batch of changes and read together.
+const pendingDirs = new Set();
+let patchTimer = null;
+let patching = null;
+// A folder that arrived whole (moved in from Explorer) is read down to its files, so quick
+// open finds them; past this many listings in one batch the whole tree is read instead.
+const PATCH_BUDGET = 200;
 
-async function newFolderIn(folder) {
-  const typed = await prompt({ title: 'New Folder', placeholder: 'folder name', ok: 'Create' });
-  if (!typed) return;
-  // The same rule every name in the app follows (`ose.names.check`): literal, and refused with
-  // the reason when no file system can hold it. `a/b` makes both.
-  const c = ose.names.check(typed, { folders: true });
-  if (!c.ok) { toast(`could not create folder: ${c.reason}`, 'err', 0); return; }
-  const dir = clean(folder || '');
+function schedulePatch(dirs) {
+  for (const d of dirs) pendingDirs.add(clean(d));
+  if (patchTimer) return;
+  patchTimer = setTimeout(() => { patchTimer = null; void flushPatch(); }, 60);
+}
+
+async function flushPatch() {
+  if (patching) { await patching; if (pendingDirs.size) schedulePatch([]); return; }
+  patching = (async () => {
+    if (!tree) { pendingDirs.clear(); await refreshTree(); return; }
+    let budget = PATCH_BUDGET;
+    while (pendingDirs.size) {
+      // Each changed path's nearest folder the tree has read: a change inside a folder the tree
+      // never unfolded is that folder's news, not the tree's.
+      const targets = new Set();
+      for (let d of pendingDirs) {
+        let n = findNode(d);
+        while (d && (!n || n.kind !== 'dir' || !n.children)) { d = dirName(d); n = findNode(d); }
+        if (n && n.kind === 'dir' && n.children) targets.add(d);
+      }
+      pendingDirs.clear();
+      const order = [...targets].sort((a, b) => segments(a).length - segments(b).length);
+      const queue = [...order];
+      while (queue.length) {
+        if (--budget < 0) { pendingDirs.clear(); await refreshTree(); return; }
+        const fresh = await relistOne(queue.shift());
+        if (fresh) queue.push(...fresh);
+      }
+    }
+    pinsRefresh();
+    render();
+  })();
+  try { await patching; } finally { patching = null; }
+}
+
+/** A folder the tree had not read (past the walk's depth), read when it is unfolded. */
+const loadingDirs = new Set();
+async function loadChildren(path) {
+  if (loadingDirs.has(path)) return;
+  loadingDirs.add(path);
   try {
-    await files.mkdir(join(dir, c.name));
-    if (dir) expanded.add(dir);
-    expandAncestors(join(dir, c.name) + '/x');
-    expanded.add(join(dir, c.name));
-    persistExpanded();
-    await refreshTree();
-  } catch (e) { toast('could not create folder: ' + (e.message || e), 'err', 0); }
+    await relistOne(path);
+    const n = findNode(path);
+    if (n && n.kind === 'dir' && !n.children) n.readable = false;
+  } finally { loadingDirs.delete(path); }
+  render();
 }
+
+// Autosaves: a `modify` of a file the tree already has only changes its size and time, which
+// the tree does not draw; the node is brought up to date quietly, a few at a time.
+const staleFiles = new Set();
+const statStale = debounce(async () => {
+  const list = [...staleFiles];
+  staleFiles.clear();
+  for (const p of list) {
+    try {
+      const st = await files.stat(p);
+      const n = findNode(p);
+      if (n && st && st.exists !== false) { if (st.mtime != null) n.mtime = st.mtime; if (st.size != null) n.size = st.size; }
+    } catch { /* the next listing of its folder says the rest */ }
+  }
+}, 400);
+
+/** The watcher's half of M16: which folders to re-list, and nothing more. */
+function onFsTree(payload) {
+  if (!payload) return;
+  if (payload.lost || payload.rescan) { void refreshTree(); return; }
+  const changes = Array.isArray(payload.changes) ? payload.changes : [];
+  const dirs = [];
+  for (const c of changes) {
+    if (!c || !c.path) continue;
+    const p = clean(c.path);
+    if (c.hidden && !c.to && !showHidden()) continue;
+    if (c.kind === 'modify' && !c.to) {
+      const n = findNode(p);
+      if (n && n.kind === 'file') { staleFiles.add(p); continue; }
+    }
+    dirs.push(dirName(p));
+    if (c.to) dirs.push(dirName(clean(c.to)));
+    // A folder itself changed (created, removed, renamed): its own listing may be stale too.
+    if (c.dir) dirs.push(p);
+  }
+  if (staleFiles.size) statStale();
+  if (dirs.length) schedulePatch(dirs);
+}
+
+/* ------------------------------------------------------------------ what the app did */
 
 /**
  * The from/to pairs a move produces, read from the tree before it happens: the path itself,
@@ -847,6 +874,10 @@ function filePairs(from, to) {
   return out;
 }
 
+// The focused row's path when a move of it began (`paths:moving`), so `paths:moved` can put the
+// keyboard back on it even if a watcher re-list moved focus in between.
+let movedFocus = null;
+
 const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null);
 
 /**
@@ -855,30 +886,32 @@ const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') 
  * question must not offer to fix them.
  */
 function onMoving(d) {
+  movedFocus = null;
   for (const m of (d && d.moves) || []) {
     if (!m || !m.from || !m.to) continue;
+    if (roving === 'path:' + clean(m.from)) movedFocus = clean(m.from);
     for (const p of filePairs(clean(m.from), clean(m.to))) noteSelfMove(p.from, p.to);
   }
 }
 
 /**
- * `paths:moved` (`ose.fileops`, after the host call): expansion, pins, the selection and the
- * focused row follow the files to their new paths, and the tree is read again. The page and
- * its tab have followed already (the router's `route:repointed`); nothing here navigates.
+ * `paths:moved` (`ose.fileops`, after the host call): expansion, the selection and the focused
+ * row follow the files to their new paths, and the two folders are listed again. The page and
+ * its tab have followed already; nothing here navigates.
  */
-async function onMoved(d) {
+function onMoved(d) {
   const moves = ((d && d.moves) || []).filter((m) => m && m.from && m.to).map((m) => ({ from: clean(m.from), to: clean(m.to) }));
   if (!moves.length) return;
+  const dirs = [];
   for (const m of moves) {
     noteSelfMove(m.from, m.to);
     for (const p of [...expanded]) { const n = followMove(p, m.from, m.to); if (n) { expanded.delete(p); expanded.add(n); } }
     // Where it went is opened, so the row can be seen and focused there.
-    const dest = dirName(m.to);
-    if (dest) { expanded.add(dest); expandAncestors(m.to); }
-    repinMoved(m.from, m.to);
+    expandAncestors(m.to);
     // The row the user was on has a new name; the next render focuses it there (B4, D1).
-    if (roving === 'path:' + m.from) focusAfterRender = 'path:' + m.to;
+    if (roving === 'path:' + m.from || movedFocus === m.from) focusAfterRender = 'path:' + m.to;
     else if (roving === 'pin:' + m.from) focusAfterRender = 'pin:' + m.to;
+    dirs.push(dirName(m.from), dirName(m.to));
   }
   persistExpanded();
   if (selected.size) {
@@ -890,30 +923,38 @@ async function onMoved(d) {
     }
     selected = next;
   }
-  await refreshTree();
+  schedulePatch(dirs);
 }
 
-/** `paths:trashed`: what went takes its expansion, its pins and its place in the selection. */
-async function onTrashed(d) {
+/** `paths:trashed`: what went takes its expansion and its place in the selection. Pins stay (L22). */
+function onTrashed(d) {
   const paths = ((d && d.paths) || []).map(clean).filter(Boolean);
   if (!paths.length) return;
   for (const p of paths) {
     for (const e of [...expanded]) if (followMove(e, p, p)) expanded.delete(e);
-    dropPinsUnder(p);
     for (const s of [...selected]) if (followMove(s, p, p)) selected.delete(s);
   }
   persistExpanded();
-  await refreshTree();
+  schedulePatch(paths.map(dirName));
 }
 
-/** `paths:created` (New file…, Duplicate): the tree opens down to it; `focus` puts the row in front. */
-async function onCreated(d) {
-  const paths = ((d && d.paths) || []).map(clean).filter(Boolean);
-  if (!paths.length) return;
-  for (const p of paths) { expandAncestors(p); }
+/** `paths:created`, `paths:copied`, `paths:restored`: the tree opens down to them and lists their folders. */
+function onArrived(paths) {
+  const list = paths.map(clean).filter(Boolean);
+  if (!list.length) return;
+  for (const p of list) expandAncestors(p);
   persistExpanded();
-  if (d.focus) focusAfterRender = 'path:' + paths[paths.length - 1];
-  await refreshTree();
+  schedulePatch(list.map(dirName));
+}
+
+/** `tree:reveal` (shell/fileops.js): show a path the person just made, and with `focus` put the keyboard on it. */
+function onReveal(d) {
+  const p = clean(d && d.path);
+  if (!p) return;
+  expandAncestors(p);
+  persistExpanded();
+  if (d.focus) focusAfterRender = 'path:' + p;
+  schedulePatch([dirName(p)]);
 }
 
 /* ------------------------------------------------- renames made outside the app (N19) */
@@ -927,6 +968,22 @@ function noteSelfMove(from, to) {
   const now = Date.now();
   selfMoves.set(from + '>' + to, now);
   for (const [k, at] of selfMoves) if (now - at > SELF_MOVE_MS) selfMoves.delete(k);
+}
+
+/**
+ * Where a row went, when the app is moving it right now: the watcher can re-list the folder
+ * before `paths:moved` arrives, and the focused row must follow the file, not fall to its
+ * neighbour.
+ */
+function movedKey(key) {
+  if (!key || !key.startsWith('path:')) return null;
+  const from = key.slice(5);
+  let best = null, at = 0;
+  for (const [k, t] of selfMoves) {
+    const i = k.indexOf('>');
+    if (k.slice(0, i) === from && t >= at && Date.now() - t <= SELF_MOVE_MS) { best = k.slice(i + 1); at = t; }
+  }
+  return best ? 'path:' + best : null;
 }
 
 const wasSelfMove = (from, to) => {
@@ -944,10 +1001,6 @@ let askingRenames = false;
  * into it pointing at a name that is gone (N19). The app cannot silently rewrite files the
  * user did not ask it to touch, so it asks, once, and only when there is something to fix:
  * the question names the count, and answering no leaves every file exactly as it is.
- *
- * The watcher has to have paired the two halves of the rename (`fs` `{kind:'rename', to}`),
- * which the host does and the dev bridge cannot; in a browser an external rename still shows
- * up as a delete and nothing is offered.
  */
 async function askAboutRenames() {
   if (askingRenames || !pendingRenames.length) return;
@@ -958,32 +1011,32 @@ async function askAboutRenames() {
     // Which of them anything actually links to. One search per moved name; a rename nobody
     // linked to is never mentioned at all.
     const real = [];
-    let links = 0;
-    let files = new Set();
+    let count = 0;
+    const where = new Set();
     for (const m of moves) {
       let inbound = [];
       try { inbound = await findInbound(m.from); } catch (e) { console.error('[shell] links', e); continue; }
       if (!inbound.length) continue;
       real.push(m);
-      for (const p of inbound) { links += p.count; files.add(p.path); }
+      for (const p of inbound) { count += p.count; where.add(p.path); }
     }
     if (!real.length) return;
     const one = real.length === 1 ? real[0] : null;
+    const linksWord = `${count} link${count === 1 ? '' : 's'}`;
+    const filesWord = `${where.size} file${where.size === 1 ? '' : 's'}`;
     const ok = await confirm({
       title: 'Update links?',
       body: one
-        ? `${baseName(one.from)} was moved to ${one.to} outside the app. `
-          + `${links} link${links === 1 ? '' : 's'} in ${files.size} page${files.size === 1 ? '' : 's'} still point at the old name.`
-        : `${real.length} files were moved outside the app. `
-          + `${links} link${links === 1 ? '' : 's'} in ${files.size} page${files.size === 1 ? '' : 's'} still point at their old names.`,
-      ok: `Update ${links} link${links === 1 ? '' : 's'}`,
+        ? `${baseName(one.from)} was moved to ${one.to} outside the app. ${linksWord} in ${filesWord} still point at the old name.`
+        : `${real.length} files were moved outside the app. ${linksWord} in ${filesWord} still point at their old names.`,
+      ok: `Update ${linksWord}`,
     });
     if (!ok) return;
     const res = await rewriteInboundMany(real);
     toast(res.links
-      ? `${res.links} link${res.links === 1 ? '' : 's'} in ${res.files} page${res.files === 1 ? '' : 's'} updated`
-      : 'nothing to update', 'info', 2600);
-    for (const p of res.failed || []) toast('could not update links in ' + (p && p.path ? p.path : p), 'err', 0);
+      ? `${res.links} link${res.links === 1 ? '' : 's'} in ${res.files} file${res.files === 1 ? '' : 's'} updated`
+      : 'Nothing to update', 'info', 2600);
+    for (const p of res.failed || []) toast('Could not update links in ' + (p && p.path ? p.path : p), 'err', 0);
   } finally {
     askingRenames = false;
     if (pendingRenames.length) void askAboutRenames();
@@ -997,8 +1050,9 @@ function onFsRenames(payload) {
     if (!c || c.kind !== 'rename' || !c.to || !c.path) continue;
     const from = clean(c.path), to = clean(c.to);
     if (!from || !to || from === to || wasSelfMove(from, to)) continue;
-    // Only markdown carries links worth chasing; an attachment that moved is a link into a
-    // file, and `findInbound` finds those too, so both kinds are collected.
+    // Into `.trash` or another hidden place: the file left, and a link to it has nowhere to go.
+    const dotted = (p) => p.split('/').some((seg) => seg.startsWith('.'));
+    if (dotted(to) && !dotted(from)) continue;
     pendingRenames.push({ from, to });
   }
 }
@@ -1006,38 +1060,14 @@ function onFsRenames(payload) {
 /** Expand the tree down to a folder and bring it into view. No navigation. */
 export function revealFolder(path) {
   const dir = clean(path);
-  if (!dir) return;
   setSidebarOpen(true);
-  expandAncestors(dir + '/x');
-  expanded.add(dir);
+  if (dir) { expandAncestors(dir + '/x'); expanded.add(dir); } else rootOpen = true;
   persistExpanded();
   render();
   requestAnimationFrame(() => {
     const n = rowFor(dir);
     if (n) n.scrollIntoView({ block: 'center' });
   });
-}
-
-/**
- * Breadcrumb click (N31): the folder is revealed in the tree and its row takes focus. It used
- * to open the folder's first `.md` as well, which is an arbitrary page the user did not ask
- * for; a crumb says where you are, and clicking it should show you that place, not move you.
- */
-export function focusFolder(path) {
-  const dir = clean(path);
-  revealFolder(dir);
-  requestAnimationFrame(() => {
-    const row = rowFor(dir);
-    if (row) focusRow(row);
-  });
-}
-
-/** Kept for callers that really do want a page: reveal, then the folder's first `.md`. */
-export async function openFolder(path) {
-  const dir = clean(path);
-  revealFolder(dir);
-  const first = mdFilesOf(findNode(dir))[0];
-  if (first) await navigate({ type: 'page', path: first.path });
 }
 
 /* ------------------------------------------------------------- drag and drop */
@@ -1059,13 +1089,13 @@ function parseDrag(data) {
   return [clean(data)].filter(Boolean);
 }
 
-/** A folder row (tree or pin) or a section label that stands for a folder. */
+/** A folder row (tree, root or pin) or a label that stands for a folder. */
 function dropTargetOf(node) {
   if (!node || !node.closest) return null;
   const lab = node.closest('.section-label[data-drop]');
   if (lab) return { el: lab, dir: lab.dataset.drop };
   const row = node.closest('.sb-row.dir');
-  if (row && row.dataset.path) return { el: row, dir: row.dataset.path };
+  if (row && row.dataset.path !== undefined && !row.classList.contains('missing')) return { el: row, dir: row.dataset.path };
   return null;
 }
 
@@ -1084,8 +1114,7 @@ function endDrag() { dragPaths = null; setDropEl(null); }
 /**
  * `<dir>/name.ext`, numbered when taken, so an import never overwrites a vault file. The name
  * is claimed with the host's exclusive create (an empty file), so a file that arrived between
- * the look and the write is never replaced (M4); the caller then writes the bytes into it. A
- * kernel without `createNew` gets the old probe.
+ * the look and the write is never replaced (M4); the caller then writes the bytes into it.
  */
 async function claimFreeName(dir, name) {
   const dot = name.lastIndexOf('.');
@@ -1093,15 +1122,11 @@ async function claimFreeName(dir, name) {
   const ext = dot > 0 ? name.slice(dot) : '';
   for (let n = 1; n < 500; n++) {
     const p = n < 2 ? join(dir, name) : join(dir, `${base} ${n}${ext}`);
-    if (typeof files.createNew !== 'function') {
-      if (await files.exists(p)) continue;
-      return p;
-    }
     try {
       await files.createNew(p, '');
       return p;
     } catch (e) {
-      if (e && e.code === 'exists') continue;
+      if (codeOf(e) === 'exists') continue;
       throw e;
     }
   }
@@ -1118,33 +1143,33 @@ function base64Of(buffer) {
 
 /**
  * Files dragged in from Explorer. Text goes through writeText, everything else as base64.
- * The parameter is `dropped`, not `files`: that name is `ose.files` in this module, and the
- * old shadowing made every import fail with "files.write is not a function".
+ * The parameter is `dropped`, not `files`: that name is `ose.files` in this module.
  */
 async function importFiles(dropped, dir) {
   const list = [...dropped];
   if (!list.length) return;
   let done = 0;
+  let last = null;
   for (const f of list) {
     try {
       const path = await claimFreeName(clean(dir), f.name || 'file');
       if (TEXT_IMPORT.has(extOf(path))) await files.write(path, await f.text());
       else await files.writeBinary(path, base64Of(await f.arrayBuffer()));
       done++;
+      last = path;
     } catch (e) {
-      toast('could not import ' + (f.name || 'a file') + ': ' + (e.message || e), 'err');
+      toast('Could not import ' + (f.name || 'a file') + ': ' + (e.message || e), 'err');
     }
   }
   if (!done) return;
-  if (dir) { expanded.add(clean(dir)); persistExpanded(); }
-  await refreshTree();
-  toast(`imported ${done} file${done === 1 ? '' : 's'}`, 'info', 2600);
+  if (last) onReveal({ path: last, focus: false });
+  toast(`Imported ${done} file${done === 1 ? '' : 's'}`, 'info', 2600);
 }
 
 function bindDnd(host) {
   host.addEventListener('dragstart', (e) => {
     const row = e.target.closest('.sb-row[data-path]');
-    if (!row) { e.preventDefault(); return; }
+    if (!row || row.dataset.root === '1') { e.preventDefault(); return; }
     // A row inside a selection of several drags the whole selection; any other row, itself.
     const batch = batchFor({ path: row.dataset.path, kind: row.dataset.kind });
     dragPaths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
@@ -1181,25 +1206,20 @@ function bindDnd(host) {
     e.preventDefault();
     const t = dropTargetOf(e.target);
     const from = dragPaths || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
-    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    const dropped = e.dataTransfer ? e.dataTransfer.files : null;
     endDrag();
     if (!t) return;
     if (from && from.length) void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
-    else if (files && files.length) void importFiles(files, t.dir);
+    else if (dropped && dropped.length) void importFiles(dropped, t.dir);
   });
 }
 
 /* ------------------------------------------------------- tree commands and menu */
 
 /**
- * The href a link to `path` should carry (N14, N15). It is the editor's `relativeHref` and
- * nothing else, resolved against the page that is open: paste the result into that page and
- * it works, which is the whole point of the command and is what it did not do before — it
- * wrote a vault-absolute path with four characters escaped, so `Chapter #3.md` was truncated
- * at the `#` and a link pasted anywhere but the vault root did not resolve.
- *
- * With no page open there is nothing to be relative to, so the vault-root form is written with
- * a leading `/`, which `resolveHref` reads as "from the root" wherever it is later pasted.
+ * The href a link to `path` should carry (N14, N15): the editor's `relativeHref`, resolved
+ * against the page that is open, so pasting it into that page works. With no page open there
+ * is nothing to be relative to, so the vault-root form is written with a leading `/`.
  */
 function linkUrl(path, dir) {
   const r = currentRoute();
@@ -1208,23 +1228,22 @@ function linkUrl(path, dir) {
   return (href || baseName(path)) + (dir ? '/' : '');
 }
 
-/** `copy path` and `copy link`. A folder links as `[name](path/)`. */
-async function copyPath(path) {
+/** `Copy path` and `Copy link`. A folder links as `[name](path/)`. */
+async function copyPathText(path) {
   const ok = await copyText(clean(path));
-  toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
+  toast(ok ? 'Copied' : 'Could not copy', ok ? 'info' : 'err', 1600);
 }
 
 async function copyLink(path, kind) {
   const dir = kind === 'dir';
-  const ok = await copyText(`[${dir ? baseName(path) : titleOf(path)}](${linkUrl(path, dir)})`);
-  toast(ok ? 'copied' : 'could not copy', ok ? 'info' : 'err', 1600);
+  const ok = await copyText(`[${baseName(path)}](${linkUrl(path, dir)})`);
+  toast(ok ? 'Copied' : 'Could not copy', ok ? 'info' : 'err', 1600);
 }
 
 /**
  * The thing a tree command acts on (D3): `{ path, kind }` for the focused tree row (the row
- * focus will return to, while a palette or menu is up: see focusOrigin), else the open page,
- * else null. The vault root is `{ path: '', kind: 'dir' }`, which the blank space under the
- * tree stands for.
+ * focus will return to, while a palette or menu is up: see focusOrigin), else the route on
+ * screen (a page, or a folder), else null. The root row is `{ path: '', kind: 'dir' }`.
  */
 function treeTarget() {
   const o = focusOrigin();
@@ -1232,10 +1251,10 @@ function treeTarget() {
   if (row) return { path: row.dataset.path, kind: row.dataset.kind };
   const r = currentRoute();
   if (r && r.type === 'page') return { path: r.path, kind: 'file' };
+  if (r && r.type === 'folder') return { path: clean(r.path || ''), kind: 'dir' };
   return null;
 }
 
-const folderOf = (t) => (t.kind === 'dir' ? t.path : dirName(t.path));
 const reveal = (path) => files.reveal(path).catch((e) => toast(e.message || e, 'err'));
 
 /** Every folder in the tree, or none of them (N26). One persist, one render. */
@@ -1244,73 +1263,108 @@ function setAllExpanded(open) {
   else {
     const all = new Set();
     const walk = (n) => {
-      for (const c of n.children || []) {
-        if (c.kind !== 'dir' || isHiddenName(c.name)) continue;
+      for (const c of visibleEntries(n.children || [], { showHidden: showHidden() })) {
+        if (c.kind !== 'dir' || c.link) continue;
         all.add(c.path);
         walk(c);
       }
     };
     if (tree) walk(tree);
     expanded = all;
+    rootOpen = true;
   }
   persistExpanded();
   render();
+}
+
+/** Show hidden items (H16): a machine setting, read by the tree, the folder view and search. */
+function toggleHidden() {
+  const next = !showHidden();
+  Promise.resolve(ose.settings.set({ showHidden: next })).catch((e) => toast(String(e.message || e), 'err', 0));
+}
+
+// The folder view's words for its columns, so the tree's menu and the view's say the same thing.
+const SORT_WORDS = { name: 'Name', modified: 'Modified', size: 'Size', type: 'Type' };
+
+/**
+ * Sort a folder by… (M22): the folder view's menu, row for row — the four columns, then the two
+ * directions, the current choice wearing the dot — writing through `setSortSpec`, the one writer
+ * of the per-folder sort, which announces `folders:sort` so the tree and the view both redraw.
+ */
+function sortMenu(t, at) {
+  const path = folderOf(t);
+  const spec = sortSpec(path);
+  const mark = (on) => (on ? icon('dot') : '');
+  const items = SORT_KEYS.map((k) => ({
+    label: SORT_WORDS[k], iconSvg: mark(spec.key === k),
+    run: () => setSortSpec(path, { key: k, dir: spec.key === k ? spec.dir : nextSortSpec(spec, k).dir }),
+  }));
+  items.push({ sep: true });
+  items.push({ label: 'Ascending', iconSvg: mark(spec.dir === 'asc'), run: () => setSortSpec(path, { key: spec.key, dir: 'asc' }) });
+  items.push({ label: 'Descending', iconSvg: mark(spec.dir === 'desc'), run: () => setSortSpec(path, { key: spec.key, dir: 'desc' }) });
+  const row = at || rowFor(path) || scrollEl;
+  const r = row ? row.getBoundingClientRect() : { left: 0, bottom: 0 };
+  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), items);
 }
 
 // One table for the palette and the context menu, so the two cannot drift: the menu is built
 // from these entries (label, icon, shortcut all come from the registered command) and each
 // entry's `applies(target)` decides both the palette's `when` and the menu's rows. The
 // commands take an explicit target from the menu (the row under the pointer, which right-click
-// never focuses) and fall back to `treeTarget()` from the palette or a chord. Pin, unpin,
-// move and trash act on the whole selection when the target is part of one (C17, batchFor);
-// the rest are one-row verbs and never see a selection.
+// never focuses) and fall back to `treeTarget()` from the palette or a chord. Pin, unpin, cut,
+// copy, move and trash act on the whole selection when the target is part of one (C17).
 //
-// The five file operations are not the tree's: `file.new`, `file.rename`, `file.move`,
-// `file.duplicate` and `file.trash` are registered by shell/fileops.js, the one UI for them
-// (H12, H13). Their rows here (`own: false`) only say when the menu offers them and hand them
-// the row; the old `tree.*` ids for the same acts are gone, so the palette lists each act
-// once (L7).
+// The file operations are not the tree's: `file.*` and `tree.new-folder` are registered by
+// shell/fileops.js, the one UI for them. Their rows here (`own: false`) only say when the menu
+// offers them and hand them the row.
 const TREE_COMMANDS = [
   { id: 'file.new', title: 'New file…', icon: 'plus', group: 'file', own: false,
     applies: () => true, run: (t) => void newFile(t) },
-  { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'tree',
-    applies: () => true, run: (t) => void newFolderIn(folderOf(t)) },
+  { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'file', own: false,
+    applies: () => true, run: (t) => void newFolder(folderOf(t)) },
+  { id: 'tree.open-tab', title: 'Open in new tab', icon: 'plus', group: 'tree',
+    applies: (t) => t.path !== undefined, run: (t) => void openInNewTab(t.kind === 'dir' ? { type: 'folder', path: t.path } : { type: 'page', path: t.path }) },
   { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => !isPinned(it.path)),
-    run: (t) => { const b = batchFor(t); if (b) pinMany(b.map((it) => it.path)); else pin(t.path); } },
+    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => !pins.has(it.path)),
+    run: (t) => pins.add((batchFor(t) || [t]).map((it) => it.path)) },
   { id: 'tree.unpin', title: 'Unpin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => isPinned(it.path)),
-    run: (t) => { const b = batchFor(t); if (b) unpinMany(b.map((it) => it.path)); else unpin(t.path); } },
+    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => pins.has(it.path)),
+    run: (t) => pins.remove((batchFor(t) || [t]).map((it) => it.path)) },
   { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
     applies: (t) => !!t.path && t.kind === 'dir' && getFocus() !== t.path, run: (t) => setFocus(t.path) },
   { id: 'file.rename', title: 'Rename…', icon: 'rename', group: 'file', own: false,
     applies: (t) => !!t.path, run: (t) => void renamePath(t) },
   // A folder can be moved from the menu as well as dragged (N22): dragging is a mouse, and
-  // everything in this app has to be reachable without one. A selection may hold folders, and
-  // each is checked against the destination when it lands.
+  // everything in this app has to be reachable without one.
   { id: 'file.move', title: 'Move to…', icon: 'folder', group: 'file', own: false,
     applies: (t) => !!t.path, run: (t) => void movePaths(batchFor(t) || [t]) },
   { id: 'file.duplicate', title: 'Duplicate', icon: 'copy', group: 'file', own: false,
     applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => void duplicatePath(t) },
+  { id: 'file.cut', title: 'Cut', icon: 'scissors', group: 'file', own: false,
+    applies: (t) => !!t.path, run: (t) => cut(batchFor(t) || [t]) },
+  { id: 'file.copy', title: 'Copy', icon: 'copy', group: 'file', own: false,
+    applies: (t) => !!t.path, run: (t) => copy(batchFor(t) || [t]) },
+  { id: 'file.paste', title: 'Paste', icon: 'clipboard', group: 'file', own: false,
+    applies: () => !!clipboard(), run: (t) => void paste(folderOf(t)) },
   { id: 'tree.copy-path', title: 'Copy path', icon: 'copy', group: 'tree',
-    applies: (t) => !!t.path, run: (t) => void copyPath(t.path) },
+    applies: (t) => !!t.path, run: (t) => void copyPathText(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
-  // Every row, folders included: a folder handed to the platform opens in the file manager,
-  // which is a real thing to want and what `openPath` already does with one. `Reveal in
-  // Explorer` stays what it is — the row selected in its parent.
+  // Every row, folders included: a folder handed to the platform opens in the file manager.
   { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
     applies: (t) => !!t.path, run: (t) => openWith(t.path) },
   { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
     applies: () => true, run: (t) => void reveal(t.path) },
-  // Search, already narrowed: the overlay opens with `path:<folder>/` typed for you (N38).
+  // Search, already narrowed to the folder (N38).
   { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',
-    applies: (t) => !!t.path && t.kind === 'dir', run: (t) => openSearch({ prefill: `path:${t.path}/ ` }) },
+    applies: (t) => t.kind === 'dir', run: (t) => openSearch({ folder: t.path }) },
+  { id: 'tree.sort', title: 'Sort folder by…', icon: ic('sortAsc', 'view'), group: 'tree',
+    applies: (t) => t.path !== undefined, run: (t) => sortMenu(t, rowFor(folderOf(t))) },
   { id: 'tree.collapse-all', title: 'Collapse all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(false) },
   { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(true) },
-  { id: 'file.trash', title: 'Move to trash', icon: 'trash', group: 'file', danger: true, own: false,
+  { id: 'file.trash', title: 'Move to the trash', icon: 'trash', group: 'file', danger: true, own: false,
     applies: (t) => !!t.path, run: (t) => void trashPaths(batchFor(t) || [t]) },
 ];
 
@@ -1325,18 +1379,21 @@ function registerTreeCommands() {
   }
 }
 
-// The menu's order, as it has always read: create, then the row's own verbs, then the
-// clipboard and Explorer, then the one destructive action. `app.focus-exit` lives in
-// focus.js; its menu row shows only on the folder that is the focus.
+// The menu's order: create, open, the row's own verbs, the clipboard, then copy and Explorer,
+// then the one destructive action. `app.focus-exit` lives in focus.js; its menu row shows only
+// on the folder that is the focus.
 const MENU = [
   'file.new', 'tree.new-folder',
   null,
+  'tree.open-tab',
   'tree.pin', 'tree.unpin', 'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
   'file.rename', 'file.move', 'file.duplicate',
   null,
+  'file.cut', 'file.copy', 'file.paste',
+  null,
   'tree.copy-path', 'tree.copy-link',
   null,
-  'tree.search-here', 'tree.open-external', 'tree.reveal',
+  'tree.sort', 'tree.search-here', 'tree.open-external', 'tree.reveal',
   null,
   'file.trash',
 ];
@@ -1344,11 +1401,9 @@ const MENU = [
 /**
  * A menu row from a registered command: its title, icon and chord, run against `target`.
  *
- * The row runs the command's own function with the row, not `commands.run`: that asks the
- * command's `when`, which knows only the focused row, and right-click never focused one, so
- * Rename, Move, Trash, Pin, Focus and Search in folder did nothing from the menu unless a row
- * already had the keyboard (H21). The menu has asked `applies(target)` of this very row before
- * offering it, which is the question `when` stands in for.
+ * The row runs the table's own function with the row, not `commands.run`: that asks the
+ * command's `when`, which knows only the focused row, and right-click never focused one (H21).
+ * The menu has asked `applies(target)` of this very row before offering it.
  */
 function menuItem(id, target, label) {
   const c = commands.get(id);
@@ -1369,6 +1424,9 @@ function menuItem(id, target, label) {
   };
 }
 
+/** No two separators in a row and none at either end, whatever was filtered out between. */
+const tidy = (items) => items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+
 function menuFor(path, kind) {
   const target = { path: clean(path || ''), kind: path ? kind : 'dir' };
   const items = [];
@@ -1380,14 +1438,12 @@ function menuFor(path, kind) {
     const it = menuItem(id, target);
     if (it) items.push(it);
   }
-  // No two separators in a row and none at either end, whatever was filtered out between.
-  return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+  return tidy(items);
 }
 
 // The menu for a row inside a selection of several (C17): only what makes sense for many.
-// No rename, no focus, no copy: those are one-row verbs. Labels carry the count so the user
-// knows the menu is for the selection, not the row under the pointer.
-const MULTI_MENU = ['tree.pin', 'tree.unpin', 'file.move', null, 'file.trash'];
+// Labels carry the count so the user knows the menu is for the selection.
+const MULTI_MENU = ['tree.pin', 'tree.unpin', null, 'file.cut', 'file.copy', 'file.move', null, 'file.trash'];
 
 function multiMenu(batch) {
   const target = batch[0];
@@ -1399,7 +1455,7 @@ function multiMenu(batch) {
     const it = menuItem(id, target, `${local.title} (${batch.length})`);
     if (it) items.push(it);
   }
-  return items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+  return tidy(items);
 }
 
 /**
@@ -1408,10 +1464,10 @@ function multiMenu(batch) {
  * selection first, so a menu is never about rows the user is not pointing at.
  */
 function menuItemsForRow(row) {
-  const target = { path: row.dataset.path, kind: row.dataset.kind };
+  const target = targetOf(row);
   const batch = isSelectable(row) ? batchFor(target) : null;
   if (!batch && isSelectable(row)) clearSelection();
-  return batch ? multiMenu(batch) : menuFor(row.dataset.path, row.dataset.kind);
+  return batch ? multiMenu(batch) : menuFor(target.path, target.kind);
 }
 
 /** The keyboard's context menu (S12): under the row, aligned with where its name starts. */
@@ -1421,45 +1477,113 @@ function openMenuAt(row) {
   contextMenu(Math.round(r.left + 24), Math.round(r.bottom), menuItemsForRow(row));
 }
 
-/** Right-click on the empty space under the tree: create in scratch, or in the focus folder. */
+/** Right-click on the empty space under the tree: the vault root, or the focus folder. */
 function emptyMenu() {
-  const dir = getFocus() || scratchFolder();
-  const where = baseName(dir) || 'the vault root';
+  const dir = getFocus() || '';
+  const where = baseName(dir) || vaultName();
   const target = { path: dir, kind: 'dir' };
-  return [
+  return tidy([
     menuItem('file.new', target, `New file in ${where}…`),
     menuItem('tree.new-folder', target, `New folder in ${where}`),
-  ];
+    clipboard() ? menuItem('file.paste', target, `Paste into ${where}`) : null,
+  ].filter(Boolean));
+}
+
+/* ------------------------------------------------------------------ the tool strip */
+
+// Four buttons over the tree, each also a command in the palette: New file, New folder,
+// Collapse all, and Show hidden items, which is a toggle and says so (`aria-pressed`).
+const TOOLS = [
+  { id: 'file.new', icon: 'plus', label: 'New file…' },
+  { id: 'tree.new-folder', icon: 'folderPlus', label: 'New folder' },
+  { id: 'tree.collapse-all', icon: 'chevron', label: 'Collapse all folders', cls: 'sb-tool-collapse' },
+  { id: 'view.toggle-hidden', icon: 'eye', label: 'Show hidden items', toggle: true },
+];
+
+function buildHead() {
+  headEl.innerHTML = '';
+  for (const t of TOOLS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sb-tool' + (t.cls ? ' ' + t.cls : '');
+    b.dataset.cmd = t.id;
+    b.setAttribute('aria-label', t.label);
+    b.title = t.label + (shortcutFor(t.id) ? ` (${shortcutFor(t.id)})` : '');
+    b.innerHTML = icon(ic(t.icon, 'dot'));
+    b.addEventListener('click', () => {
+      // From the strip, "here" is the folder of the route on screen, not a row.
+      const r = currentRoute();
+      const here = r && r.type === 'folder' ? { path: clean(r.path || ''), kind: 'dir' }
+        : r && r.type === 'page' ? { path: dirName(r.path), kind: 'dir' } : { path: getFocus() || '', kind: 'dir' };
+      if (t.id === 'file.new') void newFile(here);
+      else if (t.id === 'tree.new-folder') void newFolder(here.path);
+      else commands.run(t.id);
+    });
+    headEl.appendChild(b);
+  }
+  paintHead();
+}
+
+function paintHead() {
+  if (!headEl) return;
+  const on = showHidden();
+  const b = headEl.querySelector('[data-cmd="view.toggle-hidden"]');
+  if (b) {
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('on', on);
+    b.innerHTML = icon(on ? ic('eye', 'dot') : ic('eyeOff', 'dot'));
+    b.title = on ? 'Hide hidden items' : 'Show hidden items';
+  }
 }
 
 /* ------------------------------------------------------------------ init */
 
+/**
+ * Draw the sidebar into `node` and wire it: the tool strip, the tree, its keys, menus, drag and
+ * drop, and the events it follows. Called once by the layout.
+ * @param {HTMLElement} node
+ */
 export function initSidebar(node) {
   el = node;
   el.className = 'sidebar';
-  // No head row and no chevron of its own: the fold control is one button in one place, the
-  // title bar's left corner (shell/titlebar.js `.tb-fold`), so the tree starts at the top of
-  // the sidebar instead of under an empty strip.
-  el.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
+  el.innerHTML = '<div class="sb-head" role="toolbar" aria-label="Files"></div><div class="sb-scroll" tabindex="-1"></div>';
+  headEl = el.querySelector('.sb-head');
   scrollEl = el.querySelector('.sb-scroll');
 
-  const saved = sidebarState.get() || {};
-  if (Array.isArray(saved.expanded)) expanded = new Set(saved.expanded.filter(Boolean));
-  const savedPins = pinState.get();
-  if (Array.isArray(savedPins)) pins = savedPins.filter((p) => typeof p === 'string' && p).map(clean);
+  const saved = slot('sidebar').get() || {};
+  if (Array.isArray(saved.expanded)) expanded = new Set(saved.expanded.filter((p) => typeof p === 'string' && p));
+  if (saved.root === false) rootOpen = false;
+
+  // A pin is a file or a folder, there or not, as the tree says; until the tree is read, it
+  // is not called missing on a guess (`undefined`).
+  pins.setLookup((path) => {
+    if (!tree) return undefined;
+    const n = findNode(path);
+    if (n) return n;
+    const parent = findNode(dirName(path));
+    if (!parent || !parent.children) return undefined;
+    if (baseName(path).startsWith('.') && !showHidden()) return undefined;
+    return null;
+  });
+  pins.on(() => { if (!quietPins) render(); });
+  onClipboard(() => render());
 
   // A click and Enter do the same thing (activateRow); the clicked row also becomes the tab
-  // stop, so Tab back into the sidebar returns to where the mouse left off (D2). Ctrl+click
-  // toggles a tree row in the selection and Shift+click selects the run from the anchor to
-  // it, neither of which opens anything (C17); a plain click is a single row again.
+  // stop, so Tab back into the sidebar returns to where the mouse left off (D2). A click on a
+  // folder's chevron folds it and goes nowhere. Ctrl+click toggles a tree row in the
+  // selection and Shift+click selects the run from the anchor to it (C17).
   scrollEl.addEventListener('click', (e) => {
     const row = e.target.closest('.sb-row');
     if (!row) return;
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
     if (e.detail === 0) return;
-    // A pinned row is not selectable, so Ctrl+click is free on it and means what it means
-    // everywhere else: open this in a tab of its own.
+    if (e.target.closest('.tw') && row.getAttribute('aria-expanded') !== null) {
+      focusRow(row);
+      toggleDir(row);
+      return;
+    }
+    // A pinned row is not selectable, so Ctrl+click is free on it: open in a tab of its own.
     if (row.dataset.pin === '1' && (e.ctrlKey || e.metaKey) && openRowAside(row)) return;
     if (isSelectable(row) && (e.ctrlKey || e.metaKey)) {
       toggleSelected(row);
@@ -1476,17 +1600,19 @@ export function initSidebar(node) {
     clearSelection();
     anchor = rowKey(row);
     // The clicked row takes the keyboard (H21): a click does not focus a button on macOS, and
-    // every tree command asks the focused row what it is about. A page that opens takes it
-    // from here, as any open does; a folder keeps it.
+    // every tree command asks the focused row what it is about.
     focusRow(row);
     activateRow(row);
   });
 
-  // The middle button opens a row in a tab of its own, in the tree and in the pins alike —
-  // the gesture every browser and every editor has. Ctrl+click is not it here: in the tree
-  // that chord toggles the multi-selection (C17) and taking it away would cost the one way to
-  // move or trash several files at once. On a pinned row nothing selects, so Ctrl+click is
-  // free and does open a tab (the click handler below).
+  // A double click on a folder also folds it, as a file manager's tree does.
+  scrollEl.addEventListener('dblclick', (e) => {
+    const row = e.target.closest('.sb-row.dir');
+    if (!row || e.target.closest('.tw') || row.getAttribute('aria-expanded') === null) return;
+    toggleDir(row);
+  });
+
+  // The middle button opens a row in a tab of its own, in the tree and in the pins alike.
   scrollEl.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
     const row = e.target.closest('.sb-row');
@@ -1497,29 +1623,32 @@ export function initSidebar(node) {
   // Firefox and Chromium both start an autoscroll on a middle press unless it is refused.
   scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.sb-row')) e.preventDefault(); });
 
-  // A name the column cut gets the whole name on hover, and a name that fits gets nothing: a
-  // tooltip repeating what is already on screen says nothing (R21). Measured on the row under
-  // the pointer, one row at a time, so no draw ever measures the whole tree.
+  // A name the column cut gets the whole path on hover, and a name that fits gets nothing
+  // (R21). Measured on the row under the pointer, one row at a time.
   scrollEl.addEventListener('mouseover', (e) => {
     const name = e.target.closest && e.target.closest('.sb-row > .grow');
     if (!name) return;
     const cut = name.scrollWidth > name.clientWidth;
-    if (cut) name.title = name.textContent;
+    if (cut) name.title = name.parentElement.dataset.path || name.textContent;
     else name.removeAttribute('title');
   });
 
   scrollEl.addEventListener('keydown', onTreeKey);
+  // However a row got the keyboard (a click, an arrow, a dialog handing focus back), it is the
+  // tab stop and the row a rename or move follows to its new name.
+  scrollEl.addEventListener('focusin', (e) => {
+    const row = e.target.closest && e.target.closest('.sb-row');
+    if (row && rowKey(row) !== roving) setRoving(row);
+  });
 
   // Right-click inside a selection of several opens the menu for all of them; outside it,
-  // the selection is dropped first, so the menu is never about rows other than the one
-  // under the pointer.
+  // the selection is dropped first.
   scrollEl.addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
-    // The row under the pointer is the row the menu is about, and it is the row the keyboard
-    // comes back to when the menu closes: a command run from the palette afterwards acts on it
-    // too, instead of on whatever row happened to have focus before (H21).
+    // The row under the pointer is the row the menu is about, and the row the keyboard comes
+    // back to when the menu closes (H21).
     focusRow(row);
     contextMenu(e.clientX, e.clientY, menuItemsForRow(row));
   });
@@ -1527,44 +1656,54 @@ export function initSidebar(node) {
   bindDnd(scrollEl);
 
   // What "here" is for the file commands run from the palette or a chord (shell/fileops.js):
-  // the focused row, else the open page; and the selection that row is part of.
+  // the focused row, else the route on screen; and the selection that row is part of.
   setContext({
     target: () => treeTarget(),
-    batch: () => { const t = treeTarget(); return t ? batchFor(t) || [t] : []; },
+    batch: () => { const t = treeTarget(); return t && t.path ? batchFor(t) || [t] : []; },
   });
   bus.on('paths:moving', onMoving);
-  bus.on('paths:moved', (d) => { void onMoved(d); });
-  bus.on('paths:trashed', (d) => { void onTrashed(d); });
-  bus.on('paths:created', (d) => { void onCreated(d); });
+  bus.on('paths:moved', onMoved);
+  bus.on('paths:trashed', onTrashed);
+  bus.on('paths:created', (d) => onArrived((d && d.paths) || []));
+  bus.on('paths:copied', (d) => onArrived(((d && d.pairs) || []).map((p) => p && p.to).filter(Boolean)));
+  bus.on('paths:restored', (d) => onArrived(((d && d.items) || []).map((it) => it && it.path).filter(Boolean)));
+  bus.on('tree:reveal', onReveal);
+  bus.on('folders:sort', () => render());
 
-  const onFs = debounce(() => refreshTree(), 350);
   const askLater = debounce(() => void askAboutRenames(), 600);
-  bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFs(); });
-  bus.on('route', () => { const r = currentRoute(); if (r && r.type === 'page') expandAncestors(r.path); render(); scrollToCurrent(); });
+  bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFsTree(payload); });
+  bus.on('route', () => {
+    const cur = currentOf();
+    if (cur.page) expandAncestors(cur.page);
+    else if (cur.folder) expandAncestors(cur.folder);
+    render();
+    scrollToCurrent();
+  });
   bus.on('booted', () => render());
   bus.on('focus', () => { render(); scrollToCurrent(); });
-  // The scratch section is a declared path; repointing it in settings moves the section
-  // straight away, and resetting it takes the section off the column.
-  ose.paths.on(({ owner, key }) => {
-    if (owner === 'app' && key === 'scratch') { render(); scrollToCurrent(); }
+  // Show hidden items flipping reads the tree again (the host lists hidden entries only when
+  // asked); `hideMdExt` and the rest only redraw.
+  bus.on('settings', () => {
+    if (readHidden !== null && showHidden() !== readHidden) void refreshTree();
+    else render();
   });
 
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
-    hint: 'the chevron at its top edge does the same',
-    // What is on screen, flipped — layout.js owns the window's own auto-hide and is the only
-    // place that can clear it (QA-5 finding 3).
+    // What is on screen, flipped — layout.js owns the window's own auto-hide.
     run: () => toggleSidebar(),
   });
   commands.register({
     id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app', hint: 'Esc returns to the page',
     run: () => focusTree(),
   });
+  commands.register({
+    id: 'view.toggle-hidden', title: 'Show hidden items', group: 'view', icon: ic('eye', 'view'),
+    hint: 'dotfiles and files the system hides',
+    run: () => toggleHidden(),
+  });
   registerTreeCommands();
+  buildHead();
 
-  refreshTree();
+  void refreshTree();
 }
-
-// Focus mode is the kernel's (`ose.focus`); re-exported here so a shell file that already
-// imports the sidebar has one import, exactly as the batch-12 shell did.
-export { getFocus, setFocus, exitFocus, isUnderFocus, defaultNewFolder };

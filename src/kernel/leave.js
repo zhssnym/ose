@@ -1,7 +1,8 @@
 // The leave gate (docs/KERNEL.md "Leaving the window"). Everything that throws the window's
 // document away — the close button, a reload, a change of vault — asks here first, and asks
 // the same question: can everything that holds unsaved work let go? The editor answers with its
-// `saveAll`; a plugin that keeps a buffer may answer too. One `false` and the window stays.
+// `saveAll`; any other module that keeps a buffer may answer too. One `false` and the window
+// stays.
 //
 // Before this there were five ways out and each did its own thing: the close fan-out awaited
 // the save, Ctrl+R and Change vault fired it and walked off, and a second launch or the host's
@@ -15,6 +16,8 @@ import { bus, commands } from './registry.js';
 import { toast } from './dialog.js';
 import { unmountOnUnload, reopenCurrent, currentRoute } from './router.js';
 import { flushState } from './state.js';
+import { flushLocal } from './local.js';
+import { flushSession } from './session.js';
 import { logLine } from './log.js';
 
 /** @typedef {'close'|'reload'|'vault-change'} LeaveReason */
@@ -120,8 +123,9 @@ function refuse(reason, why) {
  * 2. A handler that answers `false`, or rejects: `stayWindow()`, bus `window:refused`
  *    `{ reason }`, a sticky error toast with [Show] (and [Close anyway] for `close`). Answers
  *    false.
- * 3. Otherwise, for every reason but `close`, the view on screen is unmounted and the state
- *    file flushed (a close does both in the router's own `closing` handler). Bus
+ * 3. Otherwise the session and the per-machine store are written; then, for every reason but
+ *    `close`, the view on screen is unmounted and the state file flushed (a close does both in
+ *    the router's own `closing` handler). Bus
  *    `window:leaving` `{ reason }`. Answers true, and the handlers stay frozen: the caller
  *    either goes, or calls `stayWindow()`.
  *
@@ -142,6 +146,10 @@ export function leaveWindow(reason) {
       problem = String((e && e.message) || e);
     }
     if (!ok) { refuse(why, problem); return false; }
+    // The session and the per-machine store are written before anything is unmounted, so the
+    // next start finds the tabs, the scroll and the selection exactly as they were left.
+    try { await flushSession({ live: true }); } catch (e) { console.error('[leave] session', e); }
+    try { await flushLocal(); } catch (e) { console.error('[leave] local', e); }
     if (why !== 'close') {
       const r = currentRoute();
       unmounted = !!(r && r.type !== 'page');

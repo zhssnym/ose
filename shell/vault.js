@@ -299,7 +299,7 @@ export async function mountVaultChooser(rootEl) {
     <p class="vault-text">Ose needs a folder to open — a vault is any folder of markdown files.</p>
     <button class="btn primary vault-pick" type="button">Choose folder…</button>
     <div class="vault-hint mono-sm"></div>
-    <div class="vault-recent" hidden><div class="label">recent</div><div class="vault-list"></div></div>
+    <div class="vault-recent" hidden><div class="label">Recent</div><div class="vault-list"></div></div>
     <div class="vault-err mono-sm" role="status" hidden></div>`;
   surface.appendChild(body);
   rootEl.appendChild(surface);
@@ -313,7 +313,7 @@ export async function mountVaultChooser(rootEl) {
   // The suggestion: where the executable sits (the folder holding Ose.app on macOS). The
   // picker opens there too, so the line says what the button will show. A kernel that does not
   // say draws no line at all.
-  exeDir().then((dir) => { if (dir) { hint.textContent = `suggested: ${dir}`; hint.title = dir; } });
+  exeDir().then((dir) => { if (dir) { hint.textContent = `Suggested: ${dir}`; hint.title = dir; } });
 
   // The vaults this machine has opened before, so the second run is one keystroke (S46).
   let items = await recentVaults();

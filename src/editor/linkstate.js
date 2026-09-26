@@ -7,11 +7,14 @@
 //   external            bridge.openExternal; the host refuses anything but http/https/mailto
 //                       and that refusal is now said out loud instead of vanishing (N9)
 //   #heading            the same page, scrolled to that heading (N4, L13)
-//   *.md                navigate, with the heading when the href carried one (N3); a missing
-//                       page still lands on the router's "page not found · Create it" (C8)
-//   a text file         navigate too: the editor opens .txt and friends in source mode (N25)
-//   anything else       bridge.openPath — the platform's default application (N10, N24)
+//   a folder            the folder view, `{type:'folder', path}` (wave 2, H15), never Explorer
+//   any other file      navigate to `{type:'page', path}`, with the heading when the href
+//                       carried one (N3): the page host decides how the file is drawn — the
+//                       editor, an image or a PDF, or a box for a binary file (H17). A missing
+//                       file lands on the router's "page not found · Create it" (C8)
 //
+// Another application is only ever an explicit command (`page.reveal`, the page host's
+// "Open with default app"), never what a link does.
 // The other half of the module is what a link looks like: an internal link whose target is not
 // in the vault is drawn with the class `link-missing` (L14). Existence is one `bridge.exists`
 // per distinct href, cached for as long as the page stays open and dropped on any `fs` event,
@@ -48,17 +51,22 @@ export async function followHref(href, fromPath) {
 
   const t = P.linkTarget(fromPath || '', raw);
   if (!t) return;
-  if (P.isMarkdown(t.path) || P.isTextFile(t.path)) {
-    const route = { type: 'page', path: t.path };
-    if (t.heading) route.heading = t.heading;
-    await navigate(route);
+  // A folder is a place in the app now (H15). A stat that fails, or a file that is not there,
+  // is a page route: the router says it is missing and offers to create it.
+  let kind = null;
+  if (t.path) {
+    try {
+      const st = await bridge.stat(t.path);
+      kind = st && st.exists !== false ? st.kind : null;
+    } catch { kind = null; }
+  }
+  if (kind === 'dir' && !t.heading) {
+    await navigate({ type: 'folder', path: t.path });
     return;
   }
-  try {
-    await bridge.openPath(t.path);
-  } catch (e) {
-    toast(String(e.message || e), 'err');
-  }
+  const route = { type: 'page', path: t.path };
+  if (t.heading) route.heading = t.heading;
+  await navigate(route);
 }
 
 /* ------------------------------------------------------- the missing-link cache */
@@ -69,14 +77,16 @@ let known = new Map();
 let pending = new Set();
 /** Bumped whenever the cache is dropped: a decoration set built before it is rebuilt. */
 let epoch = 0;
-let redraw = null;
+/** One repaint per live view: the page on screen and the parked ones (M12) alike. */
+const redraws = new Set();
+const redrawAll = () => { for (const fn of [...redraws]) fn(); };
 
 bus.on('fs', () => {
   if (!known.size && !pending.size) return;
   known = new Map();
   pending = new Set();
   epoch++;
-  if (redraw) redraw();
+  redrawAll();
 });
 
 /** True, false, or null while the answer is being fetched. */
@@ -96,7 +106,7 @@ function finish(mine, path, value) {
   if (mine !== epoch) return;
   pending.delete(path);
   known.set(path, value);
-  if (redraw) redraw();
+  redrawAll();
 }
 
 /* ---------------------------------------------------------------- decorations */
@@ -142,11 +152,11 @@ export function missingLinkPlugin(o) {
       },
       props: { decorations: (state) => KEY.getState(state) },
       view: (view) => {
-        // One repaint when an answer lands, and only for the view that is on screen: the
-        // callback is a single slot, replaced by the next page that opens.
-        const before = redraw;
-        redraw = () => { try { view.dispatch(view.state.tr.setMeta(KEY, true)); } catch { /* gone */ } };
-        return { destroy: () => { if (redraw) redraw = before; } };
+        // One repaint when an answer lands, for every live view: a parked page (M12) comes
+        // back with its links drawn as they are now, not as they were when it was left.
+        const redraw = () => { try { view.dispatch(view.state.tr.setMeta(KEY, true)); } catch { /* gone */ } };
+        redraws.add(redraw);
+        return { destroy: () => { redraws.delete(redraw); } };
       },
     }),
   ];

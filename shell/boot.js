@@ -1,11 +1,18 @@
 // Boot. The only file that decides an order.
 //
-//   ose.ready  ->  the shell  ->  ose.init  ->  the shell's own surfaces  ->  the plugins
+//   ose.ready -> settings.apply -> vault chooser | mountShell
+//             -> initPageHost -> initFolder -> initDashboard -> initTabs
+//             -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
+//             -> initTrash -> initRecover -> loadKeys
+//             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
 //
-// The app opens on the dashboard (shell/dashboard.js): the home tab, one card per plugin, and
-// no page — there is still no startup *route*, only a home the user leaves by picking
-// something. With no vault open the shell is not built at all: one surface asks for a folder
-// and the shell starts again on the answer.
+// The app opens where it was left: the tabs of the last session, when `restoreSession` is on
+// and there is one, else Home (shell/start.js). With no vault open the shell is not built at
+// all: one surface asks for a folder and the shell starts again on the answer.
+//
+// The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:planner`
+// that ships inside the executable. It is loaded here, after the shell's own surfaces, so a
+// planner that fails costs its own views and one toast, never the window.
 //
 // `main.js` imports this file and calls `boot()`. Whatever throws in here ends on the boot
 // error page (`boot-error.js`, M38), never on a blank window.
@@ -15,6 +22,7 @@ import { toast } from 'ose:ui';
 import { mountShell } from './layout.js';
 import { mountVaultChooser } from './vault.js';
 import { initPageHost, loadEditor } from './page.js';
+import { initFolder } from './folder.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
@@ -22,13 +30,14 @@ import { startSurface } from './start.js';
 import { initDashboard } from './dashboard.js';
 import { initTabs } from './tabs.js';
 import { initFileOps } from './fileops.js';
+import { initTrash } from './trash.js';
 import { initRecover, offerRecovered } from './recover.js';
 import { showBootError } from './boot-error.js';
 
 /**
- * The two stylesheets the kernel rewrites into `index.html` (docs/KERNEL.md "Origins"). A host
- * fills them in before the page is parsed; a plain file server does not, and then the kernel's
- * own assets answer for them. Either way no shell file spells an origin.
+ * The stylesheets the host rewrites into `index.html` (docs/HOST.md): `ui`, `editor` and
+ * `planner`. A host fills them in before the page is parsed; a plain file server does not,
+ * and then the kernel's own assets answer for them. Either way no shell file spells an origin.
  */
 function linkKernelStyles() {
   for (const link of document.querySelectorAll('link[data-ose]')) {
@@ -53,47 +62,50 @@ async function loadKeys() {
 }
 
 /**
- * The shell's own path: where a new page lands when no folder is focused. It is declared under
- * the owner `app`, like a plugin's, so the sidebar's scratch section and Settings › Files read
- * it the same way a plugin reads its own (docs/PLUGINS.md `ose.paths`). Resolved once here,
- * before the sidebar is drawn, so the section is right on the first frame.
+ * Day, Week, Month and Journal (`ose:planner`, src/planner). One import and one call; the
+ * planner registers its views, commands and its section of Settings itself. A planner that
+ * does not load is logged and said once, and the rest of the app carries on without it.
  */
-async function resolveScratch() {
-  ose.paths.declare('app', {
-    scratch: { folder: 'scratchpad', hint: 'Where new pages land unless a folder is focused.' },
-  });
-  try { await ose.paths.of('app').get('scratch'); } catch (e) { console.warn('[shell] scratch', e); }
-}
-
-/**
- * The plugins of this vault (docs/PLUGINS.md). One that throws is disabled for the session,
- * toasted by the loader and named in Settings › Plugins; the rest, and the shell, are
- * untouched.
- */
-async function loadPlugins() {
+async function loadPlanner() {
   try {
-    const list = await ose.plugins.load();
-    for (const p of (list || []).filter((p) => p && p.state !== 'active')) {
-      console.warn('[shell] plugin disabled:', p.id, p.error);
-    }
+    const m = await import('ose:planner');
+    await m.initPlanner(ose);
   } catch (e) {
-    console.error('[shell] plugins', e);
-    toast('plugins could not be loaded: ' + (e.message || e), 'err');
+    console.error('[shell] planner', e);
+    toast('The planner could not be loaded: ' + (e && e.message ? e.message : e), 'err');
   }
 }
 
-/** The boot's own status line, cleared at the end unless something has taken the field. */
-function bootStatus(text) {
-  if (text) { ose.status.set('mode', text); return; }
-  const now = ose.status.all().find((s) => s.key === 'mode');
-  if (now && now.text === 'STARTING') ose.status.set('mode', null);
+/**
+ * The one-time notice for a vault that still has `.ose/plugins` from before the planner was
+ * built in. Said once per vault on this machine (`ose.local('notices')`), with a way to go
+ * and look at the folder; nothing is deleted for the user.
+ */
+async function noticeOldPlugins() {
+  const notices = typeof ose.local === 'function' ? ose.local('notices') : null;
+  if (!notices) return;
+  const seen = notices.get() || {};
+  if (seen.plugins) return;
+  let there = false;
+  try { there = await ose.files.exists('.ose/plugins'); } catch { there = false; }
+  if (!there) return;
+  toast('Day, Week, Month and Journal are built in now. The .ose/plugins folder is no longer used and can be deleted.', 'info', 0, {
+    actions: [{
+      label: 'Show in Explorer',
+      run: () => { ose.files.reveal('.ose/plugins').catch((e) => toast(String(e && e.message ? e.message : e), 'err')); },
+    }],
+  });
+  notices.set({ ...seen, plugins: true });
 }
 
+/**
+ * Start the app. Called once by `main.js`; a vault change boots again through a reload.
+ * @returns {Promise<void>}
+ */
 export async function boot() {
   // The editor is the biggest bundle the window loads, and nothing in the kernel's own start
   // needs it: its download starts now and `initPageHost` waits for it below.
   void loadEditor();
-  bootStatus('STARTING');
 
   try {
     await ose.ready;
@@ -117,47 +129,42 @@ export async function boot() {
     ose.settings.apply();
 
     if (!ose.vault.root) {
-      bootStatus('NO VAULT');
       await mountVaultChooser(document.getElementById('app'));
       return;
     }
 
-    await resolveScratch();
-
     const els = mountShell(document.getElementById('app'));
-    // Who draws a page, and what the page list is. Before `ose.init`, because the router mounts
-    // with the shell and the first thing it may be asked for is a page.
+    // Who draws a page and who draws a folder, before `ose.init`: the router mounts with the
+    // shell, and the first thing it may be asked for is either.
     await initPageHost();
-    // The home this shell opens on, and the strip that holds it. Both before `ose.init`: the
-    // dashboard has to be a registered view before anything navigates to it, and the strip has
-    // to be listening before the first route event.
+    initFolder();
+    // Home, and the strip that holds the tabs. Both before `ose.init`: Home has to be a
+    // registered view (and the router's fallback) before anything navigates to it, and the
+    // strip has to be listening before the first route event.
     initDashboard();
     initTabs(els.tabs, els.main);
     // The one call that starts the kernel in the shell: the theme, the key engine, and the
-    // router mounted into the shell's own page column. `start: false` because the shell has a
-    // home of its own; without it the kernel's empty surface would flash away under the
-    // dashboard on every boot.
+    // router mounted into the shell's own page column. `start: false` because the shell
+    // decides where the app opens (start.js).
     ose.init({ page: els.main, start: false });
 
     initPalette();
     initSearch();
     initSettings();
     initFileOps();
+    initTrash();
     initRecover();
     await loadKeys();
 
-    // The home tab, before the plugins load: the dashboard is on screen while they activate
-    // and fills in when `booted` says they have. A plugin that navigates somewhere else on
-    // activate opens a second tab, which is what a second tab is for.
-    startSurface();
+    // Before the first route, so a restored tab on Day or Journal finds its view registered.
+    await loadPlanner();
+    await startSurface();
 
-    await loadPlugins();
-
-    bootStatus(null);
     ose.bus.emit('booted');
 
     // Text that never reached its file last time: the sheet, once the window is whole (C4).
     void offerRecovered();
+    void noticeOldPlugins();
   } catch (e) {
     showBootError(e, { stage: 'The interface failed while it was starting.', ose });
   }

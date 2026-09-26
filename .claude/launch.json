@@ -18,6 +18,14 @@
         "dev:test"
       ],
       "port": 5174
+    },
+    {
+      "name": "ose-e2e",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tests/e2e/serve.mjs"
+      ],
+      "port": 5190
     }
   ]
 }

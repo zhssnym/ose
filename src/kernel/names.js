@@ -7,7 +7,8 @@
 // macOS can hold, and says why.
 
 import { bridge } from './bridge/index.js';
-import { clean, join } from './paths.js';
+import { clean, join, baseName } from './paths.js';
+import { settings } from './settings-core.js';
 
 // Windows refuses these as a whole name and as the part before the first dot (`con.txt`).
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -64,22 +65,39 @@ export function check(name, { folders = false } = {}) {
 
 /**
  * The first free vault path for `name` in `folder`: the name itself, then `stem 2.ext`,
- * `stem 3.ext`, … Asks the host; a race with a file that arrives after the answer is settled
- * by the host's exclusive create, not here.
+ * `stem 3.ext`, … With `dir`, the whole name is the stem, so a folder `v1.2` becomes `v1.2 2`
+ * rather than `v1 2.2`. Asks the host; a race with a file that arrives after the answer is
+ * settled by the host's exclusive create, not here.
  * @param {string} folder  vault-relative, '' for the root
  * @param {string} name
+ * @param {{dir?: boolean}} [opts]
  * @returns {Promise<string>}
  */
-export async function free(folder, name) {
+export async function free(folder, name, { dir: isDir = false } = {}) {
   const first = join(folder, name);
   if (!(await bridge.exists(first))) return first;
-  const { stem, ext } = split(clean(name).split('/').pop());
+  const last = clean(name).split('/').pop();
+  const { stem, ext } = isDir ? { stem: last, ext: '' } : split(last);
   const dir = join(folder, clean(name).split('/').slice(0, -1).join('/'));
   for (let n = 2; n < 10000; n++) {
     const candidate = join(dir, `${stem} ${n}${ext ? '.' + ext : ''}`);
     if (!(await bridge.exists(candidate))) return candidate;
   }
   throw Object.assign(new Error(`no free name for ${name}`), { code: 'exists' });
+}
+
+/**
+ * The name the chrome shows for a path (W8, H20): the file's real name with its extension,
+ * everywhere, the same for every file. Only the machine setting `hideMdExt` strips a `.md`,
+ * and only for display. '' for the vault root: the caller says the vault's name there.
+ * @param {string} path
+ * @returns {string}
+ */
+export function display(path) {
+  const name = baseName(path);
+  if (!name) return '';
+  if (settings().hideMdExt === true && /\.md$/i.test(name) && name.length > 3) return name.slice(0, -3);
+  return name;
 }
 
 /**

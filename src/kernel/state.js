@@ -1,5 +1,7 @@
 // `.ose/state.json`, read once at boot and written back debounced. Everything goes through
-// patchState so nobody clobbers anybody else's keys.
+// patchState so nobody clobbers anybody else's keys. Since W5 it holds only what belongs to
+// the vault and travels with it (pins, the planner's paths, vault settings); what belongs to
+// this machine is in the per-machine store (./local.js).
 // Merge is shallow at the top level: pass the whole sub-object for a key you own.
 import { bridge } from './bridge/index.js';
 import { toast } from './dialog.js';
@@ -27,7 +29,7 @@ export async function loadState() {
     loaded = true;
   } catch (e) {
     // A file that cannot be read is not an empty file. Writing over it would take the recent
-    // files, the settings, every saved path choice and every plugin's state with it, so the
+    // files, the settings, the pins, the planner's paths and everything else with it, so the
     // cache serves reads and nothing goes to disk for the rest of the session.
     console.warn('[shell] state load failed:', e.message || e);
     cache = {};

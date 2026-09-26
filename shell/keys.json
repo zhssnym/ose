@@ -4,5 +4,9 @@
   "mod+alt+p": "page.export-pdf",
   "mod+alt+n": "file.new",
   "f2": "file.rename",
-  "mod+shift+j": "journal.new"
+  "mod+shift+j": "journal.today",
+  "mod+l": "app.address",
+  "alt+d": "app.address",
+  "alt+arrowup": "folder.up",
+  "mod+t": "tab.new"
 }

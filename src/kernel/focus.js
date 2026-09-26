@@ -1,6 +1,5 @@
-// Focus mode: the whole app narrowed to one folder. The pages section is rooted there, pinned
-// and scratch disappear, new pages land inside it, Ctrl+P and Ctrl+F only see paths under it,
-// and the breadcrumb starts at it.
+// Focus mode: the whole app narrowed to one folder. The tree is rooted there, new pages land
+// inside it, Ctrl+P and Ctrl+F only see paths under it, and the address bar starts at it.
 //
 // It used to be a trap (H18): a click entered it, it came back after a restart, Esc did not
 // leave it, and nothing outside the sidebar said the app was narrowed, so quick open answered
@@ -17,41 +16,23 @@
 import { bus, store, commands, status } from './registry.js';
 import { patchState, stateCache } from './state.js';
 import { clean, baseName, dirName } from './paths.js';
-import { newPageMode } from './settings-core.js';
-import { of as pathsOf } from './locate.js';
 
 let focus = null;
 
 /** The focused folder, or null. */
 export function getFocus() { return focus; }
 
-/** The shell's scratch folder as `ose.paths` resolved it, or '' for the vault root. */
-function scratchFolder() {
-  try { return pathsOf('app').peek('scratch') || ''; } catch { return ''; }
-}
-
 /**
- * Where a new page goes (S34). A focused folder always wins: focus mode means the app is
- * narrowed to that folder, and creating outside it would be a surprise. Otherwise the setting
- * decides: `focus` is what the app has always done (nothing here, so `page.new` falls through
- * to the open page's folder and then the scratch folder), `scratch` names the scratch folder
- * outright, `page` names the folder of the page on screen.
- *
- * The scratch folder is the shell's own declared path (`ose.paths`, owner `app`). It answers
- * null while the shell has not declared it yet and while nothing in the vault matches the name,
- * and the vault root is the honest answer then.
- *
- * Always a vault-relative folder path or '' (the vault root), so `join(defaultNewFolder(),
- * name)` works whatever the answer is.
+ * Where a new file goes when the caller names no folder: the focused folder, else the folder of
+ * what is on screen (a folder route's own path, a page's folder), else the vault root ''. The
+ * scratch folder is gone (W2): a new file lands where the user is, and a folder is one keystroke.
+ * Always a vault-relative folder path or '', so `join(defaultNewFolder(), name)` works.
  */
 export function defaultNewFolder() {
   if (focus) return focus;
-  const mode = newPageMode();
-  if (mode === 'scratch') return clean(scratchFolder()) || '';
-  if (mode === 'page') {
-    const route = store.get('route');
-    if (route && route.type === 'page' && route.path) return dirName(route.path);
-  }
+  const route = store.get('route');
+  if (route && route.type === 'folder' && typeof route.path === 'string') return clean(route.path);
+  if (route && route.type === 'page' && route.path) return dirName(route.path);
   return '';
 }
 

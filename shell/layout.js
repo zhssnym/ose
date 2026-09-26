@@ -6,6 +6,7 @@
 // the element this file builds, and from there the router draws into it.
 
 import { ose } from 'ose:kernel';
+import { icon } from 'ose:ui';
 import { isHost, canResizeWindow, resizeWindow, onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
 import { initSidebar } from './sidebar.js';
@@ -15,19 +16,29 @@ import { vaultLost, vaultFound, vaultRequested } from './vault.js';
 const { bus, store, commands } = ose;
 
 const MIN_MAIN = 340;
-const S_MIN = 200, S_MAX = 420;
-// L25: the sidebar never takes more than this share of the window, and under NARROW it steps
-// out of the way altogether. 420px of sidebar in a 700px window is a sidebar with a page
-// stapled to it; the preference is not touched, only what is drawn.
-const S_SHARE = 0.4;
+const S_MIN = 200, S_DEFAULT = 260;
+// L5, L25: the sidebar can be dragged out to this share of the window and no further, and
+// under NARROW it steps out of the way altogether. A deep tree with long names wants the room;
+// the page column keeps MIN_MAIN whatever the drag says, and the preference is not touched
+// when the window is what gives way, only what is drawn.
+const S_SHARE = 0.6;
 const NARROW = 640;
 
-// The tree's own slot of `.ose/state.json`; `sidebar.js` writes `expanded` into the same one.
-const sidebarState = ose.state('sidebar');
+// The side panel (search, M25): to the right of the page column, off until something opens it.
+const P_MIN = 240, P_DEFAULT = 340;
+const P_SHARE = 0.5;
+
+// Per machine, per vault (docs/KERNEL.md `ose.local`, W5): how wide the sidebar is and whether
+// it is open is this screen's business, not something the vault carries to the next machine.
+// `sidebar.js` writes `expanded` into the same slot. Never the vault's `.ose/state.json`: that
+// file is synced, and one screen's layout is not the vault's (W5).
+let sidebarState = null;
+let panelState = null;
 
 let shell = null;
 let mainEl = null;
-let wantS = 260;
+let wantS = S_DEFAULT;
+let wantP = P_DEFAULT;
 let autoHidden = false;
 // What the last `fit` put on screen, so the `sidebar` event is emitted on a change and not on
 // every resize frame.
@@ -40,7 +51,12 @@ let shown = null;
 let overruled = false;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const patchSidebar = (patch) => sidebarState.set({ ...(sidebarState.get() || {}), ...patch });
+const patchSidebar = (patch) => sidebarState && sidebarState.set({ ...(sidebarState.get() || {}), ...patch });
+const patchPanel = (patch) => panelState && panelState.set({ ...(panelState.get() || {}), ...patch });
+/** The widest the sidebar may be dragged in this window (L5). */
+const sMax = () => Math.max(S_MIN, Math.round(window.innerWidth * S_SHARE));
+/** The widest the side panel may be dragged in this window. */
+const pMax = () => Math.max(P_MIN, Math.round(window.innerWidth * P_SHARE));
 
 /* ------------------------------------------------------------------ layout */
 
@@ -70,10 +86,16 @@ function fit() {
   // read off `sidebar.open` (shell/titlebar.js).
   if (sOpen !== shown) { shown = sOpen; bus.emit('sidebar', sOpen); }
 
-  let s = sOpen ? Math.min(wantS, Math.max(S_MIN, Math.round(avail * S_SHARE))) : 0;
-  const over = s + MIN_MAIN - avail;
-  if (over > 0 && s > 0) { const cut = clamp(over, 0, Math.max(0, s - S_MIN)); s -= cut; }
+  // The side panel takes its share first and gives way the same way: never under P_MIN, and
+  // never so wide the page column drops under MIN_MAIN while the sidebar still has room to give.
+  const pOpen = !!panelEl && !panelEl.hidden;
+  let p = pOpen ? Math.min(wantP, pMax()) : 0;
+  let s = sOpen ? Math.min(wantS, sMax()) : 0;
+  let over = s + p + MIN_MAIN - avail;
+  if (over > 0 && s > 0) { const cut = clamp(over, 0, Math.max(0, s - S_MIN)); s -= cut; over -= cut; }
+  if (over > 0 && p > 0) { const cut = clamp(over, 0, Math.max(0, p - P_MIN)); p -= cut; }
   shell.style.setProperty('--sidebar-w', (sOpen ? s : wantS) + 'px');
+  shell.style.setProperty('--panel-w', (pOpen ? p : wantP) + 'px');
   measureMain();
 }
 
@@ -82,12 +104,20 @@ function fit() {
 const RS_STEP = 8, RS_BIG = 32;
 
 function makeResizer(handle, { get, set, min, max, invert, done }) {
+  // `max` may be a function: the sidebar's ceiling is a share of the window (L5), so it moves
+  // when the window does and is asked for at every step.
+  const hi = () => (typeof max === 'function' ? max() : max);
   handle.setAttribute('role', 'separator');
   handle.setAttribute('aria-orientation', 'vertical');
   handle.setAttribute('aria-valuemin', String(min));
-  handle.setAttribute('aria-valuemax', String(max));
+  handle.setAttribute('aria-valuemax', String(hi()));
   handle.tabIndex = 0;
-  const apply = (v) => { set(clamp(v, min, max)); handle.setAttribute('aria-valuenow', String(get())); };
+  const apply = (v) => {
+    const top = hi();
+    handle.setAttribute('aria-valuemax', String(top));
+    set(clamp(v, min, top));
+    handle.setAttribute('aria-valuenow', String(get()));
+  };
   apply(get());
 
   handle.addEventListener('keydown', (e) => {
@@ -98,7 +128,7 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
     if (e.key === 'ArrowRight') apply(get() + sign * step);
     else if (e.key === 'ArrowLeft') apply(get() - sign * step);
     else if (e.key === 'Home') apply(min);
-    else if (e.key === 'End') apply(max);
+    else if (e.key === 'End') apply(hi());
     else if (e.key === 'Enter' && handle.dataset.reset) apply(+handle.dataset.reset);
     else return;
     e.preventDefault();
@@ -194,7 +224,7 @@ function watchMainWidth(el) {
 
 /**
  * Where typing should go once something is on the page column: the editor body, else the
- * title, else a view's root, else the first recent row of the empty surface (B3). The router
+ * title, else a view's root, else the first row on Home (B3). The router
  * does this itself after every navigation; this is the other half — Esc out of the tree, and
  * the `app.focus-page` command — and it is the shell's, because the page column is its element.
  */
@@ -205,7 +235,7 @@ export function focusPage() {
     || mainEl.querySelector('.cm-content')
     || mainEl.querySelector('.page-title')
     || mainEl.querySelector('.view-root')
-    || mainEl.querySelector('.start-row')
+    || mainEl.querySelector('.home-row')
     || mainEl.querySelector('.miss .btn');
   if (!pick) return false;
   if (!pick.isContentEditable && !pick.hasAttribute('tabindex') && pick.tagName !== 'BUTTON') pick.tabIndex = -1;
@@ -293,7 +323,7 @@ function watchVault() {
 // Ctrl+R and Ctrl+Shift+R are in the set now (D8, C5). Ctrl+R used to be the app's own reload,
 // and a reload typed a moment after a keystroke lost that keystroke; the host also switches the
 // web view's accelerators off, and this guard holds either way. `app.reload` ("Reload
-// plugins") stays in the palette with no chord, and it leaves through the save gate. The
+// window") stays in the palette with no chord, and it leaves through the save gate. The
 // keyboard's own Back and Forward keys are the web view's history, which is not the app's.
 const BROWSER_KEYS = new Set([
   'f5', 'ctrl+f5', 'shift+f5', 'ctrl+shift+f5', 'ctrl+r', 'ctrl+shift+r', 'ctrl+u', 'f7',
@@ -331,24 +361,144 @@ function guardContextMenu() {
 /* ------------------------------------------------------------------ reload */
 
 /**
- * Reload plugins (docs/PLUGINS.md). A plugin is files on disk: edit one, reload, see it.
- * `ose.reload()` leaves through the kernel's gate first (C5): the open page is saved and the
- * state file flushed, and a page that cannot be saved keeps the window, with the reason on
- * screen. Nothing here saves on its own any more.
+ * Reload window (`app.reload`). `ose.reload()` leaves through the kernel's gate first (C5): the
+ * open page is saved and the state flushed, and a page that cannot be saved keeps the window,
+ * with the reason on screen. Nothing here saves on its own.
  */
 async function reloadApp() {
   try { await ose.reload(); } catch (e) { console.error('[shell] reload', e); }
 }
 
+/* -------------------------------------------------------------- the side panel */
+
+// The side panel (M25): one resizable column to the right of the page column, for a surface
+// that stays open while pages are opened from it — search first. It holds one thing at a time,
+// by id; opening another replaces it. The panel draws its own head (the title and a close
+// button) and hands the body to the caller's `mount`, which answers `{ unmount?, focus? }`.
+let panelEl = null;
+let panelRs = null;
+let panelTitle = null;
+let panelBody = null;
+// What is in it: `{ id, handle }`, or null while it is closed.
+let panelNow = null;
+
+function unmountPanel() {
+  const now = panelNow;
+  panelNow = null;
+  if (now && now.handle && typeof now.handle.unmount === 'function') {
+    try { now.handle.unmount(); } catch (e) { console.error('[shell] panel unmount', e); }
+  }
+  if (panelBody) panelBody.textContent = '';
+}
+
+function showPanel(open) {
+  if (!panelEl) return;
+  panelEl.hidden = !open;
+  if (panelRs) panelRs.hidden = !open;
+  if (shell) shell.classList.toggle('has-panel', open);
+  fit();
+}
+
+/**
+ * The side panel. `open` replaces whatever is in it; `close(id)` closes it only while `id` is
+ * what it holds (no id: whatever it holds); `toggle` answers whether it is open afterwards.
+ */
+export const panel = {
+  /**
+   * Put `mount`'s surface in the panel, replacing what was there, and open it.
+   * @param {string} id
+   * @param {(el: HTMLElement) => ({unmount?: Function, focus?: Function}|void)} mount
+   * @param {{title?: string}} [opts]
+   */
+  open(id, mount, { title } = {}) {
+    if (!panelEl || !id || typeof mount !== 'function') return;
+    unmountPanel();
+    panelTitle.textContent = title || '';
+    panelEl.setAttribute('aria-label', title || id);
+    panelEl.dataset.id = id;
+    showPanel(true);
+    let handle = null;
+    try { handle = mount(panelBody) || null; } catch (e) { console.error('[shell] panel mount', e); }
+    panelNow = { id, handle };
+    patchPanel({ open: true, id });
+    panel.focus();
+  },
+  /**
+   * Close the panel, if `id` is what it holds (no id: whatever it holds).
+   * @param {string} [id]
+   */
+  close(id) {
+    if (!panelNow || (id && panelNow.id !== id)) return;
+    const had = !!panelEl && panelEl.contains(document.activeElement);
+    unmountPanel();
+    if (panelEl) delete panelEl.dataset.id;
+    showPanel(false);
+    patchPanel({ open: false });
+    // The keyboard does not fall to <body> with the panel: it goes back to the page.
+    if (had) focusPage();
+  },
+  /**
+   * Open it with `mount` unless `id` is already open, in which case close it.
+   * @param {string} id
+   * @param {Function} mount
+   * @param {{title?: string}} [opts]
+   * @returns {boolean} whether the panel is open now
+   */
+  toggle(id, mount, opts) {
+    if (panel.isOpen(id)) { panel.close(id); return false; }
+    panel.open(id, mount, opts);
+    return true;
+  },
+  /**
+   * Whether the panel is open (holding `id`, when one is given).
+   * @param {string} [id]
+   * @returns {boolean}
+   */
+  isOpen(id) { return !!panelNow && (!id || panelNow.id === id); },
+  /** Put the keyboard in the panel: the mount's own `focus`, else its first control. */
+  focus() {
+    if (!panelNow || !panelEl) return;
+    const h = panelNow.handle;
+    if (h && typeof h.focus === 'function') {
+      try { h.focus(); return; } catch (e) { console.error('[shell] panel focus', e); }
+    }
+    const first = panelBody.querySelector('input, textarea, button, [tabindex]:not([tabindex="-1"])');
+    (first || panelBody).focus({ preventScroll: true });
+  },
+};
+
+function buildPanel() {
+  panelEl = shell.querySelector('.sidepanel');
+  panelRs = shell.querySelector('.rs-panel');
+  panelTitle = panelEl.querySelector('.sp-title');
+  panelBody = panelEl.querySelector('.sp-body');
+  panelBody.tabIndex = -1;
+  const x = panelEl.querySelector('.sp-close');
+  x.innerHTML = icon('close');
+  x.addEventListener('click', () => panel.close());
+  makeResizer(panelRs, {
+    min: P_MIN, max: pMax, invert: true,
+    get: () => wantP,
+    set: (v) => { wantP = v; fit(); },
+    done: (v) => patchPanel({ width: v }),
+  });
+}
+
 /* ------------------------------------------------------------------ build */
 
 /**
- * Build the shell into `rootEl` and answer its parts. Nothing is navigated to and no plugin
- * has run yet: `main.js` calls this, then hands `els.main` to `ose.init`.
+ * Build the shell into `rootEl` and answer its parts. Nothing is navigated to yet: `boot.js`
+ * calls this, then hands `els.main` to `ose.init`.
+ * @param {HTMLElement} rootEl
+ * @returns {{titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, statusbar: HTMLElement, panel: HTMLElement}}
  */
 export function mountShell(rootEl) {
+  sidebarState = ose.local('sidebar');
+  panelState = ose.local('panel');
   const saved = sidebarState.get() || {};
-  wantS = clamp(+saved.width || 260, S_MIN, S_MAX);
+  wantS = clamp(+saved.width || S_DEFAULT, S_MIN, sMax());
+  const savedPanel = panelState.get() || {};
+  wantP = clamp(+savedPanel.width || P_DEFAULT, P_MIN, pMax());
 
   rootEl.textContent = '';
   shell = document.createElement('div');
@@ -357,11 +507,16 @@ export function mountShell(rootEl) {
     <header class="titlebar"></header>
     <div class="body">
       <aside class="sidebar"></aside>
-      <div class="rs rs-sidebar" data-reset="260" title="Drag to resize" aria-label="Sidebar width"></div>
+      <div class="rs rs-sidebar" data-reset="${S_DEFAULT}" title="Drag to resize" aria-label="Sidebar width"></div>
       <div class="maincol">
         <div class="tabs"></div>
         <main class="main"></main>
       </div>
+      <div class="rs rs-panel" data-reset="${P_DEFAULT}" title="Drag to resize" aria-label="Side panel width" hidden></div>
+      <aside class="sidepanel" hidden>
+        <div class="panel-head sp-head"><span class="grow sp-title"></span><button type="button" class="sp-close" title="Close panel" aria-label="Close panel"></button></div>
+        <div class="sp-body"></div>
+      </aside>
     </div>
     <footer class="statusbar"></footer>`;
   rootEl.appendChild(shell);
@@ -374,8 +529,10 @@ export function mountShell(rootEl) {
     tabs: shell.querySelector('.tabs'),
     main: shell.querySelector('.main'),
     statusbar: shell.querySelector('.statusbar'),
+    panel: shell.querySelector('.sidepanel'),
   };
   mainEl = els.main;
+  buildPanel();
 
   // The sidebar tracks the store; its width is a CSS variable so nothing re-lays-out in JS.
   store.set('sidebar.open', saved.open !== false);
@@ -390,7 +547,7 @@ export function mountShell(rootEl) {
   fit();
 
   makeResizer(shell.querySelector('.rs-sidebar'), {
-    min: S_MIN, max: S_MAX,
+    min: S_MIN, max: sMax,
     get: () => wantS,
     set: (v) => { wantS = v; fit(); },
     done: (v) => patchSidebar({ width: v }),
@@ -417,21 +574,34 @@ export function mountShell(rootEl) {
     when: () => isHost(),
     run: () => { ose.window.quit().catch((e) => console.error('[shell] quit', e)); },
   });
-  // A plugin is files on disk: edit one, reload, see it (docs/PLUGINS.md). The page comes
-  // back and every plugin is imported again, once the open page has been saved. No chord:
-  // Ctrl+R is gone (D8), and the palette has it.
+  // The window again, once the open page has been saved. No chord: Ctrl+R is gone (D8), so a
+  // reload is never one slip of the fingers away from a keystroke; the palette has it.
   commands.register({
-    id: 'app.reload', title: 'Reload plugins', group: 'app', hint: 'saves the page, then every plugin from disk',
+    id: 'app.reload', title: 'Reload window', group: 'app', hint: 'saves the page first',
     run: () => reloadApp(),
+  });
+  // L5: the page column as wide as the window, or back to the readable measure. The same
+  // setting Settings › Appearance shows as Full width, flipped in one command.
+  commands.register({
+    id: 'app.full-width', title: 'Toggle full width', group: 'app',
+    hint: 'the page column as wide as the window',
+    run: () => { ose.settings.set({ readableWidth: ose.settings.get().readableWidth === false }); },
+  });
+  commands.register({
+    id: 'app.close-panel', title: 'Close side panel', group: 'app',
+    when: () => panel.isOpen(),
+    run: () => panel.close(),
   });
 
   watchMainWidth(els.main);
 
   window.addEventListener('resize', fit);
-  window.addEventListener('beforeunload', () => sidebarState.flush());
+  window.addEventListener('beforeunload', () => {
+    try { sidebarState.flush?.(); panelState.flush?.(); } catch (e) { console.warn('[shell] flush', e); }
+  });
   fit();
 
-  // Plugins registered after the shell may change what is on screen; measure once more.
+  // Anything registered after the shell may change what is on screen; measure once more.
   bus.on('booted', () => { fit(); });
 
   return els;

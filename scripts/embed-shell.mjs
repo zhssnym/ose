@@ -20,11 +20,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-/** The background of the dark theme, the one tauri.conf.json paints the native window with. */
+/**
+ * The background of each theme (tokens.css `--bg`), picked by the system's: an unset theme
+ * follows the system (M26), and the host creates the window with the system's background too.
+ */
 const FIRST_PAGE = `<!doctype html>
 <meta charset="utf-8">
 <title>Ose</title>
-<style>html,body{margin:0;height:100%;background:#1A1917}</style>
+<style>html,body{margin:0;height:100%;background:#191919}@media (prefers-color-scheme:light){html,body{background:#FAF9F5}}</style>
 `;
 
 export function embedShell(outDir = path.join(repoRoot, 'dist-kernel')) {

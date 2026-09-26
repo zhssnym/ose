@@ -1,0 +1,129 @@
+/* The folder view (shell/folder.js, H15), and the same list compact on Home. Tokens only; the
+   few rem numbers are the columns' widths and the icon sizes, which are geometry.
+
+   A folder is a place and reads like Explorer's details view: one row per entry at the app's
+   one row height, the name with its type icon, then Type, Modified and Size in the chrome
+   voice. Folders first; the order is the folder's own (folder-model.js). */
+
+/* A folder sits nearer the top than a view does, the way a document does: it is a place to
+   work in, not a page to arrive at. */
+.folder-view { padding-top: var(--doc-pad-top); container-type: inline-size; }
+
+.fv-head { display: flex; align-items: baseline; gap: var(--sp-3); margin-bottom: var(--sp-3); min-width: 0; }
+.fv-head .page-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fv-count { flex: none; color: var(--fg-3); }
+
+/* The toolbar: ghost buttons pulled left by their own padding, so the first glyph sits under
+   the title's first letter. Each is a command as well (the palette has them all). */
+.fv-tools {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1);
+  margin: 0 0 var(--sp-3) calc(-1 * var(--sp-2));
+}
+.fv-tools-gap { flex: 1; }
+.fv-tool { gap: var(--sp-1); color: var(--fg-2); }
+.fv-tool[hidden] { display: none; }
+.fv-tool svg { width: 0.875rem; height: 0.875rem; }
+.fv-tool:hover { color: var(--fg); }
+.fv-tool.on { color: var(--accent-ink); }
+
+/* ------------------------------------------------------------------ the list */
+
+.fv { --fv-cols: minmax(0, 1fr) 8rem 9.5rem 5.5rem; }
+.fv-compact { --fv-cols: minmax(0, 1fr) auto; }
+
+.fv-cols, .fv-row {
+  display: grid; grid-template-columns: var(--fv-cols); gap: var(--sp-3); align-items: center;
+}
+.fv-cols {
+  height: var(--row-h); padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-3);
+}
+.fv-cols[hidden] { display: none; }
+.fv-col {
+  height: 100%; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-1);
+  font: inherit; color: inherit; text-align: left; white-space: nowrap;
+  transition: color var(--t-fast);
+}
+.fv-col:hover { color: var(--fg); }
+.fv-col.on { color: var(--fg-2); }
+.fv-col-size { justify-content: flex-end; }
+.fv-col svg { width: 0.75rem; height: 0.75rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The list is the tab stop; the row the keyboard is on carries the accent bar the tree's
+   current row carries, and the ring only when the keyboard put it there. */
+.fv-list { outline: none; }
+.fv-list[hidden] { display: none; }
+.fv-list.view-root { min-height: 0; }
+.fv-row {
+  height: var(--row-h); padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
+  border-left: 2px solid transparent;
+  font-size: var(--fs-ui); color: var(--fg); cursor: default;
+  transition: background var(--t-fast);
+}
+.fv-row:hover { background: var(--bg-3); }
+.fv-row.selected { background: var(--bg-4); }
+.fv-list:focus .fv-row.focus { border-left-color: var(--accent); }
+.fv-list:focus-visible .fv-row.focus { box-shadow: inset 0 0 0 1px var(--accent); }
+/* Hidden (a dotfile, the OS attribute): drawn only with Show hidden items on, and greyed. */
+.fv-row.hidden { color: var(--fg-3); }
+/* Cut, waiting for a paste: dimmed where it stands until it moves (M17). */
+.fv-row.cut { opacity: .5; }
+
+.fv-name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.fv-name svg {
+  width: 1rem; height: 1rem; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+  color: var(--fg-3);
+}
+.fv-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A link or a folder the host could not read: a small mark after the name, named in its tooltip. */
+.fv-badge { display: inline-flex; flex: none; color: var(--fg-3); }
+.fv-badge svg { width: 0.75rem; height: 0.75rem; }
+/* Words a screen reader hears and the eye does not need: a row's state (hidden, cut) that the
+   greying says, and the sort the column headers show. */
+.fv-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+.fv-type, .fv-date, .fv-size {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+}
+.fv-size { text-align: right; }
+/* --fg-3 does not clear 4.5:1 on --bg-4 (tokens.css): a selected row's hints step up. */
+.fv-row.selected .fv-type, .fv-row.selected .fv-date, .fv-row.selected .fv-size,
+.fv-row.selected .fv-name svg { color: var(--fg-2); }
+
+.fv-empty {
+  padding: var(--sp-5) 0 var(--sp-5) var(--sp-3);
+  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3);
+}
+.fv-miss { padding-top: var(--sp-6); }
+
+/* A narrow column drops Type first, then Size: the name and the date are what is read. */
+@container (max-width: 36rem) {
+  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 9.5rem 5rem; }
+  .fv:not(.fv-compact) .fv-type, .fv:not(.fv-compact) .fv-col-type { display: none; }
+}
+@container (max-width: 24rem) {
+  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 7rem; }
+  .fv:not(.fv-compact) .fv-size, .fv:not(.fv-compact) .fv-col-size { display: none; }
+}
+
+/* ------------------------------------------------------------------ the README */
+
+/* The folder's README, read-only, in a box under the list: the note itself, in the document
+   face `render()` gives it, with its name and an Edit button over it. */
+.fv-readme {
+  margin-top: var(--sp-6); padding: var(--sp-3) var(--sp-5) var(--sp-5);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.fv-readme[hidden] { display: none; }
+.fv-readme-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  margin: 0 calc(-1 * var(--sp-3)) var(--sp-2) 0; color: var(--fg-3);
+}
+.fv-readme-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
