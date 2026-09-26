@@ -149,6 +149,14 @@ pub fn start_with(sink: Sink, root: PathBuf) -> Handle {
 
 /// One watcher's life. `Ok(())` means "asked to stop", `Err` means "restart me".
 fn run(sink: &Sink, root: &Path, stop: &AtomicBool, missed: &mut bool) -> Result<(), String> {
+    // FSEvents reports resolved paths (`/private/var/…` for a root under `/var/…`, the target of
+    // any symlink on the way): watch and relativise against the root as the file system spells
+    // it, or no event ever matches the root and the vault looks silent.
+    #[cfg(not(windows))]
+    let real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    #[cfg(windows)]
+    let real = root.to_path_buf();
+    let root = real.as_path();
     // A fault from before this watcher started is not this one's.
     let faults = FAULTS.load(Ordering::SeqCst);
     let (tx, rx) = channel::<DebounceEventResult>();
