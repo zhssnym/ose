@@ -337,6 +337,31 @@ test('8b. the tree by keyboard: a range selection, type-ahead, the context menu,
   await expect.poll(() => routePath(page)).toBe('notes/offline.md');
 });
 
+test('8c. the folder view by keyboard: Home, type-ahead, a range selection, Enter opens', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => window.__ose.tabs.open({ type: 'folder', path: 'notes' }, { reuse: false }));
+  const list = page.locator('.fv:not(.fv-compact) .fv-list');
+  await expect(list.locator('.fv-row[data-name="type.md"]')).toBeVisible();
+  const focused = () => list.evaluate((el) => {
+    const id = el.getAttribute('aria-activedescendant');
+    return id ? document.getElementById(id)?.getAttribute('data-name') ?? null : null;
+  });
+  const selected = () => list.evaluate((el) => [...el.querySelectorAll('.fv-row[aria-selected="true"]')].map((r) => r.getAttribute('data-name')));
+
+  await list.focus();
+  await page.keyboard.press('Home');
+  await expect.poll(focused).toBe('merge.md');
+  await page.keyboard.press('o');
+  await expect.poll(focused).toBe('offline.md');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(selected).toEqual(['offline.md', 'rename.md']);
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(focused).toBe('offline.md');
+  await expect.poll(selected).toEqual(['offline.md']);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => routePath(page)).toBe('notes/offline.md');
+});
+
 test('9. a reload restores the tabs and the active page', async ({ page }) => {
   await boot(page);
   await openPage(page, 'notes/tab-a.md');

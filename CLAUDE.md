@@ -56,7 +56,8 @@ shell/              the interface, flat: index.html, main.js, the surfaces (tree
                     Home, tabs, address bar, search, settings, trash), shell.css, tree.css,
                     places.css, folder.css, theme.css, keys.json, logo.png. Copied verbatim into
                     dist/ by the build. The tree is sidebar.js and its parts, sidebar-*.js, which
-                    share one `state` (sidebar-state.js).
+                    share one `state` (sidebar-state.js); the folder view is folder.js and
+                    folder-sort.js, folder-list.js, folder-view.js.
 src/                TypeScript, built by Vite into the four bundles
   core/             ose:core (registry, bridge, router, tabs, session, local store, links,
                     fileops and the undo journal, settings core, state, theme, keys, watch),
