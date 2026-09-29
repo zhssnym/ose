@@ -4,7 +4,7 @@
 //
 // Depends on: serializer (engine.ts, guard.ts, and the stringify.ts they import).
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -38,11 +38,13 @@ describe('the engine and the guard have landed', () => {
 
   // CONTRACT 7.4: these import without a DOM, without CSS and without `ose:*` at module top
   // level. The tests alias `ose:*` to stubs anyway, so the rule is read from the source.
-  it.each(['engine.ts', 'guard.ts', 'stringify.ts', 'space.ts', 'fidelity.ts', 'doc.ts'])(
+  // The serializer is stringify.ts and the parts in stringify/, so the rule holds for each.
+  const serializer = readdirSync(join(EDITOR, 'stringify')).map((f) => `stringify/${f}`);
+  it.each(['engine.ts', 'guard.ts', 'stringify.ts', ...serializer, 'space.ts', 'fidelity.ts', 'doc.ts'])(
     '%s imports no ose:* module and no stylesheet at top level',
     (name) => {
       const text = src(name);
-      const imports = [...text.matchAll(/^import\s[^;]*?from\s+['"]([^'"]+)['"]/gms)].map((m) => m[1]);
+      const imports = [...text.matchAll(/^(?:import|export)\s[^;]*?from\s+['"]([^'"]+)['"]/gms)].map((m) => m[1]);
       const bare = [...text.matchAll(/^import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1]);
       for (const spec of [...imports, ...bare]) {
         expect(spec.startsWith('ose:'), `${name} imports ${spec}`).toBe(false);

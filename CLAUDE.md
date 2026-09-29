@@ -65,7 +65,8 @@ src/                TypeScript, built by Vite into the four bundles
                     (Crepe, CodeMirror, marked), one live instance per open file, the 3-way
                     merge of changes made on disk; live/ is the Live mode, reading/ the Reading
                     view, page/ the parts of page.ts (open, modes, save, merge, drafts, ...), each
-                    adding its functions to one instance's `ctx`
+                    adding its functions to one instance's `ctx`; stringify/ the serializer's
+                    parts (write, cleanup, reconcile, blocks, markers, tables)
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
   host/             the host: the adapter over the File System Access API (fs, watch, local,
                     vault-handle, rules, idb) and the service worker (sw.js, plain JS: it is
