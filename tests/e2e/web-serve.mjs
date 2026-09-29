@@ -1,7 +1,7 @@
-// A plain static server for the built Ose Web (`dist-web/`), for tests/e2e/web.spec.js: what any
+// A plain static server for the built app (`dist/`), for the browser suites: what any
 // static host does, and nothing more. No bridge, no rewriting: every URL is a file, or 404.
 //
-//   node tests/e2e/web-serve.mjs [dir] [port]     serves `dir` (default dist-web) by hand
+//   node tests/e2e/web-serve.mjs [dir] [port]     serves `dir` (default dist) by hand
 
 import { createReadStream, statSync } from 'node:fs';
 import http from 'node:http';
@@ -71,7 +71,7 @@ export function serveStatic(dir, port = 0) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const dir = process.argv[2] || path.join(here, '..', '..', 'dist-web');
+  const dir = process.argv[2] || path.join(here, '..', '..', 'dist');
   const s = await serveStatic(dir, Number(process.argv[3] || 5176));
   console.log(`Ose Web from ${dir} on ${s.url}`);
 }

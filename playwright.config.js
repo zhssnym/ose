@@ -1,17 +1,18 @@
-// `npm run test:e2e`: the no-loss suite (CONTRACT §14, H11), the Live scenarios and the files
-// outside the vault (wave 3, §8.2), Playwright against the browser dev server. Headless Chromium drives the real shell, kernel and editor over the Node host
-// (dev/bridge-plugin.mjs), and every scenario checks the bytes on disk, not only the screen.
+// `npm run test:e2e`: the browser suites. The no-loss suite (CONTRACT §14, H11), the Live
+// scenarios and Ose Web's own (web.spec.js), Playwright against the built app served as plain
+// files, as any static host serves it. Headless Chromium drives the real shell, kernel, editor
+// and web adapter, and every scenario checks the bytes in the vault, not only the screen.
 //
-// The server runs on a temp copy of the throwaway vault, never a real one (tests/e2e/env.js,
-// prepare.mjs), with its own app-data folder and the dev bridge's fault switch on
-// (`OSE_DEV_FAULTS=1`, docs/HOST.md "devFault"). One worker: the scenarios share that vault and
-// that server, and each types into a file of its own.
+// The build is made fresh into a temp folder (tests/e2e/prepare.mjs, env.js), never the
+// repository's `dist/`. The vault is the browser's private file system for the origin, opened
+// through the `?opfs=1` test hook (src/web/adapter.js): every test has a fresh context, so a
+// fresh, empty vault that helpers.js boot seeds. One worker: the scenarios share the server.
 //
 // Browsers are not a dependency of the repo: `npx playwright install chromium` once per machine
 // (and in CI before the step).
 
 import { defineConfig, devices } from '@playwright/test';
-import { APPDATA, BASE, OUTSIDE, PORT, ROOT, URL_BASE } from './tests/e2e/env.js';
+import { BASE, DIST, PORT, URL_BASE } from './tests/e2e/env.js';
 
 // The workers are forked from this process and inherit its environment, so they resolve the
 // same base even when it came from the default.
@@ -37,7 +38,6 @@ export default defineConfig({
   // One folder per port, so two runs on one machine (OSE_E2E_PORT) never delete each other's
   // traces and screenshots.
   outputDir: `test-results/e2e-${PORT}`,
-  globalSetup: './tests/e2e/setup.js',
   globalTeardown: './tests/e2e/teardown.js',
   use: {
     ...devices['Desktop Chrome'],
@@ -49,24 +49,11 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium' }],
   webServer: {
-    command: 'node tests/e2e/prepare.mjs && node dev/test-server.mjs',
+    command: `node tests/e2e/prepare.mjs && node tests/e2e/web-serve.mjs "${DIST}" ${PORT}`,
     url: `${URL_BASE}/index.html`,
     reuseExistingServer: false,
-    timeout: 120_000,
-    // The dev server's log (every save, every bridge failure) with OSE_E2E_VERBOSE=1.
+    timeout: 180_000,
     stdout: process.env.OSE_E2E_VERBOSE ? 'pipe' : 'ignore',
     stderr: 'pipe',
-    env: {
-      OSE_TEST_ROOT: ROOT,
-      OSE_TEST_PORT: String(PORT),
-      OSE_APPDATA: APPDATA,
-      // The name the dev bridge read before wave 2; harmless once it reads OSE_APPDATA.
-      OSE_DEV_APPDATA: APPDATA,
-      OSE_DEV_FAULTS: '1',
-      // Where files outside the vault may be opened from (outside.spec.js, dev/bridge-plugin.mjs).
-      OSE_E2E_OUTSIDE: OUTSIDE,
-      // No hot reload under a scenario (vite.config.js).
-      OSE_E2E: '1',
-    },
   },
 });

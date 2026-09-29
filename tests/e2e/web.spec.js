@@ -1,4 +1,4 @@
-// Ose Web end to end (docs/WEB.md "Testing"): the built `dist-web/`, served by a plain static
+// Ose Web end to end (docs/WEB.md "Testing"): the built app, served by a plain static
 // server (web-serve.mjs, what any static host does), in Chromium, over the origin's private file
 // system as the vault. `?opfs=1` is the adapter's test hook: it opens
 // `navigator.storage.getDirectory()` instead of asking for a folder with the picker, which a
@@ -9,16 +9,11 @@
 // Every scenario runs in a fresh browser context (a fresh origin storage: an empty vault, no
 // drafts, no worker) and checks the bytes in the vault, read back from OPFS, not only the screen.
 //
-// The build: `OSE_WEB_DIST` names a built `dist-web/` to serve as it is; otherwise the spec
-// builds one into a temp folder first (vite.web.config.js with another outDir), so it never
-// runs against a stale build and never touches the repository's `dist-web/`.
+// The build is the suite's own (prepare.mjs, env.js DIST), served here by a second server of
+// this spec's, which counts what reaches it for the offline scenario.
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { REPO } from './env.js';
+import { DIST } from './env.js';
 import { serveStatic } from './web-serve.mjs';
 
 /** The pages the scenarios type into: LF endings, `-` bullets, one blank line between blocks. */
@@ -35,10 +30,6 @@ const FILES = {
   'notes/offline.md': page_('Offline', ['The first paragraph.']),
 };
 
-/** @type {string} */
-let dist;
-/** @type {string | null} */
-let tempDir = null;
 /** @type {Awaited<ReturnType<typeof serveStatic>>} */
 let server;
 let port = 0;
@@ -46,23 +37,12 @@ let port = 0;
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-  test.setTimeout(180_000);
-  if (process.env.OSE_WEB_DIST) {
-    dist = path.resolve(process.env.OSE_WEB_DIST);
-  } else {
-    tempDir = mkdtempSync(path.join(tmpdir(), 'ose-web-e2e-'));
-    execFileSync(process.execPath, [path.join(REPO, 'node_modules', 'vite', 'bin', 'vite.js'), 'build',
-      '--config', 'vite.web.config.js', '--outDir', path.join(tempDir, 'ose'), '--logLevel', 'error'],
-    { cwd: REPO, stdio: ['ignore', 'ignore', 'inherit'] });
-    dist = tempDir;
-  }
-  server = await serveStatic(dist, 0);
+  server = await serveStatic(DIST, 0);
   port = Number(new URL(server.url).port);
 });
 
 test.afterAll(async () => {
   if (server) await server.close();
-  if (tempDir) rmSync(tempDir, { recursive: true, force: true });
 });
 
 /** Write vault files straight into OPFS, as another program writes a folder on disk. */
@@ -413,6 +393,6 @@ test('11. offline: after the first visit the app loads from the service worker a
       .toBe(FILES[rel].replace('The first paragraph.', 'The first paragraph. typed-offline'));
   } finally {
     await context.setOffline(false);
-    server = await serveStatic(dist, port);
+    server = await serveStatic(DIST, port);
   }
 });
