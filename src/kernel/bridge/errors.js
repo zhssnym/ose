@@ -1,5 +1,5 @@
 // Host refusals, as every adapter and the facade throw them. Its own module so that an adapter
-// (./tauri.js) can make one without importing the facade that loads it.
+// (src/web/adapter.js) can make one without importing the facade that loads it.
 
 /**
  * A host refusal as the rest of the app reads it (docs/HOST.md "Errors"): the host answers

@@ -35,7 +35,7 @@ import * as journal from './journal.js';
 import * as focusLib from './focus.js';
 import { toast, confirm } from './dialog.js';
 import { initOpens } from './opens.js';
-import { clean, isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
+import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
@@ -43,8 +43,8 @@ export * from './ui-surface.js';
 
 /* ------------------------------------------------------------------------------- the stamp */
 
-// Vite replaces these at build time (vite.kernel.config.js `define`). In the browser dev
-// server they are the dev defaults, which is the honest answer there.
+// Vite replaces these at build time (vite.config.js `define`). In the dev server they are the
+// dev defaults, which is the honest answer there.
 const VERSION = {
   kernel: typeof __OSE_VERSION__ === 'string' ? __OSE_VERSION__ : '0.0.0-dev',
   sha: typeof __OSE_SHA__ === 'string' ? __OSE_SHA__ : 'dev',
@@ -55,7 +55,7 @@ const VERSION = {
 /* ------------------------------------------------------------------------------- the assets */
 
 // The kernel's assets are served beside the page (docs/KERNEL.md "Where the app is served"):
-// Tauri's own origin in the app, the dev server's in a browser. No origin is spelled here.
+// the site's own origin, or the dev server's. No origin is spelled here.
 const assets = {
   /** @param {string} name */
   url(name) {
@@ -99,12 +99,8 @@ let vaultInfo = { root: null, name: null };
 /** 'windows', 'macos' or 'linux', from the host at boot (`ose.platform`). */
 let platformName = 'windows';
 
-/** What the host said about itself at boot; `dragIcon` is the picture a drag out carries. */
-/** @type {{ dragIcon: string | null }} */
-let hostInfo = { dragIcon: null };
-
 /**
- * The vault the host has open, and its epoch (docs/HOST.md "Epoch"). Read once at boot; after
+ * The vault the host has open, and its epoch (docs/HOST.md "Identity: vaults, roots, epochs, tabs"). Read once at boot; after
  * that the epoch only moves forward with a reload, on purpose: a write that a page started
  * against the old vault must be refused by the host (`[stale_vault]`), not land in the new one.
  * The one exception is a window that had no vault at all (the first run's chooser): nothing
@@ -145,22 +141,6 @@ async function openVault(path) {
 }
 
 /**
- * The native absolute path of a vault path or an `abs:` one, for the OS (drag out): the vault
- * root and the path joined with the platform's separator. Null when there is no vault.
- * @param {string} path
- * @returns {string | null}
- */
-function nativePath(path) {
-  if (isOutside(path)) return absOf(path);
-  const root = vaultInfo.root;
-  if (!root) return null;
-  const sep = platformName === 'windows' ? '\\' : '/';
-  const rel = clean(path).split('/').filter(Boolean).join(sep);
-  const base = root.replace(/[\\/]+$/, '');
-  return rel ? `${base}${sep}${rel}` : base;
-}
-
-/**
  * `ose.files.openOutside(path, opts)`: a file anywhere on the machine, in a tab. The host
  * registers it for this window (X7) and answers where it is: a file inside this vault opens as
  * the vault file it is, a file elsewhere as an `abs:` page marked "outside vault", and a folder
@@ -195,7 +175,6 @@ const ready = (async () => {
     const info = await bridge.platformInfo();
     if (info) {
       if (info.os) platformName = info.os === 'win' ? 'windows' : info.os === 'mac' ? 'macos' : String(info.os);
-      hostInfo = { dragIcon: typeof info.dragIcon === 'string' && info.dragIcon ? info.dragIcon : null };
     }
   } catch (e) { console.warn('[kernel] platform', e); }
   journal.setPlatform(platformName);
@@ -213,9 +192,10 @@ const ready = (async () => {
 
 /* ------------------------------------------------------------------------ leaving (C5) */
 
-// The window's close button goes through the same gate as a reload and a change of vault
-// (./leave.js). The Tauri adapter awaits what this answers, and a `false` keeps the window.
-// The router's own `closing` handler (unmount the view, flush the state file) stays beside it.
+// Closing the window through the app (`ose.window.close`, Ctrl+Q) goes through the same gate as
+// a reload and a change of vault (./leave.js). The adapter awaits what this answers, and a
+// `false` keeps the window. The router's own `closing` handler (unmount the view, flush the
+// state file) stays beside it.
 bridge.on('window', (d) => (d && d.closing ? leaveWindow('close') : undefined));
 
 let abandoning = false;
@@ -223,7 +203,6 @@ let abandoning = false;
 commands.register({
   id: 'app.close-anyway', title: 'Close window without saving', group: 'app',
   hint: 'unsaved text stays in the recovered changes',
-  when: () => bridge.kind !== 'http',
   // No `closing` fan-out: the user was told the page could not be saved and chose this. What
   // the hint promises is made true first: every handler is asked to keep its unsaved text as a
   // draft (`abandonWindow`), and when one could not, the user is asked again, by name, before
@@ -300,8 +279,8 @@ export const ose = {
   get platform() { return platformName; },
   ready,
 
-  /** 'tauri' | 'browser': whether quit, drag out and native opens are live. */
-  host: bridge.kind === 'http' ? 'browser' : bridge.kind,
+  /** The one host there is: the browser (src/web/adapter.js). */
+  host: 'browser',
 
   vault: {
     get root() { return vaultInfo.root; },
@@ -367,17 +346,6 @@ export const ose = {
      * create-only (`[exists]`). -> { path, hash }
      */
     importOutside: (from, to) => bridge.importOutside(from, to),
-    /**
-     * Files and folders dragged out of the window, as copies (X8): vault paths or `abs:` ones.
-     * Answers false where there is no drag out (a browser), true once the drag has started.
-     * The files themselves are never moved or deleted by it.
-     * @param {string[]} paths
-     */
-    dragOut: (paths) => {
-      const natives = (Array.isArray(paths) ? paths : []).map(nativePath).filter((p) => typeof p === 'string' && p !== '');
-      if (!natives.length) return Promise.resolve(false);
-      return bridge.dragOut(/** @type {string[]} */ (natives), hostInfo.dragIcon);
-    },
     read: (path) => bridge.readText(path),
     write: (path, text) => bridge.writeText(path, text),
     append: (path, text) => bridge.appendText(path, text),
@@ -405,7 +373,6 @@ export const ose = {
     trashList: () => fileops.trashList(),
     /** A file or a whole folder, bytes, create-only (`[exists]`). -> `{ path, files }` */
     copyPath: (from, to) => bridge.copyPath(from, to),
-    reveal: (path) => bridge.reveal(path),
     open: (path) => bridge.openPath(path),
     assetUrl: (path) => bridge.assetUrl(path),
 
@@ -683,21 +650,6 @@ export const ose = {
     on: (fn) => bus.on('focus', fn),
   },
 
-  /**
-   * Paper. `toPdf()` writes the window's document to a PDF with the print stylesheet and
-   * resolves with `{path, bytes}`; with no argument the host asks where through the native save
-   * dialog, `opts` being `{name, folder}` for it, and answers `{cancelled:true}` if the user
-   * says no. `dialog()` opens the system print dialog, which is also the way to "Microsoft
-   * Print to PDF", and resolves `{shown:true}` as soon as it is up.
-   *
-   * Neither ever calls `window.print()`: in WebView2 that blocks the renderer. A host that
-   * cannot print answers `null` to both, which is how the caller knows to say so instead.
-   */
-  print: {
-    toPdf: (path, opts) => bridge.printToPdf(path, opts),
-    dialog: () => bridge.showPrintUI(),
-  },
-
   /** An http/https/mailto link inside a note. The host refuses every other scheme. */
   openExternal: (url) => bridge.openExternal(url),
 
@@ -705,7 +657,6 @@ export const ose = {
     title: (text) => bridge.setTitle(text),
     /** This window, through its close path: the `closing` handlers run, as for the OS button. */
     close: () => bridge.win.close(),
-    quit: () => bridge.quit(),
     /**
      * The window is closing. `fn()` may return a promise and the host **awaits it** before the
      * window is destroyed, so the open page's last save finishes; resolving `false` keeps the
@@ -727,7 +678,7 @@ export const ose = {
   },
 
   /**
-   * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Log").
+   * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Machine-local state").
    * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
    */
   /** @param {string} text @param {'error' | 'warn' | 'info' | 'debug'} [level] */

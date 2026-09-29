@@ -1,7 +1,6 @@
-// The synthetic pages the scenarios type into, written by prepare.mjs into `<vault>/e2e/` (and,
-// for the files outside the vault, into `<base>/outside/`). Synthetic on purpose: the repository
-// is public and no real note is ever copied into it. One file per scenario, so a scenario that
-// fails leaves nothing behind for the next one. LF endings, `-` bullets, one blank line between
+// The synthetic pages the scenarios type into, written into the test vault's `e2e/` folder by
+// helpers.js boot. Synthetic on purpose: the repository is public and no real note is ever
+// copied into it. One file per scenario, so a scenario is about its own file only. LF endings, `-` bullets, one blank line between
 // blocks: Hassan's conventions, except where a scenario is about another shape (CRLF, a BOM).
 
 /** The body every page starts with: a heading and paragraphs a caret can land in. */
@@ -79,11 +78,4 @@ export const FILES = {
   'e2e/live-default.md': page('Live default', ['Never opened before.']),
   'e2e/live-remembered.md': page('Live remembered', ['Left in source.']),
   'e2e/live-read.md': page('Live read', ['A [link to other](other.md) and more.', 'The typed line.']),
-};
-
-/** Files outside the vault (outside.spec.js), under `<base>/outside/`. */
-export const OUTSIDE_FILES = {
-  'notes/outside.md': page('Outside', ['The outside line.']),
-  'notes/change.md': long('Outside change'),
-  'notes/copy-me.md': '﻿# Copy me\r\n\r\nCafé, naïve, 日本語.\r\n',
 };

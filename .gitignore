@@ -1,24 +1,13 @@
 node_modules/
 dist/
-dist-kernel/
 state.json
-
-# Tauri build output and any machine-specific cargo config written by the toolchain.
-src-tauri/target/
-.cargo/
-
-# Per-machine vault root: {"root": "D:/os"}. Every clone writes its own.
-ose.config.json
-
-# CI stages the built binary at the repo root before uploading it.
-/ose.exe
 
 # The orchestration desk (agent briefs, inbox, reports, a throwaway test vault) and the code
 # graph graphify builds: session artefacts, never shipped.
 work/
 graphify-out/
 
-# The vault state folder an exe writes when the repo itself is opened as a vault.
+# The vault state folder Ose writes when the repo itself is opened as a vault.
 .ose/
 
 # copies of real notes for the serializer tests: kept local, never published

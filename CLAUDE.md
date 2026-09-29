@@ -4,19 +4,21 @@
 
 Ose (On Site Editor; the French imperative "dare") is a markdown viewer and editor for a personal
 file tree. It parses certain files and builds a graphical view from them, while leaving every file
-ordinary prose. `ose.exe` is the whole app: the Rust host, the kernel, the editor, the planner
-(Day, Week, Month, Journal) and the shell (tree, folder view, tabs, palette, settings, search,
-home) are all inside the one executable. Nothing of the app lives in the vault.
+ordinary prose. Ose is a web app for Chrome, installable as an app and working offline after the
+first visit: the host (the web adapter over the File System Access API), the kernel, the editor,
+the planner (Day, Week, Month, Journal) and the shell (tree, folder view, tabs, palette, settings,
+search, home) are one build, served as plain files by Vercel. There is no server and no database:
+Vercel serves the app's own code, and a vault never leaves the machine. Nothing of the app lives
+in the vault.
 
 The files are the database. Every page is a plain markdown file on disk, edited in place, with
 line endings and formatting preserved; the app keeps no index, no cache and no second copy of
 anything. It owns two kinds of state. What belongs to the vault and travels with it (pins, the
-planner's paths, vault settings) is in `.ose/state.json` inside the vault. What belongs to this
-machine is outside it, under the app's folders: the session, recent files, the sidebar, per-folder
-sort, reading comfort, Show hidden and the window (`local/app.json`, `local/vaults/<key>.json`),
-drafts of unsaved text (`<app local data>/drafts`) and a log (`<app log dir>/ose.log`). A vault is any
-folder, and the binary normally sits at the root of it, so moving the folder moves the editor with
-it. There is no installer.
+planner's paths, vault settings, file versions) is in `.ose/state.json` and `.ose/history` inside
+the vault. What belongs to this machine is in the browser's storage for the site (IndexedDB
+`ose-web`): the folders it may open, the session, recent files, the sidebar, per-folder sort,
+reading comfort, Show hidden, drafts of unsaved text and a log. A vault is any folder the person
+picks in Chrome; "Allow on every visit" lets it open again without asking.
 
 It is a file manager as much as an editor: one tree rooted at the vault, every folder a place
 with its own view, every file listed under its real name and openable, nothing hidden by name.
@@ -24,7 +26,8 @@ The planner's four views are built in, `src/planner`: they read ordinary files (
 lists, a monthly plan, `systems.jsonl`, the journal) whose paths are chosen in Settings › Planner,
 and write back only one appended or replaced line, or a new `YYYY-MM-DD.md`. There are no plugins
 and no loader. An agent (Claude Code, run on the vault from outside) reads and edits the same
-files with no adapter, keeping to the formats in `docs/FORMATS.md`.
+files with no adapter, keeping to the formats in `docs/FORMATS.md`, and Ose picks up its changes
+as they happen.
 
 A markdown page has three editing modes. **Rich** is Crepe, the page drawn as a document; **Live**
 is CodeMirror over the whole file with the markup hidden off the caret's line, where the file text
@@ -33,92 +36,81 @@ rendered, read-only, over whichever mode it came from. Rich stays the default un
 (D1): Settings › Editor picks the default, and each file remembers the mode it was left in. Any
 other text file opens in Source, in its own encoding.
 
-Each vault gets its own window, and a second launch on another vault opens or focuses that
-vault's window. A file from outside the vault (Open with, a path argument, the address bar) opens
-in a tab marked "outside vault", which saves in place and has no versions, links or attachments.
+Each vault gets its own browser tab, never two on one vault. A file from outside the vault (Open
+file…, or the OS once Ose is installed) opens in a tab marked "outside vault", which saves in
+place and has no versions, links or attachments.
 
 ## Layout
 
 ```
-README.md           what Ose is, in Hassan's words: the editor, the plugins, the vault
+README.md           what Ose is, in Hassan's words
 docs/
   FORMATS.md        the planner's files: what each one holds, and exactly what the app writes
   KERNEL.md         everything on `ose`: files, fileops, routes, tabs, session, the local store
   SHELL.md          the interface: layout, boot, places and tabs, the tree, the page seam, settings
   LIVE.md           the Live mode: the text-is-truth rule, the reveal rule, the widgets
-  HOST.md           the Rust host: typed commands, windows, the vault origin, flags, the build
+  HOST.md           the host, which is the browser: every command, writes, the watcher, drafts,
+                    versions, the trash, the service worker and the `vault/` origin, the tests
   DESIGN.md         the visual system: tokens, components, the look
 shell/              the interface, flat: index.html, main.js, the surfaces (tree, folder view,
                     Home, tabs, address bar, search, settings, trash), shell.css, tree.css,
                     places.css, folder.css, theme.css, keys.json, logo.png. Copied verbatim into
-                    dist/ by the build and embedded in the exe.
+                    dist/ by the build.
 src/
   kernel/           ose:kernel (registry, bridge, router, tabs, session, local store, links,
                     fileops and the undo journal, settings core, state, theme, keys, watch),
                     ose:ui (dialogs, pickers, menu, toast, icons; ui.css = tokens + base);
-                    bridge/bindings.ts is generated by the host, never edited
+                    bridge/commands.ts types every host command, kept by hand
   editor/           ose:editor: markdownPage in Rich, Live and Source, codeEditor, render
                     (Crepe, CodeMirror, marked), one live instance per open file, the 3-way
                     merge of changes made on disk; live/ is the Live mode, reading/ the Reading
                     view
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
-src-tauri/          the host in Rust: typed commands (tauri-specta), a window per vault, vault fs
-                    and the one hide rule, encodings, files outside the vault, watcher, versions,
-                    trash, the local store, the vault origin, single instance
-vite.kernel.config.js   builds the four bundles into dist/ose/ and copies shell/ into dist/
-vite.config.js      the browser dev server: serves shell/ with ose:* aliased to the sources
-dev/                bridge-plugin.mjs: the Node host for the browser; test-server.mjs
-scripts/            copy-shell.mjs, ship.mjs
+  web/              the host: the adapter over the File System Access API (fs, watch, local,
+                    vault-handle, rules, idb) and the service worker
+web/                the PWA manifest and the icons
+vite.config.js      the dev server (the shell from shell/, ose:* aliased to the sources) and the
+                    build (the four bundles into dist/ose/, the shell, the worker, the CSP)
+vercel.json         Vercel's build of dist/ and its cache headers
 tests/              vitest: serializer/ (fast-check properties and named regressions), kernel/,
                     editor/, live/ (with the property test that Live never changes a byte it
-                    was not told to), reading/, planner/, shell/, dev-bridge/, fixtures/,
-                    support/, stubs/; e2e/: the Playwright suites over the browser dev server
+                    was not told to), reading/, planner/, shell/, web/ (over the in-memory File
+                    System Access stub in stubs/fsa.js), fixtures/, support/; e2e/: the
+                    Playwright suites over the built app
 vitest.config.js, playwright.config.js, biome.json, tsconfig.json   the test runners, the lint
                     and checkJs
-dist/, src-tauri/target/, work/   build outputs and scratch, gitignored
+dist/, work/        build output and scratch, gitignored
 ```
 
 ## How to run it
 
 ```
 npm install
-npm run build          # dist/: the bundles into dist/ose/, shell/ copied beside them (frontendDist)
-npm run dev            # http://127.0.0.1:5173: the app in a browser over the Node host
-npm run dev:test       # http://127.0.0.1:5174, the same against a throwaway vault copy
-npm run tauri dev      # the real window over the dev server (devUrl), the dev bridge off
-npm test               # vitest: serializer, kernel, editor, Live, reading, planner, shell, dev bridge
-npm run test:e2e       # Playwright: no loss, Live, files outside the vault, on a temp vault copy
-npm run typecheck      # tsc checkJs over the save path, the kernel and Live: zero errors
+npm run dev            # http://localhost:5173: the app from its sources, in Chrome
+npm run build          # dist/: the site Vercel serves
+npm run preview        # dist/ served as a static host serves it
+npm test               # vitest: serializer, kernel, editor, Live, reading, planner, shell, web
+npm run test:e2e       # Playwright: no loss, Live and Ose Web, on the built app
+npm run typecheck      # tsc checkJs over the save path, the kernel, Live and src/web: zero errors
 npm run lint           # Biome, warnings are errors
 ```
 
-Both dev servers resolve the vault in this order: the `OSE_ROOT` environment variable, then
-`ose.config.json` at the root of this repository (per machine, gitignored), then the parent folder
-of this repository, which is the layout when Ose sits inside the vault. `npm run dev:test` takes
-`OSE_TEST_ROOT` (and `OSE_TEST_PORT`, and `OSE_E2E_OUTSIDE` for folders outside the vault it may
-open) and passes it down as `OSE_ROOT`. The dev server keeps its
-drafts, its local store and its log in `work/dev-appdata`, or in `OSE_APPDATA`.
+`npm run dev` is the real app: pick a throwaway copy of a vault in Chrome's folder picker, never
+a real one. Chrome allows the File System Access API on localhost, so no certificate is needed.
+`?opfs=1` on the URL opens the browser's private file system as the vault instead, which is the
+tests' hook (docs/HOST.md "Testing").
 
-`npm run test:e2e` copies `work/vault` (never its `.claude`) to a temp folder, or builds a
-synthetic vault when there is none, and runs the dev server on port 5190 (`OSE_E2E_PORT` picks
-5190 to 5199) over it. It needs
-`npx playwright install chromium` once per machine. `OSE_E2E_KEEP=1` keeps the temp vault,
-`OSE_E2E_VERBOSE=1` shows the server's log, and `node tests/e2e/serve.mjs` starts the same server
-by hand.
+`npm run test:e2e` builds the app into a temp folder, serves it as plain files on port 5190
+(`OSE_E2E_PORT` picks 5190 to 5199) and drives it in Chromium, each test over a fresh vault in
+the origin's private file system. It needs `npx playwright install chromium` once per machine
+(`OSE_E2E_CHROMIUM` points at another Chromium). `OSE_E2E_KEEP=1` keeps the build and
+`node tests/e2e/serve.mjs` starts the same server by hand.
 
-The host is Tauri 2 in the standard layout (Rust; rustup gnu per user, MinGW for the linker;
-`cargo` at `~/.cargo/bin`). `frontendDist` is `dist/`, served from Tauri's own asset protocol with
-the CSP in `tauri.conf.json`; the one origin of Ose's own is `vault`, which serves each window's
-vault read-only (ranges, and media beside a file outside the vault). The page calls the host
-through typed commands whose bindings tauri-specta writes to `src/kernel/bridge/bindings.ts`
-(`OSE_WRITE_BINDINGS=1 cargo test bindings` after a change of a command). `npm run tauri:build`
-builds `dist/` and then `src-tauri/target/release/ose.exe`; a bare `cargo build --release` is a
-dev binary that looks for the dev server. `npm run ship` builds and copies the exe to the vault
-root. `ose.exe --root <vault>` opens a vault, `ose.exe <file>` opens a file, and `--version` says
-what a binary is. The shell is edited live through `npm run tauri dev` or `npm run dev`. To try
-an exe while another Ose runs, build it with `--config` naming another identifier, or the launch
-is handed to the running copy. Shipped binaries come from CI (`.github/workflows/build.yml`):
-every push to `main` publishes `ose.exe` to the rolling `latest` release. See docs/HOST.md.
+Deploying is pushing: Vercel builds every push (`npm run build`, `vercel.json`), `main` is the
+real site and every other branch gets a preview address. CI (`.github/workflows/ci.yml`) runs the
+lint, the typecheck, the unit tests, the build and the browser suites on every push to `main` and
+every pull request. A new deploy reaches an installed app through its service worker once its
+open tabs are closed. See docs/HOST.md.
 
 There is one workflow: **a change** is made here, built, and shipped. The planner is part of the
 app like everything else; what a vault decides is only where its files are (Settings › Planner).
@@ -126,7 +118,7 @@ app like everything else; what a vault decides is only where its files are (Sett
 ## Rules for working in this folder
 
 - Read `docs/FORMATS.md` before touching the planner, `docs/KERNEL.md` before the kernel,
-  `docs/SHELL.md` before the shell, `docs/HOST.md` before the host, and `docs/DESIGN.md` before
+  `docs/SHELL.md` before the shell, `docs/HOST.md` before `src/web`, and `docs/DESIGN.md` before
   any UI. A hose is added, never changed in meaning.
   Every document lives in `docs/`; the root `README.md` is one paragraph and stays as it is.
 - The kernel never draws and ships no HTML. Nothing in it knows a view, the planner or a file
@@ -134,9 +126,9 @@ app like everything else; what a vault decides is only where its files are (Sett
 - The planner imports only `ose:ui`, `ose:editor`, `date-fns` and its own files, never
   `ose:kernel`. It never spells a vault path: every path is a setting, found automatically the
   first time and confirmed by the user. It writes a line, never a whole file.
-- Nothing is hidden by name. The host has the one hide rule (`.ose`, `.git`, the exe, temp
-  files); dotfiles and the system's hidden flag wait behind Show hidden items. Names are shown
-  in full, with their extension.
+- Nothing is hidden by name. The host has the one hide rule (`.ose`, `.git`, the vault bin's
+  bookkeeping, temp files and Chrome's `.crswap`, `src/web/rules.js`); dotfiles wait behind Show
+  hidden items. Names are shown in full, with their extension.
 - Markdown fidelity is non-negotiable. The editor must never rewrite a file it did not edit, and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
   emphasis, H1 and body text, LF endings, UTF-8 without BOM. One blank line separates two blocks
@@ -145,8 +137,7 @@ app like everything else; what a vault decides is only where its files are (Sett
 - Never write to a real vault file while testing. Use a throwaway copy and clean up.
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
   Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml, turndown (HTML
-  paste), node-diff3 and date-fns; the host has three plugins beyond Tauri's own (single-instance,
-  dialog and drag), and tauri-specta, encoding_rs, chardetng and unicode-normalization.
+  paste), node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
 - checkJs covers the set in `tsconfig.json`; `@ts-ignore` and `@ts-expect-error` are banned in it,
   and a file comes out of the set rather than hide an error.
 - Colours, fonts and sizes come from the tokens in `ui.css` only. No hex values elsewhere.
@@ -161,21 +152,26 @@ app like everything else; what a vault decides is only where its files are (Sett
 
 - No AI surface. No terminal, no chat pane, no MCP server. Claude Code is run on the vault from
   outside; `CLAUDE.md` in the vault points at `docs/FORMATS.md` and that is the integration.
-- No updater. The app makes no network call at all, and starts no program of its own choosing:
-  opening a file with its default app or showing it in Explorer is handed to the system. A new
-  version is downloaded by hand and dropped over the old one.
-- Tests: `cargo test` in `src-tauri`, `npm test` for the JS (`tests/`, with a small fixture
-  corpus in `tests/fixtures` copied from the throwaway vault, never from a real one) and
-  `npm run test:e2e` for the no-loss suite; CI runs all three. The app itself is still checked
-  by running it.
+- No network but the app's own files. The page loads its code from its origin, once; after that
+  the service worker serves it and the app works offline. Nothing of a vault is ever sent
+  anywhere, and the page names no other host (its CSP says so). It starts no program: opening a
+  file shows it in a browser tab, and nothing runs.
+- No updater and no installer. A deploy is picked up by the service worker; installing is
+  Chrome's own "Install app", and the vault folder is chosen in Chrome.
+- No desktop app. The Rust/Tauri host is gone (git history keeps it). What a browser cannot do
+  is not done: no system Trash (a delete goes to the vault's `.trash`), no drag out of the
+  window, no Show in Explorer, no native paths.
+- Tests: `npm test` for the JS (`tests/`, with a small fixture corpus in `tests/fixtures` copied
+  from the throwaway vault, never from a real one) and `npm run test:e2e` for the no-loss suite;
+  CI runs both. The app itself is still checked by running it.
 - No plugins: no loader, no manifest, no marketplace, no third-party code. Day, Week, Month and
   Journal are built in; a vault's old `.ose/plugins` folder is no longer read.
 - No interface in the vault: no `.ose/app`, no `cockpit.json`, no fallback page. A shell that
-  throws at boot shows an error page with the message, the stack and the log path, never a
-  blank window; the way back is the log and `npm run tauri dev`.
-- No database, no index files, no cache of vault content on disk. Everything is recomputed from
-  the files at startup. The one exception is a draft: text the editor could not write is kept
-  per machine outside the vault until a save lands, so a page that cannot be saved cannot be
+  throws at boot shows an error page with the message, the stack and where the log is, never a
+  blank page; the way back is the log and `npm run dev`.
+- No database, no index files, no cache of vault content. Everything is recomputed from the files
+  at startup. The one exception is a draft: text the editor could not write is kept in the
+  browser's storage on this machine until a save lands, so a page that cannot be saved cannot be
   left and nothing typed is lost.
 - No sync, no accounts.
 - One page at a time in the column. Each tab has its own back and forward, and a page in a tab
@@ -186,6 +182,3 @@ app like everything else; what a vault decides is only where its files are (Sett
   (natural order), modified, size or type, as its folder view says. Maths is `$...$` and `$$...$$` by the
   pandoc rule, rendered with Temml to MathML in the platform's maths face; a `$` that opens
   nothing, as in `5 $ puis 10 $`, stays a `$`.
-- No installer and no paid code signing: a portable binary that is copied where it is wanted. CI
-  signs the macOS app with a stable self-signed identity when the repository has one, ad hoc
-  otherwise. Ose writes no registry key; "Open with → ose.exe" hands the file over as an argument.

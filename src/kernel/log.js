@@ -1,4 +1,4 @@
-// The web view's half of the log (M54, docs/HOST.md "Log"). The host keeps a rotating log file
+// The web view's half of the log (M54, docs/HOST.md "Machine-local state"). The host keeps a rotating log file
 // in every build; this is how what happens on the JavaScript side gets into it: `ose.log`, the
 // kernel's own lines, and every error nobody caught. The stack of the bug that lost Hassan's
 // notes existed nowhere, because a webview error never reached the disk.

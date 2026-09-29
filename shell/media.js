@@ -9,12 +9,11 @@
 // falls back to scrolling the column, which is the right thing.
 //
 // Nothing here reads the file's bytes, beyond the first few of a PDF to see that it is one.
-// The web view draws it itself over the vault origin (`ose.files.assetUrl`): an `<img src>`
-// for a picture, and for a PDF an `<iframe>` whose document is the web view's own PDF viewer —
-// Chromium's in WebView2, WKWebView's on macOS. That is why the host's CSP names the vault
-// origin in `frame-src` as well as `img-src` and why the vault
-// protocol answers `application/pdf` for `.pdf` (src-tauri/src/protocol.rs). No library, no
-// bytes through the bridge, no temp file.
+// The browser draws it itself from the vault's URL (`ose.files.assetUrl`, which the service
+// worker answers from the vault, src/web/sw.js): an `<img src>` for a picture, and for a PDF an
+// `<iframe>` whose document is Chrome's own PDF viewer. That is why the page's CSP allows
+// `frame-src 'self'` as well as `img-src`, and why the worker answers `application/pdf` for
+// `.pdf`. No library, no bytes through the bridge, no temp file.
 //
 // The frame is the one thing in the app the app cannot see into: it is another document, in
 // another process, on another origin. Two rules follow, and both are here rather than in a
@@ -466,11 +465,10 @@ export function binaryPage(el, path) {
     actions.appendChild(b);
     return b;
   };
-  const first = button('Open with default app', 'reveal', () => ose.files.open(path), true);
+  const first = button('Open in a browser tab', 'reveal', () => ose.files.open(path), true);
   // A file outside the vault (X7) has no folder in the app: the copy into it is the way in.
   if (isOutside(path)) button('Copy into the vault…', 'copy', () => ose.commands.run('file.copy-into-vault', path));
   else button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
-  button('Reveal in Explorer', 'reveal', () => ose.files.reveal(path));
 
   el.appendChild(col);
 

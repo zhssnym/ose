@@ -30,7 +30,7 @@ import {
 } from 'ose:ui';
 import { vaultLost } from './vault.js';
 import { clean, join, baseName, dirName, extOf, titleOf, segments, vaultName as nameOfVault, errorOf } from './paths.js';
-import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, dragOut, setDragged, dragged } from './drag.js';
+import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, setDragged, dragged } from './drag.js';
 import { openSearch } from './search.js';
 import { openInNewTab } from './tabs.js';
 import {
@@ -1085,9 +1085,8 @@ export function revealFolder(path) {
 // Internal drags carry the vault paths (a JSON list: a selection drags together, C17) in a
 // private type (drag.js `DRAG_TYPE`); `dragPaths` mirrors it because dataTransfer.getData is
 // unreadable during dragover, and the self/descendant guard has to run there, for every item,
-// to decide whether the row may light up at all. A drag with Alt held is not a move: it is the
-// platform's own drag of the files out of the app, as a copy (drag.js `dragOut`). A drop from
-// Explorer or Finder is copied in, folders and all, through drag.js `importDropped`.
+// to decide whether the row may light up at all. A drop from Explorer or Finder is copied in,
+// folders and all, through drag.js `importDropped`.
 
 let dragPaths = null;
 let dropEl = null;
@@ -1128,8 +1127,6 @@ function bindDnd(host) {
     // A row inside a selection of several drags the whole selection; any other row, itself.
     const batch = batchFor({ path: row.dataset.path, kind: row.dataset.kind });
     const paths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
-    // Alt: out of the app, as a copy. The move below never starts.
-    if (e.altKey) { dragOut(e, paths); return; }
     dragPaths = paths;
     setDragged(paths);
     e.dataTransfer.effectAllowed = 'move';
@@ -1216,7 +1213,6 @@ function treeTarget() {
   return null;
 }
 
-const reveal = (path) => files.reveal(path).catch((e) => toast(e.message || e, 'err'));
 
 /** Every folder in the tree, or none of them (N26). One persist, one render. */
 function setAllExpanded(open) {
@@ -1312,10 +1308,8 @@ const TREE_COMMANDS = [
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
   // Every row, folders included: a folder handed to the platform opens in the file manager.
-  { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
+  { id: 'tree.open-external', title: 'Open in a browser tab', icon: 'reveal', group: 'tree',
     applies: (t) => !!t.path, run: (t) => openWith(t.path) },
-  { id: 'tree.reveal', title: 'Reveal in Explorer', icon: 'reveal', group: 'tree',
-    applies: () => true, run: (t) => void reveal(t.path) },
   // Search, already narrowed to the folder (N38).
   { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',
     applies: (t) => t.kind === 'dir', run: (t) => openSearch({ folder: t.path }) },
@@ -1355,7 +1349,7 @@ const MENU = [
   null,
   'tree.copy-path', 'tree.copy-link',
   null,
-  'tree.sort', 'tree.search-here', 'tree.open-external', 'tree.reveal',
+  'tree.sort', 'tree.search-here', 'tree.open-external',
   null,
   'file.trash',
 ];

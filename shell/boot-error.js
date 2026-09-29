@@ -107,7 +107,7 @@ function describe(err) {
   return code + String(err.message || err);
 }
 
-/** Where the host writes its log (docs/HOST.md "Log"), when the kernel can say. */
+/** Where the host writes its log (docs/HOST.md "Machine-local state"), when the kernel can say. */
 async function logPath(ose) {
   if (!ose || !ose.vault || typeof ose.vault.info !== 'function') return '';
   try {

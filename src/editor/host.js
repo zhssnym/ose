@@ -3,7 +3,7 @@
 // `ose:editor` is a library: it knows the kernel and nothing else. Every other file under
 // `src/editor/` imports what it needs from here, so the whole bundle has exactly one place
 // that names anything outside the folder — and `ose:kernel` and `ose:ui` are
-// external to this bundle (vite.kernel.config.js), so there is one bridge, one overlay stack
+// external to this bundle (vite.config.js), so there is one bridge, one overlay stack
 // and one toast queue in a running Ose, never two.
 //
 // The names below are the ones the editor has always used: `bridge.readText(path)`,
@@ -209,7 +209,7 @@ export const bridge = {
   openPath: (path) => ose.files.open(path),
   openExternal: (url) => ose.openExternal(url),
   assetUrl: (path) => ose.files.assetUrl(path),
-  // `opts` is `{force, reason}`, or the old boolean `force` (docs/HOST.md "Versions").
+  // `opts` is `{force, reason}`, or the old boolean `force` (docs/HOST.md "Commands").
   versionKeep: (path, text, opts) => ose.files.versions.keep(path, text, opts),
   versionList: (path) => ose.files.versions.list(path),
   versionRead: (path, id) => ose.files.versions.read(path, id),
@@ -228,13 +228,13 @@ export const bridge = {
 // missing one is a hard error (X5), never a feature to detect. The types are the host's
 // generated bindings.
 
-/** @typedef {import('../kernel/bridge/bindings.ts').ReadFile} ReadFile */
-/** @typedef {import('../kernel/bridge/bindings.ts').SaveOutcome} SaveOutcome */
-/** @typedef {import('../kernel/bridge/bindings.ts').Created} Created */
-/** @typedef {import('../kernel/bridge/bindings.ts').Draft} Draft */
-/** @typedef {import('../kernel/bridge/bindings.ts').DraftAt} DraftAt */
-/** @typedef {import('../kernel/bridge/bindings.ts').DraftInfo} DraftInfo */
-/** @typedef {import('../kernel/bridge/bindings.ts').Dropped} Dropped */
+/** @typedef {import('../kernel/bridge/commands.ts').ReadFile} ReadFile */
+/** @typedef {import('../kernel/bridge/commands.ts').SaveOutcome} SaveOutcome */
+/** @typedef {import('../kernel/bridge/commands.ts').Created} Created */
+/** @typedef {import('../kernel/bridge/commands.ts').Draft} Draft */
+/** @typedef {import('../kernel/bridge/commands.ts').DraftAt} DraftAt */
+/** @typedef {import('../kernel/bridge/commands.ts').DraftInfo} DraftInfo */
+/** @typedef {import('../kernel/bridge/commands.ts').Dropped} Dropped */
 /** @typedef {{ kept: boolean, id: string | null }} Kept */
 
 export const pageFiles = {

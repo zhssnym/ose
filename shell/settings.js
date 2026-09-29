@@ -9,7 +9,6 @@
 import { ose } from 'ose:kernel';
 import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault, openInNewWindow } from './vault.js';
-import { hostKind } from './host.js';
 
 const { bus, commands, store } = ose;
 
@@ -241,7 +240,7 @@ function vaultHtml() {
   return `<div class="set-info mono-sm text-select">
       <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
       <div><span>From</span><i class="set-vault-src">—</i></div>
-      <div><span>Version</span><i>${esc(`${ose.version.kernel} · ${hostKind()} · ${ose.platform}`)}</i></div>
+      <div><span>Version</span><i>${esc(`${ose.version.kernel} · ${ose.platform}`)}</i></div>
       <div><span>Log</span><i class="set-log">—</i></div>
     </div>`;
 }
@@ -517,7 +516,7 @@ export function initSettings() {
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
   // A window of its own (X6), on no vault: it opens on the chooser. Change vault… offers the
-  // same for a vault, with Shift+Enter on a row or its "Open in new window" button.
+  // same for a vault, with Shift+Enter on a row or its "Open in new tab" button.
   commands.register({ id: 'app.new-window', title: 'New window', group: 'app', hint: 'a window of its own, for another vault', run: () => openInNewWindow() });
 
   // The page view is one command too, so switching between the scroll and the sheet is a

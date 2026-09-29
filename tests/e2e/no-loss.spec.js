@@ -2,18 +2,17 @@
 // driven through the real app in a browser and each checked against the bytes on disk. 1 to 8
 // are the contract's; 9 to 13 are the loss paths the wave-2 review found around them.
 //
-// Every scenario types into a file of its own under `<vault>/e2e/` (fixtures.js) in the temp
-// copy the config's web server runs on. Before each one the app is put back to a first launch
-// (helpers.js resetApp) and loaded.
+// Every scenario types into a file of its own under `e2e/` (fixtures.js), in a fresh browser
+// context: a first launch of the built app over a new vault (helpers.js boot).
 //
-// Depends on: host (devFault, localGet/localSet, the dev bridge), kernel (tabs, session),
+// Depends on: src/web (the adapter, the OPFS test hook, drafts), kernel (tabs, session),
 // editor (instances, merge), shell-tree (the tree's F2 and Ctrl+Z), shell-places (tab marks),
 // shell-surfaces (the recovery sheet), kernel (ose.fileops and its undo journal).
 
 import { expect, test } from '@playwright/test';
 import { FILES } from './fixtures.js';
 import {
-  boot, bridge, buffer, current, devFault, disk, draftPaths, editor, openPage, resetApp, revealInTree,
+  boot, bridge, buffer, current, devFault, disk, draftPaths, editor, openPage, revealInTree,
   tabState, treeRow, typeAtEnd, waitBooted, writeDisk,
 } from './helpers.js';
 
@@ -22,8 +21,7 @@ const typed = (rel, line, text) => FILES[rel].replace(line, line + text);
 
 const path = async (page) => (await current(page))?.path ?? null;
 
-test.beforeEach(async ({ page, request }) => {
-  await resetApp(request);
+test.beforeEach(async ({ page }) => {
   await boot(page);
 });
 
@@ -35,18 +33,18 @@ test('1. type, Ctrl+W, reopen: the file holds the typed text', async ({ page }) 
   await page.keyboard.press('Control+w');
 
   await expect.poll(() => path(page)).not.toBe(rel);
-  expect(disk(rel)).toBe(want);
+  expect(await disk(page, rel)).toBe(want);
 
   await openPage(page, rel);
   await expect(editor(page)).toContainText('The first paragraph. typed-close');
-  expect(disk(rel)).toBe(want);
+  expect(await disk(page, rel)).toBe(want);
 });
 
-test('2. a failed write keeps the tab, then Ctrl+S saves and Ctrl+W closes', async ({ page, request }) => {
+test('2. a failed write keeps the tab, then Ctrl+S saves and Ctrl+W closes', async ({ page }) => {
   const rel = 'e2e/fail.md';
   const want = typed(rel, 'The first paragraph.', ' typed-fail');
   await openPage(page, rel);
-  await devFault(request, { cmd: 'saveFile', path: rel, code: 'write_failed', message: 'the disk is full (e2e)' });
+  await devFault(page, { cmd: 'saveFile', path: rel, code: 'write_failed', message: 'the disk is full (e2e)' });
   await typeAtEnd(page, 'The first paragraph.', ' typed-fail');
   await page.keyboard.press('Control+w');
 
@@ -57,25 +55,25 @@ test('2. a failed write keeps the tab, then Ctrl+S saves and Ctrl+W closes', asy
   // and its tooltip starts with the path. (With one tab the strip itself is hidden, so the
   // mark is checked in the DOM, not on screen.)
   await expect(page.locator(`.tab.err[title*="${rel}"] .tab-err`)).toBeAttached();
-  await expect.poll(() => draftPaths(request)).toContain(rel);
-  expect(disk(rel)).toBe(FILES[rel]);
+  await expect.poll(() => draftPaths(page)).toContain(rel);
+  expect(await disk(page, rel)).toBe(FILES[rel]);
 
-  await devFault(request, null);
+  await devFault(page, null);
   await page.keyboard.press('Control+s');
-  await expect.poll(() => disk(rel)).toBe(want);
+  await expect.poll(() => disk(page, rel)).toBe(want);
 
   await page.keyboard.press('Control+w');
   await expect.poll(() => path(page)).not.toBe(rel);
-  expect(disk(rel)).toBe(want);
+  expect(await disk(page, rel)).toBe(want);
 });
 
-test('3. an overlapping change, Resolve then Cancel, then a click away: refused, nothing lost', async ({ page, request }) => {
+test('3. an overlapping change, Resolve then Cancel, then a click away: refused, nothing lost', async ({ page }) => {
   const rel = 'e2e/conflict.md';
   const theirs = FILES[rel].replace('The shared line.', 'The shared line. theirs');
   await openPage(page, rel);
   await typeAtEnd(page, 'The shared line.', ' mine');
   // Another program writes the same line before the autosave (600 ms) runs.
-  writeDisk(rel, theirs);
+  await writeDisk(page, rel, theirs);
 
   const banner = page.locator('.ed-banner[role="alert"]');
   await expect(banner).toContainText(/overlap/i);
@@ -91,9 +89,9 @@ test('3. an overlapping change, Resolve then Cancel, then a click away: refused,
 
   expect(await path(page)).toBe(rel);
   await expect(editor(page)).toContainText('The shared line. mine');
-  expect(await draftPaths(request)).toContain(rel);
+  expect(await draftPaths(page)).toContain(rel);
   // Nothing was written over the other program's text.
-  expect(disk(rel)).toBe(theirs);
+  expect(await disk(page, rel)).toBe(theirs);
 });
 
 test('4. rename an open dirty page with F2, then Ctrl+Z in the tree renames it back', async ({ page }) => {
@@ -111,16 +109,16 @@ test('4. rename an open dirty page with F2, then Ctrl+Z in the tree renames it b
   await input.fill('renamed.md');
   await page.keyboard.press('Enter');
 
-  await expect.poll(() => disk(moved)).toBe(want);
-  expect(disk(rel)).toBeNull();
+  await expect.poll(() => disk(page, moved)).toBe(want);
+  expect(await disk(page, rel)).toBeNull();
   await expect.poll(() => path(page)).toBe(moved);
 
   await expect(treeRow(page, moved)).toBeVisible();
   await treeRow(page, moved).focus();
   await page.keyboard.press('Control+z');
 
-  await expect.poll(() => disk(rel)).toBe(want);
-  expect(disk(moved)).toBeNull();
+  await expect.poll(() => disk(page, rel)).toBe(want);
+  expect(await disk(page, moved)).toBeNull();
   await expect.poll(() => path(page)).toBe(rel);
   await expect(editor(page)).toContainText('The first paragraph. typed-rename');
 });
@@ -135,12 +133,20 @@ test('5. a reload while typing: the text is in the file, or the recovery sheet p
   await waitBooted(page);
 
   // Either the save landed, or the draft comes back: by itself when the page reopens, or from
-  // the recovery sheet, whose row opens the page and puts the draft back for the autosave.
+  // the recovery sheet, whose row opens the page and puts the draft back. A recovered draft
+  // nobody has edited yet waits for a deliberate save (src/editor/page.js), which in a browser
+  // is the usual case: the reload beats the autosave. One Ctrl+S then puts it in the file.
+  const recovered = page.locator('.ed-banner', { hasText: /were recovered/i });
   await expect.poll(async () => {
-    if (disk(rel) === want) return 'saved';
+    if ((await disk(page, rel)) === want) return 'saved';
     const row = page.locator('.rec-row', { hasText: 'reload.md' }).first();
     if (await row.isVisible().catch(() => false)) await row.click().catch(() => {});
-    return disk(rel) === want ? 'saved' : 'waiting';
+    if (await recovered.isVisible().catch(() => false)) {
+      await expect(editor(page)).toContainText('The first paragraph. typed-reload');
+      await editor(page).focus();
+      await page.keyboard.press('Control+s');
+    }
+    return (await disk(page, rel)) === want ? 'saved' : 'waiting';
   }, { timeout: 20_000, intervals: [250, 500, 1000] }).toBe('saved');
 });
 
@@ -150,7 +156,7 @@ test('6. a tab switch keeps the undo history (M24)', async ({ page }) => {
   const tabA = (await tabState(page))?.activeId;
   expect(tabA, 'ose.tabs (CONTRACT §4.3)').toBeTruthy();
   await typeAtEnd(page, 'The first paragraph.', ' undo-me');
-  await expect.poll(() => disk(a)).toBe(typed(a, 'The first paragraph.', ' undo-me'));
+  await expect.poll(() => disk(page, a)).toBe(typed(a, 'The first paragraph.', ' undo-me'));
 
   await openPage(page, 'e2e/undo-b.md', { tab: 'new' });
   await page.evaluate((id) => window.__ose.tabs.activate(id), tabA);
@@ -162,7 +168,7 @@ test('6. a tab switch keeps the undo history (M24)', async ({ page }) => {
   await expect(editor(page)).not.toContainText('undo-me');
   await expect(editor(page)).toContainText('The first paragraph.');
   // And the undo is saved like any edit.
-  await expect.poll(() => disk(a)).toBe(FILES[a]);
+  await expect.poll(() => disk(page, a)).toBe(FILES[a]);
 });
 
 test('7. session restore: the same tabs and the same active route after a reload', async ({ page }) => {
@@ -196,10 +202,10 @@ test('8. a change on disk that does not overlap merges by itself (H7)', async ({
     .replace('Line nine at the end.', 'Line nine at the end. theirs');
   await openPage(page, rel);
   await typeAtEnd(page, 'Line one of the page.', ' ours');
-  writeDisk(rel, FILES[rel].replace('Line nine at the end.', 'Line nine at the end. theirs'));
+  await writeDisk(page, rel, FILES[rel].replace('Line nine at the end.', 'Line nine at the end. theirs'));
 
   await expect(page.locator('.ed-banner')).toContainText(/merged/i);
-  await expect.poll(() => disk(rel), { timeout: 15_000 }).toBe(want);
+  await expect.poll(() => disk(page, rel), { timeout: 15_000 }).toBe(want);
   await expect(editor(page)).toContainText('Line nine at the end. theirs');
   await expect(editor(page)).toContainText('Line one of the page. ours');
 });
@@ -209,12 +215,12 @@ test('9. Ctrl+Z after a change on disk was taken in place does not undo the othe
   const ours = FILES[rel].replace('Line one of the page.', 'Line one of the page. ours');
   await openPage(page, rel);
   await typeAtEnd(page, 'Line one of the page.', ' ours');
-  await expect.poll(() => disk(rel), { timeout: 15_000 }).toBe(ours);
+  await expect.poll(() => disk(page, rel), { timeout: 15_000 }).toBe(ours);
   await page.waitForTimeout(800);
 
   // The page is clean by now, so the other program's change is taken in place.
   const theirs = ours.replace('Line nine at the end.', 'Line nine at the end. theirs-by-agent');
-  writeDisk(rel, theirs);
+  await writeDisk(page, rel, theirs);
   await expect(editor(page)).toContainText('theirs-by-agent', { timeout: 15_000 });
   await page.waitForTimeout(500);
 
@@ -225,17 +231,17 @@ test('9. Ctrl+Z after a change on disk was taken in place does not undo the othe
   await page.waitForTimeout(2500);
 
   await expect(editor(page)).toContainText('Line nine at the end. theirs-by-agent');
-  expect(disk(rel)).toContain('Line nine at the end. theirs-by-agent');
+  expect(await disk(page, rel)).toContain('Line nine at the end. theirs-by-agent');
 });
 
-test('10. a restored tab with a draft, Discard in the recovery sheet, then leave: the draft is not written', async ({ page, request }) => {
+test('10. a restored tab with a draft, Discard in the recovery sheet, then leave: the draft is not written', async ({ page }) => {
   const rel = 'e2e/discard.md';
   await openPage(page, rel);
   // The session is written debounced (500 ms).
   await page.waitForTimeout(1200);
-  const f = await bridge(request, 'readFile', rel);
+  const f = await bridge(page, 'readFile', rel);
   const text = FILES[rel].replace('The first paragraph.', 'The first paragraph. discard-me');
-  await bridge(request, 'draftWrite', rel, { path: rel, text, baselineHash: f.hash, mode: 'rich', exact: true, rev: 5 });
+  await bridge(page, 'draftWrite', rel, { path: rel, text, baselineHash: f.hash, mode: 'rich', exact: true, rev: 5 });
   await page.reload();
   await waitBooted(page);
 
@@ -247,12 +253,12 @@ test('10. a restored tab with a draft, Discard in the recovery sheet, then leave
   await row.focus();
   await page.keyboard.press('Delete');
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
-  await expect.poll(() => draftPaths(request)).not.toContain(rel);
+  await expect.poll(() => draftPaths(page)).not.toContain(rel);
 
   await page.evaluate(() => window.__ose.route.navigate({ type: 'page', path: 'e2e/other.md' }));
   await page.waitForTimeout(1500);
-  expect(disk(rel)).toBe(FILES[rel]);
-  expect(await draftPaths(request)).not.toContain(rel);
+  expect(await disk(page, rel)).toBe(FILES[rel]);
+  expect(await draftPaths(page)).not.toContain(rel);
 });
 
 /** Open `a` in one tab and `b` in a second, then come back to the first; both tab ids. */
@@ -290,7 +296,7 @@ test('11. a navigate overtaken by a tab switch: the page is saved, and editable 
   await typeAtEnd(page, 'The first paragraph.', ' race-text');
   await navigateThenSwitch(page, 'e2e/other.md', second);
 
-  await expect.poll(() => disk(rel), { timeout: 15_000 }).toBe(want);
+  await expect.poll(() => disk(page, rel), { timeout: 15_000 }).toBe(want);
   await page.evaluate((rel) => window.__ose.route.navigate({ type: 'page', path: rel }), rel);
   await expect.poll(() => path(page)).toBe(rel);
   await page.waitForTimeout(500);
@@ -302,11 +308,11 @@ test('11. a navigate overtaken by a tab switch: the page is saved, and editable 
   await expect(editor(page)).toContainText('The first paragraph. race-text');
 });
 
-test('12. the same race with a failing save: the unsaved page keeps its tab and its draft', async ({ page, request }) => {
+test('12. the same race with a failing save: the unsaved page keeps its tab and its draft', async ({ page }) => {
   const rel = 'e2e/race-fail.md';
   const want = typed(rel, 'The first paragraph.', ' orphan-text');
   const { second } = await twoTabs(page, rel, 'e2e/undo-b.md');
-  await devFault(request, { cmd: 'saveFile', path: rel, code: 'io', message: 'locked (e2e)' });
+  await devFault(page, { cmd: 'saveFile', path: rel, code: 'io', message: 'locked (e2e)' });
   await typeAtEnd(page, 'The first paragraph.', ' orphan-text');
   const r = await navigateThenSwitch(page, 'e2e/other.md', second);
   await page.waitForTimeout(800);
@@ -315,17 +321,17 @@ test('12. the same race with a failing save: the unsaved page keeps its tab and 
   expect(r.nav).toBe(false);
   const tab = await tabHolding(page, rel);
   expect(tab, `a tab still holds ${rel}`).toBeTruthy();
-  await expect.poll(() => draftPaths(request)).toContain(rel);
-  expect(disk(rel)).toBe(FILES[rel]);
+  await expect.poll(() => draftPaths(page)).toContain(rel);
+  expect(await disk(page, rel)).toBe(FILES[rel]);
 
   // From that tab the text reaches the disk once the disk takes it.
-  await devFault(request, null);
+  await devFault(page, null);
   await page.evaluate((id) => window.__ose.tabs.activate(id), tab);
   await expect.poll(() => path(page)).toBe(rel);
   await expect(editor(page)).toContainText('The first paragraph. orphan-text');
   await editor(page).focus();
   await page.keyboard.press('Control+s');
-  await expect.poll(() => disk(rel), { timeout: 15_000 }).toBe(want);
+  await expect.poll(() => disk(page, rel), { timeout: 15_000 }).toBe(want);
 });
 
 test('13. undo refuses an edited new page, and the next undo does not trash its folder with it', async ({ page }) => {
@@ -337,7 +343,7 @@ test('13. undo refuses an edited new page, and the next undo does not trash its 
   await openPage(page, rel);
   await page.keyboard.press('Control+End');
   await page.keyboard.type(' my notes', { delay: 15 });
-  await expect.poll(() => disk(rel), { timeout: 10_000 }).toContain('my notes');
+  await expect.poll(() => disk(page, rel), { timeout: 10_000 }).toContain('my notes');
   await page.evaluate(() => window.__ose.route.navigate({ type: 'page', path: 'e2e/other.md' }));
 
   const undo = () => page.evaluate(async () => (await window.__ose.fileops.journal.undo()).ok);
@@ -346,5 +352,5 @@ test('13. undo refuses an edited new page, and the next undo does not trash its 
   // Created folder undo-folder: refused or not, the page stays where it is.
   await undo();
 
-  expect(disk(rel)).toContain('my notes');
+  expect(await disk(page, rel)).toContain('my notes');
 });

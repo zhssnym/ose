@@ -1,117 +1,175 @@
-// What every no-loss scenario needs: the bridge (to reset the app between scenarios, arm a
-// fault, list drafts), the bytes on disk, and a few moves in the page (boot, open a page, type
-// at the end of a line, the active route and tabs).
+// What every no-loss scenario needs, over Ose Web: the vault (the origin's private file system,
+// which the app opens through the `?opfs=1` test hook, src/web/adapter.js), the bytes in it, a
+// fault switch on the writes, the drafts, the log, and a few moves in the page (boot, open a
+// page, type at the end of a line, the active route and tabs).
+//
+// Every test runs in a fresh browser context, so it starts at a first launch with an empty
+// vault: `boot` seeds it with fixtures.js first. The vault is read and written from inside the
+// page, the way another program writes a folder on disk, never through the app.
 //
 // The page is driven by keyboard and mouse like a person would; `window.__ose` (the kernel's
 // debugging handle, kernel.js) is read to know where the app is, and used to open a route only
 // where a person would have clicked something the scenario is not about.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import { expect } from '@playwright/test';
-import { APPDATA, OUTSIDE, ROOT } from './env.js';
+import { FILES } from './fixtures.js';
+
+/** @typedef {import('@playwright/test').Page} Page */
+
+/** The sessionStorage key the fault switch reads (see `installFaults`). */
+const FAULT_KEY = 'ose.e2e.fault';
 
 /**
- * One bridge call from the test process, the way src/kernel/bridge/http.js makes it.
- * @param {import('@playwright/test').APIRequestContext} request
- * @param {string} cmd
- * @param {...any} args
- * @returns {Promise<{ ok: boolean, result?: any, error?: string }>}
+ * The fault switch, installed in every document before the app's own scripts: a write to a
+ * file whose name is armed fails in `createWritable` with the DOMException a full or locked
+ * disk gives, which src/web/rules.js `fromDom` turns into the host error. It lives in
+ * sessionStorage, so it holds across a reload of the tab, as a disk fault would.
  */
-export async function call(request, cmd, ...args) {
-  const res = await request.post(`/__bridge/${cmd}`, { data: { args } });
-  return res.json();
+function installFaults(key) {
+  const P = globalThis.FileSystemFileHandle && globalThis.FileSystemFileHandle.prototype;
+  if (!P || P.__oseFaults) return;
+  const original = P.createWritable;
+  P.createWritable = function createWritable(...args) {
+    let f = null;
+    try { f = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { f = null; }
+    if (f && f.name === this.name) return Promise.reject(new DOMException(f.message, f.dom));
+    return original.apply(this, args);
+  };
+  P.__oseFaults = true;
 }
 
 /**
- * A bridge call that must succeed; its result.
+ * Arm the fault switch for one vault file, or clear it with null. `code` is the host error the
+ * write must end in: `write_failed` (a full disk) or `io` (a file another program holds).
+ * @param {Page} page
+ * @param {{ path: string, code: 'write_failed' | 'io', message?: string } | null} spec
+ */
+export async function devFault(page, spec) {
+  const value = spec
+    ? JSON.stringify({
+      name: spec.path.split('/').at(-1),
+      dom: spec.code === 'write_failed' ? 'QuotaExceededError' : 'OperationError',
+      message: spec.message || 'e2e fault',
+    })
+    : null;
+  await page.evaluate(({ key, value }) => {
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  }, { key: FAULT_KEY, value });
+}
+
+/**
+ * One host command through the app's own bridge (`window.__bridge`, src/kernel/bridge/index.js).
+ * @param {Page} page @param {string} cmd @param {...any} args
  * @returns {Promise<any>}
  */
-export async function bridge(request, cmd, ...args) {
-  const r = await call(request, cmd, ...args);
-  if (!r.ok) throw new Error(`${cmd}: ${r.error}`);
-  return r.result;
+export function bridge(page, cmd, ...args) {
+  return page.evaluate(({ cmd, args }) => window.__bridge[cmd](...args), { cmd, args });
+}
+
+/** The paths that have a draft on this machine. @param {Page} page */
+export async function draftPaths(page) {
+  try {
+    const list = await bridge(page, 'draftList');
+    return (list || []).map((d) => d.path);
+  } catch { return []; }
+}
+
+/** Write vault files straight into the vault, as another program would. @param {Page} page */
+export async function writeFiles(page, files) {
+  await page.evaluate(async (files) => {
+    const root = await navigator.storage.getDirectory();
+    for (const [rel, bytes] of Object.entries(files)) {
+      const parts = rel.split('/');
+      let dir = root;
+      for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, { create: true });
+      const h = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+      const w = await h.createWritable();
+      await w.write(new Uint8Array(bytes));
+      await w.close();
+    }
+  }, Object.fromEntries(Object.entries(files).map(([rel, text]) => [rel, [...Buffer.from(text, 'utf8')]])));
+}
+
+/** Write one vault file the way another program would. @param {Page} page */
+export function writeDisk(page, rel, text) {
+  return writeFiles(page, { [rel]: text });
+}
+
+/** A vault file's bytes and time, or null when it is not there. @param {Page} page */
+async function readVault(page, rel) {
+  const r = await page.evaluate(async (rel) => {
+    try {
+      const parts = rel.split('/');
+      let dir = await navigator.storage.getDirectory();
+      for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p);
+      const f = await (await dir.getFileHandle(parts[parts.length - 1])).getFile();
+      return { bytes: Array.from(new Uint8Array(await f.arrayBuffer())), mtime: f.lastModified };
+    } catch { return null; }
+  }, rel);
+  return r && { bytes: Buffer.from(r.bytes), mtime: r.mtime };
+}
+
+/** A vault file's bytes, or null. @param {Page} page @returns {Promise<Buffer | null>} */
+export async function diskBytes(page, rel) {
+  const r = await readVault(page, rel);
+  return r ? r.bytes : null;
+}
+
+/** A vault file's text, or null when it is not there. @param {Page} page */
+export async function disk(page, rel) {
+  const b = await diskBytes(page, rel);
+  return b ? b.toString('utf8') : null;
 }
 
 /**
- * Arm the dev bridge's fault switch (docs/HOST.md "devFault"), or clear it with null.
- * @param {{ cmd: string, path?: string, code: string, message?: string, times?: number } | null} spec
+ * Every file of the vault and its size, by vault path, but for `.ose` and `.git`.
+ * @param {Page} page @returns {Promise<Map<string, number>>}
  */
-export async function devFault(request, spec) {
-  const r = await call(request, 'devFault', spec);
-  if (!r.ok && spec) throw new Error(`devFault is not available: ${r.error} (OSE_DEV_FAULTS=1, host role)`);
+export async function vaultFiles(page) {
+  const list = await page.evaluate(async () => {
+    const out = [];
+    const walk = async (dir, at) => {
+      for await (const [name, h] of dir.entries()) {
+        if (name === '.ose' || name === '.git') continue;
+        const rel = at ? `${at}/${name}` : name;
+        if (h.kind === 'directory') await walk(h, rel);
+        else out.push([rel, (await h.getFile()).size]);
+      }
+    };
+    await walk(await navigator.storage.getDirectory(), '');
+    return out;
+  });
+  return new Map(list);
 }
 
-/** The paths that have a draft on this machine. */
-export async function draftPaths(request) {
-  const r = await call(request, 'draftList');
-  return r.ok ? (r.result || []).map((d) => d.path) : [];
+/** What says a file was not written: its bytes' digest and its time. @param {Page} page */
+export async function stamp(page, rel) {
+  const r = await readVault(page, rel);
+  if (!r) throw new Error(`${rel} is not in the vault`);
+  return { sha: createHash('sha256').update(r.bytes).digest('hex'), mtime: r.mtime };
 }
 
-/**
- * Back to a first launch between scenarios: no fault armed, no draft, no session, no recent
- * files, no per-machine settings. The page of the scenario before is closed by then; the short
- * wait lets its `pagehide` flush land before it is overwritten.
- */
-export async function resetApp(request) {
-  await new Promise((r) => setTimeout(r, 250));
-  await call(request, 'devFault', null);
-  for (const p of await draftPaths(request)) await call(request, 'draftDrop', p);
-  // `localSet` is wave 2 (CONTRACT §3.1); a bridge without it answers [unknown_command].
-  await call(request, 'localSet', 'vault', { migrated: 1 });
-  await call(request, 'localSet', 'app', {});
-}
-
-/** A vault file's text, or null when it is not there. Always the temp copy (env.js ROOT). */
-export function disk(rel) {
-  const file = path.join(ROOT, ...rel.split('/'));
-  return existsSync(file) ? readFileSync(file, 'utf8') : null;
-}
-
-/** Write a vault file the way another program would: straight to disk, not through the app. */
-export function writeDisk(rel, text) {
-  const file = path.join(ROOT, ...rel.split('/'));
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, text, 'utf8');
-}
-
-/** A vault file's bytes, or null. */
-export function diskBytes(rel) {
-  const file = path.join(ROOT, ...rel.split('/'));
-  return existsSync(file) ? readFileSync(file) : null;
-}
-
-/** What says a file was not written: its bytes' digest and its mtime. */
-export function stamp(rel, dir = ROOT) {
-  const file = path.join(dir, ...rel.split('/'));
-  return { sha: createHash('sha256').update(readFileSync(file)).digest('hex'), mtime: statSync(file).mtimeMs };
-}
-
-/** The absolute path of a file outside the vault (`<base>/outside/<rel>`). */
-export const outsidePath = (rel) => path.join(OUTSIDE, ...rel.split('/'));
-
-/** A file outside the vault as text, or null. */
-export function outsideText(rel) {
-  const file = outsidePath(rel);
-  return existsSync(file) ? readFileSync(file, 'utf8') : null;
-}
-
-/** Write a file outside the vault the way another program would. */
-export function writeOutside(rel, text) {
-  writeFileSync(outsidePath(rel), text, 'utf8');
-}
-
-/** The dev bridge's log so far (`<appdata>/logs/ose.log`): every save it did is a line. */
-export function logText() {
-  const file = path.join(APPDATA, 'logs', 'ose.log');
-  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+/** The log so far (IndexedDB `ose-web`, store `log`, src/web/local.js): every save is a line. */
+export function logText(page) {
+  return page.evaluate(() => new Promise((resolve) => {
+    const open = indexedDB.open('ose-web');
+    open.onerror = () => resolve('');
+    open.onsuccess = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains('log')) { db.close(); resolve(''); return; }
+      const req = db.transaction('log', 'readonly').objectStore('log').getAll();
+      req.onsuccess = () => { db.close(); resolve(req.result.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n')); };
+      req.onerror = () => { db.close(); resolve(''); };
+    };
+  }));
 }
 
 /**
  * Put the page on screen in `mode` ('rich', 'live' or 'source') with the meta line's switch, as
  * a person would, and wait until it is.
- * @param {import('@playwright/test').Page} page
+ * @param {Page} page
  * @param {'rich'|'live'|'source'} mode
  */
 export async function setMode(page, mode) {
@@ -126,15 +184,57 @@ export function liveEditor(page) {
   return page.locator('.cm-live .cm-content:visible').first();
 }
 
-/** Load the app and wait until it has a route on screen (Home, or a restored session). */
-export async function boot(page) {
-  await page.goto('/index.html');
+/**
+ * A first launch over a vault holding `files`: a document of the origin seeds the vault first
+ * (the manifest, so no app code runs), then the app loads with the test hook. A reload keeps
+ * the hook, since it keeps the query.
+ * @param {Page} page
+ */
+export async function boot(page, files = FILES) {
+  watchPage(page);
+  await page.addInitScript(installFaults, FAULT_KEY);
+  await page.goto('/manifest.webmanifest');
+  await writeFiles(page, files);
+  await page.goto('/index.html?opfs=1');
   await waitBooted(page);
+}
+
+/**
+ * What the page said while it booted: its console errors and warnings, uncaught errors, and
+ * whether it crashed or closed. Kept per page, so a boot that fails says why instead of only
+ * "the page was closed".
+ * @param {Page} page
+ */
+export function watchPage(page) {
+  const p = /** @type {any} */ (page);
+  if (p.__oseLog) return p.__oseLog;
+  /** @type {string[]} */
+  const log = [];
+  p.__oseLog = log;
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') log.push(`console.${m.type()}: ${m.text()}`); });
+  page.on('pageerror', (e) => log.push(`pageerror: ${e && e.stack ? e.stack : e}`));
+  page.on('crash', () => log.push('the page crashed'));
+  page.on('close', () => log.push('the page closed'));
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) log.push(`navigated to ${f.url()}`); });
+  // Who closes the page: a `window.close()` says where it came from, a moment before it goes.
+  void page.addInitScript(() => {
+    const close = window.close.bind(window);
+    window.close = () => {
+      console.error(`window.close() from ${new Error('here').stack}`);
+      setTimeout(close, 500);
+    };
+  });
+  return log;
 }
 
 /** Wait for the kernel and a route after a load or a reload. */
 export async function waitBooted(page) {
-  await page.waitForFunction(() => !!(window.__ose && window.__ose.route && window.__ose.route.current()), null, { timeout: 30_000 });
+  const log = watchPage(page);
+  try {
+    await page.waitForFunction(() => !!(window.__ose && window.__ose.route && window.__ose.route.current()), null, { timeout: 30_000 });
+  } catch (e) {
+    throw new Error(`the app did not boot: ${e && e.message ? e.message : e}\n--- what the page said ---\n${log.slice(-40).join('\n') || '(nothing)'}`);
+  }
 }
 
 /** The route on screen. */

@@ -1,6 +1,6 @@
 // JSDoc typedefs shared by the kernel (checkJs, §8.3 of the wave-3 contract). Types only: this
 // module exports nothing at run time, and importing it costs nothing. The host's own shapes
-// (ReadFile, SaveOutcome, OpenRequest, …) are generated into ./bridge/bindings.ts and are named
+// (ReadFile, SaveOutcome, OpenRequest, …) are declared in ./bridge/commands.ts and are named
 // from there; what is here is what the kernel itself defines.
 
 /**
@@ -97,7 +97,7 @@
  */
 
 /**
- * Window control an adapter may have (Tauri's window API; a browser tab has only its title).
+ * Window control the adapter has (a browser tab: its title, and a close through the gate).
  * @typedef {object} AdapterWindow
  * @property {() => Promise<unknown>} [close]
  * @property {(theme: string) => Promise<unknown>} [setTheme]
@@ -112,7 +112,6 @@
  * @property {(fn: (msg: { event: string, data: any }) => unknown) => () => void} subscribe
  * @property {string} [platform]
  * @property {(path: string) => string} [assetUrl]
- * @property {(paths: string[], icon: string | null) => Promise<boolean>} [dragOut]
  * @property {AdapterWindow} [win]
  * @property {() => void} [close]
  */
