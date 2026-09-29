@@ -167,7 +167,6 @@ export function vaultSegments(p, win = false) {
 export function checkName(rel) {
   const c = clean(rel);
   const name = c.split('/').pop();
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
   if (!name || name === '.' || name === '..' || /[. ]$/.test(name) || /[\u0000-\u001f<>"|?*]/.test(c)) {
     throw fail('bad_name', `not a file name: ${String(rel)}`);
   }
