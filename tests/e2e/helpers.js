@@ -215,6 +215,15 @@ export function watchPage(page) {
   page.on('pageerror', (e) => log.push(`pageerror: ${e && e.stack ? e.stack : e}`));
   page.on('crash', () => log.push('the page crashed'));
   page.on('close', () => log.push('the page closed'));
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) log.push(`navigated to ${f.url()}`); });
+  // Who closes the page: a `window.close()` says where it came from, a moment before it goes.
+  void page.addInitScript(() => {
+    const close = window.close.bind(window);
+    window.close = () => {
+      console.error(`window.close() from ${new Error('here').stack}`);
+      setTimeout(close, 500);
+    };
+  });
   return log;
 }
 
