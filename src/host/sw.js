@@ -15,7 +15,7 @@
 //
 // A module worker (registered with `type: 'module'`) with no import: the build copies it as it
 // is, with MANIFEST filled in, and the tests import its pure parts. It opens the same database
-// `ose-web` as src/host/idb.js, with the same stores should it be first.
+// `ose-web` as src/host/idb.ts, with the same stores should it be first.
 
 /* @ose-manifest */ const MANIFEST = null;
 
@@ -107,7 +107,7 @@ async function dbGet(store, key) {
 }
 
 // ---------------------------------------------------------------- the one hide rule
-// rules.js `isExcluded`, repeated here because the worker imports nothing (the tests hold the
+// rules.ts `isExcluded`, repeated here because the worker imports nothing (the tests hold the
 // two to the same answers): never served, as never listed.
 
 const EXCLUDED_ANYWHERE = ['.ose', '.git'];

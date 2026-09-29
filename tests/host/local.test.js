@@ -1,10 +1,10 @@
-// Module local of Ose Web (src/host/local.js): drafts, the local store and the log over idb.js's
+// Module local of Ose Web (src/host/local.ts): drafts, the local store and the log over idb.js's
 // memory backend, against the semantics of drafts.rs, local.rs and dev/files.mjs.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import * as idb from '../../src/host/idb.js';
-import { createLocal, LOG_MAX } from '../../src/host/local.js';
-import { hash } from '../../src/host/rules.js';
+import * as idb from '../../src/host/idb.ts';
+import { createLocal, LOG_MAX } from '../../src/host/local.ts';
+import { hash } from '../../src/host/rules.ts';
 
 const VAULT = '0123456789abcdef';
 const OTHER = 'fedcba9876543210';
@@ -23,7 +23,7 @@ async function code(fn) {
   return 'resolved';
 }
 
-/** @param {Partial<import('../../src/host/local.js').LocalOpts>} [o] */
+/** @param {Partial<import('../../src/host/local.ts').LocalOpts>} [o] */
 function make(o = {}, key = VAULT) {
   const now = clock();
   let epoch = 1;

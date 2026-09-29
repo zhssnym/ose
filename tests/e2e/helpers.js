@@ -1,5 +1,5 @@
 // What every no-loss scenario needs, over Ose Web: the vault (the origin's private file system,
-// which the app opens through the `?opfs=1` test hook, src/host/adapter.js), the bytes in it, a
+// which the app opens through the `?opfs=1` test hook, src/host/adapter.ts), the bytes in it, a
 // fault switch on the writes, the drafts, the log, and a few moves in the page (boot, open a
 // page, type at the end of a line, the active route and tabs).
 //
@@ -23,7 +23,7 @@ const FAULT_KEY = 'ose.e2e.fault';
 /**
  * The fault switch, installed in every document before the app's own scripts: a write to a
  * file whose name is armed fails in `createWritable` with the DOMException a full or locked
- * disk gives, which src/host/rules.js `fromDom` turns into the host error. It lives in
+ * disk gives, which src/host/rules.ts `fromDom` turns into the host error. It lives in
  * sessionStorage, so it holds across a reload of the tab, as a disk fault would.
  */
 function installFaults(key) {
@@ -151,7 +151,7 @@ export async function stamp(page, rel) {
   return { sha: createHash('sha256').update(r.bytes).digest('hex'), mtime: r.mtime };
 }
 
-/** The log so far (IndexedDB `ose-web`, store `log`, src/host/local.js): every save is a line. */
+/** The log so far (IndexedDB `ose-web`, store `log`, src/host/local.ts): every save is a line. */
 export function logText(page) {
   return page.evaluate(() => new Promise((resolve) => {
     const open = indexedDB.open('ose-web');

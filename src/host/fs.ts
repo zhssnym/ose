@@ -4,7 +4,7 @@
 // ported from, so a vault keeps its history across the move. The `.rs` and `dev/` names in the
 // comments below are where each piece came from: git history, at 6cee39d.
 //
-//   import { createFs } from './fs.js';
+//   import { createFs } from './fs.ts';
 //   const fs = createFs(root, { vaultId, epoch: () => 1, os: 'windows', log, outside, onRename });
 //   await fs.saveFile('a.md', 'text', { expectedHash: null });
 //
@@ -23,33 +23,35 @@
 // - A folder Chrome will not `move()` is copied and the original removed once the copy is whole.
 //
 // Every public method converts what the browser threw into the HostError the host would answer
-// (rules.js `fromDom`), so a caller never sees a DOMException.
+// (rules.ts `fromDom`), so a caller never sees a DOMException.
 
 import {
   ABS, byEntry, checkName, classify, clean, decodeText, encodeText, encodingOf, fail, fromDom, hash, HostError,
   isExcluded, isHiddenName, isInBin, naturalCompare, sameBytes, sniffEncoding, sniffText, SNIFF_BYTES, utf8OrNull,
   vaultSegments,
-} from './rules.js';
+} from './rules.ts';
 
 export { hash };
 
-/**
- * @typedef {{
- *   vaultId: string,
- *   epoch: () => number,
- *   os?: 'windows' | 'macos' | 'linux',
- *   log?: (level: string, text: string) => void,
- *   outside?: { handle(absPath: string): Promise<FileSystemFileHandle | null> },
- *   onRename?: (from: string, to: string) => Promise<void>,
- *   now?: () => number,
- * }} FsOptions
- * @typedef {{ rel: string, outside: boolean, segs: string[], handle: FileSystemFileHandle | null }} Place
- * @typedef {{ name: string, path: string, kind: string, ext: string, mtime: number, size: number, hidden: boolean,
- *   readable?: boolean, children?: Entry[] }} Entry
- * @typedef {{ id: string, reason: string, session: boolean, at: number, bytes: number, name: string,
- *   dir: FileSystemDirectoryHandle, key: string }} VersionEntry
- * @typedef {{ path: string, line: number, col: number, text: string, kind: string }} Hit
- */
+export type FsOptions = {
+  vaultId: string,
+  epoch: () => number,
+  os?: 'windows' | 'macos' | 'linux',
+  log?: (level: string, text: string) => void,
+  outside?: { handle(absPath: string): Promise<FileSystemFileHandle | null> },
+  onRename?: (from: string, to: string) => Promise<void>,
+  now?: () => number,
+};
+export type Place = { rel: string, outside: boolean, segs: string[], handle: FileSystemFileHandle | null };
+export type Entry = { name: string, path: string, kind: string, ext: string, mtime: number, size: number, hidden: boolean,
+  readable?: boolean, children?: Entry[] };
+export type VersionEntry = { id: string, reason: string, session: boolean, at: number, bytes: number, name: string,
+  dir: FileSystemDirectoryHandle, key: string };
+export type Hit = { path: string, line: number, col: number, text: string, kind: string };
+
+/** What a file was when it was copied: its size, its time and the hash of the bytes copied. */
+type Seen = { size: number, mtime: number, hash: string };
+type Manifest = { files: Map<string, Seen>, dirs: Set<string> };
 
 const MAX_DEPTH = 24;
 const H_ROOT = ['.ose', 'history'];
@@ -68,46 +70,42 @@ const PARALLEL = 16;
 
 // ---------------------------------------------------------------- small helpers
 
-const p2 = (/** @type {number} */ n) => String(n).padStart(2, '0');
-/** @param {unknown} v @returns {v is Record<string, any>} */
-const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-/** The DOMException's name, or ''. @param {unknown} e */
-const domName = (e) => (e && typeof e === 'object' && 'name' in e ? String(e.name) : '');
-/** @param {unknown} e */
-const msgOf = (e) => (e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e));
-/** A lookup that found nothing: the name is not there, or a segment is the other kind. @param {unknown} e */
-const isGone = (e) => domName(e) === 'NotFoundError' || domName(e) === 'TypeMismatchError';
+const p2 = (n: number) => String(n).padStart(2, '0');
+const isObj = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** The DOMException's name, or ''. */
+const domName = (e: unknown) => (e && typeof e === 'object' && 'name' in e ? String(e.name) : '');
+const msgOf = (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e));
+/** A lookup that found nothing: the name is not there, or a segment is the other kind. */
+const isGone = (e: unknown) => domName(e) === 'NotFoundError' || domName(e) === 'TypeMismatchError';
 const utf8Lenient = new TextDecoder('utf-8', { ignoreBOM: true });
 const enc = new TextEncoder();
 
-/** `20260925-101500`, UTC: the time an unsaved copy was set aside. @param {number} ms */
-const unsavedStamp = (ms) => {
+/** `20260925-101500`, UTC: the time an unsaved copy was set aside. */
+const unsavedStamp = (ms: number) => {
   const d = new Date(ms);
   return `${String(d.getUTCFullYear()).padStart(4, '0')}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}-${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}`;
 };
 
-/** `2026-09-10-201500`, UTC: a version's id. @param {number} ms */
-export const idFromMs = (ms) => {
+/** `2026-09-10-201500`, UTC: a version's id. */
+export const idFromMs = (ms: number) => {
   const d = new Date(ms);
   return `${String(d.getUTCFullYear()).padStart(4, '0')}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}-${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}`;
 };
-/** The inverse, to the second; a `-<n>` a merge added after the time is the same moment. @param {string} id */
-export const msFromId = (id) => {
+/** The inverse, to the second; a `-<n>` a merge added after the time is the same moment. */
+export const msFromId = (id: string) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(id);
   return m ? Date.UTC(+(m[1] ?? 0), +(m[2] ?? 1) - 1, +(m[3] ?? 1), +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0)) : null;
 };
-/** @param {unknown} id */
-const idOk = (id) => /^[0-9-]{1,40}$/.test(String(id ?? ''));
-/** The extension of a path's last segment, as written, without the dot. @param {string} rel */
-const extAsWritten = (rel) => {
+const idOk = (id: unknown) => /^[0-9-]{1,40}$/.test(String(id ?? ''));
+/** The extension of a path's last segment, as written, without the dot. */
+const extAsWritten = (rel: string) => {
   const name = String(rel).split(/[\\/]/).pop() || '';
   const i = name.lastIndexOf('.');
   return i > 0 && i + 1 < name.length ? name.slice(i + 1) : '';
 };
-/** @param {string} id @param {string} reason @param {boolean} session @param {string} ext */
-const vFileName = (id, reason, session, ext) => `${id}.${reason}${session ? '-s' : ''}${ext ? `.${ext}` : ''}`;
-/** `{id, reason, session}` of a version file, or null. `<id>.md` is the pre-1.1 name. @param {string} name */
-const parseVName = (name) => {
+const vFileName = (id: string, reason: string, session: boolean, ext: string) => `${id}.${reason}${session ? '-s' : ''}${ext ? `.${ext}` : ''}`;
+/** `{id, reason, session}` of a version file, or null. `<id>.md` is the pre-1.1 name. */
+const parseVName = (name: string) => {
   const dot = name.indexOf('.');
   if (dot < 0) return null;
   const id = name.slice(0, dot);
@@ -125,10 +123,8 @@ const parseVName = (name) => {
 /**
  * Which versions of one file survive at `now` (versions.rs, dev/files.mjs `survivors`):
  * newest-first list in, parallel booleans out.
- * @param {{ at: number, session: boolean, reason: string }[]} list
- * @param {number} now
  */
-export function survivors(list, now) {
+export function survivors(list: { at: number; session: boolean; reason: string; }[], now: number) {
   const hours = new Set();
   const days = new Set();
   return list.map((e, i) => {
@@ -141,16 +137,15 @@ export function survivors(list, now) {
   });
 }
 
-/** The line ending a file uses: the one of its last line break. @param {Uint8Array} buf */
-const eolOf = (buf) => {
+/** The line ending a file uses: the one of its last line break. */
+const eolOf = (buf: Uint8Array) => {
   const i = buf.lastIndexOf(0x0a);
   return i > 0 && buf[i - 1] === 0x0d ? '\r\n' : '\n';
 };
 /** Content ranges of the lines of `text`; a `\r` before a `\n` belongs to the separator, and the
- *  empty piece after a final `\n` is not a line. @param {string} text @returns {[number, number][]} */
-const lineSpans = (text) => {
-  /** @type {[number, number][]} */
-  const out = [];
+ *  empty piece after a final `\n` is not a line.   */
+const lineSpans = (text: string): [number, number][] => {
+  const out: [number, number][] = [];
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     if (text.charCodeAt(i) === 10) {
@@ -162,18 +157,17 @@ const lineSpans = (text) => {
   return out;
 };
 
-/** @param {Uint8Array} a @param {Uint8Array} b */
-const concat = (a, b) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
+const concat = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
 
-/** Bytes as base64, in chunks so a large file does not overflow the argument list. @param {Uint8Array} bytes */
-export function toBase64(bytes) {
+/** Bytes as base64, in chunks so a large file does not overflow the argument list. */
+export function toBase64(bytes: Uint8Array) {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 0x8000)));
   return btoa(s);
 }
 /** Base64 (standard or URL-safe, padding optional, whitespace ignored) as bytes, leniently as
- *  Node's `Buffer.from(s, 'base64')` reads it. @param {string} b64 */
-export function fromBase64(b64) {
+ *  Node's `Buffer.from(s, 'base64')` reads it.  */
+export function fromBase64(b64: string) {
   let s = String(b64).replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/]/g, '');
   if (s.length % 4 === 1) s = s.slice(0, -1);
   while (s.length % 4) s += '=';
@@ -183,8 +177,8 @@ export function fromBase64(b64) {
   return out;
 }
 
-/** The whole file's bytes. @param {FileSystemFileHandle} fh */
-async function bytesOf(fh) {
+/** The whole file's bytes. */
+async function bytesOf(fh: FileSystemFileHandle) {
   const f = await fh.getFile();
   return new Uint8Array(await f.arrayBuffer());
 }
@@ -192,14 +186,13 @@ async function bytesOf(fh) {
 /**
  * Run `fn` over `items`, at most `n` at once.
  * @template T
- * @param {T[]} items @param {number} n @param {(item: T) => Promise<void>} fn
  */
-async function pool(items, n, fn) {
+async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
   let i = 0;
   const lanes = Array.from({ length: Math.min(n, items.length) }, async () => {
     while (i < items.length) {
       const k = i++;
-      await fn(/** @type {T} */ (items[k]));
+      await fn((items[k] as T));
     }
   });
   await Promise.all(lanes);
@@ -209,58 +202,52 @@ async function pool(items, n, fn) {
 
 /**
  * The file commands for one vault (docs/HOST.md "fs").
- * @param {FileSystemDirectoryHandle} root the vault, permission already granted
- * @param {FsOptions} opts
+ * @param root the vault, permission already granted
  */
-export function createFs(root, opts) {
+export function createFs(root: FileSystemDirectoryHandle, opts: FsOptions) {
   const vaultId = String(opts.vaultId ?? '');
   const epochNow = typeof opts.epoch === 'function' ? opts.epoch : () => 1;
   const win = opts.os === 'windows';
   const folds = opts.os === 'windows' || opts.os === 'macos';
-  const fold = (/** @type {string} */ s) => (folds ? s.toLowerCase() : s);
+  const fold = (s: string) => (folds ? s.toLowerCase() : s);
   const logTo = typeof opts.log === 'function' ? opts.log : () => {};
   const now = typeof opts.now === 'function' ? opts.now : () => Date.now();
   const outsideReg = opts.outside;
   const onRename = typeof opts.onRename === 'function' ? opts.onRename : async () => {};
 
-  /** @param {string} level @param {string} text */
-  const log = (level, text) => { try { logTo(level, text); } catch { /* the log never breaks a command */ } };
-  const warn = (/** @type {string} */ text) => log('warn', text);
+  const log = (level: string, text: string) => { try { logTo(level, text); } catch { /* the log never breaks a command */ } };
+  const warn = (text: string) => log('warn', text);
 
   // -------------------------------------------------------------- paths and handles
-  /** @param {unknown} p */
-  const segsOf = (p) => vaultSegments(p, win);
-  /** @param {string[]} s */
-  const relOf = (s) => s.join('/');
+  const segsOf = (p: unknown) => vaultSegments(p, win);
+  const relOf = (s: string[]) => s.join('/');
 
-  /** The folder at `segs`, made on the way with `create`. @param {string[]} segs @param {boolean} [create] */
-  async function dirAt(segs, create = false) {
+  /** The folder at `segs`, made on the way with `create`. */
+  async function dirAt(segs: string[], create: boolean = false) {
     let d = root;
     for (const s of segs) d = await d.getDirectoryHandle(s, { create });
     return d;
   }
-  /** The folder at `segs`, or null when it is not there (or a segment is a file). @param {string[]} segs */
-  async function dirOrNull(segs) {
+  /** The folder at `segs`, or null when it is not there (or a segment is a file). */
+  async function dirOrNull(segs: string[]) {
     try { return await dirAt(segs); } catch (e) { if (isGone(e)) return null; throw e; }
   }
-  /** The file at `segs`, or null. @param {string[]} segs @returns {Promise<FileSystemFileHandle | null>} */
-  async function fileOrNull(segs) {
+  /** The file at `segs`, or null. */
+  async function fileOrNull(segs: string[]): Promise<FileSystemFileHandle | null> {
     if (!segs.length) return null;
     const parent = await dirOrNull(segs.slice(0, -1));
     if (!parent) return null;
-    try { return await parent.getFileHandle(/** @type {string} */ (segs[segs.length - 1])); } catch (e) { if (isGone(e)) return null; throw e; }
+    try { return await parent.getFileHandle((segs[segs.length - 1] as string)); } catch (e) { if (isGone(e)) return null; throw e; }
   }
   /**
    * What is at `segs`: `{kind, handle, parent, name}`, or null.
-   * @param {string[]} segs
-   * @returns {Promise<{ kind: 'file', handle: FileSystemFileHandle, parent: FileSystemDirectoryHandle, name: string }
-   *   | { kind: 'dir', handle: FileSystemDirectoryHandle, parent: FileSystemDirectoryHandle | null, name: string } | null>}
    */
-  async function lookup(segs) {
+  async function lookup(segs: string[]): Promise<{ kind: 'file'; handle: FileSystemFileHandle; parent: FileSystemDirectoryHandle; name: string; } |
+  { kind: 'dir'; handle: FileSystemDirectoryHandle; parent: FileSystemDirectoryHandle | null; name: string; } | null> {
     if (!segs.length) return { kind: 'dir', handle: root, parent: null, name: root.name };
     const parent = await dirOrNull(segs.slice(0, -1));
     if (!parent) return null;
-    const name = /** @type {string} */ (segs[segs.length - 1]);
+    const name = (segs[segs.length - 1] as string);
     try { return { kind: 'file', handle: await parent.getFileHandle(name), parent, name }; } catch (e) {
       if (domName(e) === 'NotFoundError') return null;
       if (domName(e) !== 'TypeMismatchError') throw e;
@@ -271,8 +258,8 @@ export function createFs(root, opts) {
     }
   }
 
-  /** A command marked **A**: a vault path, or a registered `abs:` one. @param {unknown} p @returns {Promise<Place>} */
-  async function target(p) {
+  /** A command marked **A**: a vault path, or a registered `abs:` one. */
+  async function target(p: unknown): Promise<Place> {
     if (typeof p === 'string' && p.startsWith(ABS)) {
       const h = outsideReg ? await outsideReg.handle(p) : null;
       if (!h) throw fail('not_registered', `not opened in this tab: ${p}`);
@@ -281,14 +268,13 @@ export function createFs(root, opts) {
     const segs = segsOf(p);
     return { rel: relOf(segs), outside: false, segs, handle: null };
   }
-  /** @param {unknown} p @param {string} what */
-  const refuseOutside = (p, what) => {
+  const refuseOutside = (p: unknown, what: string) => {
     if (typeof p === 'string' && p.startsWith(ABS)) throw fail('unsupported', `${what} is not available for a file outside the vault: ${p}`);
   };
-  /** The file handle of a place, or null when there is no file. @param {Place} place */
-  const placeHandle = async (place) => (place.outside ? place.handle : fileOrNull(place.segs));
-  /** The bytes of a place, or null when there is no file. @param {Place} place */
-  async function readPlace(place) {
+  /** The file handle of a place, or null when there is no file. */
+  const placeHandle = async (place: Place) => (place.outside ? place.handle : fileOrNull(place.segs));
+  /** The bytes of a place, or null when there is no file. */
+  async function readPlace(place: Place) {
     const h = await placeHandle(place);
     if (!h) return null;
     try { return await bytesOf(h); } catch (e) { if (isGone(e)) return null; throw e; }
@@ -308,37 +294,32 @@ export function createFs(root, opts) {
     } catch { ok = false; }
     if (!ok) throw fail('no_vault', `the vault folder is gone or no longer allowed: ${root.name}`);
   }
-  /** @param {unknown} o */
-  function checkEpoch(o) {
+  function checkEpoch(o: unknown) {
     if (isObj(o) && o.epoch !== undefined && o.epoch !== null && Number(o.epoch) !== epochNow()) {
       throw fail('stale_vault', `this page belongs to vault epoch ${o.epoch}, the open vault is epoch ${epochNow()}`);
     }
   }
 
   // -------------------------------------------------------------- one lock per path
-  /** @type {Map<string, Promise<unknown>>} */
-  const locks = new Map();
+  const locks: Map<string, Promise<unknown>> = new Map();
   /**
    * `fn` after every earlier call for the same key has finished, in this tab, and inside the Web
    * Lock of the same name when `web`, so another tab waits too.
    * @template T
-   * @param {string} key @param {() => Promise<T>} fn @param {boolean} [web]
-   * @returns {Promise<T>}
    */
-  async function withLock(key, fn, web = true) {
+  async function withLock<T>(key: string, fn: () => Promise<T>, web: boolean = true): Promise<T> {
     const k = fold(key);
     for (let t = treeOver([k]); t; t = treeOver([k])) await t;
     const prev = locks.get(k) || Promise.resolve();
-    /** @type {() => void} */
-    let release = () => {};
+    let release: () => void = (): void => {};
     const mine = new Promise((r) => { release = () => r(undefined); });
     const chain = prev.then(() => mine);
     locks.set(k, chain);
     await prev;
     try {
-      const nav = /** @type {any} */ (globalThis).navigator;
+      const nav = (globalThis as any).navigator;
       if (web && nav && nav.locks && typeof nav.locks.request === 'function') {
-        return /** @type {T} */ (await nav.locks.request(`ose-save:${vaultId}:${k}`, () => fn()));
+        return (await nav.locks.request(`ose-save:${vaultId}:${k}`, () => fn()) as T);
       }
       return await fn();
     } finally {
@@ -346,15 +327,13 @@ export function createFs(root, opts) {
       if (locks.get(k) === chain) locks.delete(k);
     }
   }
-  /** @param {Place} place */
-  const lockKey = (place) => (place.outside ? `outside|${place.rel}` : place.rel);
+  const lockKey = (place: Place) => (place.outside ? `outside|${place.rel}` : place.rel);
 
-  /** Paths being moved or trashed, whole trees: folded path -> settles when done. @type {Map<string, Promise<void>>} */
-  const trees = new Map();
-  /** @param {string} a @param {string} b */
-  const overlaps = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-  /** A tree in flight at, over or under one of `keys`, or null. @param {string[]} keys */
-  const treeOver = (keys) => {
+  /** Paths being moved or trashed, whole trees: folded path -> settles when done. */
+  const trees: Map<string, Promise<void>> = new Map();
+  const overlaps = (a: string, b: string) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  /** A tree in flight at, over or under one of `keys`, or null. */
+  const treeOver = (keys: string[]) => {
     for (const [t, done] of trees) if (keys.some((k) => overlaps(k, t))) return done;
     return null;
   };
@@ -364,15 +343,13 @@ export function createFs(root, opts) {
    * asked for under them meanwhile waits until it is done (a save there then finds the file
    * gone and answers the conflict, instead of writing into a folder that is being removed).
    * @template T
-   * @param {string[]} keys @param {() => Promise<T>} fn @returns {Promise<T>}
    */
-  async function withTrees(keys, fn) {
+  async function withTrees<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
     const ks = [...new Set(keys.map(fold))];
     for (let t = treeOver(ks); t; t = treeOver(ks)) await t;
-    /** @type {() => void} */
-    let release = () => {};
+    let release: () => void = (): void => {};
     const done = new Promise((r) => { release = () => r(undefined); });
-    for (const k of ks) trees.set(k, /** @type {Promise<void>} */ (done));
+    for (const k of ks) trees.set(k, (done as Promise<void>));
     try {
       for (;;) {
         const busy = [...locks].filter(([lk]) => ks.some((k) => overlaps(lk, k))).map(([, chain]) => chain.catch(() => {}));
@@ -387,22 +364,20 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- writes
-  /** @param {unknown} e @param {string} rel */
-  const writeFailed = (e, rel) => {
+  const writeFailed = (e: unknown, rel: string) => {
     if (e instanceof HostError) return e;
     const n = domName(e);
     if (n === 'NotAllowedError' || n === 'SecurityError') return fromDom(e, rel);
     return fail('write_failed', `${rel}: ${msgOf(e)}`);
   };
 
-  /** The set-aside this tab made for each target (vault.rs `asides`). @type {Map<string, string[]>} */
-  const asides = new Map();
+  /** The set-aside this tab made for each target (vault.rs `asides`). */
+  const asides: Map<string, string[]> = new Map();
   /**
    * The new bytes into `<stem>.unsaved-<stamp>.<ext>` beside the target (exclusive), or into the
    * copy this tab already set aside for it. Answers the vault path, or null.
-   * @param {string[]} segs @param {Uint8Array} bytes
    */
-  async function setAside(segs, bytes) {
+  async function setAside(segs: string[], bytes: Uint8Array) {
     const key = fold(relOf(segs));
     try {
       const parent = await dirAt(segs.slice(0, -1));
@@ -410,10 +385,10 @@ export function createFs(root, opts) {
       if (earlier) {
         const h = await fileOrNull(earlier);
         if (h) {
-          try { const w = await h.createWritable(); await w.write(/** @type {any} */ (bytes)); await w.close(); return relOf(earlier); } catch { /* a new name below */ }
+          try { const w = await h.createWritable(); await w.write((bytes as any)); await w.close(); return relOf(earlier); } catch { /* a new name below */ }
         }
       }
-      const name = /** @type {string} */ (segs[segs.length - 1]);
+      const name = (segs[segs.length - 1] as string);
       const dot = name.lastIndexOf('.');
       const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
       const stamp = unsavedStamp(now());
@@ -436,14 +411,10 @@ export function createFs(root, opts) {
    * further. `lastLook(created)` throws to abandon the write before `close()`. When `close()`
    * fails the new bytes are set aside (not with `aside: 'discard'`: a version, the state file)
    * and the error is `write_failed … your text is in <path>`.
-   * @param {Place} place @param {Uint8Array} bytes
-   * @param {{ lastLook?: (created: boolean) => Promise<void>, aside?: 'keep' | 'discard' }} [o]
    */
-  async function writeAtomic(place, bytes, o = {}) {
-    /** @type {FileSystemFileHandle} */
-    let fh;
-    /** @type {FileSystemDirectoryHandle | null} */
-    let parent = null;
+  async function writeAtomic(place: Place, bytes: Uint8Array, o: { lastLook?: (created: boolean) => Promise<void>; aside?: 'keep' | 'discard'; } = {}) {
+    let fh: FileSystemFileHandle;
+    let parent: FileSystemDirectoryHandle | null = null;
     let created = false;
     const name = place.segs[place.segs.length - 1] || '';
     if (place.outside && place.handle) fh = place.handle;
@@ -461,11 +432,10 @@ export function createFs(root, opts) {
       if (!created || !parent) return;
       try { if ((await fh.getFile()).size === 0) await parent.removeEntry(name); } catch { /* gone */ }
     };
-    /** @type {FileSystemWritableFileStream | null} */
-    let w = null;
+    let w: FileSystemWritableFileStream | null = null;
     try {
       w = await fh.createWritable();
-      await w.write(/** @type {any} */ (bytes));
+      await w.write((bytes as any));
     } catch (e) {
       if (w) { try { await w.abort(); } catch { /* closed */ } }
       await undoCreate();
@@ -489,8 +459,8 @@ export function createFs(root, opts) {
   }
 
   /** An exclusive create of `name` in `parent`: the file is made, written and closed, or removed.
-   *  @param {FileSystemDirectoryHandle} parent @param {string} name @param {Uint8Array} bytes @param {string} rel */
-  async function createIn(parent, name, bytes, rel) {
+   *      */
+  async function createIn(parent: FileSystemDirectoryHandle, name: string, bytes: Uint8Array, rel: string) {
     let there = true;
     try { await parent.getFileHandle(name); } catch (e) {
       if (domName(e) === 'NotFoundError') there = false;
@@ -498,11 +468,10 @@ export function createFs(root, opts) {
     }
     if (there) throw fail('exists', `already exists: ${rel}`);
     const fh = await parent.getFileHandle(name, { create: true });
-    /** @type {FileSystemWritableFileStream | null} */
-    let w = null;
+    let w: FileSystemWritableFileStream | null = null;
     try {
       w = await fh.createWritable();
-      await w.write(/** @type {any} */ (bytes));
+      await w.write((bytes as any));
       await w.close();
     } catch (e) {
       if (w) { try { await w.abort(); } catch { /* closed */ } }
@@ -510,35 +479,28 @@ export function createFs(root, opts) {
       throw writeFailed(e, rel);
     }
   }
-  /** Exclusive create of a vault path, folders made. @param {string[]} segs @param {Uint8Array} bytes */
-  async function createExclusive(segs, bytes) {
+  /** Exclusive create of a vault path, folders made. */
+  async function createExclusive(segs: string[], bytes: Uint8Array) {
     const rel = relOf(segs);
     if (!segs.length) throw fail('bad_name', 'not a file name: ');
     const parent = await dirAt(segs.slice(0, -1), true);
-    await createIn(parent, /** @type {string} */ (segs[segs.length - 1]), bytes, rel);
+    await createIn(parent, (segs[segs.length - 1] as string), bytes, rel);
   }
 
-  /** `writeBytes(path, bytes)`: atomic, folders made. @param {string} p @param {Uint8Array} bytes */
-  async function writeBytes(p, bytes) {
+  /** `writeBytes(path, bytes)`: atomic, folders made. */
+  async function writeBytes(p: string, bytes: Uint8Array) {
     const segs = segsOf(p);
     await writeAtomic({ rel: relOf(segs), outside: false, segs, handle: null }, bytes);
   }
-  /** `readBytes(path)`: a vault path or a registered `abs:`; null when missing. @param {string} p */
-  async function readBytes(p) { return readPlace(await target(p)); }
+  /** `readBytes(path)`: a vault path or a registered `abs:`; null when missing. */
+  async function readBytes(p: string) { return readPlace(await target(p)); }
 
   // -------------------------------------------------------------- moving and copying handles
   /**
-   * What a file was when it was copied: its size, its time and the hash of the bytes copied.
-   * @typedef {{ size: number, mtime: number, hash: string }} Seen
-   * @typedef {{ files: Map<string, Seen>, dirs: Set<string> }} Manifest
-   */
-  /**
    * Copy every entry of `src` into `dst` (both folders), bytes, create-only; with `seen`, note
    * each file and folder copied, by its path under `src`.
-   * @param {FileSystemDirectoryHandle} src @param {FileSystemDirectoryHandle} dst @param {{ n: number }} count @param {string} rel
-   * @param {number} [depth] @param {Manifest | null} [seen] @param {string} [under]
    */
-  async function copyTree(src, dst, count, rel, depth = 0, seen = null, under = '') {
+  async function copyTree(src: FileSystemDirectoryHandle, dst: FileSystemDirectoryHandle, count: { n: number; }, rel: string, depth: number = 0, seen: Manifest | null = null, under: string = '') {
     if (depth > 64) throw fail('io', `too deep to copy: ${rel}`);
     for await (const [name, h] of src.entries()) {
       const at = rel ? `${rel}/${name}` : name;
@@ -546,9 +508,9 @@ export function createFs(root, opts) {
       if (h.kind === 'directory') {
         const sub = await dst.getDirectoryHandle(name, { create: true });
         seen?.dirs.add(key);
-        await copyTree(/** @type {FileSystemDirectoryHandle} */ (h), sub, count, at, depth + 1, seen, key);
+        await copyTree((h as FileSystemDirectoryHandle), sub, count, at, depth + 1, seen, key);
       } else {
-        const f = await /** @type {FileSystemFileHandle} */ (h).getFile();
+        const f = await (h as FileSystemFileHandle).getFile();
         const bytes = new Uint8Array(await f.arrayBuffer());
         await createIn(dst, name, bytes, at);
         seen?.files.set(key, { size: f.size, mtime: f.lastModified, hash: hash(bytes) });
@@ -556,8 +518,8 @@ export function createFs(root, opts) {
       }
     }
   }
-  /** The file is still what was copied: size, time and bytes. @param {FileSystemFileHandle} fh @param {Seen | undefined} was */
-  async function stillAsCopied(fh, was) {
+  /** The file is still what was copied: size, time and bytes. */
+  async function stillAsCopied(fh: FileSystemFileHandle, was: Seen | undefined) {
     if (!was) return false;
     try {
       const f = await fh.getFile();
@@ -567,19 +529,17 @@ export function createFs(root, opts) {
   }
   /**
    * Every entry under `src` is one the copy took, unchanged since, and nothing was added.
-   * @param {FileSystemDirectoryHandle} src @param {Manifest} seen @param {string} under @param {{ files: number, dirs: number }} found
-   * @returns {Promise<boolean>}
    */
-  async function unchangedSince(src, seen, under = '', found = { files: 0, dirs: 0 }, depth = 0) {
+  async function unchangedSince(src: FileSystemDirectoryHandle, seen: Manifest, under: string = '', found: { files: number; dirs: number; } = { files: 0, dirs: 0 }, depth = 0): Promise<boolean> {
     if (depth > 64) return false;
     for await (const [name, h] of src.entries()) {
       const key = under ? `${under}/${name}` : name;
       if (h.kind === 'directory') {
         if (!seen.dirs.has(key)) return false;
         found.dirs++;
-        if (!(await unchangedSince(/** @type {FileSystemDirectoryHandle} */ (h), seen, key, found, depth + 1))) return false;
+        if (!(await unchangedSince((h as FileSystemDirectoryHandle), seen, key, found, depth + 1))) return false;
       } else {
-        if (!(await stillAsCopied(/** @type {FileSystemFileHandle} */ (h), seen.files.get(key)))) return false;
+        if (!(await stillAsCopied((h as FileSystemFileHandle), seen.files.get(key)))) return false;
         found.files++;
       }
     }
@@ -589,20 +549,18 @@ export function createFs(root, opts) {
    * Remove what the copy took from `src`, a file at a time, each one looked at just before it
    * goes, then the emptied folders (never recursively): a file written or added since stays,
    * and the answer is false.
-   * @param {FileSystemDirectoryHandle} src @param {Manifest} seen @param {string} under @returns {Promise<boolean>}
    */
-  async function removeCopied(src, seen, under = '', depth = 0) {
+  async function removeCopied(src: FileSystemDirectoryHandle, seen: Manifest, under: string = '', depth = 0): Promise<boolean> {
     if (depth > 64) return false;
-    /** @type {[string, FileSystemHandle][]} */
-    const ents = [];
+    const ents: [string, FileSystemHandle][] = [];
     for await (const e of src.entries()) ents.push(e);
     let whole = true;
     for (const [name, h] of ents) {
       const key = under ? `${under}/${name}` : name;
       if (h.kind === 'directory') {
-        if (!seen.dirs.has(key) || !(await removeCopied(/** @type {FileSystemDirectoryHandle} */ (h), seen, key, depth + 1))) { whole = false; continue; }
+        if (!seen.dirs.has(key) || !(await removeCopied((h as FileSystemDirectoryHandle), seen, key, depth + 1))) { whole = false; continue; }
         try { await src.removeEntry(name); } catch { whole = false; }
-      } else if (await stillAsCopied(/** @type {FileSystemFileHandle} */ (h), seen.files.get(key))) {
+      } else if (await stillAsCopied((h as FileSystemFileHandle), seen.files.get(key))) {
         try { await src.removeEntry(name); } catch { whole = false; }
       } else whole = false;
     }
@@ -616,10 +574,8 @@ export function createFs(root, opts) {
    * copied (another program, a save) keeps it: the copy is removed and the move fails with `io`,
    * or, when the change comes during the removal itself, both stay and the move fails with `io`.
    * Nothing is ever removed that the copy does not hold.
-   * @param {FileSystemHandle} handle @param {FileSystemDirectoryHandle} srcParent @param {string} srcName
-   * @param {FileSystemDirectoryHandle} dstParent @param {string} dstName @param {string} rel
    */
-  async function moveEntry(handle, srcParent, srcName, dstParent, dstName, rel) {
+  async function moveEntry(handle: FileSystemHandle, srcParent: FileSystemDirectoryHandle, srcName: string, dstParent: FileSystemDirectoryHandle, dstName: string, rel: string) {
     if (typeof handle.move === 'function') {
       try { await handle.move(dstParent, dstName); return; } catch (e) {
         if (domName(e) !== 'NotSupportedError') throw e;
@@ -627,7 +583,7 @@ export function createFs(root, opts) {
     }
     const dropCopy = async () => { try { await dstParent.removeEntry(dstName, { recursive: handle.kind === 'directory' }); } catch { /* gone */ } };
     if (handle.kind === 'file') {
-      const fh = /** @type {FileSystemFileHandle} */ (handle);
+      const fh = (handle as FileSystemFileHandle);
       const f = await fh.getFile();
       const bytes = new Uint8Array(await f.arrayBuffer());
       await createIn(dstParent, dstName, bytes, rel);
@@ -638,9 +594,8 @@ export function createFs(root, opts) {
       await srcParent.removeEntry(srcName);
       return;
     }
-    const src = /** @type {FileSystemDirectoryHandle} */ (handle);
-    /** @type {Manifest} */
-    const seen = { files: new Map(), dirs: new Set() };
+    const src = (handle as FileSystemDirectoryHandle);
+    const seen: Manifest = { files: new Map(), dirs: new Set() };
     const d = await dstParent.getDirectoryHandle(dstName, { create: true });
     try { await copyTree(src, d, { n: 0 }, rel, 0, seen); } catch (e) {
       await dropCopy();
@@ -658,8 +613,7 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- versions (versions.rs)
-  /** @param {unknown} p */
-  const vSegs = (p) => {
+  const vSegs = (p: unknown) => {
     const s = segsOf(p);
     if (!s.length) throw fail('bad_arg', 'a version needs a file');
     return [...H_ROOT, ...s];
@@ -676,14 +630,12 @@ export function createFs(root, opts) {
       await moveEntry(old, ose, 'versions', ose, 'history', '.ose/history');
     } catch (e) { warn(`history: could not move .ose/versions to .ose/history: ${msgOf(e)}`); }
   }
-  /** The versions in one folder of the history, newest first. @param {FileSystemDirectoryHandle} dir @param {string} key */
-  async function entriesIn(dir, key) {
-    /** @type {VersionEntry[]} */
-    const out = [];
-    /** @type {[string, FileSystemFileHandle][]} */
-    const files = [];
+  /** The versions in one folder of the history, newest first. */
+  async function entriesIn(dir: FileSystemDirectoryHandle, key: string) {
+    const out: VersionEntry[] = [];
+    const files: [string, FileSystemFileHandle][] = [];
     try {
-      for await (const [name, h] of dir.entries()) if (h.kind === 'file') files.push([name, /** @type {FileSystemFileHandle} */ (h)]);
+      for await (const [name, h] of dir.entries()) if (h.kind === 'file') files.push([name, (h as FileSystemFileHandle)]);
     } catch { return out; }
     for (const [name, h] of files) {
       const v = parseVName(name);
@@ -696,33 +648,28 @@ export function createFs(root, opts) {
     out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     return out;
   }
-  /** @param {string} p @returns {Promise<VersionEntry[]>} */
-  async function versionsOf(p) {
+  async function versionsOf(p: string): Promise<VersionEntry[]> {
     const s = vSegs(p);
     const d = await dirOrNull(s);
     return d ? entriesIn(d, relOf(s)) : [];
   }
-  /** @param {string} p @param {number} at */
-  async function pruneFile(p, at) {
+  async function pruneFile(p: string, at: number) {
     const list = await versionsOf(p);
     const keep = survivors(list, at);
     for (let i = 0; i < list.length; i++) {
-      const e = /** @type {VersionEntry} */ (list[i]);
+      const e = (list[i] as VersionEntry);
       if (!keep[i]) { try { await e.dir.removeEntry(e.name); } catch { /* gone */ } }
     }
   }
-  /** Hold the whole history under 200 MB; answers its size. @param {number} at */
-  async function pruneVault(at) {
-    /** @type {VersionEntry[]} */
-    const all = [];
-    /** @param {FileSystemDirectoryHandle} dir @param {string} key @param {number} depth */
-    const walkH = async (dir, key, depth) => {
+  /** Hold the whole history under 200 MB; answers its size. */
+  async function pruneVault(at: number) {
+    const all: VersionEntry[] = [];
+    const walkH = async (dir: FileSystemDirectoryHandle, key: string, depth: number) => {
       if (depth > 32) return;
       for (const e of await entriesIn(dir, key)) all.push(e);
-      /** @type {[string, FileSystemDirectoryHandle][]} */
-      const subs = [];
+      const subs: [string, FileSystemDirectoryHandle][] = [];
       try {
-        for await (const [name, h] of dir.entries()) if (h.kind === 'directory') subs.push([name, /** @type {FileSystemDirectoryHandle} */ (h)]);
+        for await (const [name, h] of dir.entries()) if (h.kind === 'directory') subs.push([name, (h as FileSystemDirectoryHandle)]);
       } catch { return; }
       for (const [name, h] of subs) await walkH(h, `${key}/${name}`, depth + 1);
     };
@@ -731,8 +678,7 @@ export function createFs(root, opts) {
     await walkH(top, relOf(H_ROOT), 0);
     let total = all.reduce((n, e) => n + e.bytes, 0);
     if (total <= MAX_TOTAL_BYTES) return total;
-    /** @type {Map<string, string>} */
-    const newest = new Map();
+    const newest: Map<string, string> = new Map();
     for (const e of all) { const n = newest.get(e.key); if (n === undefined || e.id > n) newest.set(e.key, e.id); }
     all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     for (const e of all) {
@@ -742,17 +688,14 @@ export function createFs(root, opts) {
     }
     return total;
   }
-  /** @type {number | null} */
-  let historyTotal = null;
-  /** @param {number} at */
-  async function pruneVaultIfOver(at) {
+  let historyTotal: number | null = null;
+  async function pruneVaultIfOver(at: number) {
     if (historyTotal !== null && historyTotal <= MAX_TOTAL_BYTES) return;
     try { historyTotal = await pruneVault(at); } catch (e) { warn(`history: prune failed: ${msgOf(e)}`); }
   }
   /** Paths that have had a version in this tab: the next one is not the session's first. */
   const session = new Set();
-  /** @param {string} rel @param {Uint8Array} bytes @param {boolean} force @param {string} reason @param {number} at */
-  async function keepLocked(rel, bytes, force, reason, at) {
+  async function keepLocked(rel: string, bytes: Uint8Array, force: boolean, reason: string, at: number) {
     const list = await versionsOf(rel);
     const newest = list[0];
     if (newest) {
@@ -776,11 +719,8 @@ export function createFs(root, opts) {
   /**
    * Keep `bytes` as a version of `p` (versions.rs `keep_at`), one keep of a file at a time, then
    * hold the history under its cap unless `settle` is false. Answers `{kept, id}`.
-   * @param {string} p @param {Uint8Array} bytes
-   * @param {{ force?: boolean, reason?: string, settle?: boolean, at?: number }} [o]
-   * @returns {Promise<{ kept: boolean, id: string | null }>}
    */
-  async function keepVersion(p, bytes, o = {}) {
+  async function keepVersion(p: string, bytes: Uint8Array, o: { force?: boolean; reason?: string; settle?: boolean; at?: number; } = {}): Promise<{ kept: boolean; id: string | null; }> {
     refuseOutside(p, 'a version');
     await migrate();
     if (!bytes || !bytes.length) return { kept: false, id: null };
@@ -791,28 +731,26 @@ export function createFs(root, opts) {
     if (o.settle !== false) await pruneVaultIfOver(at);
     return r;
   }
-  /** @param {string} p @param {unknown} id */
-  async function findVersion(p, id) {
+  async function findVersion(p: string, id: unknown) {
     if (!idOk(id)) throw fail('bad_arg', `not a version id: ${String(id)}`);
     const e = (await versionsOf(p)).find((x) => x.id === id);
     if (!e) throw fail('not_found', `no version ${String(id)} of ${p}`);
     return e;
   }
   /** Every entry of `src` into `dst`; a taken name moves aside as `<id>-<n>.<rest>`.
-   *  @param {FileSystemDirectoryHandle} src @param {FileSystemDirectoryHandle} dst @param {string} rel */
-  async function merge(src, dst, rel) {
-    /** @type {[string, FileSystemHandle][]} */
-    const ents = [];
+   *     */
+  async function merge(src: FileSystemDirectoryHandle, dst: FileSystemDirectoryHandle, rel: string) {
+    const ents: [string, FileSystemHandle][] = [];
     try { for await (const e of src.entries()) ents.push(e); } catch { return; }
     for (const [name, h] of ents) {
-      let there = null;
+      let there: FileSystemFileHandle | FileSystemDirectoryHandle | null = null;
       try { there = await dst.getFileHandle(name); } catch (e) {
         if (domName(e) === 'TypeMismatchError') there = await dst.getDirectoryHandle(name);
         else if (domName(e) !== 'NotFoundError') throw e;
       }
       if (!there) { try { await moveEntry(h, src, name, dst, name, `${rel}/${name}`); } catch { /* left */ } continue; }
       if (h.kind === 'directory' && there.kind === 'directory') {
-        await merge(/** @type {FileSystemDirectoryHandle} */ (h), /** @type {FileSystemDirectoryHandle} */ (there), `${rel}/${name}`);
+        await merge((h as FileSystemDirectoryHandle), (there as FileSystemDirectoryHandle), `${rel}/${name}`);
         try { await src.removeEntry(name); } catch { /* not empty */ }
         continue;
       }
@@ -826,8 +764,8 @@ export function createFs(root, opts) {
       }
     }
   }
-  /** The history follows a rename (versions.rs `move_history`). @param {string} from @param {string} to */
-  async function moveHistory(from, to) {
+  /** The history follows a rename (versions.rs `move_history`). */
+  async function moveHistory(from: string, to: string) {
     await migrate();
     if (isExcluded(from) || isExcluded(to)) return;
     const srcSegs = vSegs(from);
@@ -835,9 +773,9 @@ export function createFs(root, opts) {
     const src = await dirOrNull(srcSegs);
     if (!src || relOf(srcSegs) === relOf(dstSegs)) return;
     const srcParent = await dirAt(srcSegs.slice(0, -1));
-    const srcName = /** @type {string} */ (srcSegs[srcSegs.length - 1]);
+    const srcName = (srcSegs[srcSegs.length - 1] as string);
     const dstParent = await dirAt(dstSegs.slice(0, -1), true);
-    const dstName = /** @type {string} */ (dstSegs[dstSegs.length - 1]);
+    const dstName = (dstSegs[dstSegs.length - 1] as string);
     const there = await lookup(dstSegs);
     if (there && there.kind === 'dir' && (await there.handle.isSameEntry(src))) {
       // A case-only rename on a folding disk: through a temporary name.
@@ -853,8 +791,8 @@ export function createFs(root, opts) {
     try { await srcParent.removeEntry(srcName); } catch { /* not empty */ }
   }
   /** What a rename does to the app's own data: the history moves and the drafts re-key.
-   *  @param {string} from @param {string} to */
-  async function followRename(from, to) {
+   *    */
+  async function followRename(from: string, to: string) {
     const a = clean(from);
     const b = clean(to);
     try { await moveHistory(a, b); } catch (e) { warn(`history: ${a} -> ${b}: ${msgOf(e)}`); }
@@ -862,8 +800,7 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- listings (vault.rs, hide.rs)
-  /** @param {string} name @param {string} rel @param {'file' | 'dir'} kind @param {File | null} file @returns {Entry} */
-  const entryOf = (name, rel, kind, file) => ({
+  const entryOf = (name: string, rel: string, kind: 'file' | 'dir', file: File | null): Entry => ({
     name, path: rel, kind,
     ext: kind === 'dir' ? '' : (name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''),
     mtime: kind === 'dir' || !file ? 0 : Math.floor(file.lastModified), size: kind === 'dir' || !file ? 0 : file.size,
@@ -873,14 +810,10 @@ export function createFs(root, opts) {
   /**
    * Every entry under `dir` the rule lets through, depth first. `visit` answers false to stop;
    * unreadable folders are noted in `unreadable`.
-   * @param {FileSystemDirectoryHandle} dir @param {string} rel @param {boolean} hidden
-   * @param {(path: string, handle: FileSystemHandle) => unknown} visit @param {number} depth @param {Set<string> | null} unreadable
-   * @returns {Promise<boolean>}
    */
-  async function walkFrom(dir, rel, hidden, visit, depth, unreadable) {
+  async function walkFrom(dir: FileSystemDirectoryHandle, rel: string, hidden: boolean, visit: (path: string, handle: FileSystemHandle) => unknown, depth: number, unreadable: Set<string> | null): Promise<boolean> {
     if (depth > MAX_DEPTH) return true;
-    /** @type {[string, FileSystemHandle][]} */
-    const ents = [];
+    const ents: [string, FileSystemHandle][] = [];
     try { for await (const e of dir.entries()) ents.push(e); } catch { unreadable?.add(rel); return true; }
     for (const [name, h] of ents) {
       const p = rel ? `${rel}/${name}` : name;
@@ -888,28 +821,24 @@ export function createFs(root, opts) {
       if (c === 'excluded' || (c === 'hidden' && !hidden)) continue;
       if ((await visit(p, h)) === false) return false;
       if (h.kind === 'directory') {
-        if (!(await walkFrom(/** @type {FileSystemDirectoryHandle} */ (h), p, hidden, visit, depth + 1, unreadable))) return false;
+        if (!(await walkFrom((h as FileSystemDirectoryHandle), p, hidden, visit, depth + 1, unreadable))) return false;
       }
     }
     return true;
   }
   /** `walk(hidden, visit)`: the hide rule's walk of the vault; false when `visit` stopped it.
-   *  @param {boolean} hidden @param {(path: string, handle: FileSystemHandle) => unknown} visit */
-  const walk = (hidden, visit) => walkFrom(root, '', !!hidden, visit, 0, null);
+   *    */
+  const walk = (hidden: boolean, visit: (path: string, handle: FileSystemHandle) => unknown) => walkFrom(root, '', !!hidden, visit, 0, null);
 
-  /** @param {unknown} o */
-  async function tree(o) {
+  async function tree(o: unknown) {
     const hidden = !!(isObj(o) && o.hidden);
     try { const it = root.entries(); await it.next(); if (typeof it.return === 'function') await it.return(undefined); } catch (e) {
       throw fail('io', `cannot read the vault root: ${msgOf(e)}`);
     }
-    /** @type {Map<string, Entry[]>} */
-    const byParent = new Map();
-    const unreadable = new Set();
-    /** @type {{ entry: Entry, handle: FileSystemFileHandle, parent: string }[]} */
-    const files = [];
-    /** @type {Map<string, Entry>} */
-    const dirs = new Map();
+    const byParent: Map<string, Entry[]> = new Map();
+    const unreadable = new Set<string>();
+    const files: { entry: Entry; handle: FileSystemFileHandle; parent: string; }[] = [];
+    const dirs: Map<string, Entry> = new Map();
     await walkFrom(root, '', hidden, (p, h) => {
       const i = p.lastIndexOf('/');
       const parent = i < 0 ? '' : p.slice(0, i);
@@ -920,7 +849,7 @@ export function createFs(root, opts) {
         const list = byParent.get(parent) || [];
         list.push(e);
         byParent.set(parent, list);
-      } else files.push({ entry: entryOf(name, p, 'file', null), handle: /** @type {FileSystemFileHandle} */ (h), parent });
+      } else files.push({ entry: entryOf(name, p, 'file', null), handle: (h as FileSystemFileHandle), parent });
     }, 0, unreadable);
     await pool(files, PARALLEL, async (f) => {
       let file;
@@ -931,8 +860,7 @@ export function createFs(root, opts) {
       list.push(f.entry);
       byParent.set(f.parent, list);
     });
-    /** @param {string} rel @returns {Entry[]} */
-    const assemble = (rel) => (byParent.get(rel) || []).map((e) => {
+    const assemble = (rel: string): Entry[] => (byParent.get(rel) || []).map((e) => {
       if (e.kind === 'dir') {
         if (unreadable.has(e.path)) e.readable = false;
         e.children = assemble(e.path);
@@ -942,8 +870,7 @@ export function createFs(root, opts) {
     return { name: root.name, path: '', kind: 'dir', ext: '', mtime: 0, size: 0, hidden: false, children: assemble('') };
   }
 
-  /** @param {string} p @param {unknown} o */
-  async function list(p, o) {
+  async function list(p: string, o: unknown) {
     const hidden = !!(isObj(o) && o.hidden);
     if (isExcluded(String(p ?? ''))) throw fail('not_found', `not listed: ${p}`);
     const segs = segsOf(p);
@@ -951,11 +878,9 @@ export function createFs(root, opts) {
     const at = await lookup(segs);
     if (!at) throw fail('not_found', `${p}: no such folder`);
     if (at.kind !== 'dir') throw fail('not_found', `not a folder: ${p}`);
-    /** @type {[string, FileSystemHandle][]} */
-    const ents = [];
+    const ents: [string, FileSystemHandle][] = [];
     try { for await (const e of at.handle.entries()) ents.push(e); } catch (e) { throw fromDom(e, p); }
-    /** @type {Entry[]} */
-    const out = [];
+    const out: Entry[] = [];
     await pool(ents, PARALLEL, async ([name, h]) => {
       const cp = rel ? `${rel}/${name}` : name;
       const c = classify(cp);
@@ -963,7 +888,7 @@ export function createFs(root, opts) {
       if (h.kind === 'directory') {
         const e = entryOf(name, cp, 'dir', null);
         try {
-          const it = /** @type {FileSystemDirectoryHandle} */ (h).entries();
+          const it = (h as FileSystemDirectoryHandle).entries();
           await it.next();
           if (typeof it.return === 'function') await it.return(undefined);
         } catch { e.readable = false; }
@@ -971,29 +896,26 @@ export function createFs(root, opts) {
         return;
       }
       let file;
-      try { file = await /** @type {FileSystemFileHandle} */ (h).getFile(); } catch { return; }
+      try { file = await (h as FileSystemFileHandle).getFile(); } catch { return; }
       out.push(entryOf(name, cp, 'file', file));
     });
     return out.sort(byEntry);
   }
 
-  /** @param {string} p @param {unknown} o */
-  async function stat(p, o) {
+  async function stat(p: string, o: unknown) {
     const place = await target(p);
     const missing = { exists: false, kind: null, mtime: 0, size: 0, hidden: false };
-    /** @type {{ kind: 'file' | 'dir', handle: FileSystemHandle } | null} */
-    let at;
-    if (place.outside) at = { kind: 'file', handle: /** @type {FileSystemFileHandle} */ (place.handle) };
+    let at: { kind: 'file' | 'dir'; handle: FileSystemHandle; } | null;
+    if (place.outside) at = { kind: 'file', handle: (place.handle as FileSystemFileHandle) };
     else at = await lookup(place.segs);
     if (!at) return missing;
-    let file = null;
+    let file: File | null = null;
     if (at.kind === 'file') {
-      try { file = await /** @type {FileSystemFileHandle} */ (at.handle).getFile(); } catch (e) { if (isGone(e)) return missing; throw e; }
+      try { file = await (at.handle as FileSystemFileHandle).getFile(); } catch (e) { if (isGone(e)) return missing; throw e; }
     }
     const name = place.outside ? (place.rel.split('/').pop() || '') : (place.segs[place.segs.length - 1] || '');
     const hidden = place.outside ? isHiddenName(name) : place.segs.length > 0 && classify(place.rel) !== 'shown';
-    /** @type {{ exists: boolean, kind: string, mtime: number, size: number, hidden: boolean, text?: boolean, encoding?: string }} */
-    const out = { exists: true, kind: at.kind, mtime: file ? Math.floor(file.lastModified) : 0, size: file ? file.size : 0, hidden };
+    const out: { exists: boolean; kind: string; mtime: number; size: number; hidden: boolean; text?: boolean; encoding?: string; } = { exists: true, kind: at.kind, mtime: file ? Math.floor(file.lastModified) : 0, size: file ? file.size : 0, hidden };
     if (isObj(o) && o.sniff && file) {
       try {
         const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
@@ -1009,18 +931,16 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- search (bridge-plugin.mjs)
-  /** @type {Map<unknown, number>} */
-  const searchGen = new Map();
-  /** `a "b c" path:x file:y` -> {terms, paths, files}, lowercased. @param {unknown} q */
-  const parseQuery = (q) => {
-    /** @type {{ terms: string[], paths: string[], files: string[] }} */
-    const out = { terms: [], paths: [], files: [] };
+  const searchGen: Map<unknown, number> = new Map();
+  /** `a "b c" path:x file:y` -> {terms, paths, files}, lowercased. */
+  const parseQuery = (q: unknown) => {
+    const out: { terms: string[]; paths: string[]; files: string[]; } = { terms: [], paths: [], files: [] };
     const s = String(q || '');
     let i = 0;
     while (i < s.length) {
       if (/\s/.test(s[i] || '')) { i++; continue; }
       let kind = 0;
-      for (const [word, k] of /** @type {[string, number][]} */ ([['path:', 1], ['file:', 2]])) {
+      for (const [word, k] of ([['path:', 1], ['file:', 2]] as [string, number][])) {
         if (s.slice(i, i + word.length).toLowerCase() === word) { kind = k; i += word.length; break; }
       }
       let word = '';
@@ -1039,14 +959,12 @@ export function createFs(root, opts) {
     }
     return out;
   };
-  /** @param {{ paths: string[], files: string[] }} q @param {string} rel @param {string} name */
-  const searchAllowed = (q, rel, name) => {
+  const searchAllowed = (q: { paths: string[]; files: string[]; }, rel: string, name: string) => {
     const r = rel.toLowerCase();
     return (!q.paths.length || q.paths.some((p) => r.startsWith(p.replace(/\/+$/, ''))))
       && (!q.files.length || q.files.some((f) => name.includes(f)));
   };
-  /** @param {unknown} q @param {unknown} o */
-  async function search(q, o) {
+  async function search(q: unknown, o: unknown) {
     const { limit = 100, chan = null, hidden = false } = isObj(o) ? o : {};
     const query = parseQuery(q);
     if (!query.terms.length && !query.paths.length && !query.files.length) {
@@ -1055,8 +973,7 @@ export function createFs(root, opts) {
     let gen = 0;
     if (chan) { gen = (searchGen.get(chan) || 0) + 1; searchGen.set(chan, gen); }
     const current = () => !chan || searchGen.get(chan) === gen;
-    /** @type {{ path: string, kind: string, nameHit: boolean, total: number, lines: Hit[] }[]} */
-    const found = [];
+    const found: { path: string; kind: string; nameHit: boolean; total: number; lines: Hit[]; }[] = [];
     const finished = await walk(!!hidden, async (p, h) => {
       if (!current()) return false;
       if (isInBin(p)) return true;
@@ -1075,7 +992,7 @@ export function createFs(root, opts) {
         return true;
       }
       let text;
-      try { text = utf8Lenient.decode(await bytesOf(/** @type {FileSystemFileHandle} */ (h))); } catch { return true; }
+      try { text = utf8Lenient.decode(await bytesOf((h as FileSystemFileHandle))); } catch { return true; }
       if (!current()) return false;
       const lower = text.toLowerCase();
       const relLower = p.toLowerCase();
@@ -1083,8 +1000,7 @@ export function createFs(root, opts) {
         if (nameHit) found.push({ path: p, kind: 'file', nameHit: true, total: 0, lines: [] });
         return true;
       }
-      /** @type {Hit[]} */
-      const lines = [];
+      const lines: Hit[] = [];
       let total = 0;
       text.split(/\r?\n/).forEach((line, i) => {
         const low = line.toLowerCase();
@@ -1106,8 +1022,7 @@ export function createFs(root, opts) {
     const cap = limit === 0 ? Infinity : Number(limit) || 100;
     const capped = total > cap;
     const kept = capped ? found.slice(0, cap) : found;
-    /** @type {Hit[]} */
-    const hits = [];
+    const hits: Hit[] = [];
     for (const f of kept) {
       if (f.nameHit) hits.push({ path: f.path, line: 0, col: 0, text: f.path, kind: f.kind });
       hits.push(...f.lines);
@@ -1116,33 +1031,28 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- trash (trashbin.rs, vault bin)
-  /** @param {string} entry */
-  const validEntry = (entry) => !!entry && entry !== INFO && entry !== '.' && entry !== '..' && !/[\\/]/.test(entry) && !isExcluded(entry);
-  /** @param {string} entry @returns {[string, number | null]} */
-  const unstamped = (entry) => { const m = /^(\d+)-(.+)$/.exec(entry); return m ? [m[2] || entry, Number(m[1])] : [entry, null]; };
-  /** @param {FileSystemHandle} h @returns {Promise<number>} */
-  async function sizeOf(h, depth = 0) {
-    if (h.kind === 'file') { try { return (await /** @type {FileSystemFileHandle} */ (h).getFile()).size; } catch { return 0; } }
+  const validEntry = (entry: string) => !!entry && entry !== INFO && entry !== '.' && entry !== '..' && !/[\\/]/.test(entry) && !isExcluded(entry);
+  const unstamped = (entry: string): [string, number | null] => { const m = /^(\d+)-(.+)$/.exec(entry); return m ? [m[2] || entry, Number(m[1])] : [entry, null]; };
+  async function sizeOf(h: FileSystemHandle, depth = 0): Promise<number> {
+    if (h.kind === 'file') { try { return (await (h as FileSystemFileHandle).getFile()).size; } catch { return 0; } }
     if (depth > MAX_DEPTH) return 0;
     let n = 0;
-    try { for await (const [, c] of /** @type {FileSystemDirectoryHandle} */ (h).entries()) n += await sizeOf(c, depth + 1); } catch { /* unreadable */ }
+    try { for await (const [, c] of (h as FileSystemDirectoryHandle).entries()) n += await sizeOf(c, depth + 1); } catch { /* unreadable */ }
     return n;
   }
-  /** @param {string} entry */
-  async function readInfo(entry) {
+  async function readInfo(entry: string) {
     const h = await fileOrNull([BIN, INFO, `${entry}.json`]);
     if (!h) return null;
     try { const o = JSON.parse(utf8Lenient.decode(await bytesOf(h))); return isObj(o) ? o : null; } catch { return null; }
   }
 
-  async function trash(/** @type {string} */ p, /** @type {unknown} */ o) {
+  async function trash(p: string,o: unknown) {
     checkEpoch(o);
     const segs = segsOf(p);
     if (!segs.length) throw fail('bad_arg', 'refusing to trash the vault root');
     return withTrees([relOf(segs)], () => trashLocked(p, segs));
   }
-  /** @param {string} p @param {string[]} segs */
-  async function trashLocked(p, segs) {
+  async function trashLocked(p: string, segs: string[]) {
     const at0 = await lookup(segs);
     if (!at0 || !at0.parent) throw fail('not_found', `nothing to trash: ${p}`);
     await requireVault();
@@ -1164,12 +1074,10 @@ export function createFs(root, opts) {
   }
 
   async function trashList() {
-    /** @type {{ id: string, name: string, original: string, known?: boolean, deletedAt: number, kind: string, size: number, where: string }[]} */
-    const out = [];
+    const out: { id: string; name: string; original: string; known?: boolean; deletedAt: number; kind: string; size: number; where: string; }[] = [];
     const bin = await dirOrNull([BIN]);
     if (!bin) return out;
-    /** @type {[string, FileSystemHandle][]} */
-    const ents = [];
+    const ents: [string, FileSystemHandle][] = [];
     try { for await (const e of bin.entries()) ents.push(e); } catch { return out; }
     for (const [entry, h] of ents) {
       if (!validEntry(entry)) continue;
@@ -1178,7 +1086,7 @@ export function createFs(root, opts) {
       const known = !!info && typeof info.original === 'string';
       const original = known && info ? String(info.original) : bare;
       let mtime = 0;
-      if (h.kind === 'file') { try { mtime = (await /** @type {FileSystemFileHandle} */ (h).getFile()).lastModified; } catch { /* gone */ } }
+      if (h.kind === 'file') { try { mtime = (await (h as FileSystemFileHandle).getFile()).lastModified; } catch { /* gone */ } }
       out.push({
         id: `vault:${entry}`, name: original.split('/').pop() || original, original,
         ...(known ? {} : { known: false }),
@@ -1189,13 +1097,11 @@ export function createFs(root, opts) {
     return out.sort((a, b) => b.deletedAt - a.deletedAt);
   }
 
-  async function trashRestore(/** @type {unknown} */ ids, /** @type {unknown} */ o) {
+  async function trashRestore(ids: unknown,o: unknown) {
     checkEpoch(o);
     await requireVault();
-    /** @type {{ id: unknown, path: string }[]} */
-    const restored = [];
-    /** @type {{ id: unknown, error: string }[]} */
-    const failed = [];
+    const restored: { id: unknown; path: string; }[] = [];
+    const failed: { id: unknown; error: string; }[] = [];
     for (const id of Array.isArray(ids) ? ids : [ids]) {
       try {
         const entry = typeof id === 'string' && id.startsWith('vault:') ? id.slice(6) : null;
@@ -1210,7 +1116,7 @@ export function createFs(root, opts) {
         await withTrees([relOf(dst), `${BIN}/${entry}`], async () => {
           if (await lookup(dst)) throw fail('exists', `A file with that name is already there: ${original}`);
           const parent = await dirAt(dst.slice(0, -1), true);
-          await moveEntry(src.handle, /** @type {FileSystemDirectoryHandle} */ (src.parent), entry, parent, /** @type {string} */ (dst[dst.length - 1]), relOf(dst));
+          await moveEntry(src.handle, (src.parent as FileSystemDirectoryHandle), entry, parent, (dst[dst.length - 1] as string), relOf(dst));
         });
         try { const infoDir = await dirAt([BIN, INFO]); await infoDir.removeEntry(`${entry}.json`); } catch { /* none */ }
         restored.push({ id, path: relOf(dst) });
@@ -1231,9 +1137,9 @@ export function createFs(root, opts) {
    * file still holds `before` (or already the new bytes). A file that moved on is read again and
    * the append made over the new bytes, a few times, and then `write_failed`: never a close over
    * a change. Answers the bytes written.
-   * @param {string[]} segs @param {(before: Uint8Array) => Uint8Array} build the bytes to add
+   *  @param build the bytes to add
    */
-  async function appendGuarded(segs, build) {
+  async function appendGuarded(segs: string[], build: (before: Uint8Array) => Uint8Array) {
     const place = { rel: relOf(segs), outside: false, segs, handle: null };
     return withLock(place.rel, async () => {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -1241,7 +1147,7 @@ export function createFs(root, opts) {
         const before = disk || new Uint8Array(0);
         const next = concat(before, build(before));
         let moved = false;
-        const lastLook = async (/** @type {boolean} */ created) => {
+        const lastLook = async (created: boolean) => {
           let cur = await readPlace(place);
           if (created && cur && cur.length === 0) cur = null;
           if (cur === null ? before.length === 0 : sameBytes(cur, before) || sameBytes(cur, next)) return;
@@ -1261,18 +1167,16 @@ export function createFs(root, opts) {
   }
 
   // -------------------------------------------------------------- the commands
-  /** `{status:'conflict', disk}`: what the disk holds instead of what the page expected. @param {Uint8Array | null} disk */
-  const conflictOf = (disk) => ({ status: 'conflict', disk: { exists: !!disk, text: disk ? utf8OrNull(disk) : null, hash: disk ? hash(disk) : null } });
-  /** @param {Place} place */
-  const mtimeOf = async (place) => {
+  /** `{status:'conflict', disk}`: what the disk holds instead of what the page expected. */
+  const conflictOf = (disk: Uint8Array | null) => ({ status: 'conflict', disk: { exists: !!disk, text: disk ? utf8OrNull(disk) : null, hash: disk ? hash(disk) : null } });
+  const mtimeOf = async (place: Place) => {
     try { const h = await placeHandle(place); return h ? Math.floor((await h.getFile()).lastModified) : 0; } catch { return 0; }
   };
 
   /**
    * The rename itself, under the trees of both paths; answers whether anything moved.
-   * @param {string} a @param {string} b @param {string[]} src @param {string[]} dst
    */
-  async function renameLocked(a, b, src, dst) {
+  async function renameLocked(a: string, b: string, src: string[], dst: string[]) {
     const from = await lookup(src);
     if (!from || !from.parent) throw fail(src.length ? 'not_found' : 'bad_arg', src.length ? `nothing to rename: ${a}` : 'the vault root cannot be renamed');
     if (!dst.length) throw fail('bad_name', `not a name to rename to: ${b}`);
@@ -1280,7 +1184,7 @@ export function createFs(root, opts) {
     const rb = relOf(dst);
     if (ra === rb) return false;
     if (from.kind === 'dir' && fold(rb).startsWith(`${fold(ra)}/`)) throw fail('bad_arg', `a folder cannot move into itself: ${a} -> ${b}`);
-    const dstName = /** @type {string} */ (dst[dst.length - 1]);
+    const dstName = (dst[dst.length - 1] as string);
     const there = await lookup(dst);
     if (there && ra.toLowerCase() === rb.toLowerCase() && (await there.handle.isSameEntry(from.handle))) {
       // A case-only rename on a disk that folds case: through `.<name>.<n>.case`.
@@ -1306,21 +1210,21 @@ export function createFs(root, opts) {
     tree,
     list,
     stat,
-    exists: async (/** @type {string} */ p) => {
+    exists: async (p: string) => {
       const place = await target(p);
-      if (place.outside) { try { await /** @type {FileSystemFileHandle} */ (place.handle).getFile(); return true; } catch (e) { if (isGone(e)) return false; throw e; } }
+      if (place.outside) { try { await (place.handle as FileSystemFileHandle).getFile(); return true; } catch (e) { if (isGone(e)) return false; throw e; } }
       return !!(await lookup(place.segs));
     },
     search,
 
-    readText: async (/** @type {string} */ p) => {
+    readText: async (p: string) => {
       const bytes = await readPlace(await target(p));
       if (!bytes) throw fail('not_found', `${p}: no such file`);
       const text = utf8OrNull(bytes);
       if (text === null) throw fail('not_utf8', `not valid UTF-8: ${p}`);
       return text;
     },
-    readFile: async (/** @type {string} */ p, /** @type {unknown} */ o) => {
+    readFile: async (p: string,o: unknown) => {
       const place = await target(p);
       const h = await placeHandle(place);
       if (!h) throw fail('not_found', `${p}: no such file`);
@@ -1332,7 +1236,7 @@ export function createFs(root, opts) {
       return { text: d.text, hash: hash(buf), mtime: Math.floor(file.lastModified), size: buf.length, encoding: d.encoding, bom: d.bom, lossy: d.lossy };
     },
 
-    saveFile: async (/** @type {string} */ p, /** @type {unknown} */ text, /** @type {unknown} */ o) => {
+    saveFile: async (p: string,text: unknown,o: unknown) => {
       checkEpoch(o);
       const rel0 = typeof p === 'string' ? clean(p) : String(p);
       try {
@@ -1355,9 +1259,8 @@ export function createFs(root, opts) {
           if (disk && sameBytes(disk, bytes)) return { status: 'saved', hash: hash(bytes), mtime: await mtimeOf(place), unchanged: true };
           const matches = expected === null ? !disk : !!disk && hash(disk) === expected;
           if (!matches) return conflictOf(disk);
-          /** @type {{ now: Uint8Array | null } | undefined} */
-          let moved;
-          const lastLook = async (/** @type {boolean} */ created) => {
+          let moved: { now: Uint8Array | null; } | undefined;
+          const lastLook = async (created: boolean) => {
             let cur = await readPlace(place);
             if (created && cur && cur.length === 0) cur = null;
             if (cur === null ? disk === null : (disk !== null && sameBytes(cur, disk)) || sameBytes(cur, bytes)) return;
@@ -1388,7 +1291,7 @@ export function createFs(root, opts) {
       }
     },
 
-    createNew: async (/** @type {string} */ p, /** @type {unknown} */ text = '', /** @type {unknown} */ o = undefined) => {
+    createNew: async (p: string,text: unknown = '',o: unknown = undefined) => {
       if (isObj(text)) { o = text; text = ''; }
       checkEpoch(o);
       checkName(p);
@@ -1398,7 +1301,7 @@ export function createFs(root, opts) {
       await withLock(relOf(segs), () => createExclusive(segs, bytes));
       return { path: relOf(segs), hash: hash(bytes) };
     },
-    createNewBinary: async (/** @type {string} */ p, /** @type {unknown} */ data, /** @type {unknown} */ o) => {
+    createNewBinary: async (p: string,data: unknown,o: unknown) => {
       checkEpoch(o);
       if (typeof data !== 'string') throw fail('bad_arg', 'argument 1 must be the bytes, in base64');
       checkName(p);
@@ -1408,7 +1311,7 @@ export function createFs(root, opts) {
       await withLock(relOf(segs), () => createExclusive(segs, bytes));
       return { path: relOf(segs), hash: hash(bytes) };
     },
-    copyFile: async (/** @type {string} */ from, /** @type {string} */ to, /** @type {unknown} */ o) => {
+    copyFile: async (from: string,to: string,o: unknown) => {
       checkEpoch(o);
       checkName(to);
       const src = segsOf(from);
@@ -1421,7 +1324,7 @@ export function createFs(root, opts) {
       await withLock(relOf(dst), () => createExclusive(dst, bytes));
       return { path: relOf(dst), hash: hash(bytes) };
     },
-    importOutside: async (/** @type {unknown} */ from, /** @type {string} */ to, /** @type {unknown} */ o) => {
+    importOutside: async (from: unknown,to: string,o: unknown) => {
       checkEpoch(o);
       if (typeof from !== 'string' || !from.startsWith(ABS)) throw fail('bad_arg', `not a file outside the vault: ${String(from)}`);
       const place = await target(from);
@@ -1434,7 +1337,7 @@ export function createFs(root, opts) {
       return { path: relOf(dst), hash: hash(bytes) };
     },
 
-    appendLine: async (/** @type {string} */ p, /** @type {unknown} */ line, /** @type {unknown} */ o) => {
+    appendLine: async (p: string,line: unknown,o: unknown) => {
       checkEpoch(o);
       const l = String(line ?? '');
       if (/[\r\n]/.test(l)) throw fail('bad_arg', 'a line cannot hold a line break');
@@ -1449,12 +1352,12 @@ export function createFs(root, opts) {
       });
       return { hash: hash(next) };
     },
-    replaceLine: async (/** @type {string} */ p, /** @type {unknown} */ index, /** @type {unknown} */ expected, /** @type {unknown} */ next, /** @type {unknown} */ o) => {
+    replaceLine: async (p: string,index: unknown,expected: unknown,next: unknown,o: unknown) => {
       checkEpoch(o);
       if (!Number.isInteger(index)) throw fail('bad_arg', 'argument 1 must be a line index');
       if (typeof expected !== 'string' || typeof next !== 'string') throw fail('bad_arg', 'expected and next must be strings');
       if (/[\r\n]/.test(next)) throw fail('bad_arg', 'a line cannot hold a line break');
-      const idx = /** @type {number} */ (index);
+      const idx = (index as number);
       const segs = segsOf(p);
       const place = { rel: relOf(segs), outside: false, segs, handle: null };
       await requireVault();
@@ -1465,14 +1368,12 @@ export function createFs(root, opts) {
         if (text === null) throw fail('not_utf8', `not valid UTF-8: ${p}`);
         const found = idx >= 0 ? lineSpans(text)[idx] : undefined;
         if (!found) return { status: 'conflict', actual: null };
-        /** @type {[number, number]} */
-        const span = idx === 0 && text.startsWith('﻿') ? [found[0] + 1, found[1]] : found;
+        const span: [number, number] = idx === 0 && text.startsWith('﻿') ? [found[0] + 1, found[1]] : found;
         const actual = text.slice(span[0], span[1]);
         if (actual !== expected) return { status: 'conflict', actual };
         if (expected === next) return { status: 'replaced', hash: hash(buf) };
         const out = enc.encode(text.slice(0, span[0]) + next + text.slice(span[1]));
-        /** @type {{ actual: string | null } | undefined} */
-        let moved;
+        let moved: { actual: string | null; } | undefined;
         const lastLook = async () => {
           const cur = await readPlace(place);
           if (cur !== null && (sameBytes(cur, buf) || sameBytes(cur, out))) return;
@@ -1494,12 +1395,12 @@ export function createFs(root, opts) {
       return r;
     },
 
-    writeText: async (/** @type {string} */ p, /** @type {unknown} */ text, /** @type {unknown} */ o) => {
+    writeText: async (p: string,text: unknown,o: unknown) => {
       checkEpoch(o);
       await writeBytes(p, enc.encode(String(text ?? '')));
       return null;
     },
-    appendText: async (/** @type {string} */ p, /** @type {unknown} */ text, /** @type {unknown} */ o) => {
+    appendText: async (p: string,text: unknown,o: unknown) => {
       checkEpoch(o);
       const segs = segsOf(p);
       if (!segs.length) throw fail('bad_arg', 'no file name to write');
@@ -1508,17 +1409,17 @@ export function createFs(root, opts) {
       await appendGuarded(segs, () => add);
       return null;
     },
-    writeBinary: async (/** @type {string} */ p, /** @type {unknown} */ b64, /** @type {unknown} */ o) => {
+    writeBinary: async (p: string,b64: unknown,o: unknown) => {
       checkEpoch(o);
       await writeBytes(p, fromBase64(String(b64 ?? '')));
       return null;
     },
-    readBinary: async (/** @type {string} */ p) => {
+    readBinary: async (p: string) => {
       const bytes = await readPlace(await target(p));
       if (!bytes) throw fail('not_found', `${p}: no such file`);
       return toBase64(bytes);
     },
-    mkdir: async (/** @type {string} */ p, /** @type {unknown} */ o) => {
+    mkdir: async (p: string,o: unknown) => {
       checkEpoch(o);
       const segs = segsOf(p);
       await requireVault();
@@ -1526,7 +1427,7 @@ export function createFs(root, opts) {
       return null;
     },
 
-    rename: async (/** @type {string} */ a, /** @type {string} */ b, /** @type {unknown} */ o) => {
+    rename: async (a: string,b: string,o: unknown) => {
       checkEpoch(o);
       const src = segsOf(a);
       const dst = segsOf(b);
@@ -1540,7 +1441,7 @@ export function createFs(root, opts) {
       return null;
     },
 
-    copyPath: async (/** @type {string} */ from, /** @type {string} */ to, /** @type {unknown} */ o) => {
+    copyPath: async (from: string,to: string,o: unknown) => {
       checkEpoch(o);
       const src = segsOf(from);
       const dst = segsOf(to);
@@ -1553,7 +1454,7 @@ export function createFs(root, opts) {
       const rd = fold(relOf(dst));
       if (at.kind === 'dir' && (!src.length || rd === rs || rd.startsWith(`${rs}/`))) throw fail('bad_arg', `a folder cannot be copied into itself: ${from} -> ${to}`);
       const parent = await dirAt(dst.slice(0, -1), true);
-      const name = /** @type {string} */ (dst[dst.length - 1]);
+      const name = (dst[dst.length - 1] as string);
       const count = { n: 0 };
       try {
         if (at.kind === 'dir') {
@@ -1575,11 +1476,11 @@ export function createFs(root, opts) {
     },
 
     trash,
-    trashWhere: async (/** @type {string} */ p) => { segsOf(p); return { where: 'vault' }; },
+    trashWhere: async (p: string) => { segsOf(p); return { where: 'vault' }; },
     trashList,
     trashRestore,
 
-    versionKeep: async (/** @type {string} */ p, /** @type {unknown} */ text, /** @type {unknown} */ o = false) => {
+    versionKeep: async (p: string,text: unknown,o: unknown = false) => {
       refuseOutside(p, 'a version');
       checkEpoch(o);
       let force = false;
@@ -1594,12 +1495,12 @@ export function createFs(root, opts) {
       }
       return keepVersion(p, enc.encode(String(text ?? '')), { force, reason });
     },
-    versionList: async (/** @type {string} */ p) => {
+    versionList: async (p: string) => {
       refuseOutside(p, 'a version');
       await migrate();
       return (await versionsOf(p)).map(({ id, at, bytes, reason, session: s }) => ({ id, at, bytes, reason, session: s }));
     },
-    versionRead: async (/** @type {string} */ p, /** @type {unknown} */ id) => {
+    versionRead: async (p: string,id: unknown) => {
       refuseOutside(p, 'a version');
       await migrate();
       const e = await findVersion(p, id);
@@ -1607,7 +1508,7 @@ export function createFs(root, opts) {
       if (text === null) throw fail('not_utf8', `not valid UTF-8: version ${String(id)} of ${p}`);
       return text;
     },
-    versionRestore: async (/** @type {string} */ p, /** @type {unknown} */ id, /** @type {unknown} */ o) => {
+    versionRestore: async (p: string,id: unknown,o: unknown) => {
       refuseOutside(p, 'a version');
       checkEpoch(o);
       await migrate();
@@ -1636,7 +1537,7 @@ export function createFs(root, opts) {
         return o ?? {};
       } catch { return {}; }
     },
-    setState: async (/** @type {unknown} */ state, /** @type {unknown} */ o) => {
+    setState: async (state: unknown,o: unknown) => {
       checkEpoch(o);
       await requireVault();
       const segs = ['.ose', 'state.json'];
@@ -1645,17 +1546,16 @@ export function createFs(root, opts) {
     },
   };
 
-  /** Every command's DOMException as the host's HostError, naming the path. @type {Record<string, (...args: any[]) => Promise<any>>} */
-  const wrapped = {};
+  /** Every command's DOMException as the host's HostError, naming the path. */
+  const wrapped: Record<string, (...args: any[]) => Promise<any>> = {};
   for (const [name, fn] of Object.entries(commands)) {
-    const f = /** @type {(...args: any[]) => Promise<any>} */ (fn);
+    const f = (fn as (...args: any[]) => Promise<any>);
     wrapped[name] = async (...args) => {
       try { return await f(...args); } catch (e) { throw fromDom(e, typeof args[0] === 'string' ? args[0] : ''); }
     };
   }
 
-  /** @param {(...args: any[]) => Promise<any>} fn */
-  const guard = (fn) => async (/** @type {any[]} */ ...args) => {
+  const guard = (fn: (...args: any[]) => Promise<any>) => async (...args: any[]) => {
     try { return await fn(...args); } catch (e) { throw fromDom(e, typeof args[0] === 'string' ? args[0] : ''); }
   };
 
@@ -1670,14 +1570,12 @@ export function createFs(root, opts) {
     followRename,
     keepVersion: guard(keepVersion),
     requireVault: guard(requireVault),
-    /** @param {string} p @param {{ create?: boolean }} [o] */
     fileHandle: guard(async (p, o = {}) => {
       const segs = segsOf(p);
       if (!segs.length) throw fail('bad_arg', 'the vault root is not a file');
       const parent = await dirAt(segs.slice(0, -1), !!o.create);
-      return parent.getFileHandle(/** @type {string} */ (segs[segs.length - 1]), { create: !!o.create });
+      return parent.getFileHandle((segs[segs.length - 1] as string), { create: !!o.create });
     }),
-    /** @param {string} p @param {{ create?: boolean }} [o] */
     dirHandle: guard(async (p, o = {}) => dirAt(segsOf(p), !!o.create)),
     checkEpoch,
   };

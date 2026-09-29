@@ -16,15 +16,12 @@
 
 const DB = 'ose-web';
 const VERSION = 1;
-/** @typedef {'vaults' | 'outside' | 'drafts' | 'local' | 'log' | 'meta'} StoreName */
-/** @type {StoreName[]} */
-export const STORES = ['vaults', 'outside', 'drafts', 'local', 'log', 'meta'];
+export type StoreName = 'vaults' | 'outside' | 'drafts' | 'local' | 'log' | 'meta';
+export const STORES: StoreName[] = ['vaults', 'outside', 'drafts', 'local', 'log', 'meta'];
 
-/** @type {Map<string, Map<IDBValidKey, unknown>> | null} */
-let memory = null;
+let memory: Map<string, Map<IDBValidKey, unknown>> | null = null;
 let memorySeq = 0;
-/** @type {Promise<IDBDatabase> | null} */
-let opening = null;
+let opening: Promise<IDBDatabase> | null = null;
 
 /** Run on maps in memory from now on (tests). */
 export function useMemory() { if (!memory) memory = new Map(STORES.map((s) => [s, new Map()])); }
@@ -33,16 +30,14 @@ export function resetMemory() { memory = new Map(STORES.map((s) => [s, new Map()
 
 const hasIdb = () => typeof indexedDB !== 'undefined' && indexedDB !== null;
 
-/** @param {StoreName} name */
-function mem(name) {
+function mem(name: StoreName) {
   if (!memory) useMemory();
-  const m = /** @type {Map<string, Map<IDBValidKey, unknown>>} */ (memory).get(name);
+  const m = (memory as Map<string, Map<IDBValidKey, unknown>>).get(name);
   if (!m) throw new Error(`no such store: ${name}`);
   return m;
 }
 
-/** @returns {Promise<IDBDatabase>} */
-function open() {
+function open(): Promise<IDBDatabase> {
   if (opening) return opening;
   opening = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB, VERSION);
@@ -69,19 +64,15 @@ function open() {
 /**
  * One request in its own transaction.
  * @template T
- * @param {StoreName} name
- * @param {IDBTransactionMode} mode
- * @param {(s: IDBObjectStore) => IDBRequest} fn
- * @returns {Promise<T>}
  */
-async function run(name, mode, fn) {
+async function run<T>(name: StoreName, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T> {
   const db = await open();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(name, mode);
     const req = fn(tx.objectStore(name));
     let value;
     req.onsuccess = () => { value = req.result; };
-    tx.oncomplete = () => resolve(/** @type {T} */ (value));
+    tx.oncomplete = () => resolve((value as T));
     tx.onerror = () => reject(tx.error || req.error);
     tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
@@ -91,32 +82,27 @@ async function run(name, mode, fn) {
  * A copy of plain data (objects, arrays, bytes), as IndexedDB would keep it, so a caller that
  * changes what it stored does not change the store. Anything else (a handle above all, which
  * IndexedDB keeps as a handle) is kept as it is.
- * @param {unknown} v
- * @returns {any}
  */
-function cloned(v) {
+function cloned(v: unknown): any {
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map(cloned);
   if (v instanceof Uint8Array) return v.slice();
   const proto = Object.getPrototypeOf(v);
   if (proto !== Object.prototype && proto !== null) return v;
-  /** @type {Record<string, unknown>} */
-  const out = {};
+  const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) out[k] = cloned(x);
   return out;
 }
 
-/** @param {StoreName} name @param {IDBValidKey} key @returns {Promise<any>} */
-export async function get(name, key) {
+export async function get(name: StoreName, key: IDBValidKey): Promise<any> {
   if (!hasIdb() || memory) return cloned(mem(name).get(key));
   return run(name, 'readonly', (s) => s.get(key));
 }
 
 /**
- * @param {StoreName} name @param {unknown} value @param {IDBValidKey} [key] left out on `log`
- * @returns {Promise<IDBValidKey>}
+ *   @param key left out on `log`
  */
-export async function put(name, value, key) {
+export async function put(name: StoreName, value: unknown, key?: IDBValidKey): Promise<IDBValidKey> {
   if (!hasIdb() || memory) {
     const k = key === undefined ? ++memorySeq : key;
     mem(name).set(k, cloned(value));
@@ -125,19 +111,18 @@ export async function put(name, value, key) {
   return run(name, 'readwrite', (s) => (key === undefined ? s.put(value) : s.put(value, key)));
 }
 
-/** @param {StoreName} name @param {IDBValidKey | IDBKeyRange} key */
-export async function del(name, key) {
+export async function del(name: StoreName, key: IDBValidKey | IDBKeyRange) {
   if (!hasIdb() || memory) {
     if (key instanceof Object && typeof IDBKeyRange !== 'undefined' && key instanceof IDBKeyRange) {
       for (const k of [...mem(name).keys()]) if (key.includes(k)) mem(name).delete(k);
-    } else mem(name).delete(/** @type {IDBValidKey} */ (key));
+    } else mem(name).delete((key as IDBValidKey));
     return;
   }
   await run(name, 'readwrite', (s) => s.delete(key));
 }
 
-/** Every `[key, value]` of a store, in key order. @param {StoreName} name @returns {Promise<[IDBValidKey, any][]>} */
-export async function entries(name) {
+/** Every `[key, value]` of a store, in key order. */
+export async function entries(name: StoreName): Promise<[IDBValidKey, any][]> {
   if (!hasIdb() || memory) {
     return [...mem(name).entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([k, v]) => [k, cloned(v)]);
   }
@@ -154,14 +139,13 @@ export async function entries(name) {
   });
 }
 
-/** @param {StoreName} name */
-export async function clear(name) {
+export async function clear(name: StoreName) {
   if (!hasIdb() || memory) { mem(name).clear(); return; }
   await run(name, 'readwrite', (s) => s.clear());
 }
 
-/** How many records a store holds. @param {StoreName} name @returns {Promise<number>} */
-export async function count(name) {
+/** How many records a store holds. */
+export async function count(name: StoreName): Promise<number> {
   if (!hasIdb() || memory) return mem(name).size;
   return run(name, 'readonly', (s) => s.count());
 }

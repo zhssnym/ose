@@ -280,7 +280,7 @@ export const ose = {
   get platform() { return platformName; },
   ready,
 
-  /** The one host there is: the browser (src/host/adapter.js). */
+  /** The one host there is: the browser (src/host/adapter.ts). */
   host: 'browser',
 
   vault: {

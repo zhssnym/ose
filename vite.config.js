@@ -1,5 +1,5 @@
 // The one Vite config of Ose Web (docs/HOST.md): the app in Chrome over a folder on this machine,
-// an installable offline PWA. The browser is the only host; src/host/adapter.js answers every
+// an installable offline PWA. The browser is the only host; src/host/adapter.ts answers every
 // host command over the File System Access API.
 //
 //   npm run dev       `vite`: the shell served as plain files from `shell/`, the four `ose:*`

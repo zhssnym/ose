@@ -31,7 +31,7 @@ async function openLive(page, rel, opts) {
   await setMode(page, 'live');
 }
 
-/** The lines of the log that are a save of `rel` (src/host/fs.js: `save ok`, `save conflict`, `save failed`). */
+/** The lines of the log that are a save of `rel` (src/host/fs.ts: `save ok`, `save conflict`, `save failed`). */
 const saves = async (page, rel) => (await logText(page)).split('\n').filter((l) => /\bsave (ok|conflict|failed)\b/.test(l) && l.includes(rel));
 
 test.beforeEach(async ({ page }) => {

@@ -1114,7 +1114,7 @@ but loading its own files.
 method names are the command names and never change with the transport. Underneath it an adapter
 answers `invoke(name, args)`:
 
-- `src/host/adapter.js`, the one adapter, answers every command in the browser over the folder
+- `src/host/adapter.ts`, the one adapter, answers every command in the browser over the folder
   the person picked (docs/HOST.md). `bridge.kind` is `'web'`. The command types are kept by hand
   in `bridge/commands.ts`; a name the adapter does not have is `unknown_command`, a hard error,
   never a null.

@@ -1,11 +1,11 @@
-// The pure rules of Ose Web (src/host/rules.js): the hash, the hide rule plus Chrome's swap
+// The pure rules of Ose Web (src/host/rules.ts): the hash, the hide rule plus Chrome's swap
 // file, the sort, the decode and the encode. The expected values are the ones the old desktop
 // host and its Node port answered (git history, dev/files.mjs at 6cee39d), frozen here, so the
 // rules stay what files and agents already rely on. Encoding names are compared lowercased.
 
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import * as web from '../../src/host/rules.js';
+import * as web from '../../src/host/rules.ts';
 
 const runs = Number(process.env.OSE_FUZZ_RUNS) || 150;
 

@@ -1,5 +1,5 @@
-// Module app of Ose Web (docs/HOST.md "Commands › app", "Identity", "Events"): src/host/adapter.js
-// and src/host/vault-handle.js over the in-memory File System Access API (tests/stubs/fsa.js) and
+// Module app of Ose Web (docs/HOST.md "Commands › app", "Identity", "Events"): src/host/adapter.ts
+// and src/host/vault-handle.ts over the in-memory File System Access API (tests/stubs/fsa.js) and
 // idb.js's memory backend, the pure parts of src/host/sw.js, the manifest and the web build's
 // helpers. Every browser global the adapter reads (navigator.locks, the service worker
 // container, launchQueue, location, window.open, the tab's own events) is a stub here.
@@ -9,10 +9,10 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFsa } from '../stubs/fsa.js';
-import * as idb from '../../src/host/idb.js';
-import { isExcluded } from '../../src/host/rules.js';
-import * as vh from '../../src/host/vault-handle.js';
-import { assetUrlFor, create, detectOs, FS_COMMANDS, LOCAL_COMMANDS, OPENABLE } from '../../src/host/adapter.js';
+import * as idb from '../../src/host/idb.ts';
+import { isExcluded } from '../../src/host/rules.ts';
+import * as vh from '../../src/host/vault-handle.ts';
+import { assetUrlFor, create, detectOs, FS_COMMANDS, LOCAL_COMMANDS, OPENABLE } from '../../src/host/adapter.ts';
 import { excludedSegs, fileResponse, parseVaultPath, precacheRequests } from '../../src/host/sw.js';
 import { withCsp, withManifestLink, workerSource } from '../../vite.config.js';
 

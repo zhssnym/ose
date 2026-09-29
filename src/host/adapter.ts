@@ -1,8 +1,8 @@
 // The adapter (docs/HOST.md "The seam", "Commands › app"): the one bridge adapter there is,
 // answering every host command in the browser over the folder the person picked. `create()` answers `{ invoke, subscribe, platform, assetUrl, win, close }`.
 //
-// One table: the fs commands (src/host/fs.js, when a vault is open), the local ones
-// (src/host/local.js) and the app's own below. A vault command with no vault is `no_vault`; a
+// One table: the fs commands (src/host/fs.ts, when a vault is open), the local ones
+// (src/host/local.ts) and the app's own below. A vault command with no vault is `no_vault`; a
 // name in none of them is `unknown_command`. Everything a handler throws leaves as a HostError
 // (`fromDom`), so no DOMException reaches the facade.
 //
@@ -14,22 +14,20 @@
 
 /// <reference path="./web.d.ts" />
 /// <reference path="../core/globals.d.ts" />
-import { createFs } from './fs.js';
-import { createLocal } from './local.js';
-import { ABS, extOf, fail, fromDom, HostError, isExcluded } from './rules.js';
-import * as vh from './vault-handle.js';
-import { startWatch } from './watch.js';
+import { createFs } from './fs.ts';
+import { createLocal } from './local.ts';
+import { ABS, extOf, fail, fromDom, HostError, isExcluded } from './rules.ts';
+import * as vh from './vault-handle.ts';
+import { startWatch } from './watch.ts';
 
-/** @typedef {import('../core/types.js').Adapter} Adapter */
-/** @typedef {import('./local.js').Local} Local */
-/** @typedef {ReturnType<typeof createFs>} Fs */
-/** @typedef {{ path: string, outside: boolean, kind: 'file' | 'dir', line?: number }} OpenRequest */
-/**
- * The adapter, plus `_state()` for the tests and the integrator.
- * @typedef {Adapter & { platform: string, assetUrl: (path: string) => string, close: () => void,
- *   _state: () => { vault: { id: string, name: string, source: string } | null, fs: Fs | null, local: Local,
- *   watching: boolean, inflight: number } }} WebAdapter
- */
+export type Adapter = import('../core/types.js').Adapter;
+export type Local = import('./local.ts').Local;
+export type Fs = ReturnType<typeof createFs>;
+export type OpenRequest = { path: string, outside: boolean, kind: 'file' | 'dir', line?: number };
+/** The adapter, plus `_state()` for the tests and the integrator. */
+export type WebAdapter = Adapter & { platform: string, assetUrl: (path: string) => string, close: () => void,
+  _state: () => { vault: { id: string, name: string, source: string } | null, fs: Fs | null, local: Local,
+  watching: boolean, inflight: number } };
 
 /** The fs module's commands: with no vault open, each is `no_vault`. */
 export const FS_COMMANDS = ['tree', 'list', 'stat', 'exists', 'search', 'readText', 'readFile', 'saveFile', 'createNew',
@@ -71,15 +69,12 @@ const RELOAD_WAIT = 1500;
 /** After `window.close()`, how long before a tab Chrome kept open boots again. */
 const CLOSE_CHECK = 500;
 
-/** @param {unknown} v @returns {v is Record<string, any>} */
-const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-/** @param {unknown} e */
-const domName = (e) => (e && typeof e === 'object' && 'name' in e ? String(e.name) : '');
-/** @returns {any} */
-const G = () => globalThis;
+const isObj = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
+const domName = (e: unknown) => (e && typeof e === 'object' && 'name' in e ? String(e.name) : '');
+const G = (): any => globalThis;
 
-/** 'windows' | 'macos' | 'linux', from the client hints or the user agent. @returns {'windows' | 'macos' | 'linux'} */
-export function detectOs() {
+/** 'windows' | 'macos' | 'linux', from the client hints or the user agent. */
+export function detectOs(): 'windows' | 'macos' | 'linux' {
   const n = G().navigator;
   const hint = String((n && n.userAgentData && n.userAgentData.platform) || (n && n.userAgent) || '');
   if (/win/i.test(hint)) return 'windows';
@@ -98,9 +93,8 @@ function buildStamp() {
  * The `vault/` URL of a vault path or an outside file, as sw.js serves it: `vault/<vaultId>/<path>`
  * or `vault/~abs/<outsideId>/<name>`, resolved against `base` (the app's folder). Exported so the
  * facade can answer the same form before the adapter is ready.
- * @param {string | null} vaultId @param {string} path @param {string} [base]
  */
-export function assetUrlFor(vaultId, path, base) {
+export function assetUrlFor(vaultId: string | null, path: string, base?: string) {
   const p = String(path ?? '');
   let rel;
   const out = vh.parseOutside(p);
@@ -143,20 +137,16 @@ async function serviceWorker() {
 
 /**
  * The adapter.
- * @param {{ serviceWorker?: boolean }} [opts] `serviceWorker: false` skips the worker (tests)
- * @returns {Promise<WebAdapter>}
+ * @param opts `serviceWorker: false` skips the worker (tests)
  */
-export async function create(opts = {}) {
+export async function create(opts: { serviceWorker?: boolean; } = {}): Promise<WebAdapter> {
   const g = G();
   const os = detectOs();
   const base = appBase();
 
-  /** @type {Set<(msg: { event: string, data: any }) => unknown>} */
-  const subs = new Set();
-  /** @param {{ event: string, data: any }} msg */
-  const fanout = (msg) => {
-    /** @type {unknown[]} */
-    const out = [];
+  const subs: Set<(msg: { event: string; data: any; }) => unknown> = new Set();
+  const fanout = (msg: { event: string; data: any; }) => {
+    const out: unknown[] = [];
     for (const fn of [...subs]) {
       try {
         const r = fn(msg);
@@ -165,23 +155,17 @@ export async function create(opts = {}) {
     }
     return out;
   };
-  /** @param {string} event @param {any} data */
-  const emit = (event, data) => fanout({ event, data });
+  const emit = (event: string, data: any) => fanout({ event, data });
 
   // ---------------------------------------------------------------- the vault of this tab
 
-  /** @type {{ id: string, name: string, handle: FileSystemDirectoryHandle, source: string } | null} */
-  let vault = null;
-  /** @type {Fs | null} */
-  let fs = null;
-  /** @type {Local} */
-  let local = createLocal(null, { epoch: vh.epoch });
-  /** @type {(ReturnType<typeof startWatch>) | null} */
-  let stopWatch = null;
+  let vault: { id: string; name: string; handle: FileSystemDirectoryHandle; source: string; } | null = null;
+  let fs: Fs | null = null;
+  let local: Local = createLocal(null, { epoch: vh.epoch });
+  let stopWatch: (ReturnType<typeof startWatch>) | null = null;
   let persisted = false;
 
-  /** @param {string} level @param {string} text */
-  const logLine = (level, text) => { try { local.write(level, text); } catch { /* never */ } };
+  const logLine = (level: string, text: string) => { try { local.write(level, text); } catch { /* never */ } };
 
   function unmount() {
     if (stopWatch) { try { stopWatch(); } catch { /* gone */ } }
@@ -191,14 +175,12 @@ export async function create(opts = {}) {
     local = createLocal(null, { epoch: vh.epoch });
   }
 
-  /** @param {vh.VaultRecord} rec @param {string} source */
-  function mount(rec, source) {
+  function mount(rec: vh.VaultRecord, source: string) {
     unmount();
     vault = { id: rec.id, name: rec.handle.name || rec.name, handle: rec.handle, source };
-    // local.js drops the older of two colliding drafts only once this resolves, so with no fs
+    // local.ts drops the older of two colliding drafts only once this resolves, so with no fs
     // (the vault closed meanwhile) it rejects, and both drafts stay.
-    /** @type {Local} */
-    const loc = createLocal(rec.id, {
+    const loc: Local = createLocal(rec.id, {
       epoch: vh.epoch,
       keepVersion: (p, b, o) => (fs ? fs.keepVersion(p, b, o) : Promise.reject(fail('no_vault', 'no vault is open in this tab'))),
     });
@@ -232,9 +214,9 @@ export async function create(opts = {}) {
   /**
    * Adopt a vault in this tab: the lock, the epoch one more, remembered, mounted. Null when
    * another tab holds it.
-   * @param {vh.VaultRecord} rec @param {string} source @param {number} [wait] ms to wait for the lock
+   *   @param wait ms to wait for the lock
    */
-  async function adopt(rec, source, wait = 0) {
+  async function adopt(rec: vh.VaultRecord, source: string, wait: number = 0) {
     if (!(await vh.holdVault(rec.id, { wait }))) return null;
     vh.setCurrentVault(rec.id);
     const epoch = vh.bumpEpoch();
@@ -247,7 +229,7 @@ export async function create(opts = {}) {
 
   // Boot: which vault, if any, this tab opens without asking.
   await (async () => {
-    let fromUrl = null;
+    let fromUrl: string | null = null;
     let opfs = false;
     try {
       const q = new URLSearchParams(g.location ? g.location.search : '');
@@ -286,41 +268,38 @@ export async function create(opts = {}) {
 
   // ---------------------------------------------------------------- OS opens (launchQueue)
 
-  /** @type {OpenRequest[]} */
-  const opens = [];
+  const opens: OpenRequest[] = [];
   let opensTaken = false;
 
-  /** A file handle as an open request: the vault path when it is inside the vault. @param {FileSystemFileHandle} h */
-  async function requestFor(h) {
+  /** A file handle as an open request: the vault path when it is inside the vault. */
+  async function requestFor(h: FileSystemFileHandle) {
     if (vault) {
       try {
         const rel = await vault.handle.resolve(h);
-        if (rel && rel.length && !isExcluded(rel.join('/'))) return { path: rel.join('/'), outside: false, kind: /** @type {'file'} */ ('file') };
+        if (rel && rel.length && !isExcluded(rel.join('/'))) return { path: rel.join('/'), outside: false, kind: ('file' as 'file') };
       } catch { /* not ours */ }
     }
     const path = await vh.outside.register(h);
     if (stopWatch) void stopWatch.refresh().catch(() => {});
-    return { path, outside: true, kind: /** @type {'file'} */ ('file') };
+    return { path, outside: true, kind: ('file' as 'file') };
   }
 
-  /** @param {LaunchParams} params */
-  async function launched(params) {
-    /** @type {OpenRequest[]} */
-    const reqs = [];
+  async function launched(params: LaunchParams) {
+    const reqs: OpenRequest[] = [];
     for (const h of (params && params.files) || []) {
       try {
-        if (h.kind === 'directory') { await vh.vaults.add(/** @type {FileSystemDirectoryHandle} */ (h)); continue; }
-        reqs.push(await requestFor(/** @type {FileSystemFileHandle} */ (h)));
+        if (h.kind === 'directory') { await vh.vaults.add((h as FileSystemDirectoryHandle)); continue; }
+        reqs.push(await requestFor((h as FileSystemFileHandle)));
       } catch (e) { logLine('warn', `web: an OS open failed: ${String(e)}`); }
     }
     if (!reqs.length) return;
     if (opensTaken) emit('open', { requests: reqs });
     else opens.push(...reqs);
   }
-  /** Launches still being read: `takeOpens` waits for them. @type {Set<Promise<void>>} */
-  const launching = new Set();
+  /** Launches still being read: `takeOpens` waits for them. */
+  const launching: Set<Promise<void>> = new Set();
   if (g.launchQueue && typeof g.launchQueue.setConsumer === 'function') {
-    g.launchQueue.setConsumer((/** @type {LaunchParams} */ params) => {
+    g.launchQueue.setConsumer((params: LaunchParams) => {
       const p = launched(params).finally(() => launching.delete(p));
       launching.add(p);
     });
@@ -328,11 +307,10 @@ export async function create(opts = {}) {
 
   // ---------------------------------------------------------------- the app's commands
 
-  /** @param {unknown} p */
-  const outsideOnly = (p) => typeof p === 'string' && p.startsWith(ABS);
+  const outsideOnly = (p: unknown) => typeof p === 'string' && p.startsWith(ABS);
 
-  /** The file handle of a vault path or a registered outside one. @param {unknown} p */
-  async function fileOf(p) {
+  /** The file handle of a vault path or a registered outside one. */
+  async function fileOf(p: unknown) {
     if (outsideOnly(p)) {
       const h = await vh.outside.handle(String(p));
       if (!h) throw fail('not_registered', `not opened in this tab: ${String(p)}`);
@@ -342,8 +320,7 @@ export async function create(opts = {}) {
     return fs.fileHandle(String(p ?? ''));
   }
 
-  /** @type {Record<string, (...args: any[]) => Promise<unknown>>} */
-  const app = {
+  const app: Record<string, (...args: any[]) => Promise<unknown>> = {
     rootInfo: async () => (vault
       ? { root: vh.rootOf(vault.id), name: vault.name, epoch: vh.epoch() }
       : { root: null, name: null, epoch: vh.epoch() }),
@@ -356,8 +333,7 @@ export async function create(opts = {}) {
 
     pickVault: async (o) => {
       if (typeof g.showDirectoryPicker !== 'function') throw fail('unsupported', 'this browser cannot open a folder; use Chrome or Edge');
-      /** @type {FileSystemDirectoryHandle} */
-      let handle;
+      let handle: FileSystemDirectoryHandle;
       try { handle = await g.showDirectoryPicker({ id: 'ose-vault', mode: 'readwrite' }); } catch (e) {
         if (domName(e) === 'AbortError') return null;
         throw e;
@@ -447,8 +423,7 @@ export async function create(opts = {}) {
 
     pickFile: async () => {
       if (typeof g.showOpenFilePicker !== 'function') throw fail('unsupported', 'this browser cannot open a file; use Chrome or Edge');
-      /** @type {FileSystemFileHandle[]} */
-      let handles;
+      let handles: FileSystemFileHandle[];
       try { handles = await g.showOpenFilePicker({ id: 'ose-file', multiple: false }); } catch (e) {
         if (domName(e) === 'AbortError') return null;
         throw e;
@@ -490,23 +465,18 @@ export async function create(opts = {}) {
 
   let inflight = 0;
 
-  /**
-   * @param {string} name @param {unknown[]} args
-   * @returns {Promise<unknown>}
-   */
-  async function dispatch(name, args) {
+  async function dispatch(name: string, args: unknown[]): Promise<unknown> {
     const a = Array.isArray(args) ? args : [];
-    if (Object.hasOwn(app, name)) return /** @type {any} */ (app)[name](...a);
-    if (LOCAL_COMMANDS.includes(name)) return /** @type {any} */ (local)[name](...a);
+    if (Object.hasOwn(app, name)) return (app as any)[name](...a);
+    if (LOCAL_COMMANDS.includes(name)) return (local as any)[name](...a);
     if (FS_COMMANDS.includes(name) || (fs && fs.commands.includes(name))) {
       if (!fs) throw fail('no_vault', 'no vault is open in this tab');
-      return /** @type {any} */ (fs)[name](...a);
+      return (fs as any)[name](...a);
     }
     throw new HostError(`unknown_command: ${name}`, 'unknown_command', name);
   }
 
-  /** @param {string} name @param {unknown[]} args */
-  async function invoke(name, args) {
+  async function invoke(name: string, args: unknown[]) {
     const writes = WRITES.has(name);
     if (writes) inflight++;
     try {
@@ -525,15 +495,13 @@ export async function create(opts = {}) {
   /**
    * The worker could not read a vault file itself (no permission in its context): it asks the
    * page that made the request, which answers the File, or a status.
-   * @param {MessageEvent} ev
    */
-  async function answerWorker(ev) {
+  async function answerWorker(ev: MessageEvent) {
     const d = ev.data;
     const port = ev.ports && ev.ports[0];
     if (!port || !isObj(d) || d.type !== 'ose-vault-read') return;
     try {
-      /** @type {FileSystemFileHandle | null} */
-      let h = null;
+      let h: FileSystemFileHandle | null = null;
       if (d.outside) {
         const rec = await vh.outside.byId(String(d.id));
         h = rec && rec.name === d.name ? rec.handle : null;
@@ -547,7 +515,7 @@ export async function create(opts = {}) {
     }
   }
   const swc = g.navigator && g.navigator.serviceWorker;
-  const onMessage = (/** @type {MessageEvent} */ ev) => { void answerWorker(ev); };
+  const onMessage = (ev: MessageEvent) => { void answerWorker(ev); };
   if (swc && typeof swc.addEventListener === 'function') swc.addEventListener('message', onMessage);
   if (opts.serviceWorker !== false) await serviceWorker();
 
@@ -557,7 +525,7 @@ export async function create(opts = {}) {
   // `pagehide` (router.js) and the drafts hold every keystroke, so the one thing left to guard
   // is a write in flight: then Chrome asks "Leave site?". `closing` is not fanned out here,
   // because a person who answers "Stay" would come back to a page whose view was unmounted.
-  const onBeforeUnload = (/** @type {BeforeUnloadEvent} */ ev) => {
+  const onBeforeUnload = (ev: BeforeUnloadEvent) => {
     if (inflight > 0) { ev.preventDefault(); ev.returnValue = ''; }
   };
   if (typeof g.addEventListener === 'function') g.addEventListener('beforeunload', onBeforeUnload);

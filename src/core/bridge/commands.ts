@@ -1,6 +1,6 @@
 // The host's command contract: the argument and answer types of every command the core's
-// facade (./index.js) calls. Hand-maintained. The one host is the browser, and src/host/adapter.js
-// answers every command named in `Commands` below (src/host/fs.js and src/host/local.js do the
+// facade (./index.js) calls. Hand-maintained. The one host is the browser, and src/host/adapter.ts
+// answers every command named in `Commands` below (src/host/fs.ts and src/host/local.ts do the
 // work). A change of a command changes this file, the facade and the adapter together.
 //
 // First written by the old desktop host's type generator; its `_Serialize` /
@@ -8,7 +8,7 @@
 
 /**
  * Every host command, by the name the facade calls it with (src/core/bridge/index.js), with
- * its arguments in order and its answer. src/host/adapter.js answers each one.
+ * its arguments in order and its answer. src/host/adapter.ts answers each one.
  */
 export type Commands = {
 	/**  `rootInfo()`: this window's vault, or nulls, and its epoch. */

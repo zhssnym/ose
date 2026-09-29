@@ -9,13 +9,13 @@
 // under the hide rule every 2 s (10 s while the document is hidden, and at once when it is shown
 // again), compares `{kind, size, lastModified}` and pairs a delete and a create into a rename.
 //
-// Excluded paths (rules.js `isExcluded`: `.ose`, `.git`, `.trash/.info`, the temp files and
+// Excluded paths (rules.ts `isExcluded`: `.ose`, `.git`, `.trash/.info`, the temp files and
 // Chrome's `.crswap`) are never reported. A move into or out of `.trash` is a delete and a
 // create, never a rename. A rename seen on disk is followed (`fs.followRename`: the history and
 // the drafts) when `from` is gone and `to` is there. The root going away, or its permission
 // being withdrawn, is `lost: true` once, and `lost: false` then `rescan: true` when it is back.
 
-import { isExcluded, isInBin, isPathHidden, segmentsOf } from './rules.js';
+import { isExcluded, isInBin, isPathHidden, segmentsOf } from './rules.ts';
 
 /** Quiet time before a batch goes out (watcher.rs DEBOUNCE). */
 const DEBOUNCE = 150;
@@ -28,40 +28,30 @@ const MAX_DEPTH = 24;
 /** Files read at once by the poll. */
 const PARALLEL = 16;
 
-/**
- * @typedef {{ path: string, kind: 'create' | 'modify' | 'delete' | 'rename', to?: string,
- *   dir?: true, hidden?: true }} FsChange
- * @typedef {{ changes: FsChange[], rescan?: true, lost?: boolean }} FsEvent
- * @typedef {'create' | 'modify' | 'delete' | 'ambiguous' | 'check'} Raw
- * @typedef {{ path: string, to?: string, outside?: boolean, kinds: Raw[] }} Item
- * @typedef {{ kind: 'file' | 'directory', size: number, mtime: number }} Seen
- * @typedef {{ followRename?: (from: string, to: string) => unknown }} WatchFs
- * @typedef {{ list(): Promise<{ path: string, handle: FileSystemFileHandle }[]> }} OutsideList
- * @typedef {{ outside?: OutsideList, interval?: number, hiddenInterval?: number,
- *   liveness?: number, observer?: any, document?: any }} WatchOpts
- * @typedef {(() => void) & { ready: Promise<'observer' | 'poll'>, mode: () => 'observer' | 'poll' | null,
- *   refresh: () => Promise<void> }} Stop
- */
+export type FsChange = { path: string, kind: 'create' | 'modify' | 'delete' | 'rename', to?: string,
+  dir?: true, hidden?: true };
+export type FsEvent = { changes: FsChange[], rescan?: true, lost?: boolean };
+export type Raw = 'create' | 'modify' | 'delete' | 'ambiguous' | 'check';
+export type Item = { path: string, to?: string, outside?: boolean, kinds: Raw[] };
+export type Seen = { kind: 'file' | 'directory', size: number, mtime: number };
+export type WatchFs = { followRename?: (from: string, to: string) => unknown };
+export type OutsideList = { list(): Promise<{ path: string, handle: FileSystemFileHandle }[]> };
+export type WatchOpts = { outside?: OutsideList, interval?: number, hiddenInterval?: number,
+  liveness?: number, observer?: any, document?: any };
+export type Stop = (() => void) & { ready: Promise<'observer' | 'poll'>, mode: () => 'observer' | 'poll' | null,
+  refresh: () => Promise<void> };
 
-/** @param {string[] | null | undefined} parts */
-const joinRel = (parts) => segmentsOf((parts || []).join('/')).join('/');
-/** @param {string} p */
-const parentOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
-/** @param {string} p */
-const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
-/** @param {string} p @param {string} dir */
-const under = (p, dir) => p.startsWith(`${dir}/`);
+const joinRel = (parts: string[] | null | undefined) => segmentsOf((parts || []).join('/')).join('/');
+const parentOf = (p: string) => { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
+const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+const under = (p: string, dir: string) => p.startsWith(`${dir}/`);
 
 /**
  * One change as it goes out: `dir` when the path (the new one, for a rename) is a folder that is
  * there, `hidden` when it is a dot path.
- * @param {string} path @param {FsChange['kind']} kind @param {string | undefined} to
- * @param {'file' | 'directory' | null} there
- * @returns {FsChange}
  */
-function change(path, kind, to, there) {
-  /** @type {FsChange} */
-  const c = { path, kind };
+function change(path: string, kind: FsChange['kind'], to: string | undefined, there: 'file' | 'directory' | null): FsChange {
+  const c: FsChange = { path, kind };
   if (to !== undefined) c.to = to;
   if (there === 'directory') c.dir = true;
   if (isPathHidden(to ?? path)) c.hidden = true;
@@ -73,10 +63,8 @@ function change(path, kind, to, there) {
  * with the debouncer's merging): created then deleted is nothing, created then changed is a
  * create, a file removed and made again (or renamed onto) is a modify, anything else that is
  * back is a create.
- * @param {Raw[]} kinds @param {'file' | 'directory' | null} there
- * @returns {FsChange['kind'] | null}
  */
-export function resolveKind(kinds, there) {
+export function resolveKind(kinds: Raw[], there: 'file' | 'directory' | null): FsChange['kind'] | null {
   const first = kinds[0];
   if (!there) return first === 'create' ? null : 'delete';
   if (first === 'create') return 'create';
@@ -87,22 +75,22 @@ export function resolveKind(kinds, there) {
 
 /** What gathers between two flushes. */
 class Batch {
+  declare items: Map<string, Item>;
+  declare rescan: boolean;
+  declare since: number;
   constructor() {
-    /** @type {Map<string, Item>} */
     this.items = new Map();
     this.rescan = false;
     this.since = 0;
   }
   get size() { return this.items.size; }
-  /** @param {Raw} kind @param {string} path */
-  add(kind, path) {
+  add(kind: Raw, path: string) {
     if (!path || isExcluded(path)) return;
     this.push(`p\0${path}`, { path, kinds: [] }, kind);
   }
-  /** @param {Raw} kind @param {string} path */
-  addOutside(kind, path) { this.push(`o\0${path}`, { path, outside: true, kinds: [] }, kind); }
-  /** A move seen whole, sorted out as watcher.rs `Batch::rename` does. @param {string} from @param {string} to */
-  rename(from, to) {
+  addOutside(kind: Raw, path: string) { this.push(`o\0${path}`, { path, outside: true, kinds: [] }, kind); }
+  /** A move seen whole, sorted out as watcher.rs `Batch::rename` does. */
+  rename(from: string, to: string) {
     const exFrom = !from || isExcluded(from);
     const exTo = !to || isExcluded(to);
     if (exFrom && exTo) return;
@@ -116,8 +104,7 @@ class Batch {
     if (!this.items.has(key)) this.items.set(key, { path: from, to, kinds: [] });
     this.touch();
   }
-  /** @param {string} key @param {Item} fresh @param {Raw} kind */
-  push(key, fresh, kind) {
+  push(key: string, fresh: Item, kind: Raw) {
     let it = this.items.get(key);
     if (!it) { it = fresh; this.items.set(key, it); }
     if (it.kinds[it.kinds.length - 1] !== kind) it.kinds.push(kind);
@@ -136,10 +123,8 @@ class Batch {
 
 /**
  * What is at a vault path now: a lookup from the root, never a walk.
- * @param {FileSystemDirectoryHandle} root @param {string} rel
- * @returns {Promise<'file' | 'directory' | null>}
  */
-export async function lookup(root, rel) {
+export async function lookup(root: FileSystemDirectoryHandle, rel: string): Promise<'file' | 'directory' | null> {
   const segs = segmentsOf(rel);
   const last = segs.pop();
   if (last === undefined) return 'directory';
@@ -150,7 +135,7 @@ export async function lookup(root, rel) {
       await dir.getFileHandle(last);
       return 'file';
     } catch (e) {
-      if (!e || /** @type {any} */ (e).name !== 'TypeMismatchError') throw e;
+      if (!e || (e as any).name !== 'TypeMismatchError') throw e;
       await dir.getDirectoryHandle(last);
       return 'directory';
     }
@@ -159,8 +144,8 @@ export async function lookup(root, rel) {
   }
 }
 
-/** Can the root be read? A missing folder and a withdrawn permission both say no. @param {FileSystemDirectoryHandle} root */
-async function readable(root) {
+/** Can the root be read? A missing folder and a withdrawn permission both say no. */
+async function readable(root: FileSystemDirectoryHandle) {
   try {
     const it = root.entries();
     await it.next();
@@ -171,25 +156,18 @@ async function readable(root) {
   }
 }
 
-/** @param {unknown} e */
-const notFound = (e) => !!e && typeof e === 'object' && 'name' in e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
+const notFound = (e: unknown) => !!e && typeof e === 'object' && 'name' in e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
 
 /**
  * The vault under the hide rule (hidden entries included, excluded ones never entered), as
  * `path -> {kind, size, mtime}`. Throws when the root itself cannot be listed; a folder or file
  * that cannot be read lands in `unreadable`, and what was known under it is kept by `diff`.
- * @param {FileSystemDirectoryHandle} root
- * @returns {Promise<{ map: Map<string, Seen>, unreadable: string[] }>}
  */
-export async function snapshot(root) {
-  /** @type {Map<string, Seen>} */
-  const map = new Map();
-  /** @type {string[]} */
-  const unreadable = [];
-  /** @param {FileSystemDirectoryHandle} dir @param {string} at @param {number} depth */
-  const visit = async (dir, at, depth) => {
-    /** @type {[string, FileSystemHandle][]} */
-    const entries = [];
+export async function snapshot(root: FileSystemDirectoryHandle): Promise<{ map: Map<string, Seen>; unreadable: string[]; }> {
+  const map: Map<string, Seen> = new Map();
+  const unreadable: string[] = [];
+  const visit = async (dir: FileSystemDirectoryHandle, at: string, depth: number) => {
+    const entries: [string, FileSystemHandle][] = [];
     try {
       for await (const [name, h] of dir.entries()) entries.push([name, h]);
     } catch (e) {
@@ -197,24 +175,22 @@ export async function snapshot(root) {
       if (!notFound(e)) unreadable.push(at);
       return;
     }
-    /** @type {[string, FileSystemFileHandle][]} */
-    const files = [];
-    /** @type {[string, FileSystemDirectoryHandle][]} */
-    const dirs = [];
+    const files: [string, FileSystemFileHandle][] = [];
+    const dirs: [string, FileSystemDirectoryHandle][] = [];
     for (const [name, h] of entries) {
       const p = at ? `${at}/${name}` : name;
       if (isExcluded(p)) continue;
       if (h.kind === 'directory') {
         map.set(p, { kind: 'directory', size: 0, mtime: 0 });
-        dirs.push([p, /** @type {FileSystemDirectoryHandle} */ (h)]);
+        dirs.push([p, (h as FileSystemDirectoryHandle)]);
       } else {
-        files.push([p, /** @type {FileSystemFileHandle} */ (h)]);
+        files.push([p, (h as FileSystemFileHandle)]);
       }
     }
     let next = 0;
     const worker = async () => {
       while (next < files.length) {
-        const [p, h] = /** @type {[string, FileSystemFileHandle]} */ (files[next++]);
+        const [p, h] = (files[next++] as [string, FileSystemFileHandle]);
         try {
           const f = await h.getFile();
           map.set(p, { kind: 'file', size: f.size, mtime: f.lastModified });
@@ -237,20 +213,15 @@ export async function snapshot(root) {
  * contents), or, in one folder, the only such pair. Never across the bin's edge. A folder that
  * moved is one rename; what is under it is not reported again. `next` gets what was known under
  * an unreadable place carried over, so a folder that could not be read is not a delete.
- * @param {Map<string, Seen>} old @param {{ map: Map<string, Seen>, unreadable: string[] }} snap
- * @returns {FsChange[]}
  */
-export function diff(old, snap) {
+export function diff(old: Map<string, Seen>, snap: { map: Map<string, Seen>; unreadable: string[]; }): FsChange[] {
   const next = snap.map;
   for (const bad of snap.unreadable) {
     for (const [p, s] of old) if ((p === bad || under(p, bad)) && !next.has(p)) next.set(p, s);
   }
-  /** @type {string[]} */
-  const deleted = [];
-  /** @type {string[]} */
-  const created = [];
-  /** @type {string[]} */
-  const modified = [];
+  const deleted: string[] = [];
+  const created: string[] = [];
+  const modified: string[] = [];
   for (const [p, s] of old) {
     const n = next.get(p);
     if (!n) deleted.push(p);
@@ -262,41 +233,38 @@ export function diff(old, snap) {
   // Renames: only the top of what went away and of what appeared can be a move.
   const gone = new Set(deleted);
   const born = new Set(created);
-  const tops = (/** @type {string[]} */ list, /** @type {Set<string>} */ set) => list.filter((p) => !set.has(parentOf(p)));
-  /** @param {string} p @param {Map<string, Seen>} m */
-  const sig = (p, m) => {
-    const s = /** @type {Seen} */ (m.get(p));
+  const tops = (list: string[],set: Set<string>) => list.filter((p) => !set.has(parentOf(p)));
+  const sig = (p: string, m: Map<string, Seen>) => {
+    const s = (m.get(p) as Seen);
     if (s.kind === 'file') return `f:${s.size}:${s.mtime}`;
-    const inner = [];
+    const inner: string[] = [];
     for (const [q, t] of m) if (under(q, p)) inner.push(`${q.slice(p.length)}|${t.kind}:${t.size}:${t.mtime}`);
     return `d:${inner.sort().join('\n')}`;
   };
   const from = tops(deleted, gone).map((p) => ({ p, sig: sig(p, old), used: false }));
   const to = tops(created, born).map((p) => ({ p, sig: sig(p, next), used: false }));
-  /** @type {[string, string][]} */
-  const renames = [];
-  const pair = (/** @type {typeof from[0]} */ a, /** @type {typeof to[0]} */ b) => { a.used = b.used = true; renames.push([a.p, b.p]); };
-  const fits = (/** @type {typeof from[0]} */ a, /** @type {typeof to[0]} */ b) => !b.used && b.sig === a.sig && isInBin(a.p) === isInBin(b.p);
+  const renames: [string, string][] = [];
+  const pair = (a: typeof from[0],b: typeof to[0]) => { a.used = b.used = true; renames.push([a.p, b.p]); };
+  const fits = (a: typeof from[0],b: typeof to[0]) => !b.used && b.sig === a.sig && isInBin(a.p) === isInBin(b.p);
   // The same name somewhere else, and only one such.
   for (const a of from) {
     const same = to.filter((b) => fits(a, b) && nameOf(b.p) === nameOf(a.p));
     const rivals = from.filter((c) => !c.used && c.sig === a.sig && nameOf(c.p) === nameOf(a.p));
-    if (same.length === 1 && rivals.length === 1) pair(a, /** @type {typeof to[0]} */ (same[0]));
+    if (same.length === 1 && rivals.length === 1) pair(a, (same[0] as typeof to[0]));
   }
   // Another name in the same folder, and exactly one pair there.
   for (const a of from) {
     if (a.used) continue;
     const here = to.filter((b) => fits(a, b) && parentOf(b.p) === parentOf(a.p));
     const rivals = from.filter((c) => !c.used && c.sig === a.sig && parentOf(c.p) === parentOf(a.p));
-    if (here.length === 1 && rivals.length === 1) pair(a, /** @type {typeof to[0]} */ (here[0]));
+    if (here.length === 1 && rivals.length === 1) pair(a, (here[0] as typeof to[0]));
   }
 
   const movedFrom = renames.map(([f]) => f);
   const movedTo = renames.map(([, t]) => t);
-  const inMoved = (/** @type {string} */ p, /** @type {string[]} */ roots) => roots.some((r) => p === r || under(p, r));
-  const kindAt = (/** @type {string} */ p) => next.get(p)?.kind ?? null;
-  /** @type {FsChange[]} */
-  const out = [];
+  const inMoved = (p: string,roots: string[]) => roots.some((r) => p === r || under(p, r));
+  const kindAt = (p: string) => next.get(p)?.kind ?? null;
+  const out: FsChange[] = [];
   for (const [f, t] of renames) out.push(change(f, 'rename', t, kindAt(t)));
   for (const p of deleted) if (!inMoved(p, movedFrom)) out.push(change(p, 'delete', undefined, null));
   for (const p of created) if (!inMoved(p, movedTo)) out.push(change(p, 'create', undefined, kindAt(p)));
@@ -312,14 +280,9 @@ export function diff(old, snap) {
  * Starts watching `root`; answers the function that stops it, which also carries `ready` (the
  * mode, once the observer is attached or the poll has its first snapshot), `mode()` and
  * `refresh()` (list the outside files again now, after one was registered).
- * @param {FileSystemDirectoryHandle} root
- * @param {WatchFs | null} fs
- * @param {(event: string, data: FsEvent) => unknown} emit
- * @param {WatchOpts} [opts]
- * @returns {Stop}
  */
-export function startWatch(root, fs, emit, opts = {}) {
-  const g = /** @type {any} */ (globalThis);
+export function startWatch(root: FileSystemDirectoryHandle, fs: WatchFs | null, emit: (event: string, data: FsEvent) => unknown, opts: WatchOpts = {}): Stop {
+  const g = (globalThis as any);
   const interval = opts.interval ?? 2000;
   const hiddenInterval = opts.hiddenInterval ?? 10_000;
   const liveEvery = opts.liveness ?? 1000;
@@ -327,33 +290,24 @@ export function startWatch(root, fs, emit, opts = {}) {
   const doc = 'document' in opts ? opts.document : g.document;
 
   let stopped = false;
-  /** @type {'observer' | 'poll' | null} */
-  let mode = null;
+  let mode: 'observer' | 'poll' | null = null;
   let lost = false;
   const batch = new Batch();
-  /** The poll's last look at the vault. @type {Map<string, Seen> | null} */
-  let snap = null;
-  /** @type {ReturnType<typeof setTimeout> | null} */
-  let flushTimer = null;
-  /** @type {ReturnType<typeof setTimeout> | null} */
-  let pollTimer = null;
-  /** @type {ReturnType<typeof setInterval> | null} */
-  let liveTimer = null;
-  /** @type {ReturnType<typeof setInterval> | null} */
-  let outsideTimer = null;
+  /** The poll's last look at the vault. */
+  let snap: Map<string, Seen> | null = null;
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let liveTimer: ReturnType<typeof setInterval> | null = null;
+  let outsideTimer: ReturnType<typeof setInterval> | null = null;
   /** Every flush and poll runs after the one before, so events keep their order. */
-  /** @type {Promise<unknown>} */
-  let chain = Promise.resolve();
-  /** @param {() => Promise<unknown>} fn */
-  const serial = (fn) => { chain = chain.then(fn, fn).catch(() => {}); return chain; };
+  let chain: Promise<unknown> = Promise.resolve();
+  const serial = (fn: () => Promise<unknown>) => { chain = chain.then(fn, fn).catch(() => {}); return chain; };
 
-  /** @param {FsChange[]} changes @param {{ rescan?: true, lost?: boolean }} [extra] */
-  const send = (changes, extra = {}) => {
+  const send = (changes: FsChange[], extra: { rescan?: true; lost?: boolean; } = {}) => {
     if (stopped) return;
     try { emit('fs', { changes, ...extra }); } catch { /* a subscriber's error is its own */ }
   };
-  /** @param {string} from @param {string} to */
-  const follow = async (from, to) => {
+  const follow = async (from: string, to: string) => {
     try { await fs?.followRename?.(from, to); } catch { /* the rename is still reported */ }
   };
 
@@ -369,8 +323,7 @@ export function startWatch(root, fs, emit, opts = {}) {
   const flush = async () => {
     if (stopped) return;
     const { items, rescan } = batch.take();
-    /** @type {FsChange[]} */
-    const out = [];
+    const out: FsChange[] = [];
     const emitted = new Set();
     for (const it of items) {
       if (it.outside) {
@@ -390,11 +343,9 @@ export function startWatch(root, fs, emit, opts = {}) {
   };
 
   // ------------------------------------------------------------------ the observer
-  /** @type {any} */
-  let observer = null;
+  let observer: any = null;
 
-  /** @param {any[]} records @param {any} from */
-  const onRecords = (records, from) => {
+  const onRecords = (records: any[], from: any) => {
     if (stopped || lost || from !== observer) return;
     for (const r of records) {
       const p = joinRel(r.relativePathComponents);
@@ -421,7 +372,7 @@ export function startWatch(root, fs, emit, opts = {}) {
   };
 
   const attach = async () => {
-    const o = new Observer(/** @param {any[]} records @param {any} self */ (records, self) => onRecords(records, self));
+    const o = new Observer((records: any[], self: any) => onRecords(records, self));
     observer = o;
     try {
       await o.observe(root, { recursive: true });
@@ -488,8 +439,7 @@ export function startWatch(root, fs, emit, opts = {}) {
   const poll = async () => {
     if (stopped) return;
     try {
-      /** @type {Awaited<ReturnType<typeof snapshot>>} */
-      let next;
+      let next: Awaited<ReturnType<typeof snapshot>>;
       try {
         next = await snapshot(root);
       } catch {
@@ -515,14 +465,11 @@ export function startWatch(root, fs, emit, opts = {}) {
   };
 
   // ------------------------------------------------------------------ files outside the vault
-  /** @type {Map<string, { handle: FileSystemFileHandle, sig: string | null, observer: any }>} */
-  const outside = new Map();
-  /** @param {FileSystemFileHandle} h */
-  const sigOf = async (h) => {
+  const outside: Map<string, { handle: FileSystemFileHandle; sig: string | null; observer: any; }> = new Map();
+  const sigOf = async (h: FileSystemFileHandle) => {
     try { const f = await h.getFile(); return `${f.size}:${f.lastModified}`; } catch { return null; }
   };
-  /** @param {Item} it @returns {Promise<FsChange | null>} */
-  const outsideChange = async (it) => {
+  const outsideChange = async (it: Item): Promise<FsChange | null> => {
     const o = outside.get(it.path);
     if (!o) return null;
     const sig = await sigOf(o.handle);
@@ -534,8 +481,7 @@ export function startWatch(root, fs, emit, opts = {}) {
   };
   const refreshOutside = async () => {
     if (stopped || !opts.outside) return;
-    /** @type {{ path: string, handle: FileSystemFileHandle }[]} */
-    let list = [];
+    let list: { path: string; handle: FileSystemFileHandle; }[] = [];
     try { list = await opts.outside.list(); } catch { return; }
     const keep = new Set(list.map((x) => x.path));
     for (const [p, o] of outside) {
@@ -545,11 +491,11 @@ export function startWatch(root, fs, emit, opts = {}) {
     }
     for (const { path, handle } of list) {
       if (stopped || outside.has(path)) continue;
-      const entry = { handle, sig: await sigOf(handle), observer: /** @type {any} */ (null) };
+      const entry = { handle, sig: await sigOf(handle), observer: (null as any) };
       outside.set(path, entry);
       if (!Observer) continue;
       try {
-        const o = new Observer(/** @param {any[]} records */ (records) => {
+        const o = new Observer((records: any[]) => {
           if (stopped || outside.get(path) !== entry) return;
           for (const r of records) {
             const t = r.type;
@@ -594,10 +540,10 @@ export function startWatch(root, fs, emit, opts = {}) {
       schedulePoll();
     }
     if (opts.outside) outsideTimer = setInterval(outsideTick, interval);
-    return /** @type {'observer' | 'poll'} */ (mode);
+    return (mode as 'observer' | 'poll');
   })();
 
-  const stop = /** @type {Stop} */ (() => {
+  const stop = ((() => {
     if (stopped) return;
     stopped = true;
     for (const t of [flushTimer, pollTimer]) if (t) clearTimeout(t);
@@ -606,7 +552,7 @@ export function startWatch(root, fs, emit, opts = {}) {
     for (const o of outside.values()) { try { o.observer?.disconnect(); } catch { /* already */ } }
     outside.clear();
     doc?.removeEventListener?.('visibilitychange', onVisibility);
-  });
+  }) as Stop);
   stop.ready = ready;
   stop.mode = () => mode;
   stop.refresh = () => serial(refreshOutside).then(() => {});

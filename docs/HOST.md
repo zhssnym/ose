@@ -16,7 +16,7 @@ of a vault is anywhere else but the machine-local state below. Vercel serves the
 
 `src/core/bridge/index.js` is the facade over one adapter (`Adapter` in `src/core/types.js`):
 `{ invoke(name, args), subscribe(fn), platform?, assetUrl?, win?, close? }`, and the one adapter
-there is is `src/host/adapter.js`, answering every command in the browser. The exact shapes are in
+there is is `src/host/adapter.ts`, answering every command in the browser. The exact shapes are in
 `src/core/bridge/commands.ts`, kept by hand: a change of a command changes it, the facade and the
 adapter together. Every refusal is a `HostError` with one of the host's codes
 (`src/core/bridge/errors.js`), and a name nobody answers is `unknown_command`. `bridge.kind` is
@@ -64,7 +64,7 @@ and the tests run on `tests/stubs/fsa.js` and `idb.js`'s memory backend.
 
 Four modules. What one needs of another is only what is written here.
 
-### fs: `src/host/fs.js`
+### fs: `src/host/fs.ts`
 
 ```js
 export function createFs(root, opts) -> Fs
@@ -96,7 +96,7 @@ text, opts)`), answering exactly what the host answers. Plus the helpers the oth
 Versions belong to fs, not local: they live in the vault, `.ose/history`, and `saveFile` keeps
 one under the same lock as its write (the fs table, `versionKeep`).
 
-### watch: `src/host/watch.js`
+### watch: `src/host/watch.ts`
 
 ```js
 export function startWatch(root, fs, emit, opts?) -> stop()
@@ -110,7 +110,7 @@ export function startWatch(root, fs, emit, opts?) -> stop()
 The adapter starts it when a vault mounts and stops it on `close()` and on a switch of vault;
 after `pickFile`, `outsideOpen` or a launch registers an outside file it calls `stop.refresh()`.
 
-### local: `src/host/local.js`
+### local: `src/host/local.ts`
 
 ```js
 export function createLocal(vaultKey, opts?) -> Local
@@ -127,7 +127,7 @@ export function createLocal(vaultKey, opts?) -> Local
 when it did not keep the bytes, because local deletes the older draft once it resolves. The
 adapter passes `fs.keepVersion`, and a rejection when no vault is open.
 
-### app: `src/host/adapter.js`, `vault-handle.js`, `sw.js`, the manifest, the build
+### app: `src/host/adapter.ts`, `vault-handle.js`, `sw.js`, the manifest, the build
 
 ```js
 export async function create() -> Adapter

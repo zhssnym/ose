@@ -1,4 +1,4 @@
-// Module fs of Ose Web (src/host/fs.js) on the in-memory File System Access API
+// Module fs of Ose Web (src/host/fs.ts) on the in-memory File System Access API
 // (tests/stubs/fsa.js): the same cases as tests/dev-bridge/files.test.js where the semantics are
 // shared (the save path, creates, appendLine, replaceLine, versions, the epoch), plus the
 // browser's own: the last look before close(), the set-aside when close() fails, a folder
@@ -6,8 +6,8 @@
 // the one hide rule, search, the encodings and files outside the vault. Never a real vault.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createFs, fromBase64, survivors, toBase64 } from '../../src/host/fs.js';
-import { hash } from '../../src/host/rules.js';
+import { createFs, fromBase64, survivors, toBase64 } from '../../src/host/fs.ts';
+import { hash } from '../../src/host/rules.ts';
 import { createFsa } from '../stubs/fsa.js';
 
 const enc = new TextEncoder();

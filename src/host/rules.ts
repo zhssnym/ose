@@ -1,8 +1,8 @@
 // The pure rules of the host, ported from the desktop host (hide.rs, vault.rs, encoding.rs and
 // files.rs, in git history at 6cee39d): the hash, the one hide rule, vault paths and
 // names, the natural sort, text in the four encodings, the text sniff, and the HostError every
-// web module throws. No handle, no IndexedDB, no DOM here: src/host/fs.js, watch.js, local.js
-// and adapter.js all import it, and tests/host/rules.test.js holds it to the values files and
+// web module throws. No handle, no IndexedDB, no DOM here: src/host/fs.ts, watch.ts, local.ts
+// and adapter.ts all import it, and tests/host/rules.test.js holds it to the values files and
 // agents already rely on.
 //
 // One addition to the rule, the browser's own temp file: Chrome writes a `createWritable` into
@@ -16,8 +16,8 @@ export { HostError };
 /** The prefix of a path outside the vault (docs/HOST.md "Files outside the vault"). */
 export const ABS = 'abs:';
 
-/** A refusal with its code, as every web command throws it. @param {string} code @param {string} message */
-export const fail = (code, message) => new HostError(message, code);
+/** A refusal with its code, as every web command throws it. */
+export const fail = (code: string, message: string) => new HostError(message, code);
 
 // ---------------------------------------------------------------- the hash
 
@@ -26,14 +26,13 @@ const utf8Enc = new TextEncoder();
 /**
  * FNV-1a, 64 bits, over the raw bytes, as 16 lowercase hex digits (docs/HOST.md "Commands"):
  * `""` -> `cbf29ce484222325`, `"a"` -> `af63dc4c8601ec8c`. A string is hashed as its UTF-8 bytes.
- * @param {Uint8Array | string} data
  */
-export function hash(data) {
+export function hash(data: Uint8Array | string) {
   const bytes = typeof data === 'string' ? utf8Enc.encode(data) : data;
   let lo = 0x84222325;
   let hi = 0xcbf29ce4;
   for (let i = 0; i < bytes.length; i++) {
-    lo = (lo ^ /** @type {number} */ (bytes[i])) >>> 0;
+    lo = (lo ^ (bytes[i] as number)) >>> 0;
     const a = lo * 0x1b3;
     const carry = Math.floor(a / 4294967296);
     hi = (Math.imul(hi, 0x1b3) + (lo << 8) + carry) >>> 0;
@@ -42,8 +41,7 @@ export function hash(data) {
   return hi.toString(16).padStart(8, '0') + lo.toString(16).padStart(8, '0');
 }
 
-/** @param {Uint8Array} a @param {Uint8Array} b */
-export function sameBytes(a, b) {
+export function sameBytes(a: Uint8Array, b: Uint8Array) {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
@@ -60,22 +58,19 @@ const EXCLUDED_AT_ROOT = new Set(['ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.
  * Somebody's temp file: the atomic writer's `.<name>.<pid>.<n>.tmp`, a case-only rename's
  * `.<name>.<pid>.case`, Chrome's `<name>.crswap`, an Office owner file `~$x`, a LibreOffice
  * lock `.~lock.x#`.
- * @param {string} name
  */
-export function isTemp(name) {
+export function isTemp(name: string) {
   return /^\..+\.\d+\.\d+\.tmp$/.test(name) || /^\..+\.\d+\.case$/.test(name) || /.\.crswap$/.test(name)
     || name.startsWith('~$') || (name.startsWith('.~lock.') && name.endsWith('#'));
 }
 
-/** @param {string} rel */
-export const segmentsOf = (rel) => String(rel ?? '').split(/[\\/]/).filter((s) => s && s !== '.');
+export const segmentsOf = (rel: string) => String(rel ?? '').split(/[\\/]/).filter((s) => s && s !== '.');
 
 /**
  * Never listed, walked, searched or reported: any segment `.ose` or `.git` (any case), a temp
  * file anywhere, the app's own files at the root, and the vault bin's sidecars `.trash/.info`.
- * @param {string} rel
  */
-export function isExcluded(rel) {
+export function isExcluded(rel: string) {
   const segs = segmentsOf(rel);
   if (segs.length >= 2 && (segs[0] || '').toLowerCase() === '.trash' && (segs[1] || '').toLowerCase() === '.info') return true;
   return segs.some((seg, depth) => {
@@ -84,17 +79,17 @@ export function isExcluded(rel) {
   });
 }
 
-/** Inside the vault's own bin, `.trash` at the root: never searched. @param {string} rel */
-export const isInBin = (rel) => (segmentsOf(rel)[0] || '').toLowerCase() === '.trash';
+/** Inside the vault's own bin, `.trash` at the root: never searched. */
+export const isInBin = (rel: string) => (segmentsOf(rel)[0] || '').toLowerCase() === '.trash';
 
-/** A dotfile or dotfolder: the browser sees no system hidden flag, so this is all of hidden. @param {string} name */
-export const isHiddenName = (name) => String(name).startsWith('.');
+/** A dotfile or dotfolder: the browser sees no system hidden flag, so this is all of hidden. */
+export const isHiddenName = (name: string) => String(name).startsWith('.');
 
-/** Does any segment start with a dot? The watcher's `hidden` flag. @param {string} rel */
-export const isPathHidden = (rel) => segmentsOf(rel).some(isHiddenName);
+/** Does any segment start with a dot? The watcher's `hidden` flag. */
+export const isPathHidden = (rel: string) => segmentsOf(rel).some(isHiddenName);
 
-/** `'excluded' | 'hidden' | 'shown'`, by the entry's own name. @param {string} rel */
-export function classify(rel) {
+/** `'excluded' | 'hidden' | 'shown'`, by the entry's own name. */
+export function classify(rel: string) {
   if (isExcluded(rel)) return 'excluded';
   const segs = segmentsOf(rel);
   return isHiddenName(segs[segs.length - 1] || '') ? 'hidden' : 'shown';
@@ -102,29 +97,29 @@ export function classify(rel) {
 
 // ---------------------------------------------------------------- sorting (vault.rs)
 
-/** Runs of digits compare as numbers, the rest by lowercased code point. @param {string} a @param {string} b */
-export function naturalCompare(a, b) {
+/** Runs of digits compare as numbers, the rest by lowercased code point. */
+export function naturalCompare(a: string, b: string) {
   const A = [...String(a)];
   const B = [...String(b)];
-  const digit = (/** @type {string} */ c) => c >= '0' && c <= '9';
-  const lower = (/** @type {string} */ c) => [...c.toLowerCase()][0] || c;
+  const digit = (c: string) => c >= '0' && c <= '9';
+  const lower = (c: string) => [...c.toLowerCase()][0] || c;
   let i = 0;
   let j = 0;
   while (i < A.length && j < B.length) {
-    const ai = /** @type {string} */ (A[i]);
-    const bj = /** @type {string} */ (B[j]);
+    const ai = (A[i] as string);
+    const bj = (B[j] as string);
     if (digit(ai) && digit(bj)) {
       const si = i;
       const sj = j;
-      while (i < A.length && digit(/** @type {string} */ (A[i]))) i++;
-      while (j < B.length && digit(/** @type {string} */ (B[j]))) j++;
+      while (i < A.length && digit((A[i] as string))) i++;
+      while (j < B.length && digit((B[j] as string))) j++;
       const na = A.slice(si, i).join('').replace(/^0+/, '');
       const nb = B.slice(sj, j).join('').replace(/^0+/, '');
       if (na.length !== nb.length) return na.length - nb.length;
       if (na !== nb) return na < nb ? -1 : 1;
     } else {
-      const ca = /** @type {number} */ (lower(ai).codePointAt(0));
-      const cb = /** @type {number} */ (lower(bj).codePointAt(0));
+      const ca = (lower(ai).codePointAt(0) as number);
+      const cb = (lower(bj).codePointAt(0) as number);
       if (ca !== cb) return ca - cb;
       i++;
       j++;
@@ -133,23 +128,20 @@ export function naturalCompare(a, b) {
   return (A.length - i) - (B.length - j);
 }
 
-/** Folders first, then natural name order. @param {{ kind: string, name: string }} a @param {{ kind: string, name: string }} b */
-export const byEntry = (a, b) => (a.kind === b.kind ? naturalCompare(a.name, b.name) : a.kind === 'dir' ? -1 : 1);
+/** Folders first, then natural name order. */
+export const byEntry = (a: { kind: string; name: string; }, b: { kind: string; name: string; }) => (a.kind === b.kind ? naturalCompare(a.name, b.name) : a.kind === 'dir' ? -1 : 1);
 
 // ---------------------------------------------------------------- paths and names
 
-/** A vault path as the page writes it: forward slashes, no leading or trailing slash. @param {unknown} p */
-export const clean = (p) => String(p ?? '').replace(/\\/g, '/').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+/** A vault path as the page writes it: forward slashes, no leading or trailing slash. */
+export const clean = (p: unknown) => String(p ?? '').replace(/\\/g, '/').trim().replace(/^\/+/, '').replace(/\/+$/, '');
 
 /**
  * The segments of a vault path, taken literally (vault.rs `resolve`, M49): `abs:` and `..` are
  * `escapes_vault`, so is a NUL or a drive colon; on Windows (`win`) a segment the system would
  * read as another name (a trailing dot or space, a device name) is `bad_name`. `[]` is the root.
- * @param {unknown} p
- * @param {boolean} [win]
- * @returns {string[]}
  */
-export function vaultSegments(p, win = false) {
+export function vaultSegments(p: unknown, win: boolean = false): string[] {
   const raw = String(p ?? '');
   if (raw.startsWith(ABS)) throw fail('escapes_vault', `a file outside the vault is not allowed here: ${raw}`);
   const rel = raw.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -164,8 +156,8 @@ export function vaultSegments(p, win = false) {
   return segs;
 }
 
-/** A name a create may make (files.rs `check_name`), or `bad_name`. @param {unknown} rel */
-export function checkName(rel) {
+/** A name a create may make (files.rs `check_name`), or `bad_name`. */
+export function checkName(rel: unknown) {
   const c = clean(rel);
   const name = c.split('/').pop();
   if (!name || name === '.' || name === '..' || /[. ]$/.test(name) || /[\u0000-\u001f<>"|?*]/.test(c)) {
@@ -173,8 +165,8 @@ export function checkName(rel) {
   }
 }
 
-/** The extension of a name, lowercased, without the dot; none for `.env`. @param {string} name */
-export const extOf = (name) => {
+/** The extension of a name, lowercased, without the dot; none for `.env`. */
+export const extOf = (name: string) => {
   const n = String(name).split(/[\\/]/).pop() || '';
   const i = n.lastIndexOf('.');
   return i > 0 && i + 1 < n.length ? n.slice(i + 1).toLowerCase() : '';
@@ -188,27 +180,26 @@ const CP1252_BACK = new Map(CP1252.map((cp, i) => [cp, 0x80 + i]));
 
 /** Labels to the four encodings Ose Web reads and writes, as the Encoding Standard names them. */
 const LABELS = new Map([
-  ...['utf-8', 'utf8', 'unicode-1-1-utf-8', 'unicode11utf8', 'unicode20utf8', 'x-unicode20utf8'].map((l) => /** @type {[string, string]} */ ([l, 'UTF-8'])),
-  ...['utf-16le', 'utf-16', 'ucs-2', 'unicode', 'csunicode', 'iso-10646-ucs-2', 'unicodefeff'].map((l) => /** @type {[string, string]} */ ([l, 'UTF-16LE'])),
-  ...['utf-16be', 'unicodefffe'].map((l) => /** @type {[string, string]} */ ([l, 'UTF-16BE'])),
+  ...['utf-8', 'utf8', 'unicode-1-1-utf-8', 'unicode11utf8', 'unicode20utf8', 'x-unicode20utf8'].map((l) => ([l, 'UTF-8'] as [string, string])),
+  ...['utf-16le', 'utf-16', 'ucs-2', 'unicode', 'csunicode', 'iso-10646-ucs-2', 'unicodefeff'].map((l) => ([l, 'UTF-16LE'] as [string, string])),
+  ...['utf-16be', 'unicodefffe'].map((l) => ([l, 'UTF-16BE'] as [string, string])),
   ...['windows-1252', 'cp1252', 'x-cp1252', 'latin1', 'l1', 'iso-8859-1', 'iso8859-1', 'iso_8859-1', 'iso88591', 'iso_8859-1:1987',
-    'iso-ir-100', 'ibm819', 'cp819', 'csisolatin1', 'ascii', 'us-ascii', 'ansi_x3.4-1968'].map((l) => /** @type {[string, string]} */ ([l, 'windows-1252'])),
+    'iso-ir-100', 'ibm819', 'cp819', 'csisolatin1', 'ascii', 'us-ascii', 'ansi_x3.4-1968'].map((l) => ([l, 'windows-1252'] as [string, string])),
 ]);
 
-/** The encoding a label names (`UTF-8`, `UTF-16LE`, `UTF-16BE`, `windows-1252`), or `unsupported`. @param {unknown} label */
-export function encodingOf(label) {
+/** The encoding a label names (`UTF-8`, `UTF-16LE`, `UTF-16BE`, `windows-1252`), or `unsupported`. */
+export function encodingOf(label: unknown) {
   const name = LABELS.get(String(label ?? '').trim().toLowerCase());
   if (!name) throw fail('unsupported', `Ose Web reads and writes UTF-8, UTF-16LE, UTF-16BE and windows-1252, not ${String(label)}`);
   return name;
 }
 
-/** @param {Uint8Array} bytes */
-function utf16leBytes(bytes, bigEndian = false) {
+function utf16leBytes(bytes: Uint8Array, bigEndian = false) {
   const n = bytes.length - (bytes.length % 2);
   const out = new Uint8Array(n);
   for (let i = 0; i < n; i += 2) {
-    out[i] = /** @type {number} */ (bytes[bigEndian ? i + 1 : i]);
-    out[i + 1] = /** @type {number} */ (bytes[bigEndian ? i : i + 1]);
+    out[i] = (bytes[bigEndian ? i + 1 : i] as number);
+    out[i + 1] = (bytes[bigEndian ? i : i + 1] as number);
   }
   return out;
 }
@@ -216,11 +207,8 @@ function utf16leBytes(bytes, bigEndian = false) {
 /**
  * `text` in the encoding `name` (a name `encodingOf` answered). A character windows-1252 cannot
  * hold is `unencodable`; a U+FEFF in the text is kept, so a BOM goes back where it was.
- * @param {string} text
- * @param {string} name
- * @returns {Uint8Array}
  */
-export function encodeText(text, name) {
+export function encodeText(text: string, name: string): Uint8Array {
   if (name === 'UTF-8') return utf8Enc.encode(text);
   if (name === 'UTF-16LE' || name === 'UTF-16BE') {
     const out = new Uint8Array(text.length * 2);
@@ -235,7 +223,7 @@ export function encodeText(text, name) {
   const out = new Uint8Array(text.length);
   let n = 0;
   for (const ch of text) {
-    const cp = /** @type {number} */ (ch.codePointAt(0));
+    const cp = (ch.codePointAt(0) as number);
     const b = cp < 0x80 || (cp >= 0xa0 && cp <= 0xff) ? cp : CP1252_BACK.get(cp);
     if (b === undefined) throw fail('unencodable', `${JSON.stringify(ch)} (U+${cp.toString(16).toUpperCase().padStart(4, '0')}) cannot be written in windows-1252`);
     out[n++] = b;
@@ -244,17 +232,15 @@ export function encodeText(text, name) {
 }
 
 const utf8Strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-/** The bytes as UTF-8, or null. A BOM stays in the text as U+FEFF. @param {Uint8Array} bytes */
-export const utf8OrNull = (bytes) => { try { return utf8Strict.decode(bytes); } catch { return null; } };
+/** The bytes as UTF-8, or null. A BOM stays in the text as U+FEFF. */
+export const utf8OrNull = (bytes: Uint8Array) => { try { return utf8Strict.decode(bytes); } catch { return null; } };
 
 /**
  * The bytes as text (encoding.rs `decode`): `{ text, encoding, bom, lossy }`. A UTF-16 BOM
  * first, then UTF-8, then windows-1252; `forced` names the encoding instead, and a forced
  * UTF-8 that is not UTF-8 is `not_utf8`. `lossy`: the text does not encode back to the bytes.
- * @param {Uint8Array} buf
- * @param {string | null} [forced]
  */
-export function decodeText(buf, forced = null) {
+export function decodeText(buf: Uint8Array, forced: string | null = null) {
   let name = forced ? encodingOf(forced) : null;
   if (!name) {
     if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) name = 'UTF-16LE';
@@ -268,8 +254,8 @@ export function decodeText(buf, forced = null) {
   } else if (name === 'windows-1252') {
     let out = '';
     for (let i = 0; i < buf.length; i++) {
-      const b = /** @type {number} */ (buf[i]);
-      out += String.fromCharCode(b >= 0x80 && b < 0xa0 ? /** @type {number} */ (CP1252[b - 0x80]) : b);
+      const b = (buf[i] as number);
+      out += String.fromCharCode(b >= 0x80 && b < 0xa0 ? (CP1252[b - 0x80] as number) : b);
     }
     text = out;
   } else {
@@ -288,15 +274,14 @@ export const SNIFF_BYTES = 8192;
 /**
  * Text, by content: no NUL in the first 8 KB and valid UTF-8 there; a character cut by the 8 KB
  * edge does not count against the file (vault.rs `sniff_text`).
- * @param {Uint8Array} head
- * @param {boolean} [full] the head is a full 8 KB (the file goes on)
+ * @param full the head is a full 8 KB (the file goes on)
  */
-export function sniffText(head, full = head.length >= SNIFF_BYTES) {
+export function sniffText(head: Uint8Array, full: boolean = head.length >= SNIFF_BYTES) {
   if (head.includes(0)) return false;
   if (utf8OrNull(head) !== null) return true;
   if (!full) return false;
   for (let cut = 1; cut <= 3 && cut < head.length; cut++) {
-    const lead = /** @type {number} */ (head[head.length - cut]);
+    const lead = (head[head.length - cut] as number);
     const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc2 ? 2 : 0;
     if (!need) continue;
     const tail = head.subarray(head.length - cut + 1);
@@ -309,10 +294,8 @@ export function sniffText(head, full = head.length >= SNIFF_BYTES) {
 /**
  * The encoding of a file that is not UTF-8 (encoding.rs `sniff`): a UTF-16 BOM, or windows-1252
  * when the head has no NUL and no control character but tab, line breaks and form feed.
- * @param {Uint8Array} head
- * @returns {string | null}
  */
-export function sniffEncoding(head) {
+export function sniffEncoding(head: Uint8Array): string | null {
   if (head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))) return head[0] === 0xff ? 'UTF-16LE' : 'UTF-16BE';
   if (!head.length) return null;
   for (const b of head) if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d && b !== 0x0c) return null;
@@ -324,11 +307,8 @@ export function sniffEncoding(head) {
 /**
  * What the browser threw, as the HostError the host would have answered (docs/HOST.md "Errors").
  * A HostError passes through. `where` names the path for the message.
- * @param {unknown} e
- * @param {string} [where]
- * @returns {HostError}
  */
-export function fromDom(e, where = '') {
+export function fromDom(e: unknown, where: string = ''): HostError {
   if (e instanceof HostError) return e;
   const name = e && typeof e === 'object' && 'name' in e ? String(e.name) : '';
   const msg = e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e);

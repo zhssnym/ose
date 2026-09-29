@@ -1,11 +1,11 @@
-// Module watch (src/host/watch.js, docs/HOST.md "The watcher"): the `fs` event from a
+// Module watch (src/host/watch.ts, docs/HOST.md "The watcher"): the `fs` event from a
 // FileSystemObserver or from the polling fallback, in watcher.rs's shape, over the in-memory
 // File System Access API (tests/stubs/fsa.js). Fake timers: the debounce, the poll interval and
 // the liveness tick are all driven by hand.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFsa } from '../stubs/fsa.js';
-import { diff, lookup, resolveKind, snapshot, startWatch } from '../../src/host/watch.js';
+import { diff, lookup, resolveKind, snapshot, startWatch } from '../../src/host/watch.ts';
 
 /** @type {Array<() => void>} */
 let stops = [];

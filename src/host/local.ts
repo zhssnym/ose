@@ -1,5 +1,5 @@
 // Module local of Ose Web (docs/HOST.md "Machine-local state", "Commands › local"): drafts, the
-// local store and the log, kept for this origin in IndexedDB (idb.js). Nothing of it is ever in
+// local store and the log, kept for this origin in IndexedDB (idb.ts). Nothing of it is ever in
 // the vault.
 //
 //   drafts  `<vaultKey>/<hash(path)>` for a vault path, `outside/<hash(abs path)>` for an `abs:`
@@ -15,8 +15,8 @@
 // is `no_vault`; a mutating call naming another epoch is `stale_vault`; an `abs:` draft needs
 // neither (it is this machine's memory of what was typed for that file).
 
-import * as idb from './idb.js';
-import { ABS, clean, fail, hash } from './rules.js';
+import * as idb from './idb.ts';
+import { ABS, clean, fail, hash } from './rules.ts';
 
 /** The vault key of every file outside the vault (drafts.rs `Scope::Outside`). */
 const OUTSIDE = 'outside';
@@ -32,46 +32,40 @@ const VAULT_HOST_KEYS = ['window'];
 const LEVELS = ['error', 'warn', 'info', 'debug'];
 const utf8 = new TextEncoder();
 
-/**
- * @typedef {{ path: string, text: string, baselineHash: string | null, mode: 'rich' | 'live' | 'source',
- *   exact: boolean, rev: number, at: number }} Draft
- * @typedef {Omit<Draft, 'text'> & { bytes: number }} DraftInfo
- * @typedef {{ v: 1, vault: string, path: string, text: string, baselineHash: string | null,
- *   mode: string, exact: boolean, rev: number, at: number }} StoredDraft
- * @typedef {{
- *   epoch?: () => number,
- *   keepVersion?: (path: string, bytes: Uint8Array, o: { force: boolean, reason: string }) => Promise<unknown>,
- *   now?: () => number,
- *   console?: Pick<Console, 'error' | 'warn' | 'info' | 'debug'> | null,
- *   store?: Store,
- * }} LocalOpts
- * @typedef {Pick<typeof idb, 'get' | 'put' | 'del' | 'entries' | 'count'>} Store
- */
+export type Draft = { path: string, text: string, baselineHash: string | null, mode: 'rich' | 'live' | 'source',
+  exact: boolean, rev: number, at: number };
+export type DraftInfo = Omit<Draft, 'text'> & { bytes: number };
+export type StoredDraft = { v: 1, vault: string, path: string, text: string, baselineHash: string | null,
+  mode: string, exact: boolean, rev: number, at: number };
+export type LocalOpts = {
+  epoch?: () => number,
+  keepVersion?: (path: string, bytes: Uint8Array, o: { force: boolean, reason: string }) => Promise<unknown>,
+  now?: () => number,
+  console?: Pick<Console, 'error' | 'warn' | 'info' | 'debug'> | null,
+  store?: Store,
+};
+export type Store = Pick<typeof idb, 'get' | 'put' | 'del' | 'entries' | 'count'>;
 
-/** @param {unknown} v @returns {v is Record<string, any>} */
-const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isObj = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** `2026-09-29 10:15:00.123`, as the dev bridge stamps its log. @param {number} ms */
-const stampOf = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '');
+/** `2026-09-29 10:15:00.123`, as the dev bridge stamps its log. */
+const stampOf = (ms: number) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '');
 
-/** @param {unknown} e */
-const why = (e) => (e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e));
+const why = (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e));
 
 /**
  * The machine-local state of one tab.
- * @param {string | null} vaultKey the vault's id, or null with no vault open
- * @param {LocalOpts} [opts]
+ * @param vaultKey the vault's id, or null with no vault open
  */
-export function createLocal(vaultKey, opts = {}) {
+export function createLocal(vaultKey: string | null, opts: LocalOpts = {}) {
   const now = opts.now || (() => Date.now());
   const out = opts.console === undefined ? globalThis.console : opts.console;
-  /** @type {Store} */
-  const db = opts.store || idb;
+  const db: Store = opts.store || idb;
 
   // -------------------------------------------------------------- epoch and scope
 
-  /** A call naming an epoch that is not this tab's is refused (commands.rs `require_root_at`). @param {unknown} o */
-  const checkEpoch = (o) => {
+  /** A call naming an epoch that is not this tab's is refused (commands.rs `require_root_at`). */
+  const checkEpoch = (o: unknown) => {
     if (!isObj(o) || o.epoch === undefined || o.epoch === null || !opts.epoch) return;
     const current = opts.epoch();
     if (Number(o.epoch) !== current) {
@@ -88,10 +82,9 @@ export function createLocal(vaultKey, opts = {}) {
   /**
    * Where a path's draft is filed (commands.rs `draft_scope`): an `abs:` path under `outside`, by
    * the path as it is; a vault path under the vault, cleaned, after the epoch check.
-   * @param {unknown} p @param {unknown} [o] the options that may carry an epoch
-   * @returns {{ key: string, path: string, vault: string }}
+   *  @param o the options that may carry an epoch
    */
-  const scopeOf = (p, o) => {
+  const scopeOf = (p: unknown, o?: unknown): { key: string; path: string; vault: string; } => {
     if (typeof p !== 'string') throw fail('bad_arg', 'a draft is named by its path');
     if (p.startsWith(ABS)) {
       if (p.length <= ABS.length) throw fail('bad_arg', `not a path outside the vault: ${p}`);
@@ -108,28 +101,26 @@ export function createLocal(vaultKey, opts = {}) {
 
   /** One draft command at a time (drafts.rs `GATE`). */
   let draftGate = Promise.resolve();
-  /** @template T @param {() => Promise<T>} fn @returns {Promise<T>} */
-  const gated = (fn) => {
+  /** @template T */
+  const gated = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = draftGate.then(fn, fn);
     draftGate = run.then(() => {}, () => {});
     return run;
   };
 
-  /** A stored draft, or null for anything that is not one. @param {unknown} o @returns {StoredDraft | null} */
-  const asStored = (o) => (isObj(o) && o.v === 1 ? /** @type {StoredDraft} */ (o) : null);
+  /** A stored draft, or null for anything that is not one. */
+  const asStored = (o: unknown): StoredDraft | null => (isObj(o) && o.v === 1 ? (o as StoredDraft) : null);
 
-  /** @param {string} key */
-  const readStored = async (key) => {
+  const readStored = async (key: string) => {
     try { return asStored(await db.get('drafts', key)); } catch { return null; }
   };
 
-  /** @param {string} key @param {StoredDraft} value */
-  const writeStored = async (key, value) => {
+  const writeStored = async (key: string, value: StoredDraft) => {
     try { await db.put('drafts', value, key); } catch (e) { throw fail('write_failed', `draft: ${why(e)}`); }
   };
 
-  /** The page-facing shape (drafts.rs `to_draft`). @param {StoredDraft} o @returns {Draft} */
-  const toDraft = (o) => ({
+  /** The page-facing shape (drafts.rs `to_draft`). */
+  const toDraft = (o: StoredDraft): Draft => ({
     path: o.path ?? null,
     text: typeof o.text === 'string' ? o.text : '',
     baselineHash: o.baselineHash ?? null,
@@ -141,15 +132,13 @@ export function createLocal(vaultKey, opts = {}) {
 
   /**
    * `draftWrite(path, draft, opts?)` -> `{at}`.
-   * @param {string} p @param {unknown} draft @param {{ epoch?: number }} [o]
    */
-  const draftWrite = async (p, draft, o) => {
+  const draftWrite = async (p: string, draft: unknown, o: { epoch?: number; }) => {
     const s = scopeOf(p, o);
     if (!isObj(draft)) throw fail('bad_arg', 'a draft is an object');
     if (typeof draft.text !== 'string') throw fail('bad_arg', 'a draft needs its text');
     const at = now();
-    /** @type {StoredDraft} */
-    const stored = {
+    const stored: StoredDraft = {
       v: 1,
       vault: s.vault,
       path: s.path,
@@ -164,15 +153,13 @@ export function createLocal(vaultKey, opts = {}) {
     return { at };
   };
 
-  /** `draftList()`: this vault's drafts and every outside file's, without text, newest first. @returns {Promise<DraftInfo[]>} */
-  const draftList = async () => {
+  /** `draftList()`: this vault's drafts and every outside file's, without text, newest first. */
+  const draftList = async (): Promise<DraftInfo[]> => {
     const prefixes = [`${OUTSIDE}/`];
     if (vaultKey) prefixes.unshift(`${vaultKey}/`);
-    /** @type {[IDBValidKey, any][]} */
-    let rows = [];
+    let rows: [IDBValidKey, any][] = [];
     try { rows = await db.entries('drafts'); } catch (e) { write('warn', `drafts: cannot list: ${why(e)}`); return []; }
-    /** @type {DraftInfo[]} */
-    const list = [];
+    const list: DraftInfo[] = [];
     for (const [key, value] of rows) {
       if (typeof key !== 'string' || !prefixes.some((pre) => key.startsWith(pre))) continue;
       if (!/^[0-9a-f]{16}$/.test(key.slice(key.indexOf('/') + 1))) continue;
@@ -184,8 +171,8 @@ export function createLocal(vaultKey, opts = {}) {
     return list.sort((a, b) => b.at - a.at);
   };
 
-  /** `draftRead(path)` -> the draft or null. @param {string} p @returns {Promise<Draft | null>} */
-  const draftRead = async (p) => {
+  /** `draftRead(path)` -> the draft or null. */
+  const draftRead = async (p: string): Promise<Draft | null> => {
     const s = scopeOf(p);
     const o = await readStored(s.key);
     return o ? toDraft(o) : null;
@@ -193,9 +180,8 @@ export function createLocal(vaultKey, opts = {}) {
 
   /**
    * `draftDrop(path, {ifRev?, epoch?})` -> `{dropped}`: only a draft at that edit or before it goes.
-   * @param {string} p @param {{ ifRev?: number, epoch?: number }} [o]
    */
-  const draftDrop = async (p, o) => {
+  const draftDrop = async (p: string, o: { ifRev?: number; epoch?: number; }) => {
     const s = scopeOf(p, o);
     return gated(async () => {
       const there = await readStored(s.key);
@@ -211,14 +197,12 @@ export function createLocal(vaultKey, opts = {}) {
    * this vault at or under `from` is re-keyed (drafts.rs `rekey_in`). When the new path has a
    * draft already, the newer of the two stays the draft and the older is kept as a version of
    * the new path (reason `conflict`); when that cannot be kept, both drafts stay where they are.
-   * @param {string} from @param {string} to
    */
-  const rekeyDrafts = (from, to) => gated(async () => {
+  const rekeyDrafts = (from: string, to: string) => gated(async () => {
     const [a, b] = [clean(from), clean(to)];
     if (!vaultKey || !a || a === b) return;
     const prefix = `${vaultKey}/`;
-    /** @type {[IDBValidKey, any][]} */
-    let rows = [];
+    let rows: [IDBValidKey, any][] = [];
     try { rows = await db.entries('drafts'); } catch { return; }
     for (const [oldKey, value] of rows) {
       if (typeof oldKey !== 'string' || !oldKey.startsWith(prefix)) continue;
@@ -255,8 +239,8 @@ export function createLocal(vaultKey, opts = {}) {
   // -------------------------------------------------------------- the local store
 
   let localGate = Promise.resolve();
-  /** @template T @param {() => Promise<T>} fn @returns {Promise<T>} */
-  const localGated = (fn) => {
+  /** @template T */
+  const localGated = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = localGate.then(fn, fn);
     localGate = run.then(() => {}, () => {});
     return run;
@@ -264,9 +248,8 @@ export function createLocal(vaultKey, opts = {}) {
 
   /**
    * The record's key and its host keys, or `bad_arg` / `no_vault` (commands.rs `local_file`).
-   * @param {unknown} scope @param {unknown} [o]
    */
-  const localKey = (scope, o) => {
+  const localKey = (scope: unknown, o?: unknown) => {
     if (scope === 'app') return { key: 'app', host: APP_HOST_KEYS };
     if (scope === 'vault') {
       const v = requireVault();
@@ -276,16 +259,16 @@ export function createLocal(vaultKey, opts = {}) {
     throw fail('bad_arg', `not a local scope: ${String(scope)}`);
   };
 
-  /** Always an object: missing or broken reads as `{}`. @param {string} key @returns {Promise<Record<string, any>>} */
-  const readLocal = async (key) => {
+  /** Always an object: missing or broken reads as `{}`. */
+  const readLocal = async (key: string): Promise<Record<string, any>> => {
     try {
       const v = await db.get('local', key);
       return isObj(v) ? v : {};
     } catch { return {}; }
   };
 
-  /** `localGet(scope)` -> the object, less the host's keys. @param {'app' | 'vault'} scope */
-  const localGet = async (scope) => {
+  /** `localGet(scope)` -> the object, less the host's keys. */
+  const localGet = async (scope: 'app' | 'vault') => {
     const { key, host } = localKey(scope);
     return localGated(async () => {
       const o = await readLocal(key);
@@ -297,9 +280,8 @@ export function createLocal(vaultKey, opts = {}) {
   /**
    * `localSet(scope, value, opts?)` -> null: the whole object replaced, the host's keys keeping
    * what is stored whatever the page sent.
-   * @param {'app' | 'vault'} scope @param {unknown} value @param {{ epoch?: number }} [o]
    */
-  const localSet = async (scope, value, o) => {
+  const localSet = async (scope: 'app' | 'vault', value: unknown, o: { epoch?: number; }) => {
     const { key, host } = localKey(scope, o);
     if (!isObj(value)) throw fail('bad_arg', 'local state is an object');
     let size;
@@ -321,15 +303,13 @@ export function createLocal(vaultKey, opts = {}) {
   /**
    * One of the host's own keys of `app` (`window`, `theme`, `legacyOrigin`): what the adapter
    * keeps there for itself, out of the page's reach.
-   * @param {string} name @returns {Promise<unknown>}
    */
-  const hostGet = (name) => localGated(async () => (APP_HOST_KEYS.includes(name) ? (await readLocal('app'))[name] : undefined));
+  const hostGet = (name: string): Promise<unknown> => localGated(async () => (APP_HOST_KEYS.includes(name) ? (await readLocal('app'))[name] : undefined));
 
   /**
    * Set (or, with `undefined`, remove) one of the host's keys of `app`.
-   * @param {string} name @param {unknown} value
    */
-  const hostSet = (name, value) => {
+  const hostSet = (name: string, value: unknown) => {
     if (!APP_HOST_KEYS.includes(name)) return Promise.reject(fail('bad_arg', `not a host key: ${name}`));
     return localGated(async () => {
       const o = await readLocal('app');
@@ -361,14 +341,13 @@ export function createLocal(vaultKey, opts = {}) {
   /**
    * The log writer fs and the adapter use: one line `<stamp> <level> <text>` into the store and
    * the console. Never fails, never waits for the store.
-   * @param {string} level @param {string} text
    */
-  function write(level, text) {
+  function write(level: string, text: string) {
     try {
       const l = LEVELS.includes(String(level).toLowerCase()) ? String(level).toLowerCase() : 'info';
       const line = `${stampOf(now())} ${l} ${String(text)}`;
       try {
-        const c = out && /** @type {any} */ (out)[l];
+        const c = out && (out as any)[l];
         if (typeof c === 'function') c.call(out, `[ose] ${line}`);
       } catch { /* the console is a courtesy */ }
       logChain = logChain.then(async () => {
@@ -383,8 +362,8 @@ export function createLocal(vaultKey, opts = {}) {
     } catch { /* never */ }
   }
 
-  /** `log(text, level?)` -> null: the page's line, `ui: <text>`. @param {unknown} text @param {unknown} [level] */
-  const log = async (text, level = 'info') => {
+  /** `log(text, level?)` -> null: the page's line, `ui: <text>`. */
+  const log = async (text: unknown, level: unknown = 'info') => {
     try {
       const l = String(level || 'info').toLowerCase();
       write(LEVELS.includes(l) ? l : 'info', `ui: ${String(text)}`);
@@ -394,9 +373,8 @@ export function createLocal(vaultKey, opts = {}) {
 
   /**
    * The newest `n` lines of the log, oldest first, for "Copy the log".
-   * @param {number} [n] @returns {Promise<string[]>}
    */
-  const logLines = async (n = LOG_MAX) => {
+  const logLines = async (n: number = LOG_MAX): Promise<string[]> => {
     await logChain;
     try {
       const rows = await db.entries('log');
@@ -418,4 +396,4 @@ export function createLocal(vaultKey, opts = {}) {
   };
 }
 
-/** @typedef {ReturnType<typeof createLocal>} Local */
+export type Local = ReturnType<typeof createLocal>;

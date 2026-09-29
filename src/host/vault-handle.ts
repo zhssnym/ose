@@ -22,8 +22,8 @@
 // Where there is no sessionStorage (tests under Node) the tab's values live in memory, and where
 // there are no Web Locks every hold succeeds.
 
-import * as idb from './idb.js';
-import { ABS } from './rules.js';
+import * as idb from './idb.ts';
+import { ABS } from './rules.ts';
 
 /** The root prefix of a vault in the browser: `web:<id>`. */
 export const ROOT = 'web:';
@@ -34,10 +34,8 @@ const S_EPOCH = 'ose.web.epoch';
 const S_SOURCE = 'ose.web.source';
 const RECENT_MAX = 10;
 
-/**
- * @typedef {{ id: string, name: string, handle: FileSystemDirectoryHandle, openedAt: number, forgotten?: boolean }} VaultRecord
- * @typedef {{ id: string, name: string, handle: FileSystemFileHandle, openedAt: number }} OutsideRecord
- */
+export type VaultRecord = { id: string, name: string, handle: FileSystemDirectoryHandle, openedAt: number, forgotten?: boolean };
+export type OutsideRecord = { id: string, name: string, handle: FileSystemFileHandle, openedAt: number };
 
 /** 16 random hex digits. */
 export function newId() {
@@ -46,19 +44,18 @@ export function newId() {
   return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-/** `web:<id>` -> the id, or null for anything else. @param {unknown} root */
-export function idOfRoot(root) {
+/** `web:<id>` -> the id, or null for anything else. */
+export function idOfRoot(root: unknown) {
   const s = String(root ?? '');
   if (!s.startsWith(ROOT)) return null;
   const id = s.slice(ROOT.length);
   return /^[0-9a-f]{16}$/.test(id) ? id : null;
 }
 
-/** @param {string} id */
-export const rootOf = (id) => `${ROOT}${id}`;
+export const rootOf = (id: string) => `${ROOT}${id}`;
 
-/** `abs:/web/<id>/<name>` -> `{ id, name }`, or null. @param {unknown} p */
-export function parseOutside(p) {
+/** `abs:/web/<id>/<name>` -> `{ id, name }`, or null. */
+export function parseOutside(p: unknown) {
   const s = String(p ?? '');
   if (!s.startsWith(OUTSIDE)) return null;
   const rest = s.slice(OUTSIDE.length);
@@ -70,11 +67,10 @@ export function parseOutside(p) {
   return { id, name };
 }
 
-/** @param {unknown} a @param {unknown} b */
-async function same(a, b) {
+async function same(a: unknown, b: unknown) {
   try {
-    const x = /** @type {FileSystemHandle} */ (a);
-    return !!x && typeof x.isSameEntry === 'function' && (await x.isSameEntry(/** @type {FileSystemHandle} */ (b)));
+    const x = (a as FileSystemHandle);
+    return !!x && typeof x.isSameEntry === 'function' && (await x.isSameEntry((b as FileSystemHandle)));
   } catch { return false; }
 }
 
@@ -83,52 +79,48 @@ async function same(a, b) {
 /**
  * `now`, or one past the newest kept when the clock has not moved on since (two opens in one
  * millisecond): the vault opened last is always first in the list.
- * @param {VaultRecord[]} all newest first @param {number} now
+ * @param all newest first
  */
-const after = (all, now) => Math.max(now, ((all[0] && all[0].openedAt) || 0) + 1);
+const after = (all: VaultRecord[], now: number) => Math.max(now, ((all[0] && all[0].openedAt) || 0) + 1);
 
-/** Whether any draft is filed under the vault `id` (local.js keys `<id>/<hash>`); true when the
- *  drafts cannot be read, so an id is never let go on a guess. @param {string} id */
-async function hasDrafts(id) {
+/** Whether any draft is filed under the vault `id` (local.ts keys `<id>/<hash>`); true when the
+ *  drafts cannot be read, so an id is never let go on a guess.  */
+async function hasDrafts(id: string) {
   try { return (await idb.entries('drafts')).some(([k]) => typeof k === 'string' && k.startsWith(`${id}/`)); } catch { return true; }
 }
 
-/** Every record, the forgotten ones too, newest first. @returns {Promise<VaultRecord[]>} */
-async function records() {
-  const all = (await idb.entries('vaults')).map(([, v]) => /** @type {VaultRecord} */ (v)).filter((v) => v && v.id);
+/** Every record, the forgotten ones too, newest first. */
+async function records(): Promise<VaultRecord[]> {
+  const all = (await idb.entries('vaults')).map(([, v]) => (v as VaultRecord)).filter((v) => v && v.id);
   return all.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
 }
 
 /** Let a record go, or, while drafts are filed under its id, keep it marked forgotten.
- *  @param {VaultRecord} v */
-async function letGo(v) {
+ *   */
+async function letGo(v: VaultRecord) {
   if (await hasDrafts(v.id)) { if (!v.forgotten) await idb.put('vaults', { ...v, forgotten: true }, v.id); }
   else await idb.del('vaults', v.id);
 }
 
 export const vaults = {
-  /** Every vault, newest first. @returns {Promise<VaultRecord[]>} */
-  async list() {
+  /** Every vault, newest first. */
+  async list(): Promise<VaultRecord[]> {
     return (await records()).filter((v) => !v.forgotten);
   },
-  /** @param {string | null | undefined} id @returns {Promise<VaultRecord | null>} */
-  async get(id) {
+  async get(id: string | null | undefined): Promise<VaultRecord | null> {
     if (!id) return null;
     const v = await idb.get('vaults', id);
-    return v && v.handle && !v.forgotten ? /** @type {VaultRecord} */ (v) : null;
+    return v && v.handle && !v.forgotten ? (v as VaultRecord) : null;
   },
   /**
    * The folder kept, its id answered: the id it already had when it is the same folder as one
    * kept before (`isSameEntry`, a forgotten record too, so its drafts are found again), a new
    * one otherwise. The twenty newest are listed; an older one goes, or stays forgotten while it
    * has drafts.
-   * @param {FileSystemDirectoryHandle} handle
-   * @param {number} [now]
-   * @returns {Promise<string>}
    */
-  async add(handle, now = Date.now()) {
+  async add(handle: FileSystemDirectoryHandle, now: number = Date.now()): Promise<string> {
     const every = await records();
-    let id = null;
+    let id: string | null = null;
     for (const v of every) if (await same(v.handle, handle)) { id = v.id; break; }
     if (!id) id = newId();
     await idb.put('vaults', { id, name: handle.name, handle, openedAt: after(every, now) }, id);
@@ -136,27 +128,25 @@ export const vaults = {
     for (const v of await records()) if (v.forgotten && !(await hasDrafts(v.id))) await idb.del('vaults', v.id);
     return id;
   },
-  /** Opened now: first in the recent list. @param {string} id @param {number} [now] */
-  async touch(id, now = Date.now()) {
+  /** Opened now: first in the recent list. */
+  async touch(id: string, now: number = Date.now()) {
     const v = await vaults.get(id);
     if (v) await idb.put('vaults', { ...v, openedAt: after(await vaults.list(), now) }, id);
   },
-  /** @param {string} id */
-  async forget(id) {
-    const v = /** @type {VaultRecord | undefined} */ (await idb.get('vaults', id));
+  async forget(id: string) {
+    const v = (await idb.get('vaults', id) as VaultRecord | undefined);
     if (v && v.id) await letGo(v);
     else await idb.del('vaults', id);
     if ((await idb.get('meta', 'lastVault')) === id) await idb.del('meta', 'lastVault');
   },
 };
 
-/** The vault the next boot opens when the tab names none. @returns {Promise<string | null>} */
-export async function lastVault() {
+/** The vault the next boot opens when the tab names none. */
+export async function lastVault(): Promise<string | null> {
   const v = await idb.get('meta', 'lastVault');
   return typeof v === 'string' ? v : null;
 }
-/** @param {string | null} id */
-export async function setLastVault(id) {
+export async function setLastVault(id: string | null) {
   if (id) await idb.put('meta', id, 'lastVault');
   else await idb.del('meta', 'lastVault');
 }
@@ -167,11 +157,9 @@ export const outside = {
   /**
    * A file from outside, kept and named: `abs:/web/<id>/<name>`. The same file (`isSameEntry`)
    * keeps its id.
-   * @param {FileSystemFileHandle} handle @param {number} [now]
-   * @returns {Promise<string>}
    */
-  async register(handle, now = Date.now()) {
-    let id = null;
+  async register(handle: FileSystemFileHandle, now: number = Date.now()): Promise<string> {
+    let id: string | null = null;
     for (const [, v] of await idb.entries('outside')) {
       if (v && (await same(v.handle, handle))) { id = v.id; break; }
     }
@@ -179,25 +167,25 @@ export const outside = {
     await idb.put('outside', { id, name: handle.name, handle, openedAt: now }, id);
     return `${OUTSIDE}${id}/${handle.name}`;
   },
-  /** The record of an `abs:/web/…` path, or null. @param {unknown} absPath @returns {Promise<OutsideRecord | null>} */
-  async get(absPath) {
+  /** The record of an `abs:/web/…` path, or null. */
+  async get(absPath: unknown): Promise<OutsideRecord | null> {
     const p = parseOutside(absPath);
     if (!p) return null;
     const v = await idb.get('outside', p.id);
-    return v && v.handle && v.name === p.name ? /** @type {OutsideRecord} */ (v) : null;
+    return v && v.handle && v.name === p.name ? (v as OutsideRecord) : null;
   },
-  /** The handle of an `abs:/web/…` path, or null (fs's `outside.handle`). @param {string} absPath */
-  async handle(absPath) {
+  /** The handle of an `abs:/web/…` path, or null (fs's `outside.handle`). */
+  async handle(absPath: string) {
     const r = await outside.get(absPath);
     return r ? r.handle : null;
   },
-  /** The handle kept under an id, for the service worker's `~abs/` form. @param {string} id */
-  async byId(id) {
+  /** The handle kept under an id, for the service worker's `~abs/` form. */
+  async byId(id: string) {
     const v = await idb.get('outside', id);
-    return v && v.handle ? /** @type {OutsideRecord} */ (v) : null;
+    return v && v.handle ? (v as OutsideRecord) : null;
   },
-  /** Every registered file, as the watcher takes them. @returns {Promise<{ path: string, handle: FileSystemFileHandle }[]>} */
-  async list() {
+  /** Every registered file, as the watcher takes them. */
+  async list(): Promise<{ path: string; handle: FileSystemFileHandle; }[]> {
     return (await idb.entries('outside'))
       .map(([, v]) => v)
       .filter((v) => v && v.handle)
@@ -210,11 +198,8 @@ export const outside = {
 /**
  * Whether the page may read and write through `handle`. With `ask`, a permission not yet given
  * is requested, which needs a user gesture (the chooser's click, a key in the address bar).
- * @param {FileSystemHandle} handle
- * @param {{ ask?: boolean, mode?: 'read' | 'readwrite' }} [o]
- * @returns {Promise<boolean>}
  */
-export async function permission(handle, o = {}) {
+export async function permission(handle: FileSystemHandle, o: { ask?: boolean; mode?: 'read' | 'readwrite'; } = {}): Promise<boolean> {
   const mode = o.mode || 'readwrite';
   try {
     if (typeof handle.queryPermission !== 'function') return true;
@@ -227,20 +212,16 @@ export async function permission(handle, o = {}) {
 
 // ---------------------------------------------------------------- the tab
 
-/** @type {Map<string, string>} */
-const memory = new Map();
-/** @returns {Storage | null} */
-function session() {
+const memory: Map<string, string> = new Map();
+function session(): Storage | null {
   try { return typeof sessionStorage !== 'undefined' ? sessionStorage : null; } catch { return null; }
 }
-/** @param {string} k */
-function sget(k) {
+function sget(k: string) {
   const s = session();
   if (s) { try { return s.getItem(k); } catch { /* blocked */ } }
   return memory.get(k) ?? null;
 }
-/** @param {string} k @param {string | null} v */
-function sset(k, v) {
+function sset(k: string, v: string | null) {
   const s = session();
   if (s) {
     try { if (v === null) s.removeItem(k); else s.setItem(k, v); return; } catch { /* blocked */ }
@@ -250,13 +231,11 @@ function sset(k, v) {
 
 /** This tab's vault id, or null. */
 export const currentVault = () => sget(S_VAULT);
-/** @param {string | null} id */
-export const setCurrentVault = (id) => sset(S_VAULT, id);
+export const setCurrentVault = (id: string | null) => sset(S_VAULT, id);
 
 /** How this tab's vault came (`picked`, `opened`, `remembered`), kept over a reload. */
 export const tabSource = () => sget(S_SOURCE);
-/** @param {string | null} source */
-export const setTabSource = (source) => sset(S_SOURCE, source);
+export const setTabSource = (source: string | null) => sset(S_SOURCE, source);
 
 /** This tab's epoch: 1 at first, one more on every adopt. */
 export function epoch() {
@@ -270,12 +249,12 @@ export function bumpEpoch() {
   return next;
 }
 
-/** The lock this tab holds: its vault id and how to let it go. @type {{ id: string, release: () => void } | null} */
-let held = null;
+/** The lock this tab holds: its vault id and how to let it go. */
+let held: { id: string; release: () => void; } | null = null;
 
 /** The Web Locks of this origin, or null. */
 function locks() {
-  const n = /** @type {any} */ (globalThis.navigator);
+  const n = (globalThis.navigator as any);
   return n && n.locks && typeof n.locks.request === 'function' ? n.locks : null;
 }
 
@@ -283,19 +262,16 @@ function locks() {
  * Take the Web Lock `ose-vault:<id>` and keep it until `releaseVault()`: true when this tab has
  * the vault now, false when another tab holds it. `wait` (ms) waits that long for it first (a
  * reload of this very tab lets go a moment after the new page asks).
- * @param {string} id @param {{ wait?: number }} [o]
- * @returns {Promise<boolean>}
  */
-export async function holdVault(id, o = {}) {
+export async function holdVault(id: string, o: { wait?: number; } = {}): Promise<boolean> {
   if (held && held.id === id) return true;
   const L = locks();
   if (!L) { releaseVault(); held = { id, release: () => {} }; return true; }
-  /** @type {() => void} */
-  let release = () => {};
+  let release: () => void = (): void => {};
   const kept = new Promise((r) => { release = () => r(undefined); });
   const got = await new Promise((resolve) => {
     const name = `ose-vault:${id}`;
-    const cb = (/** @type {unknown} */ lock) => {
+    const cb = (lock: unknown) => {
       if (!lock) { resolve(false); return undefined; }
       resolve(true);
       return kept;
@@ -304,7 +280,7 @@ export async function holdVault(id, o = {}) {
     if (wait > 0 && typeof AbortController !== 'undefined') {
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), wait);
-      L.request(name, { signal: ac.signal }, (/** @type {unknown} */ lock) => { clearTimeout(t); return cb(lock); })
+      L.request(name, { signal: ac.signal }, (lock: unknown) => { clearTimeout(t); return cb(lock); })
         .catch(() => { clearTimeout(t); resolve(false); });
     } else {
       L.request(name, { ifAvailable: true }, cb).catch(() => resolve(false));

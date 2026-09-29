@@ -1,4 +1,4 @@
-// Bridge facade. The one host is the browser: src/host/adapter.js answers every command over the
+// Bridge facade. The one host is the browser: src/host/adapter.ts answers every command over the
 // File System Access API (docs/HOST.md). The adapter implements `invoke(name, args) -> Promise`
 // and `subscribe(fn({event, data}))`, and adds `win`, `platform` and `assetUrl` for what is not
 // a host command. This file is the surface the adapter answers to. Nothing else imports it.
@@ -87,7 +87,7 @@ function dispatch({ event, data }) {
 let adapter = null;
 /** @type {Promise<Adapter>} */
 const ready = (async () => {
-  const mod = await import('../../host/adapter.js');
+  const mod = await import('../../host/adapter.ts');
   const a = /** @type {Adapter} */ (await mod.create());
   adapter = a;
   a.subscribe(dispatch);
@@ -168,7 +168,7 @@ const winCall = async (name, ...args) => {
 };
 
 /**
- * Ose Web's `vault/` form before the adapter is ready (src/host/adapter.js `assetUrlFor`, which
+ * Ose Web's `vault/` form before the adapter is ready (src/host/adapter.ts `assetUrlFor`, which
  * takes over once it is): `./vault/<vaultId>/<path>` beside the page, the tab's vault from
  * sessionStorage. An `abs:/web/<id>/<name>` file is `./vault/~abs/<id>/<name>`.
  * @param {string} path
@@ -198,7 +198,7 @@ const staticAssetUrl = webAssetUrl;
 const as = (p) => /** @type {Promise<T>} */ (p);
 
 export const bridge = {
-  /** The one host there is: the browser, through src/host/adapter.js. */
+  /** The one host there is: the browser, through src/host/adapter.ts. */
   kind: /** @type {'web'} */ ('web'),
   /** 'windows', 'macos' or 'linux', once the adapter has said; 'windows' until then. */
   get platform() { return platform.os; },

@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const seen = [];
 let answer = async () => null;
 
-vi.mock('../../src/host/adapter.js', () => ({
+vi.mock('../../src/host/adapter.ts', () => ({
   create: async () => ({
     invoke: (cmd, args) => { seen.push([cmd, args]); return answer(cmd, args); },
     subscribe: () => {},

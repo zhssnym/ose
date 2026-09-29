@@ -127,7 +127,7 @@ app like everything else; what a vault decides is only where its files are (Sett
   `ose:core`. It never spells a vault path: every path is a setting, found automatically the
   first time and confirmed by the user. It writes a line, never a whole file.
 - Nothing is hidden by name. The host has the one hide rule (`.ose`, `.git`, the vault bin's
-  bookkeeping, temp files and Chrome's `.crswap`, `src/host/rules.js`); dotfiles wait behind Show
+  bookkeeping, temp files and Chrome's `.crswap`, `src/host/rules.ts`); dotfiles wait behind Show
   hidden items. Names are shown in full, with their extension.
 - Markdown fidelity is non-negotiable. The editor must never rewrite a file it did not edit, and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
