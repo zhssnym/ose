@@ -22,7 +22,7 @@ export const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 // frames are the document's either way (tokens.css, `:root[data-face="plain"]`).
 export const PAGE_FACES = ['document', 'plain'];
 // How a page is laid out on screen. `scroll` is one continuous column; `pages` is the A4 sheet
-// it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.js).
+// it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.ts).
 export const LAYOUTS = ['scroll', 'pages'];
 /** How a markdown file opens when it remembers no mode of its own (X1). */
 export const EDITOR_MODES = ['rich', 'live', 'source'];
@@ -44,7 +44,7 @@ export const DEFAULTS = {
   trash: 'system',
   titleSync: false,
   // How a markdown file opens the first time (X1): 'rich', 'live' or 'source'. A file the user
-  // left in another mode remembers it (`src/editor/modes.js`); a plain text file is Source.
+  // left in another mode remembers it (`src/editor/modes.ts`); a plain text file is Source.
   editorMode: 'rich',
 };
 

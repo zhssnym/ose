@@ -2,11 +2,11 @@
 // based, each side's line endings kept. A change on disk that touches other lines than the
 // buffer's merges; one that touches the same lines is a conflict and the buffer is `ours`.
 //
-// Depends on: editor (src/editor/merge.js). Skipped until that file exists.
+// Depends on: editor (src/editor/merge.ts). Skipped until that file exists.
 
 import { describe, expect, it } from 'vitest';
 
-const { merge3, keepBoth } = await import('../../src/editor/merge.js');
+const { merge3, keepBoth } = await import('../../src/editor/merge.ts');
 
 const base = '# Title\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n\nFive.\n';
 

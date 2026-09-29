@@ -134,7 +134,7 @@ test('5. a reload while typing: the text is in the file, or the recovery sheet p
 
   // Either the save landed, or the draft comes back: by itself when the page reopens, or from
   // the recovery sheet, whose row opens the page and puts the draft back. A recovered draft
-  // nobody has edited yet waits for a deliberate save (src/editor/page.js), which in a browser
+  // nobody has edited yet waits for a deliberate save (src/editor/page.ts), which in a browser
   // is the usual case: the reload beats the autosave. One Ctrl+S then puts it in the file.
   const recovered = page.locator('.ed-banner', { hasText: /were recovered/i });
   await expect.poll(async () => {

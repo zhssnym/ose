@@ -962,7 +962,7 @@ status bar's `mode` field (a menu, `ose.status.set` with `choices`):
   rendered off the cursor and raw on it, maths with Temml, fenced code highlighted, the
   frontmatter folded into a "Properties" block. In Live the file text is the only truth: a save
   writes `view.state.doc.toString()` with the byte-order mark and the line separators put back
-  (`src/editor/source.js`), never a serializer, so a widget bug is a display glitch and never a
+  (`src/editor/source.ts`), never a serializer, so a widget bug is a display glitch and never a
   changed byte. A checkbox click is one transaction that changes one character. The title strip
   and the properties strip are hidden: the text holds both. A Live view that fails to mount
   falls back to Source.
@@ -970,7 +970,7 @@ status bar's `mode` field (a menu, `ose.status.set` with `choices`):
 
 A plain text file has one mode, Source; a page the rich view cannot hold (`forced`) is Source
 too. Which mode a markdown file opens in: the mode it was last left in, per machine and per
-vault (`ose.local('pageModes')`, at most 300, `src/editor/modes.js`), else the machine setting
+vault (`ose.local('pageModes')`, at most 300, `src/editor/modes.ts`), else the machine setting
 `editorMode` (Settings › Editor, "Open markdown files in"), else Rich. A forced mode and a file
 outside the vault are never remembered. The wave-2 `sourcePages` list in the state file is read
 once to migrate and never written again.

@@ -3,7 +3,7 @@
    A page is drawn as the A4 sheet it prints on: the sheet's width, the sheet's 2cm margin, and
    the print size and leading, so a line breaks on screen exactly where it breaks in the PDF.
    Every spacing of the document look is in em, which follows that size, so the rhythm is the
-   paper's too. `sheets.js` measures the content and draws a rule where each sheet ends,
+   paper's too. `sheets.ts` measures the content and draws a rule where each sheet ends,
    by the same rules print.css gives the printer. `scroll`, the default, is the page as it has
    always been.
 

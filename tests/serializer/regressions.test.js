@@ -8,7 +8,7 @@
 
 import { Transform } from '@milkdown/kit/prose/transform';
 import { describe, expect, it } from 'vitest';
-import { composeDoc, parseDoc } from '../../src/editor/doc.js';
+import { composeDoc, parseDoc } from '../../src/editor/doc.ts';
 import { codeOf, endOfBlock, hasMark, insertParaAt, lastTextEnd, para, tops, typeAt } from '../support/docs.js';
 import { pipeline } from '../support/pipeline.js';
 

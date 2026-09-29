@@ -22,7 +22,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { BLOCK_FRAGMENTS, FRAGMENTS } from '../fixtures/fragments.js';
-import { composeDoc, parseDoc } from '../../src/editor/doc.js';
+import { composeDoc, parseDoc } from '../../src/editor/doc.ts';
 import { corpus } from '../support/corpus.js';
 import { bodyOf, untouchedMissing } from '../support/docs.js';
 import { applyEdits, EDIT_NAMES } from '../support/edits.js';

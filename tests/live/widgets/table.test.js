@@ -6,7 +6,7 @@ import './dom-shim.js';
 import { StateField } from '@codemirror/state';
 import { Decoration, EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
-import { readTable, table, TableWidget } from '../../../src/editor/live/widgets/table.js';
+import { readTable, table, TableWidget } from '../../../src/editor/live/widgets/table.ts';
 import { ctxOf, decorations, nodesOf, stateOf } from './support.js';
 
 const DOC = [

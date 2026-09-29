@@ -18,7 +18,7 @@
 // it so none is ever applied twice. Ctrl+Z therefore stops at a refusal instead of walking past
 // it to an older entry that may depend on it (the folder a refused new page is in).
 //
-// The steps' undo is fileops.js's (`undoSteps`); this file keeps the list and says when it
+// The steps' undo is fileops.ts's (`undoSteps`); this file keeps the list and says when it
 // changed: `fileops:journal` `{ entries }` on the bus.
 
 import { bus, uid } from './registry.ts';

@@ -133,7 +133,7 @@ export const CODE_BLOCK_ONLY_KEYS = new Set(['alt+arrowleft', 'alt+arrowright'])
 
 /**
  * A standalone `codeEditor` (`.ed-code`) is a document of its own: it binds Ctrl+S to its own
- * save (`src/editor/code-editor.js`) and carries CodeMirror's own search panel on Ctrl+F. A
+ * save (`src/editor/code-editor.ts`) and carries CodeMirror's own search panel on Ctrl+F. A
  * code block inside a page is not one of these — there Ctrl+S saves the page and Ctrl+F opens
  * the page's find bar — which is why this is `.ed-code` and not `.cm-editor`.
  */

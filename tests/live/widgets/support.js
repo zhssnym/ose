@@ -3,9 +3,9 @@
 
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
-import { collect } from '../../../src/editor/live/registry.js';
-import { liveLanguage } from '../../../src/editor/live/syntax.js';
-import { WIDGETS } from '../../../src/editor/live/widgets/index.js';
+import { collect } from '../../../src/editor/live/registry.ts';
+import { liveLanguage } from '../../../src/editor/live/syntax.ts';
+import { WIDGETS } from '../../../src/editor/live/widgets/index.ts';
 
 /** A state over `doc` with Live's language and the widgets' syntax, fully parsed. */
 export function stateOf(doc, extensions = []) {
@@ -23,8 +23,8 @@ export function nodesOf(state, name) {
 
 /**
  * @param {EditorState} state
- * @param {Partial<import('../../../src/editor/live/registry.js').WidgetContext>} [over]
- * @returns {import('../../../src/editor/live/registry.js').WidgetContext}
+ * @param {Partial<import('../../../src/editor/live/registry.ts').WidgetContext>} [over]
+ * @returns {import('../../../src/editor/live/registry.ts').WidgetContext}
  */
 export function ctxOf(state, over = {}) {
   return {

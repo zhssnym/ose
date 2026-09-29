@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 //
 // The two serialiser-side findings that need a DOM: H4, find and replace keeping the marks of
-// what it replaces (src/editor/find.js, a real ProseMirror view under happy-dom), and M6's other
+// what it replaces (src/editor/find.ts, a real ProseMirror view under happy-dom), and M6's other
 // half, the app's own renderer reading a single newline the way the editor writes a hard break
-// (src/editor/render.js, `breaks: true`).
+// (src/editor/render.ts, `breaks: true`).
 //
 // Depends on: serializer (find.js H4, render.js M6).
 
@@ -15,8 +15,8 @@ import { pipeline } from '../support/pipeline.js';
 /** A live view over `md`, with the find plugin, and the find bar mounted beside it. */
 async function withFind(md) {
   const P = await pipeline();
-  const { findPlugin } = await import('../../src/editor/plugins.js');
-  const { createFind } = await import('../../src/editor/find.js');
+  const { findPlugin } = await import('../../src/editor/plugins.ts');
+  const { createFind } = await import('../../src/editor/find.ts');
   const doc = P.engine.parse(md);
   const root = document.createElement('div');
   const mount = document.createElement('div');
@@ -69,7 +69,7 @@ describe('H4: find and replace keeps the marks of what it replaces', () => {
 
 describe('M6: the renderer reads a single newline as a line break', () => {
   it('render() of two lines gives a <br>', async () => {
-    const { render } = await import('../../src/editor/render.js');
+    const { render } = await import('../../src/editor/render.ts');
     const out = await render('line one\nline two');
     const html = typeof out === 'string' ? out : out && (out.html ?? out.outerHTML ?? out.innerHTML ?? String(out));
     expect(html).toMatch(/line one<br\s*\/?>\s*line two/);

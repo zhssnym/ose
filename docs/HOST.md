@@ -56,9 +56,10 @@ certificate. `npm run preview` serves `dist/` as a static host would. Hosting `d
 static over HTTPS is the whole deployment; Vercel does it from `vercel.json`, revalidating every
 file (`no-cache`) so a new deploy reaches the worker at once, the hashed chunks cached for good.
 
-`tsconfig.json` covers `src/host/**` (checkJs, the `dom.asynciterable` lib added for folder
-iteration); Biome covers it as `src/**/*.js`. No new npm dependency: IndexedDB is used directly,
-and the tests run on `tests/stubs/fsa.js` and `idb.js`'s memory backend.
+`src/host` is TypeScript but for the service worker, `sw.js`, which is served as written and
+checked by tsc as JavaScript (`tsconfig.json`, with the `dom.asynciterable` lib added for folder
+iteration); Biome lints both. No new npm dependency: IndexedDB is used directly, and the tests
+run on `tests/stubs/fsa.js` and `idb.ts`'s memory backend.
 
 ## Modules and their interfaces
 

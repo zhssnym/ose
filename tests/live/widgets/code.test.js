@@ -6,7 +6,7 @@ import { LanguageDescription, syntaxTree } from '@codemirror/language';
 import { languages as PACK } from '@codemirror/language-data';
 import { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
-import { code, fenceLanguage, languages } from '../../../src/editor/live/widgets/code.js';
+import { code, fenceLanguage, languages } from '../../../src/editor/live/widgets/code.ts';
 import { ctxOf, decorations, stateOf } from './support.js';
 
 const DOC = 'Text\n\n```python\nx = 1\n\nprint(x)\n```\n\nAfter\n';

@@ -1,4 +1,4 @@
-/* Tables (batch 12, package P2). Imported from table.js.
+/* Tables (batch 12, package P2). Imported from table.ts.
  *
  * Two jobs. First, make Milkdown's row/column popover reachable without a mouse: its handles are
  * hidden with `opacity: 0` and its button groups with `display: none`, both driven by a
@@ -13,7 +13,7 @@
 
 /* --- reachable from the keyboard ---------------------------------------- */
 
-/* A handle parked on the caret's cell (table.js) or hovered stays lit while focus is in it. */
+/* A handle parked on the caret's cell (table.ts) or hovered stays lit while focus is in it. */
 .ed .milkdown .milkdown-table-block .handle:focus-within,
 .ed .milkdown .milkdown-table-block .handle:focus-visible {
   opacity: 1;

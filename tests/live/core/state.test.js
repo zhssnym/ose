@@ -1,9 +1,9 @@
-// Live's buffer (src/editor/live/state.js): the file text is the only truth. `liveText` gives
+// Live's buffer (src/editor/live/state.ts): the file text is the only truth. `liveText` gives
 // back the file byte for byte, an edit changes only the lines it touched (their separators
 // included), and a task toggle is one byte.
 import { describe, it, expect } from 'vitest';
-import { liveState, liveText, toggleTaskAt, taskMarkerAt, liveFormat, setFormat } from '../../../src/editor/live/state.js';
-import { textFormat } from '../../../src/editor/source.js';
+import { liveState, liveText, toggleTaskAt, taskMarkerAt, liveFormat, setFormat } from '../../../src/editor/live/state.ts';
+import { textFormat } from '../../../src/editor/source.ts';
 
 const SHAPES = {
   lf: 'a\nb\nc\n',

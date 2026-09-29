@@ -5,7 +5,7 @@
 
 import '../live/widgets/dom-shim.js';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createReadingView, frontmatter, normalise, properties } from '../../src/editor/reading/index.js';
+import { createReadingView, frontmatter, normalise, properties } from '../../src/editor/reading/index.ts';
 
 /** @type {Array<{ destroy(): void }>} */
 const open = [];

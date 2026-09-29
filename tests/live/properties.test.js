@@ -19,7 +19,7 @@
 // live/index.js).
 
 import { describe, expect, it } from 'vitest';
-import { liveDecorations, liveState, liveText, toggleTaskAt } from '../../src/editor/live/index.js';
+import { liveDecorations, liveState, liveText, toggleTaskAt } from '../../src/editor/live/index.ts';
 import { liveSynth, rng } from '../fixtures/live-synth.js';
 import { corpus } from '../support/corpus.js';
 

@@ -1,9 +1,9 @@
-// The headless engine, until src/editor/engine.js lands (CONTRACT 7.4). A copy of the audit's
+// The headless engine, until src/editor/engine.ts lands (CONTRACT 7.4). A copy of the audit's
 // work/audit/roundtrip/engine.mjs, reading the live sources under src/editor instead of the
 // audit's snapshots: the same presets, the same removals, the same schemas, the same remark
 // plugins and the same stringify options as crepe.js makeCrepe(), with no EditorView.
 //
-// It is only a stand-in. tests/support/pipeline.js prefers src/editor/engine.js as soon as the
+// It is only a stand-in. tests/support/pipeline.js prefers src/editor/engine.ts as soon as the
 // file exists, and this one can then go. Keep it in step with crepe.js installExtras() until
 // then: a plugin added there and not here is a difference the tests cannot see.
 
@@ -13,6 +13,7 @@ import {
 import { commonmark, remarkInlineLinkPlugin, remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
 import { imageBlockSchema, remarkImageBlockPlugin } from '@milkdown/kit/component/image-block';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -56,7 +57,11 @@ export async function makeEngine() {
   const dir = process.env.OSE_TEST_EDITOR_DIR
     ? pathToFileURL(resolve(process.env.OSE_TEST_EDITOR_DIR) + '/').href
     : pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'editor') + '/').href;
-  const load = (name) => import(/* @vite-ignore */ new URL(name, dir).href);
+  // src/editor is TypeScript; an older copy of the sources may still be JavaScript.
+  const load = (name) => {
+    const ts = new URL(name.replace(/\.js$/, '.ts'), dir);
+    return import(/* @vite-ignore */ (existsSync(fileURLToPath(ts)) ? ts : new URL(name, dir)).href);
+  };
   const S = await load('stringify.js');
   const F = await load('fidelity.js');
   const SP = await load('space.js');

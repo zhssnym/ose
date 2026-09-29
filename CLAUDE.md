@@ -56,8 +56,8 @@ shell/              the interface, flat: index.html, main.js, the surfaces (tree
                     Home, tabs, address bar, search, settings, trash), shell.css, tree.css,
                     places.css, folder.css, theme.css, keys.json, logo.png. Copied verbatim into
                     dist/ by the build.
-src/
-  core/           ose:core (registry, bridge, router, tabs, session, local store, links,
+src/                TypeScript, built by Vite into the four bundles
+  core/             ose:core (registry, bridge, router, tabs, session, local store, links,
                     fileops and the undo journal, settings core, state, theme, keys, watch),
                     ose:ui (dialogs, pickers, menu, toast, icons; ui.css = tokens + base);
                     bridge/commands.ts types every host command, kept by hand
@@ -66,8 +66,9 @@ src/
                     merge of changes made on disk; live/ is the Live mode, reading/ the Reading
                     view
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
-  web/              the host: the adapter over the File System Access API (fs, watch, local,
-                    vault-handle, rules, idb) and the service worker
+  host/             the host: the adapter over the File System Access API (fs, watch, local,
+                    vault-handle, rules, idb) and the service worker (sw.js, plain JS: it is
+                    served as written)
 web/                the PWA manifest and the icons
 vite.config.js      the dev server (the shell from shell/, ose:* aliased to the sources) and the
                     build (the four bundles into dist/ose/, the shell, the worker, the CSP)
@@ -78,7 +79,7 @@ tests/              vitest: serializer/ (fast-check properties and named regress
                     System Access stub in stubs/fsa.js), fixtures/, support/; e2e/: the
                     Playwright suites over the built app
 vitest.config.js, playwright.config.js, biome.json, tsconfig.json   the test runners, the lint
-                    and checkJs
+                    and the type check
 dist/, work/        build output and scratch, gitignored
 ```
 
@@ -91,7 +92,7 @@ npm run build          # dist/: the site Vercel serves
 npm run preview        # dist/ served as a static host serves it
 npm test               # vitest: serializer, core, editor, Live, reading, planner, shell, web
 npm run test:e2e       # Playwright: no loss, Live and Ose Web, on the built app
-npm run typecheck      # tsc checkJs over all of src/ and shell/, strict: zero errors
+npm run typecheck      # tsc over src/ (TypeScript) and shell/ (checkJs), strict: zero errors
 npm run lint           # Biome, warnings are errors
 ```
 
@@ -138,8 +139,9 @@ app like everything else; what a vault decides is only where its files are (Sett
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
   Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml, turndown (HTML
   paste), node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
-- checkJs covers all of `src/` and `shell/`, with `strict` on (`noImplicitAny` still off);
-  `@ts-ignore` and `@ts-expect-error` are banned, and a type error is fixed, not hidden.
+- `src/` is TypeScript; `shell/` and `src/host/sw.js` stay JavaScript, because they are served
+  as written, and tsc checks them (checkJs). `strict` is on for both (`noImplicitAny` still
+  off); `@ts-ignore` and `@ts-expect-error` are banned, and a type error is fixed, not hidden.
 - Colours, fonts and sizes come from the tokens in `ui.css` only. No hex values elsewhere.
   Spacing from the scale; no bare pixel paddings.
 - Both themes, every time. Keyboard reachable, every time: every action has a command, every

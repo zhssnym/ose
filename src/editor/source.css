@@ -209,7 +209,7 @@
 
 /* ---------------------------------------------------------------- compare (C4, H10)
 
-   Two read-only texts side by side (compare.js, over @codemirror/merge). The merge view's own
+   Two read-only texts side by side (compare.ts, over @codemirror/merge). The merge view's own
    stylesheet colours the changes with literals; these rules paint them again from the tokens,
    one class deeper than its `&light` / `&dark` rules so they win in both themes. The left side
    is the older text (removed lines), the right the newer (added lines). */

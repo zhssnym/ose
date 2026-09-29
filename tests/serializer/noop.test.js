@@ -7,7 +7,7 @@
 // are LF; those three variants are what doc.js has to carry back around an untouched body.
 
 import { describe, expect, it } from 'vitest';
-import { composeDoc, parseDoc } from '../../src/editor/doc.js';
+import { composeDoc, parseDoc } from '../../src/editor/doc.ts';
 import { corpus } from '../support/corpus.js';
 import { pipeline } from '../support/pipeline.js';
 

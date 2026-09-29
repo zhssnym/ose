@@ -1,14 +1,14 @@
-// The block field rebuilds by region (src/editor/live/blocks.js). Whatever the edits and the
+// The block field rebuilds by region (src/editor/live/blocks.ts). Whatever the edits and the
 // caret moves, what it holds must be exactly what a whole rebuild would draw.
 import { describe, it, expect } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { Decoration, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { coreExtensions, docOf } from '../../../src/editor/live/state.js';
-import { blockField, buildBlocks } from '../../../src/editor/live/blocks.js';
-import { revealedSpans, revealer, setFocused } from '../../../src/editor/live/reveal.js';
-import { collect } from '../../../src/editor/live/registry.js';
-import { textFormat } from '../../../src/editor/source.js';
+import { coreExtensions, docOf } from '../../../src/editor/live/state.ts';
+import { blockField, buildBlocks } from '../../../src/editor/live/blocks.ts';
+import { revealedSpans, revealer, setFocused } from '../../../src/editor/live/reveal.ts';
+import { collect } from '../../../src/editor/live/registry.ts';
+import { textFormat } from '../../../src/editor/source.ts';
 
 class Box extends WidgetType {
   /** @param {string} text */

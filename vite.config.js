@@ -50,18 +50,18 @@ const posix = (p) => p.split('\\').join('/');
 const ALIAS = {
   'ose:core': here('src/core/core.ts'),
   'ose:ui': here('src/core/ui.ts'),
-  'ose:editor': here('src/editor/lib.js'),
+  'ose:editor': here('src/editor/lib.ts'),
   'ose:planner': here('src/planner/index.ts'),
 };
 
-// See src/editor/katex-absent.js: Crepe's unused Latex feature would drag KaTeX in.
-const KATEX = { katex: here('src/editor/katex-absent.js') };
+// See src/editor/katex-absent.ts: Crepe's unused Latex feature would drag KaTeX in.
+const KATEX = { katex: here('src/editor/katex-absent.ts') };
 
 /** The build's library entries: a missing source fails the build. */
 const ENTRIES = {
   core: here('src/core/core.ts'),
   ui: here('src/core/ui.ts'),
-  editor: here('src/editor/lib.js'),
+  editor: here('src/editor/lib.ts'),
   planner: here('src/planner/index.ts'),
   'ui.css': here('src/core/ui.css'),
 };
@@ -236,7 +236,7 @@ function kernelStylesheets() {
         }
       }
     };
-    await visit(here('src/editor/lib.js'));
+    await visit(here('src/editor/lib.ts'));
     return sheets.map((id) => `@import url("/@fs/${posix(id).replace(/^\/+/, '').split('?')[0]}?direct");`).join('\n');
   };
   const sheet = async (name) => {
@@ -337,7 +337,7 @@ export default defineConfig(({ command, isPreview }) => {
       // the first page opened, where the late optimisation reloads the window under the user
       // (and under a no-loss scenario).
       optimizeDeps: {
-        entries: ['index.html', '../src/editor/lib.js', '../src/planner/index.ts'],
+        entries: ['index.html', '../src/editor/lib.ts', '../src/planner/index.ts'],
       },
       server: {
         port: 5173,

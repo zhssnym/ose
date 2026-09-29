@@ -25,7 +25,7 @@
         "./src/core/ui.ts"
       ],
       "ose:editor": [
-        "./src/editor/lib.js"
+        "./src/editor/lib.ts"
       ],
       "ose:planner": [
         "./src/planner/index.ts"
