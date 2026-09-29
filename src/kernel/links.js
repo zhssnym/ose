@@ -396,7 +396,7 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       }
     }
 
-    /** @type {import('./bridge/bindings.ts').ReadFile} */
+    /** @type {import('./bridge/commands.ts').ReadFile} */
     let read;
     try { read = await bridge.readFile(path); } catch { continue; }
     const { text, hash } = read;

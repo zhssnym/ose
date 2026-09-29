@@ -9,7 +9,7 @@ vi.mock('../../src/kernel/bridge/index.js', async () => {
   const real = await vi.importActual('../../src/kernel/bridge/index.js');
   const handlers = new Map();
   const bridge = {
-    kind: 'tauri', ready: Promise.resolve(),
+    kind: 'web', ready: Promise.resolve(),
     on: (ev, fn) => { if (!handlers.has(ev)) handlers.set(ev, new Set()); handlers.get(ev).add(fn); return () => handlers.get(ev).delete(fn); },
     __emit: (ev, d) => [...(handlers.get(ev) || [])].map((fn) => fn(d)),
     platformInfo: async () => ({ os: 'win' }),

@@ -1,60 +1,52 @@
-// Bridge facade. Picks the Tauri adapter inside the Tauri host, the Ose Web adapter in the web
-// build (docs/WEB.md "The seam", `__OSE_WEB__`), the HTTP adapter in any other browser.
-// Adapters implement `invoke(name, args) -> Promise` and `subscribe(fn({event, data}))`, and may
-// add `win`, `platform`, `assetUrl` and `dragOut` for what is not a host command.
-// This file is the surface every adapter answers to. Nothing else imports an adapter.
+// Bridge facade. The one host is the browser: src/web/adapter.js answers every command over the
+// File System Access API (docs/WEB.md). The adapter implements `invoke(name, args) -> Promise`
+// and `subscribe(fn({event, data}))`, and adds `win`, `platform` and `assetUrl` for what is not
+// a host command. This file is the surface the adapter answers to. Nothing else imports it.
 //
-// Every method below is one typed host command (docs/HOST.md "Commands"): the Tauri adapter
-// calls the function tauri-specta generated for it in `./bindings.ts`, the HTTP adapter posts
-// the same name to the dev bridge. A name the host does not have is `[unknown_command]`, a hard
-// error: nothing here guesses what an older host might have answered.
+// Every method below is one host command, typed in ./commands.ts. A name the host does not have
+// is `[unknown_command]`, a hard error: nothing here guesses what an older host might have
+// answered.
 
 /// <reference path="../globals.d.ts" />
 /// <reference path="../../web/web.d.ts" />
 import { bus } from '../registry.js';
-import { assetPath } from '../paths.js';
 import { HostError, hostError } from './errors.js';
 
 export { HostError, hostError };
 
 /** @typedef {import('../types.js').Adapter} Adapter */
 /** @typedef {import('../types.js').AdapterWindow} AdapterWindow */
-/** @typedef {import('./bindings.ts').ReadFile} ReadFile */
-/** @typedef {import('./bindings.ts').SaveOutcome} SaveOutcome */
-/** @typedef {import('./bindings.ts').Created} Created */
-/** @typedef {import('./bindings.ts').OutsideFile} OutsideFile */
-/** @typedef {import('./bindings.ts').OpenRequest} OpenRequest */
-/** @typedef {import('./bindings.ts').RootInfo} RootInfo */
-/** @typedef {import('./bindings.ts').VaultInfo} VaultInfo */
-/** @typedef {import('./bindings.ts').RecentVault} RecentVault */
-/** @typedef {import('./bindings.ts').OpenVault} OpenVault */
-/** @typedef {import('./bindings.ts').WindowOpened} WindowOpened */
-/** @typedef {import('./bindings.ts').PlatformInfo} PlatformInfo */
-/** @typedef {import('./bindings.ts').Entry} Entry */
-/** @typedef {import('./bindings.ts').Stat} Stat */
-/** @typedef {import('./bindings.ts').SearchResult} SearchResult */
-/** @typedef {import('./bindings.ts').Trashed} Trashed */
-/** @typedef {import('./bindings.ts').TrashPlace} TrashPlace */
-/** @typedef {import('./bindings.ts').TrashItem} TrashItem */
-/** @typedef {import('./bindings.ts').Restored} Restored */
-/** @typedef {import('./bindings.ts').Copied} Copied */
-/** @typedef {import('./bindings.ts').Hashed} Hashed */
-/** @typedef {import('./bindings.ts').ReplaceOutcome} ReplaceOutcome */
-/** @typedef {import('./bindings.ts').DraftAt} DraftAt */
-/** @typedef {import('./bindings.ts').DraftInfo} DraftInfo */
-/** @typedef {import('./bindings.ts').Draft} Draft */
-/** @typedef {import('./bindings.ts').Dropped} Dropped */
-/** @typedef {import('./bindings.ts').Kept} Kept */
-/** @typedef {import('./bindings.ts').VersionInfo} VersionInfo */
-/** @typedef {import('./bindings.ts').RestoredVersion} RestoredVersion */
-/** @typedef {import('./bindings.ts').PdfOutcome} PdfOutcome */
-/** @typedef {import('./bindings.ts').Shown} Shown */
+/** @typedef {import('./commands.ts').ReadFile} ReadFile */
+/** @typedef {import('./commands.ts').SaveOutcome} SaveOutcome */
+/** @typedef {import('./commands.ts').Created} Created */
+/** @typedef {import('./commands.ts').OutsideFile} OutsideFile */
+/** @typedef {import('./commands.ts').OpenRequest} OpenRequest */
+/** @typedef {import('./commands.ts').RootInfo} RootInfo */
+/** @typedef {import('./commands.ts').VaultInfo} VaultInfo */
+/** @typedef {import('./commands.ts').RecentVault} RecentVault */
+/** @typedef {import('./commands.ts').OpenVault} OpenVault */
+/** @typedef {import('./commands.ts').WindowOpened} WindowOpened */
+/** @typedef {import('./commands.ts').PlatformInfo} PlatformInfo */
+/** @typedef {import('./commands.ts').Entry} Entry */
+/** @typedef {import('./commands.ts').Stat} Stat */
+/** @typedef {import('./commands.ts').SearchResult} SearchResult */
+/** @typedef {import('./commands.ts').Trashed} Trashed */
+/** @typedef {import('./commands.ts').TrashPlace} TrashPlace */
+/** @typedef {import('./commands.ts').TrashItem} TrashItem */
+/** @typedef {import('./commands.ts').Restored} Restored */
+/** @typedef {import('./commands.ts').Copied} Copied */
+/** @typedef {import('./commands.ts').Hashed} Hashed */
+/** @typedef {import('./commands.ts').ReplaceOutcome} ReplaceOutcome */
+/** @typedef {import('./commands.ts').DraftAt} DraftAt */
+/** @typedef {import('./commands.ts').DraftInfo} DraftInfo */
+/** @typedef {import('./commands.ts').Draft} Draft */
+/** @typedef {import('./commands.ts').Dropped} Dropped */
+/** @typedef {import('./commands.ts').Kept} Kept */
+/** @typedef {import('./commands.ts').VersionInfo} VersionInfo */
+/** @typedef {import('./commands.ts').RestoredVersion} RestoredVersion */
+/** @typedef {import('./commands.ts').PdfOutcome} PdfOutcome */
+/** @typedef {import('./commands.ts').Shown} Shown */
 
-const hasWindow = typeof window !== 'undefined';
-const isTauri = hasWindow && !!window.__TAURI_INTERNALS__;
-// The web build defines `__OSE_WEB__` true; the desktop build defines it false, so this branch
-// and the adapter it imports drop out of `dist/`. Absent (the dev server, the tests): false.
-const isWeb = typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__ === true && !isTauri;
 
 /** The platform the adapter reported, read by `bridge.platform`. */
 const platform = { os: 'windows' };
@@ -74,11 +66,9 @@ function on(event, fn) {
 }
 /**
  * Fan an event out and hand every handler's return value back to the adapter. The values
- * matter for one event only: on `window {closing:true}` the Tauri adapter awaits whatever
- * promises come back (the editor's last save, the router's state flush) before it destroys
- * the window, and a handler that resolves `false` keeps the window open — the editor does
- * that when the save needs an answer from the user. A handler that throws is logged and
- * counts as done; the close must never hang on a bug.
+ * matter for `window {closing:true}` only, where a handler that resolves `false` means the page
+ * cannot be left yet (the editor does that when the save needs an answer from the user). A
+ * handler that throws is logged and counts as done; leaving must never hang on a bug.
  * @param {{ event: string, data: any }} msg
  * @returns {unknown[]}
  */
@@ -99,16 +89,10 @@ function dispatch({ event, data }) {
 let adapter = null;
 /** @type {Promise<Adapter>} */
 const ready = (async () => {
-  /** @type {{ create: () => Promise<unknown> }} */
-  let mod;
-  // The build flag first, alone, so the desktop build folds it to false and drops the import.
-  if (typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__ === true && !isTauri) mod = await import('../../web/adapter.js');
-  else if (isTauri) mod = await import('./tauri.js');
-  else mod = await import('./http.js');
+  const mod = await import('../../web/adapter.js');
   const a = /** @type {Adapter} */ (await mod.create());
   adapter = a;
   a.subscribe(dispatch);
-  // Only the Tauri host reports one; 'windows' stays right for the browser.
   if (a.platform) platform.os = a.platform;
   return a;
 })();
@@ -122,8 +106,8 @@ const ready = (async () => {
  * @returns {Promise<unknown>}
  */
 const call = async (cmd, ...args) => {
-  // An option left out is absent, not null: the dev bridge reads `forgetVault()` apart from
-  // `forgetVault(null)`, and a typed command reads a missing trailing argument as None.
+  // An option left out is absent, not null: the adapter reads `forgetVault()` apart from
+  // `forgetVault(null)`.
   while (args.length && args[args.length - 1] === undefined) args.pop();
   const a = await ready;
   try {
@@ -172,8 +156,8 @@ const withEpoch = (opts) => {
   return o;
 };
 
-// Window control is the adapter's own (Tauri's window API; a browser tab has only its title).
-// None of it is a host command: what an adapter does not have does nothing and answers null.
+// Window control is the adapter's own (a browser tab has its title and little else). None of it
+// is a host command: what the adapter does not have does nothing and answers null.
 /**
  * @param {keyof AdapterWindow} name
  * @param {...unknown} args
@@ -202,20 +186,13 @@ const webAssetUrl = (path) => {
   try { return new URL(rel, new URL('./', location.href)).href; } catch { return `./${rel}`; }
 };
 
-// Synchronous, and used in <img src> possibly before `ready` resolves, so the origin comes from
-// the detected host; the adapter's own version takes over as soon as there is one.
-/** @param {string} path */
-const staticAssetUrl = (path) => {
-  const p = assetPath(path);
-  if (isTauri) return /windows/i.test(navigator?.userAgent || '') ? `http://vault.localhost/${p}` : `vault://localhost/${p}`;
-  if (isWeb) return webAssetUrl(path);
-  return `/vault/${p}`;
-};
+// Synchronous, and used in <img src> possibly before `ready` resolves; the adapter's own
+// version takes over as soon as there is one.
+const staticAssetUrl = webAssetUrl;
 
 /**
- * A typed answer: the value `call` resolved, named as the bindings declare it. A cast, not a
- * check: the host and the kernel ship together (M47), and `bindings.ts` is generated from the
- * host's own structs.
+ * A typed answer: the value `call` resolved, named as ./commands.ts declares it. A cast, not a
+ * check: the host and the kernel ship together (M47), in one build.
  * @template T
  * @param {Promise<unknown>} p
  * @returns {Promise<T>}
@@ -223,8 +200,8 @@ const staticAssetUrl = (path) => {
 const as = (p) => /** @type {Promise<T>} */ (p);
 
 export const bridge = {
-  /** @type {'tauri' | 'http' | 'web'} */
-  kind: /** @type {'tauri' | 'http' | 'web'} */ (isTauri ? 'tauri' : isWeb ? 'web' : 'http'),
+  /** The one host there is: the browser, through src/web/adapter.js. */
+  kind: /** @type {'web'} */ ('web'),
   /** 'windows', 'macos' or 'linux', once the adapter has said; 'windows' until then. */
   get platform() { return platform.os; },
   ready,
@@ -499,4 +476,4 @@ export const bridge = {
   log: (text, level = 'info') => call('log', String(text ?? ''), level).catch(() => null),
 };
 
-if (hasWindow) window.__bridge = bridge; // debugging only
+if (typeof window !== 'undefined') window.__bridge = bridge; // debugging only

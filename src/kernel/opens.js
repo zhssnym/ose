@@ -18,7 +18,7 @@ import { logLine } from './log.js';
 import { toast } from './dialog.js';
 import { baseName, isOutside, outsideLabel } from './paths.js';
 
-/** @typedef {import('./bridge/bindings.ts').OpenRequest} OpenRequest */
+/** @typedef {import('./bridge/commands.ts').OpenRequest} OpenRequest */
 
 let started = false;
 /** @type {Promise<void>} requests are opened one batch after the other, in the order they came */

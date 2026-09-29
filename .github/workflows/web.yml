@@ -1,6 +1,6 @@
-# Ose Web's checks (docs/WEB.md): the web modules' tests, the build of `dist-web/` (the kernel
+# Ose Web's checks (docs/WEB.md): the web modules' tests, the build of `dist/` (the kernel
 # bundles with `__OSE_WEB__` true, the shell, the service worker, the manifest), and the built
-# folder end to end in Chromium. Vercel builds and serves `dist-web/` itself (vercel.json); this
+# folder end to end in Chromium. Vercel builds and serves `dist/` itself (vercel.json); this
 # workflow publishes nothing. The desktop build is build.yml's and is not touched here.
 name: web
 
@@ -38,7 +38,7 @@ jobs:
         run: npx vitest run tests/web
 
       - name: Build Ose Web
-        run: npm run build:web
+        run: npm run build
 
       # The built folder itself, served statically, in Chromium over OPFS (tests/e2e/web.spec.js):
       # open, type, save, a change on disk, rename, trash, reload, offline.
@@ -48,4 +48,4 @@ jobs:
       - name: Test the built Ose Web end to end
         run: npx playwright test tests/e2e/web.spec.js
         env:
-          OSE_WEB_DIST: dist-web
+          OSE_WEB_DIST: dist

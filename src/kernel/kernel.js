@@ -43,8 +43,8 @@ export * from './ui-surface.js';
 
 /* ------------------------------------------------------------------------------- the stamp */
 
-// Vite replaces these at build time (vite.kernel.config.js `define`). In the browser dev
-// server they are the dev defaults, which is the honest answer there.
+// Vite replaces these at build time (vite.config.js `define`). In the dev server they are the
+// dev defaults, which is the honest answer there.
 const VERSION = {
   kernel: typeof __OSE_VERSION__ === 'string' ? __OSE_VERSION__ : '0.0.0-dev',
   sha: typeof __OSE_SHA__ === 'string' ? __OSE_SHA__ : 'dev',
@@ -55,7 +55,7 @@ const VERSION = {
 /* ------------------------------------------------------------------------------- the assets */
 
 // The kernel's assets are served beside the page (docs/KERNEL.md "Where the app is served"):
-// Tauri's own origin in the app, the dev server's in a browser. No origin is spelled here.
+// the site's own origin, or the dev server's. No origin is spelled here.
 const assets = {
   /** @param {string} name */
   url(name) {
@@ -213,9 +213,10 @@ const ready = (async () => {
 
 /* ------------------------------------------------------------------------ leaving (C5) */
 
-// The window's close button goes through the same gate as a reload and a change of vault
-// (./leave.js). The Tauri adapter awaits what this answers, and a `false` keeps the window.
-// The router's own `closing` handler (unmount the view, flush the state file) stays beside it.
+// Closing the window through the app (`ose.window.close`, Ctrl+Q) goes through the same gate as
+// a reload and a change of vault (./leave.js). The adapter awaits what this answers, and a
+// `false` keeps the window. The router's own `closing` handler (unmount the view, flush the
+// state file) stays beside it.
 bridge.on('window', (d) => (d && d.closing ? leaveWindow('close') : undefined));
 
 let abandoning = false;
@@ -223,7 +224,6 @@ let abandoning = false;
 commands.register({
   id: 'app.close-anyway', title: 'Close window without saving', group: 'app',
   hint: 'unsaved text stays in the recovered changes',
-  when: () => bridge.kind === 'tauri',
   // No `closing` fan-out: the user was told the page could not be saved and chose this. What
   // the hint promises is made true first: every handler is asked to keep its unsaved text as a
   // draft (`abandonWindow`), and when one could not, the user is asked again, by name, before
@@ -300,8 +300,8 @@ export const ose = {
   get platform() { return platformName; },
   ready,
 
-  /** 'tauri' | 'browser': whether quit, drag out and native opens are live. */
-  host: bridge.kind === 'tauri' ? 'tauri' : 'browser',
+  /** The one host there is: the browser (src/web/adapter.js). */
+  host: 'browser',
 
   vault: {
     get root() { return vaultInfo.root; },
@@ -684,14 +684,9 @@ export const ose = {
   },
 
   /**
-   * Paper. `toPdf()` writes the window's document to a PDF with the print stylesheet and
-   * resolves with `{path, bytes}`; with no argument the host asks where through the native save
-   * dialog, `opts` being `{name, folder}` for it, and answers `{cancelled:true}` if the user
-   * says no. `dialog()` opens the system print dialog, which is also the way to "Microsoft
-   * Print to PDF", and resolves `{shown:true}` as soon as it is up.
-   *
-   * Neither ever calls `window.print()`: in WebView2 that blocks the renderer. A host that
-   * cannot print answers `null` to both, which is how the caller knows to say so instead.
+   * Paper. The browser prints itself: both answer `{browser: true}` (src/web/adapter.js), and
+   * the caller opens Chrome's print dialog with `window.print()`, where Save as PDF is one of
+   * the destinations. An answer of `null` means printing is not there, and the caller says so.
    */
   print: {
     toPdf: (path, opts) => bridge.printToPdf(path, opts),

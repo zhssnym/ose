@@ -1,10 +1,7 @@
 // What Chrome has and TypeScript's DOM library does not yet declare, for checkJs over src/web
 // (docs/WEB.md). The async iteration of a folder comes from the `dom.asynciterable` library
 // (tsconfig.json); what is here is the rest: the pickers, the permission calls, `move`, the
-// FileSystemObserver, the launch queue and the build flag.
-
-/** Set by vite.web.config.js: true in the Ose Web build, absent everywhere else. */
-declare const __OSE_WEB__: boolean | undefined;
+// FileSystemObserver and the launch queue.
 
 type FsaPermissionMode = 'read' | 'readwrite';
 

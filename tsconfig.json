@@ -22,7 +22,7 @@
   },
   "include": [
     "src/kernel/**/*.js",
-    "src/kernel/bridge/bindings.ts",
+    "src/kernel/bridge/commands.ts",
     "src/web/**/*.js",
     "src/web/**/*.d.ts",
     "src/editor/live/**/*.js",

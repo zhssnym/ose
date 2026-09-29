@@ -14,7 +14,7 @@ import { isExcluded } from '../../src/web/rules.js';
 import * as vh from '../../src/web/vault-handle.js';
 import { assetUrlFor, create, detectOs, FS_COMMANDS, LOCAL_COMMANDS, OPENABLE } from '../../src/web/adapter.js';
 import { excludedSegs, fileResponse, parseVaultPath, precacheRequests } from '../../src/web/sw.js';
-import { withCsp, withManifestLink, workerSource } from '../../vite.web.config.js';
+import { withCsp, withManifestLink, workerSource } from '../../vite.config.js';
 
 const REPO = process.env.OSE_REPO || process.cwd();
 const ID = /^[0-9a-f]{16}$/;
@@ -975,8 +975,9 @@ describe('the manifest and the web build', () => {
     expect(sizes).toEqual(expect.arrayContaining(['256x256', '512x512']));
   });
 
-  it('has the icons the build copies', () => {
-    for (const from of ['src-tauri/icons/128x128@2x.png', 'src-tauri/icons/icon.png']) expect(existsSync(path.join(REPO, from))).toBe(true);
+  it('has the icons the manifest names', () => {
+    const manifest = JSON.parse(readFileSync(path.join(REPO, 'web/manifest.webmanifest'), 'utf8'));
+    for (const icon of manifest.icons) expect(existsSync(path.join(REPO, 'web', icon.src)), icon.src).toBe(true);
   });
 
   it('writes the precache list and a content build id into the worker', () => {

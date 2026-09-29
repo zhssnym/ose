@@ -228,13 +228,13 @@ export const bridge = {
 // missing one is a hard error (X5), never a feature to detect. The types are the host's
 // generated bindings.
 
-/** @typedef {import('../kernel/bridge/bindings.ts').ReadFile} ReadFile */
-/** @typedef {import('../kernel/bridge/bindings.ts').SaveOutcome} SaveOutcome */
-/** @typedef {import('../kernel/bridge/bindings.ts').Created} Created */
-/** @typedef {import('../kernel/bridge/bindings.ts').Draft} Draft */
-/** @typedef {import('../kernel/bridge/bindings.ts').DraftAt} DraftAt */
-/** @typedef {import('../kernel/bridge/bindings.ts').DraftInfo} DraftInfo */
-/** @typedef {import('../kernel/bridge/bindings.ts').Dropped} Dropped */
+/** @typedef {import('../kernel/bridge/commands.ts').ReadFile} ReadFile */
+/** @typedef {import('../kernel/bridge/commands.ts').SaveOutcome} SaveOutcome */
+/** @typedef {import('../kernel/bridge/commands.ts').Created} Created */
+/** @typedef {import('../kernel/bridge/commands.ts').Draft} Draft */
+/** @typedef {import('../kernel/bridge/commands.ts').DraftAt} DraftAt */
+/** @typedef {import('../kernel/bridge/commands.ts').DraftInfo} DraftInfo */
+/** @typedef {import('../kernel/bridge/commands.ts').Dropped} Dropped */
 /** @typedef {{ kept: boolean, id: string | null }} Kept */
 
 export const pageFiles = {

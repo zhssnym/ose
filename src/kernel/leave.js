@@ -58,8 +58,8 @@ export function onLeave(fn) {
 
 /* -------------------------------------------------------------- the "still saving" notice */
 
-// One sticky toast however many waits want it: the leave gate's own and the Tauri close
-// fan-out's (./bridge/tauri.js) are the same notice, not two.
+// One sticky toast however many waits want it: the leave gate's own and the adapter's close
+// fan-out's (src/web/adapter.js) are the same notice, not two.
 let holders = 0;
 let stillKill = null;
 
