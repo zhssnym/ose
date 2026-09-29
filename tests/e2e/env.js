@@ -6,7 +6,7 @@
 //   OSE_E2E_BASE   the temp folder (default <os tmp>/ose-e2e-<port>)
 //
 // The build is `<base>/dist` (prepare.mjs), served as plain files (web-serve.mjs). The vault is
-// not here at all: each test gets a fresh browser context, whose private file system is the
+// not here at all: each test gets a fresh browser profile, whose private file system is the
 // vault (helpers.js boot). Nothing here ever names a real vault.
 
 import { tmpdir } from 'node:os';

@@ -6,13 +6,13 @@
 // the watcher (FileSystemObserver, or its polling), local.js over IndexedDB, and the service
 // worker that makes the app work offline.
 //
-// Every scenario runs in a fresh browser context (a fresh origin storage: an empty vault, no
+// Every scenario runs in a fresh browser profile (test.js: a fresh origin storage, an empty vault, no
 // drafts, no worker) and checks the bytes in the vault, read back from OPFS, not only the screen.
 //
 // The build is the suite's own (prepare.mjs, env.js DIST), served here by a second server of
 // this spec's, which counts what reaches it for the offline scenario.
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 import { DIST } from './env.js';
 import { waitBooted, watchPage } from './helpers.js';
 import { serveStatic } from './web-serve.mjs';

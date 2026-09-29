@@ -421,7 +421,10 @@ Never a real vault.
 End to end, `npm run test:e2e` builds the app into a temp folder (`tests/e2e/prepare.mjs`), serves
 it with a plain static server (`tests/e2e/web-serve.mjs`; `node tests/e2e/serve.mjs` does both by
 hand) and drives it in Chromium over the origin's private file system as the vault, a fresh one
-per test. The suites are `no-loss.spec.js` (the ways typed text has been lost or could be),
+per test. Each test runs in a fresh persistent browser profile (`tests/e2e/test.js`), not in
+Playwright's default private context: in Chrome 153's headless shell the whole browser exits
+about a second after Ose opens a vault inside a private context, and a persistent profile is
+what a person's Chrome is anyway. The suites are `no-loss.spec.js` (the ways typed text has been lost or could be),
 `live.spec.js` (Live never changes a byte it was not told to) and `web.spec.js`. `helpers.js` reads
 and writes the vault from inside the page, as another program would, and arms a fault switch that
 fails `createWritable` for one file with the DOMException a full or held disk gives. `web.spec.js`'s
