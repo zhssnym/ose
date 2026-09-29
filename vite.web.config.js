@@ -15,8 +15,8 @@
 //                       no precache: dev stays on the network), the manifest and the icons.
 //                       Chrome allows the File System Access API on localhost, so no certificate.
 //
-// Hosting `dist-web/` on any static HTTPS origin is the whole deployment (.github/workflows/
-// pages.yml puts it on GitHub Pages). Every URL in it is relative, so it works under a subpath.
+// Hosting `dist-web/` on any static HTTPS origin is the whole deployment (Vercel builds and
+// serves it, vercel.json). Every URL in it is relative, so it works under a subpath too.
 
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';

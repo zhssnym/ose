@@ -1,23 +1,21 @@
-# Ose Web on GitHub Pages (docs/WEB.md): every push to main builds `dist-web/` (the kernel
-# bundles with `__OSE_WEB__` true, the shell, the service worker, the manifest) and publishes it.
-# Every URL in the build is relative, so the project path (`/<repo>/`) needs nothing of its own.
-# The desktop build is build.yml's and is not touched here.
-name: pages
+# Ose Web's checks (docs/WEB.md): the web modules' tests, the build of `dist-web/` (the kernel
+# bundles with `__OSE_WEB__` true, the shell, the service worker, the manifest), and the built
+# folder end to end in Chromium. Vercel builds and serves `dist-web/` itself (vercel.json); this
+# workflow publishes nothing. The desktop build is build.yml's and is not touched here.
+name: web
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# One deployment at a time; a newer push replaces the one waiting, never the one running.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -51,19 +49,3 @@ jobs:
         run: npx playwright test tests/e2e/web.spec.js
         env:
           OSE_WEB_DIST: dist-web
-
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist-web
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
