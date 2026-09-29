@@ -1,4 +1,3 @@
-// @ts-nocheck
 // `render(markdown, opts)` (docs/CORE.md `ose:editor`): markdown as read-only DOM.
 //
 // A view that wants to *show* a note rather than edit it (the folder view's README, the
@@ -59,7 +58,7 @@ export function render(markdown, opts = {}) {
 
   let html = '';
   try {
-    html = md.parse(String(markdown ?? ''), OPTIONS);
+    html = /** @type {string} */ (md.parse(String(markdown ?? ''), OPTIONS));
   } catch (e) {
     console.error('[editor] render', e);
     box.textContent = String(markdown ?? '');

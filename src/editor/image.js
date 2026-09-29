@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Images: alt text kept verbatim, size written as `![alt|300](src)`, a missing image that
 // names its file, web images downloaded on paste.
 //
@@ -113,14 +112,15 @@ function extendSchema(ctx) {
 
 /** The `{node, pos}` of the image-block whose node view is `dom`. */
 function nodeAtDom(view, dom) {
-  let found = null;
+  /** @type {{ node: any, pos: number }[]} */
+  const found = [];
   view.state.doc.descendants((node, pos) => {
-    if (found) return false;
+    if (found.length) return false;
     if (node.type.name !== NODE) return true;
-    if (view.nodeDOM(pos) === dom) found = { node, pos };
+    if (view.nodeDOM(pos) === dom) found.push({ node, pos });
     return false;
   });
-  return found;
+  return found[0] || null;
 }
 
 /**
@@ -295,7 +295,7 @@ function resizeFrom(view, e) {
   if (!(t instanceof Element)) return;
   const handle = t.closest('.image-resize-handle');
   if (!handle) return;
-  const host = handle.closest('.milkdown-image-block');
+  const host = /** @type {HTMLElement | null} */ (handle.closest('.milkdown-image-block'));
   const img = host ? host.querySelector('img') : null;
   if (!host || !img || !view.editable) return;
   e.preventDefault();
@@ -357,12 +357,13 @@ function webImagePaste(view, event) {
   if (!html || !/<img\b/i.test(html)) return false;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const imgs = doc.querySelectorAll('img');
-  if (imgs.length !== 1) return false;
+  const first = imgs[0];
+  if (imgs.length !== 1 || !first) return false;
   // Only a bare image: a paste of a paragraph that happens to hold one is ordinary rich text.
   if ((doc.body.textContent || '').trim()) return false;
-  const url = imgs[0].getAttribute('src') || '';
+  const url = first.getAttribute('src') || '';
   if (!/^https?:/i.test(url)) return false;
-  const alt = imgs[0].getAttribute('alt') || '';
+  const alt = first.getAttribute('alt') || '';
 
   event.preventDefault();
   void (async () => {

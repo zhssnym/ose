@@ -1,4 +1,3 @@
-// @ts-nocheck
 // What makes a `$` a formula, on one line: the pandoc rule of math.js, kept apart from Temml
 // and the CSS so that the serializer (stringify.js) and the headless engine the tests run can
 // import it without a DOM (docs/CORE.md `ose:editor`). math.js re-exports all three.
@@ -18,6 +17,7 @@
  * @returns {Array<{kind: 'code'|'math'|'text', start: number, end: number}>}
  */
 export function lineRuns(line) {
+  /** @type {Array<{kind: 'code'|'math'|'text', start: number, end: number}>} */
   const runs = [];
   const src = String(line);
   let text = 0;
@@ -77,7 +77,7 @@ export function inlineMathEnd(line, i) {
     if (ch !== '$') { j++; continue; }
     const before = src[j - 1];
     const after = src[j + 1];
-    if (before !== ' ' && before !== '\t' && !(after >= '0' && after <= '9')) return j + 1;
+    if (before !== ' ' && before !== '\t' && !(after !== undefined && after >= '0' && after <= '9')) return j + 1;
     j++;
   }
   return -1;

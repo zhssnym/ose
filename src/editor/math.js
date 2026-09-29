@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Maths: what makes a `$` a formula, and what turns a formula into a picture.
 //
 // Nothing here knows about Milkdown or ProseMirror. Three surfaces need exactly these pieces:
@@ -69,7 +68,7 @@ export function renderMath(tex, opts = {}) {
   } catch (e) {
     el.classList.add('ose-math-bad');
     el.textContent = display ? `$$${src}$$` : `$${src}$`;
-    el.title = String((e && e.message) || e);
+    el.title = String((e instanceof Error && e.message) || e);
   }
   return el;
 }
@@ -319,18 +318,22 @@ export function mathFromMarkdown() {
     },
   };
 
+  /** @this {any} */
   function enterInline(token) {
     this.enter({ type: 'inlineMath', value: '' }, token);
   }
 
+  /** @this {any} */
   function exitInlineValue(token) {
     this.stack[this.stack.length - 1].value = this.sliceSerialize(token);
   }
 
+  /** @this {any} */
   function exitNode(token) {
     this.exit(token);
   }
 
+  /** @this {any} */
   function enterBlock(token) {
     this.enter({ type: 'mathBlock', value: '' }, token);
     this.data.oseMath = { open: 0, close: 0, parts: [] };
@@ -341,6 +344,7 @@ export function mathFromMarkdown() {
    * Counting lines rather than joining the tokens is what keeps a blank line inside a display
    * formula, which has no token of its own to be remembered by.
    */
+  /** @this {any} */
   function exitBlockFence(token) {
     const d = this.data.oseMath;
     if (!d) return;
@@ -348,11 +352,13 @@ export function mathFromMarkdown() {
     else d.close = token.start.line;
   }
 
+  /** @this {any} */
   function exitBlockValue(token) {
     const d = this.data.oseMath;
     if (d) d.parts.push({ line: token.start.line, text: this.sliceSerialize(token) });
   }
 
+  /** @this {any} */
   function exitBlock(token) {
     const d = this.data.oseMath || { open: 0, close: 0, parts: [] };
     const node = this.stack[this.stack.length - 1];
@@ -394,7 +400,11 @@ export function mathToMarkdown() {
   }
 }
 
-/** The remark plugin: one call registers the syntax and both directions of the tree. */
+/**
+ * The remark plugin: one call registers the syntax and both directions of the tree.
+ *
+ * @this {any}  the unified processor
+ */
 export function remarkOseMath() {
   const data = this.data();
   const add = (field, value) => {

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // The dialogs the editor asks for, and the two state calls, over the core (`ose:ui`,
 // `ose.state`) through `host.js`.
 //
@@ -65,7 +64,7 @@ export function choose({ title = '', body = '', options = [], cancel = null } = 
       foot.append(b);
     }
     box.append(head, bodyEl, foot);
-    requestAnimationFrame(() => { const first = foot.querySelector('.btn'); if (first) first.focus(); });
+    requestAnimationFrame(() => { const first = /** @type {HTMLElement | null} */ (foot.querySelector('.btn')); if (first) first.focus(); });
   });
 }
 

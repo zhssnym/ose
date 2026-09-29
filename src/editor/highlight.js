@@ -1,4 +1,3 @@
-// @ts-nocheck
 // One place for everything that turns code into coloured spans.
 //
 // Three surfaces need the same answer and used to have three different ones: the standalone
@@ -184,7 +183,7 @@ export function highlightInto(el, code, support) {
         const marks = [];
         const source = [];
         while (i < lines.length && PROMPT.test(lines[i])) {
-          const mark = PROMPT.exec(lines[i])[0];
+          const mark = (PROMPT.exec(lines[i]) || [''])[0];
           marks.push(mark);
           source.push(lines[i].slice(mark.length));
           i += 1;
@@ -193,7 +192,7 @@ export function highlightInto(el, code, support) {
       }
     }
   } catch (e) {
-    console.warn('[editor] highlight', e && e.message ? e.message : e);
+    console.warn('[editor] highlight', e instanceof Error ? e.message : e);
     return false;
   }
 
