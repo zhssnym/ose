@@ -9,12 +9,10 @@
  * prints `e` says what it always said.
  */
 export class HostError extends Error {
-  /**
-   * @param {string} message
-   * @param {string} [code]
-   * @param {string} [cmd]
-   */
-  constructor(message, code = 'io', cmd = '') {
+  declare name: string;
+  declare code: string;
+  declare cmd: string;
+  constructor(message: string, code: string = 'io', cmd: string = '') {
     super(message);
     this.name = 'HostError';
     this.code = code;
@@ -28,11 +26,8 @@ const CODED = /^\s*\[([a-z0-9_]+)\]\s*([\s\S]*)$/;
 /**
  * Whatever an adapter rejected with (a `{code, message}` from a typed command, a `[code]`
  * string from the dev bridge, an Error from fetch) as a HostError.
- * @param {string} cmd
- * @param {unknown} raw
- * @returns {HostError}
  */
-export function hostError(cmd, raw) {
+export function hostError(cmd: string, raw: unknown): HostError {
   if (raw instanceof HostError) return raw;
   if (raw && typeof raw === 'object' && 'code' in raw && typeof raw.code === 'string' && raw.code) {
     const message = 'message' in raw ? String(raw.message ?? '') : '';

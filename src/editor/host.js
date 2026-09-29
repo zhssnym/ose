@@ -205,7 +205,8 @@ export const bridge = {
   // Where a deleted file goes is the user's setting, and the core applies it: the editor
   // says which file, never which bin.
   trash: (path) => ose.files.trash(path),
-  reveal: (path) => ose.files.reveal(path),
+  // No system file manager in a browser: the file is shown in the sidebar's tree.
+  reveal: (path) => { ose.bus.emit('tree:reveal', { path, focus: true }); },
   openPath: (path) => ose.files.open(path),
   openExternal: (url) => ose.openExternal(url),
   assetUrl: (path) => ose.files.assetUrl(path),

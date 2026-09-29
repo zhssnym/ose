@@ -7,8 +7,7 @@
 /** The prefix of a path outside the vault. */
 export const ABS = 'abs:';
 
-/** @param {unknown} p @returns {string} */
-export const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+export const clean = (p: unknown): string => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
 /**
  * `clean`, with `.` and `..` collapsed and every empty segment dropped: the form a path has to
@@ -39,8 +38,7 @@ export const resolve = (p) => {
 
 /** `resolve` for a path with no prefix: `.` and `..` collapsed, empty segments dropped. */
 function resolveRel(c) {
-  /** @type {string[]} */
-  const out = [];
+  const out: string[] = [];
   for (const seg of c.split('/')) {
     if (!seg || seg === '.') continue;
     if (seg === '..') { out.pop(); continue; }
@@ -69,35 +67,31 @@ export const MARKDOWN_EXTS = Object.freeze(['md', 'markdown', 'mdown', 'mkd']);
 export const TEXT_EXTS = Object.freeze([...MARKDOWN_EXTS, 'txt', 'text', 'log', 'csv', 'tsv', 'rst', 'adoc', 'org', 'tex', 'bib']);
 const MARKDOWN_SET = new Set(MARKDOWN_EXTS);
 const TEXT_SET = new Set(TEXT_EXTS);
-/** @param {unknown} p @returns {boolean} */
-export const isMarkdownPath = (p) => MARKDOWN_SET.has(extOf(p));
-/** @param {unknown} p @returns {boolean} */
-export const isTextPath = (p) => TEXT_SET.has(extOf(p));
+export const isMarkdownPath = (p: unknown): boolean => MARKDOWN_SET.has(extOf(p));
+export const isTextPath = (p: unknown): boolean => TEXT_SET.has(extOf(p));
 
 /** True for an `abs:` path: a file outside the vault (X7). */
-export const isOutside = (/** @type {unknown} */ p) => typeof p === 'string' && p.startsWith(ABS);
+export const isOutside = (p: unknown) => typeof p === 'string' && p.startsWith(ABS);
 
 /**
  * The native absolute path of an `abs:` path: backslashes for a drive or a share, as Windows
  * spells it, forward slashes otherwise. A vault path comes back as it was.
- * @param {string} p
  */
-export const absOf = (p) => {
+export const absOf = (p: string) => {
   if (!isOutside(p)) return p;
   const rest = p.slice(ABS.length);
   return /^[A-Za-z]:/.test(rest) || rest.startsWith('//') ? rest.replace(/\//g, '\\') : rest;
 };
 
-/** What the chrome shows for an `abs:` path: the absolute path, no prefix. @param {string} p */
-export const outsideLabel = (p) => (isOutside(p) ? p.slice(ABS.length) : p);
+/** What the chrome shows for an `abs:` path: the absolute path, no prefix. */
+export const outsideLabel = (p: string) => (isOutside(p) ? p.slice(ABS.length) : p);
 
 /**
  * The path part of a `vault` origin URL: a vault path segment by segment, or, for a file outside
  * the vault (X7), `~abs/` and the whole absolute path as one percent-encoded segment, which the
  * host serves only under the folder of a file this window registered.
- * @param {string} path
  */
-export function assetPath(path) {
+export function assetPath(path: string) {
   if (isOutside(path)) return `~abs/${encodeURIComponent(outsideLabel(path))}`;
   return String(path ?? '').replace(/^\.?\//, '').split('/').map(encodeURIComponent).join('/');
 }
@@ -105,10 +99,8 @@ export function assetPath(path) {
 /**
  * A native absolute path (or an `abs:` one) in the `abs:` form: forward slashes, the drive letter
  * upper case, no `\\?\` prefix. Null when it is not absolute.
- * @param {string} native
- * @returns {string | null}
  */
-export const absFrom = (native) => {
+export const absFrom = (native: string): string | null => {
   let s = String(native ?? '').trim();
   if (s.startsWith(ABS)) s = s.slice(ABS.length);
   s = s.replace(/\\/g, '/');

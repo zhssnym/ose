@@ -9,16 +9,16 @@
 // next start is still restored, and says so with the router's own box when it is brought
 // forward, which is honest and costs nothing at boot: only the active tab mounts.
 
-import { bus } from './registry.js';
-import { local } from './local.js';
-import { settings } from './settings-core.js';
-import * as T from './tabs.js';
-import { normalize, restoreTabs, liveScroll, liveSelection, routeKey } from './router.js';
+import { bus } from './registry.ts';
+import { local } from './local.ts';
+import { settings } from './settings-core.ts';
+import * as T from './tabs.ts';
+import { normalize, restoreTabs, liveScroll, liveSelection, routeKey } from './router.ts';
 
 const WRITE_MS = 500;
 const store = () => local('session');
 
-let timer = null;
+let timer: any = null;
 // Nothing is written until something has changed since boot: a window closed before anything
 // was shown must not replace yesterday's session with an empty one.
 let dirty = false;
@@ -35,9 +35,8 @@ const toObject = (map) => Object.fromEntries([...map.entries()].filter(([, v]) =
 
 /**
  * `ose.session.snapshot()` -> Session: what would be written now.
- * @returns {{v: 1, at: number, active: number, tabs: Array<{stack: object[], index: number, scroll: object, select: object}>}}
  */
-export function snapshot() {
+export function snapshot(): { v: 1; at: number; active: number; tabs: Array<{ stack: any[]; index: number; scroll: any; select: any; }>; } {
   const live = liveScroll();
   const picked = liveSelection();
   const recs = T.records();
@@ -65,7 +64,7 @@ export function snapshot() {
 function numbers(obj) {
   const out = new Map();
   if (!obj || typeof obj !== 'object') return out;
-  for (const [k, v] of Object.entries(obj)) if (typeof k === 'string' && Number.isFinite(v) && v > 0) out.set(k, v);
+  for (const [k, v] of Object.entries(obj)) if (typeof k === 'string' && Number.isFinite(v) && (v as number) > 0) out.set(k, v);
   return out;
 }
 
@@ -86,7 +85,7 @@ function strings(obj) {
 export async function restore(session) {
   const s = session === undefined ? store().get() : session;
   if (!s || typeof s !== 'object' || s.v !== 1 || !Array.isArray(s.tabs)) return false;
-  const recs = [];
+  const recs: any[] = [];
   for (const t of s.tabs) {
     if (!t || !Array.isArray(t.stack)) continue;
     const stack = t.stack.map(normalize).filter(Boolean).map(T.identity);

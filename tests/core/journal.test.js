@@ -6,18 +6,18 @@
 // copied is left in place; a trash the platform cannot restore is not undoable; an undo is not
 // journaled. Also copy and paste with free names, and restore refusing to overwrite.
 //
-// Depends on: core (src/core/journal.js, fileops.js). Skipped until fileops has the wave-2
+// Depends on: core (src/core/journal.ts, fileops.js). Skipped until fileops has the wave-2
 // operations (copy, restore, mkdir, paste).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reset, setRestorable, vault } from './fake-bridge.js';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
-const F = await import('../../src/core/fileops.js');
-const J = await import('../../src/core/journal.js');
-const { setPageHost } = await import('../../src/core/pagehost.js');
-const { bus } = await import('../../src/core/registry.js');
+const F = await import('../../src/core/fileops.ts');
+const J = await import('../../src/core/journal.ts');
+const { setPageHost } = await import('../../src/core/pagehost.ts');
+const { bus } = await import('../../src/core/registry.ts');
 
 
 let unhost = () => {};

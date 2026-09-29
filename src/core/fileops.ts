@@ -17,51 +17,42 @@
 //
 // Errors are `Error`s with `.code`: 'bad_name', 'exists', 'not_saved', or the host's own code.
 
-import { bridge } from './bridge/index.js';
-import { bus } from './registry.js';
-import { pageHost } from './pagehost.js';
-import { repoint } from './router.js';
-import { rewriteInboundMany } from './links.js';
-import { check, split, free, sameName } from './names.js';
-import { clean, dirName, baseName, join, isOutside, segments } from './paths.js';
-import { trashMode } from './settings-core.js';
-import { logLine } from './log.js';
-import { record as journal, binName, itemsLabel, folderLabel } from './journal.js';
+import { bridge } from './bridge/index.ts';
+import { bus } from './registry.ts';
+import { pageHost } from './pagehost.ts';
+import { repoint } from './router.ts';
+import { rewriteInboundMany } from './links.ts';
+import { check, split, free, sameName } from './names.ts';
+import { clean, dirName, baseName, join, isOutside, segments } from './paths.ts';
+import { trashMode } from './settings-core.ts';
+import { logLine } from './log.ts';
+import { record as journal, binName, itemsLabel, folderLabel } from './journal.ts';
 
 /**
  * An Error with a code, the shape every refusal here takes.
- * @param {string} code
- * @param {string} message
- * @param {Record<string, unknown>} [extra]
- * @returns {Error & { code: string }}
  */
-function fail(code, message, extra = {}) {
+function fail(code: string, message: string, extra: Record<string, unknown> = {}): Error & { code: string; } {
   return Object.assign(new Error(message), { code, ...extra });
 }
 
 /**
  * What a `catch` caught, read as the coded Error the host and this file throw. Anything can be
  * thrown, so every read of it stays guarded (`e && caught(e).code`); this only names the shape.
- * @param {unknown} e
- * @returns {Error & { code?: string }}
  */
-const caught = (e) => /** @type {Error & { code?: string }} */ (e);
+const caught = (e: unknown): Error & { code?: string; } => (e as Error & { code?: string });
 
 /**
  * A file outside the vault (X7) is opened and saved where it is, and nothing else: it cannot be
  * renamed, moved, trashed or duplicated from here. The refusal says so, `code` and `reason`
  * both `outside`, and touches nothing.
- * @param {string} path
- * @param {string} verb
  */
-function outside(path, verb) {
+function outside(path: string, verb: string) {
   return fail('outside', `${baseName(path)} is outside the vault and cannot be ${verb} from here`, { reason: 'outside' });
 }
 
-/** @typedef {{ files: number, links: number, failed: string[], error?: string }} LinkSum */
+export type LinkSum = { files: number, links: number, failed: string[], error?: string };
 
-/** @returns {LinkSum} */
-const NO_LINKS = () => ({ files: 0, links: 0, failed: [] });
+const NO_LINKS = (): LinkSum => ({ files: 0, links: 0, failed: [] as any[] });
 
 /** `path` is `from`, or inside the folder `from`. */
 const under = (path, from) => path === from || path.startsWith(from + '/');
@@ -90,10 +81,10 @@ async function tellPage(change) {
  * one pair of itself.
  */
 async function filePairs(from, to) {
-  let st = null;
+  let st: import('./bridge/commands.ts').Stat_Serialize | null = null;
   try { st = await bridge.stat(from); } catch { /* the rename will say what is wrong */ }
   if (!st || st.kind !== 'dir') return [{ from, to }];
-  const out = [];
+  const out: any[] = [];
   const walk = (n) => {
     if (!n || !Array.isArray(n.children)) return;
     for (const c of n.children) {
@@ -120,15 +111,9 @@ async function filePairs(from, to) {
  * moved files' own pass (`rewriteOwn`) answered for the same pairs: those files are settled,
  * and its counts are added in, so the caller sees one result for the whole move.
  */
-/**
- * @param {{ from: string, to: string }[]} pairs
- * @param {OwnPass[]} [own]
- * @returns {Promise<LinkSum>}
- */
-async function rewrite(pairs, own = []) {
+async function rewrite(pairs: { from: string; to: string; }[], own: OwnPass[] = []): Promise<LinkSum> {
   const sum = NO_LINKS();
-  /** @type {Set<string>} */
-  const settled = new Set();
+  const settled: Set<string> = new Set();
   for (const o of own) {
     sum.files += o.files;
     sum.links += o.links;
@@ -150,7 +135,7 @@ async function rewrite(pairs, own = []) {
 }
 
 /**
- * The moved files' own hrefs (links.js N16), rewritten while the pages that show them are still
+ * The moved files' own hrefs (links.ts N16), rewritten while the pages that show them are still
  * frozen and marked as moving: before `afterPathChange`, not after it. Done later, the rewrite
  * edited the open page's file behind a page that had already thawed, and the page saw its own
  * file change on disk: a remount that threw the undo history away, or a conflict it had caused
@@ -158,17 +143,10 @@ async function rewrite(pairs, own = []) {
  * text as its clean baseline. `settled` is every moved file whose hrefs now say where it is,
  * for the inbound pass that follows. Never throws.
  */
-/**
- * @typedef {{ files: number, links: number, failed: string[], rewritten: Record<string, string>, settled: string[], error?: string }} OwnPass
- */
+export type OwnPass = { files: number, links: number, failed: string[], rewritten: Record<string, string>, settled: string[], error?: string };
 
-/**
- * @param {{ from: string, to: string }[]} pairs
- * @returns {Promise<OwnPass>}
- */
-async function rewriteOwn(pairs) {
-  /** @type {OwnPass} */
-  const out = { files: 0, links: 0, failed: [], rewritten: {}, settled: [] };
+async function rewriteOwn(pairs: { from: string; to: string; }[]): Promise<OwnPass> {
+  const out: OwnPass = { files: 0, links: 0, failed: [], rewritten: {}, settled: [] };
   if (!pairs.length) return out;
   try {
     const r = await rewriteInboundMany(pairs, { only: 'moved' });
@@ -195,12 +173,9 @@ function defaultText(path) {
  * Create a file. `name` may hold `/`: the folders are created. Any extension, or none; the
  * text defaults to `# <stem>\n` for `.md` and to nothing otherwise. Never overwrites: on an
  * existing name it fails with `exists`, or with `unique` takes the next free name.
- * @param {string} folder  vault-relative, '' for the root
- * @param {string} name
- * @param {{text?: string, unique?: boolean}} [opts]
- * @returns {Promise<{path: string, entry: object|null}>}
+ * @param folder  vault-relative, '' for the root
  */
-export async function create(folder, name, { text, unique = false } = {}) {
+export async function create(folder: string, name: string, { text, unique = false }: { text?: string; unique?: boolean; } = {}): Promise<{ path: string; entry: any | null; }> {
   const c = check(name, { folders: true });
   if (!c.ok) throw fail('bad_name', c.reason);
   let path = join(folder, c.name);
@@ -229,11 +204,9 @@ export async function create(folder, name, { text, unique = false } = {}) {
 /**
  * A new folder `name` in `folder` (the tree's and the folder view's New folder). `name` may
  * hold `/`. An existing name is refused with `exists`.
- * @param {string} folder  vault-relative, '' for the root
- * @param {string} name
- * @returns {Promise<{path: string, entry: object|null}>}
+ * @param folder  vault-relative, '' for the root
  */
-export async function mkdir(folder, name) {
+export async function mkdir(folder: string, name: string): Promise<{ path: string; entry: any | null; }> {
   const c = check(name, { folders: true });
   if (!c.ok) throw fail('bad_name', c.reason);
   const path = join(folder, c.name);
@@ -257,11 +230,8 @@ export async function mkdir(folder, name) {
 /**
  * Rename in place: `to` is `dirname(path)/name`, literally. The name has no `/`. A case-only
  * rename is allowed; any other existing name is refused with `exists`.
- * @param {string} path
- * @param {string} name
- * @returns {Promise<{from: string, to: string, links: object, entry: object|null}>}
  */
-export function rename(path, name) { return renameQuiet(path, name, true); }
+export function rename(path: string, name: string): Promise<{ from: string; to: string; links: any; entry: any | null; }> { return renameQuiet(path, name, true); }
 
 async function renameQuiet(path, name, record) {
   if (isOutside(path)) throw outside(path, 'renamed');
@@ -303,7 +273,7 @@ async function movePath(kind, from, to) {
   logLine(`fileops ${kind} ${from} -> ${to}`);
   repoint([{ from, to }]);
   const own = await rewriteOwn(pairs);
-  const done = { kind, from, to, ok: true };
+  const done: {    kind: any;    from: any;    to: any;    ok: boolean; rewritten?: Record<string, string>; } = { kind, from, to, ok: true };
   if (Object.keys(own.rewritten).length) done.rewritten = own.rewritten;
   await tellPage(done);
   return { pairs, own };
@@ -314,18 +284,15 @@ async function movePath(kind, from, to) {
  * Move each path into `folder` under its own name. A path that cannot go (a name taken, a
  * folder into itself, a page that could not be saved, a host refusal) is skipped with its
  * error; the others still move. One `paths:moved` and one link rewrite for the whole batch.
- * @param {string[]} paths
- * @param {string} folder
- * @returns {Promise<{moved: {from: string, to: string}[], skipped: {path: string, error: Error}[], links: object, entry: object|null}>}
  */
-export function move(paths, folder) { return moveQuiet(paths, folder, true); }
+export function move(paths: string[], folder: string): Promise<{ moved: { from: string; to: string; }[]; skipped: { path: string; error: Error; }[]; links: any; entry: any | null; }> { return moveQuiet(paths, folder, true); }
 
 async function moveQuiet(paths, folder, record) {
   const dest = clean(folder);
-  const moved = [];
-  const skipped = [];
-  const pairs = [];
-  const own = [];
+  const moved: any[] = [];
+  const skipped: any[] = [];
+  const pairs: any[] = [];
+  const own: any[] = [];
   for (const p of paths || []) {
     const from = clean(p);
     const to = join(dest, baseName(from));
@@ -377,7 +344,7 @@ const OS_LITTER = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
  * link is an entry of its own and is never walked. Null when the folder cannot be listed.
  */
 async function manifest(dir) {
-  const out = {};
+  const out: Record<string, any> = {};
   const walk = async (p) => {
     const kids = await bridge.list(p, { hidden: true });
     for (const k of Array.isArray(kids) ? kids : []) {
@@ -405,7 +372,7 @@ async function folderPrint(path) {
 
 /** A path's print, a file's or a folder's, whichever it is now. */
 async function pathPrint(path) {
-  let st = null;
+  let st: import('./bridge/commands.ts').Stat_Serialize | null = null;
   try { st = await bridge.stat(path); } catch { /* the fingerprint says what it can */ }
   if (st && st.kind === 'dir') return folderPrint(path);
   return { dir: false, ...(await fingerprint(path)) };
@@ -414,11 +381,8 @@ async function pathPrint(path) {
 /**
  * A byte copy of a file or a whole folder (`copyPath`); a file outside the vault comes in
  * through `importOutside`, the one command that may read it for a copy.
- * @param {string} from
- * @param {string} to
- * @returns {Promise<{ path: string, hash?: string | null }>}
  */
-async function copyBytes(from, to) {
+async function copyBytes(from: string, to: string): Promise<{ path: string; hash?: string | null; }> {
   if (isOutside(from)) {
     const r = await bridge.importOutside(from, to);
     return { path: clean((r && r.path) || to), hash: (r && r.hash) || null };
@@ -432,20 +396,17 @@ async function copyBytes(from, to) {
  * or the next free one (`x 2.ext`, `folder 2`), so copying into the folder it is in makes a
  * copy beside it. The page is asked first so a copy holds what is on screen. A path that
  * cannot be copied is skipped with its error.
- * @param {string[]} paths
- * @param {string} folder
- * @returns {Promise<{copied: {from: string, to: string}[], skipped: {path: string, error: Error}[], entry: object|null}>}
  */
-export async function copy(paths, folder) {
+export async function copy(paths: string[], folder: string): Promise<{ copied: { from: string; to: string; }[]; skipped: { path: string; error: Error; }[]; entry: any | null; }> {
   const dest = clean(folder);
-  const copied = [];
-  const skipped = [];
-  const steps = [];
+  const copied: any[] = [];
+  const skipped: any[] = [];
+  const steps: any[] = [];
   for (const p of paths || []) {
     const from = clean(p);
     try {
       if (!from) throw fail('bad_arg', 'nothing to copy');
-      let st = null;
+      let st: import('./bridge/commands.ts').Stat_Serialize | null = null;
       try { st = await bridge.stat(from); } catch { /* the copy will say */ }
       if (st && st.exists === false) throw fail('not_found', `${baseName(from)} is not there any more`);
       const dir = !!st && st.kind === 'dir';
@@ -453,7 +414,7 @@ export async function copy(paths, folder) {
       let to = await free(dest, baseName(from), { dir });
       const g = await askPage({ kind: 'copy', from, to });
       if (!g.ok) throw fail('not_saved', g.reason || `${baseName(from)} has unsaved changes that could not be saved`);
-      let done = null;
+      let done: { path: string; hash?: string | null; } | null = null;
       for (let attempt = 0; attempt < 5 && !done; attempt++) {
         try {
           done = await copyBytes(from, to);
@@ -491,10 +452,8 @@ export async function copy(paths, folder) {
  * Paste what was cut or copied into `folder`: a cut moves (and a path already in `folder`
  * stays where it is), a copy copies (and into the same folder makes `x 2`). Answers what
  * `move` or `copy` answered.
- * @param {{mode: 'cut'|'copy', paths: string[]}} clip
- * @param {string} folder
  */
-export function paste(clip, folder) {
+export function paste(clip: { mode: 'cut' | 'copy'; paths: string[]; }, folder: string) {
   const paths = clip && Array.isArray(clip.paths) ? clip.paths : [];
   if (clip && clip.mode === 'cut') return move(paths, folder);
   return copy(paths, folder);
@@ -505,16 +464,14 @@ export function paste(clip, folder) {
  * vault). The page is asked first; the path is trashed; only then is the page told, so a
  * trash that fails leaves the page exactly as it was (C6). History and drafts stay. Nothing
  * is ever deleted outright: where the bin refuses, the host uses `.trash` and says so (M18).
- * @param {string[]} paths
- * @returns {Promise<{trashed: string[], items: {path: string, id: string|null, where: string}[], failed: {path: string, error: Error}[], entry: object|null}>}
  */
-export function trash(paths) { return trashQuiet(paths, true); }
+export function trash(paths: string[]): Promise<{ trashed: string[]; items: { path: string; id: string | null; where: string; }[]; failed: { path: string; error: Error; }[]; entry: any | null; }> { return trashQuiet(paths, true); }
 
 /** `asked`: the undo has already asked the page (and compared the disk after it saved). */
 async function trashQuiet(paths, record, { asked = false } = {}) {
-  const trashed = [];
-  const items = [];
-  const failed = [];
+  const trashed: any[] = [];
+  const items: any[] = [];
+  const failed: any[] = [];
   for (const p of paths || []) {
     const from = clean(p);
     if (!from) continue;
@@ -550,20 +507,19 @@ async function trashQuiet(paths, record, { asked = false } = {}) {
 /**
  * Put trashed items back where they were (M18). The host never overwrites: an item whose place
  * is taken again fails with `[exists]`, and missing parent folders are made.
- * @param {string[]} ids  TrashItem ids, from `trashList` or a trash's `items`
- * @returns {Promise<{restored: {id: string, path: string}[], failed: {id: string, error: any}[], entry: object|null}>}
+ * @param ids  TrashItem ids, from `trashList` or a trash's `items`
  */
-export function restore(ids) { return restoreQuiet(ids, true); }
+export function restore(ids: string[]): Promise<{ restored: { id: string; path: string; }[]; failed: { id: string; error: any; }[]; entry: any | null; }> { return restoreQuiet(ids, true); }
 
 async function restoreQuiet(ids, record) {
   const list = (ids || []).filter(Boolean);
-  if (!list.length) return { restored: [], failed: [], entry: null };
+  if (!list.length) return { restored: [] as any[], failed: [] as any[], entry: null };
   let r;
   try {
     r = await bridge.trashRestore(list);
   } catch (e) {
     logLine(`fileops restore failed: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
-    return { restored: [], failed: list.map((id) => ({ id, error: e })), entry: null };
+    return { restored: [] as any[], failed: list.map((id) => ({ id, error: e })), entry: null };
   }
   const restored = (r && Array.isArray(r.restored) ? r.restored : []).map((x) => ({ id: x.id, path: clean(x.path) }));
   const failed = r && Array.isArray(r.failed) ? r.failed : [];
@@ -591,13 +547,11 @@ export async function trashList() {
 /**
  * A byte copy beside the file, `stem 2.ext` (the next free name), whatever its type. The page
  * is asked first so the copy holds what is on screen, not what was last saved.
- * @param {string} path
- * @returns {Promise<{path: string, entry: object|null}>}
  */
-export async function duplicate(path) {
+export async function duplicate(path: string): Promise<{ path: string; entry: any | null; }> {
   if (isOutside(path)) throw outside(path, 'duplicated');
   const from = clean(path);
-  let st = null;
+  let st: import('./bridge/commands.ts').Stat_Serialize | null = null;
   try { st = await bridge.stat(from); } catch { /* copyFile will say */ }
   if (st && st.kind === 'dir') throw fail('bad_arg', 'a folder cannot be duplicated');
   let to = await free(dirName(from), baseName(from));
@@ -635,9 +589,8 @@ export const IMPORT_MAX_BYTES = 64 * 1024 * 1024;
 /**
  * Bytes as base64, in chunks: `String.fromCharCode(...bytes)` blows the argument limit on
  * anything large.
- * @param {Uint8Array} bytes
  */
-export function bytesToBase64(bytes) {
+export function bytesToBase64(bytes: Uint8Array) {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
@@ -659,22 +612,16 @@ export function bytesToBase64(bytes) {
  * `opts.onProgress(done, total)` is called after each file, for the shell's progress toast.
  * -> `{ created, failed, files, entry }`: `created` the top-level paths now in `folder`, `files`
  * how many files were written.
- * @param {import('./types.js').ImportEntry[]} entries
- * @param {string} folder
- * @param {{ onProgress?: (done: number, total: number) => void }} [opts]
- * @returns {Promise<{ created: string[], failed: { path: string, error: Error }[], files: number, entry: object | null }>}
  */
-export async function importEntries(entries, folder, opts = {}) {
+export async function importEntries(entries: import('./types.ts').ImportEntry[], folder: string, opts: { onProgress?: (done: number, total: number) => void; } = {}): Promise<{ created: string[]; failed: { path: string; error: Error; }[]; files: number; entry: any | null; }> {
   const dest = clean(folder);
-  /** @type {{ path: string, error: Error }[]} */
-  const failed = [];
+  const failed: { path: string; error: Error; }[] = [];
   if (isOutside(dest)) throw outside(dest, 'a place to copy into');
   const list = (Array.isArray(entries) ? entries : [])
     .map((e) => ({ ...e, path: segments(e && e.path).join('/') }))
     .filter((e) => e.path && (e.kind === 'dir' || e.kind === 'file'));
   // The top-level names, in the order they came, each with the free name it lands under.
-  /** @type {Map<string, { dir: boolean, to: string | null }>} */
-  const tops = new Map();
+  const tops: Map<string, { dir: boolean; to: string | null; }> = new Map();
   for (const e of list) {
     const top = segments(e.path)[0] || '';
     const dir = e.kind === 'dir' || e.path !== top;
@@ -686,10 +633,9 @@ export async function importEntries(entries, folder, opts = {}) {
     const c = check(top);
     // A name no file can have is refused once, for the whole subtree under it.
     if (!c.ok) { failed.push({ path: top, error: fail('bad_name', c.reason) }); continue; }
-    try { t.to = await free(dest, top, { dir: t.dir }); } catch (e) { failed.push({ path: top, error: /** @type {Error} */ (e) }); }
+    try { t.to = await free(dest, top, { dir: t.dir }); } catch (e) { failed.push({ path: top, error: (e as Error) }); }
   }
-  /** @param {string} rel @returns {string | null} */
-  const target = (rel) => {
+  const target = (rel: string): string | null => {
     const [top = '', ...rest] = segments(rel);
     const t = tops.get(top);
     if (!t || !t.to) return null;
@@ -704,15 +650,15 @@ export async function importEntries(entries, folder, opts = {}) {
     try {
       if (!(await bridge.exists(to))) await bridge.mkdir(to);
     } catch (e) {
-      failed.push({ path: d.path, error: /** @type {Error} */ (e) });
+      failed.push({ path: d.path, error: (e as Error) });
     }
   }
 
   const files = list.filter((e) => e.kind === 'file');
   let written = 0;
   let done = 0;
-  /** @type {Map<string, string | null>} top-level file -> hash */
-  const hashes = new Map();
+  /** top-level file -> hash */
+  const hashes: Map<string, string | null> = new Map();
   for (const f of files) {
     const to = target(f.path);
     if (!to) { done++; continue; }   // its top-level name was refused above
@@ -731,7 +677,7 @@ export async function importEntries(entries, folder, opts = {}) {
           // A top-level file whose free name was taken since: the next one. Inside a folder of
           // the drop's own, the name was free a moment ago and a clash means someone else wrote.
           const top = !f.path.includes('/');
-          if (!(e && /** @type {{ code?: string }} */ (e).code === 'exists' && top && attempt < 5)) throw e;
+          if (!(e && (e as { code?: string }).code === 'exists' && top && attempt < 5)) throw e;
           at = await free(dest, baseName(to));
           const t = tops.get(f.path);
           if (t) t.to = at;
@@ -739,8 +685,8 @@ export async function importEntries(entries, folder, opts = {}) {
       }
       written++;
     } catch (e) {
-      failed.push({ path: f.path, error: /** @type {Error} */ (e) });
-      logLine(`fileops import failed ${f.path}: ${(e && /** @type {{ code?: string }} */ (e).code) || 'io'} ${(e && /** @type {Error} */ (e).message) || e}`, 'warn');
+      failed.push({ path: f.path, error: (e as Error) });
+      logLine(`fileops import failed ${f.path}: ${(e && (e as { code?: string }).code) || 'io'} ${(e && (e as Error).message) || e}`, 'warn');
     }
     done++;
     if (typeof opts.onProgress === 'function') {
@@ -748,10 +694,8 @@ export async function importEntries(entries, folder, opts = {}) {
     }
   }
 
-  /** @type {string[]} */
-  const created = [];
-  /** @type {object[]} */
-  const steps = [];
+  const created: string[] = [];
+  const steps: any[] = [];
   for (const [, t] of tops) {
     if (!t.to) continue;
     let there = false;
@@ -779,11 +723,8 @@ export async function importEntries(entries, folder, opts = {}) {
  * restored folder counts while it holds exactly the entries it held then, with the same sizes
  * and times. A file counts while its hash (or size and time) is the same, and so does a file
  * the journal could not fingerprint. A path that is gone answers null: nothing left to undo.
- * @param {string} path
- * @param {object} step
- * @returns {Promise<boolean|null>}
  */
-async function stillSame(path, step) {
+async function stillSame(path: string, step: any): Promise<boolean | null> {
   try {
     if (step.dir) {
       const st = await bridge.stat(path);
@@ -823,8 +764,7 @@ async function trashIfSame(path, step) {
   const change = { kind: 'trash', from: path, to: null };
   const g = await askPage(change);
   if (!g.ok) throw fail('not_saved', g.reason || `${baseName(path)} could not be saved`);
-  /** @type {boolean | null} */
-  let same = false;
+  let same: boolean | null = false;
   try { same = await stillSame(path, step); } catch { same = false; }
   if (same !== true) {
     await tellPage({ ...change, ok: false });
@@ -842,10 +782,9 @@ async function trashIfSame(path, step) {
  * Undo `steps` (already in reverse order), each through the ordinary operation, quietly, so
  * open pages follow and links are rewritten back. Used by the journal (./journal.js `undo`).
  * Answers the steps that failed, `[{ step, error }]`.
- * @param {object[]} steps
  */
-export async function undoSteps(steps) {
-  const failed = [];
+export async function undoSteps(steps: any[]) {
+  const failed: any[] = [];
   for (const step of steps) {
     try {
       if (step.op === 'moved') {

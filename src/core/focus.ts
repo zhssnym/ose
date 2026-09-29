@@ -7,17 +7,17 @@
 // - it is entered only on purpose (the command, or the tree's own gesture), and it lasts for
 //   the session: it is never restored at boot, and a focus left in `.ose/state.json` by an
 //   older build is dropped;
-// - Esc leaves it, from anywhere that is not typing (keys.js);
+// - Esc leaves it, from anywhere that is not typing (keys.ts);
 // - while it is on, the status bar carries a `focus` field that says which folder, and that
 //   field is a button that leaves it. The bus says `focus` on every change for whoever else
 //   draws it (the sidebar's chip).
 //
 // Store key `focus` (a vault-relative folder path, or null).
-import { bus, store, commands, status } from './registry.js';
-import { patchState, stateCache } from './state.js';
-import { clean, baseName, dirName, isOutside } from './paths.js';
+import { bus, store, commands, status } from './registry.ts';
+import { patchState, stateCache } from './state.ts';
+import { clean, baseName, dirName, isOutside } from './paths.ts';
 
-let focus = null;
+let focus: string | null = null;
 
 /** The focused folder, or null. */
 export function getFocus() { return focus; }

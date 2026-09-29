@@ -18,9 +18,8 @@ const OPTIONS = {
 
 /**
  * The mdast tree of `text`, every node with its `position` (offsets into `text`).
- * @param {string} text
  */
-export function parse(text) {
+export function parse(text: string) {
   return fromMarkdown(String(text ?? ''), OPTIONS);
 }
 

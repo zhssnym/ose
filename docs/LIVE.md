@@ -117,7 +117,7 @@ Images, tables, maths and fenced code are the widgets' (below).
   event `input.live.task`); the caret does not move.
 - A click, Enter or Space on the Properties block puts the caret on its first key line, which
   reveals it. The arrow keys reach it too: a caret that enters the block reveals it.
-- The Live keymap binds the body chords of `BODY_KEYS` (kept in `src/core/keys.js` for the
+- The Live keymap binds the body chords of `BODY_KEYS` (kept in `src/core/keys.ts` for the
   palette, mirrored for the editor in `src/editor/keymap.js`) for the ids Live implements:
   Ctrl+B `**`, Ctrl+I `_`, Ctrl+Shift+X `~~`, Ctrl+`` ` `` code, Ctrl+1…6 headings, Ctrl+0
   paragraph, Ctrl+Shift+7/8/9 numbered, bullet, task, Ctrl+Shift+. quote, Ctrl+Shift+C code

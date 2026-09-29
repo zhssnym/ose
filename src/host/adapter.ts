@@ -20,7 +20,7 @@ import { ABS, extOf, fail, fromDom, HostError, isExcluded } from './rules.ts';
 import * as vh from './vault-handle.ts';
 import { startWatch } from './watch.ts';
 
-export type Adapter = import('../core/types.js').Adapter;
+export type Adapter = import('../core/types.ts').Adapter;
 export type Local = import('./local.ts').Local;
 export type Fs = ReturnType<typeof createFs>;
 export type OpenRequest = { path: string, outside: boolean, kind: 'file' | 'dir', line?: number };
@@ -546,7 +546,7 @@ export async function create(opts: { serviceWorker?: boolean; } = {}): Promise<W
       const pending = emit('window', { closing: true });
       const outcome = await Promise.allSettled(pending);
       if (outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
-        try { (await import('../core/leave.js')).stayWindow(); } catch { /* nothing frozen */ }
+        try { (await import('../core/leave.ts')).stayWindow(); } catch { /* nothing frozen */ }
         return false;
       }
       try { if (typeof g.close === 'function') g.close(); } catch { /* not allowed */ }

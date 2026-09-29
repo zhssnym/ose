@@ -12,18 +12,18 @@
 // The core draws nothing: the notices below are toasts, and "Show" runs a command the page
 // owner registers (`page.show-problem`).
 
-import { bus, commands } from './registry.js';
-import { toast } from './dialog.js';
-import { unmountOnUnload, reopenCurrent, currentRoute, openTab } from './router.js';
-import { pageHost } from './pagehost.js';
-import { records, currentOf } from './tabs.js';
-import { display } from './names.js';
-import { flushState } from './state.js';
-import { flushLocal } from './local.js';
-import { flushSession } from './session.js';
-import { logLine } from './log.js';
+import { bus, commands } from './registry.ts';
+import { toast } from './dialog.ts';
+import { unmountOnUnload, reopenCurrent, currentRoute, openTab } from './router.ts';
+import { pageHost } from './pagehost.ts';
+import { records, currentOf } from './tabs.ts';
+import { display } from './names.ts';
+import { flushState } from './state.ts';
+import { flushLocal } from './local.ts';
+import { flushSession } from './session.ts';
+import { logLine } from './log.ts';
 
-/** @typedef {'close'|'reload'|'vault-change'} LeaveReason */
+export type LeaveReason = 'close'|'reload'|'vault-change';
 
 /** After this long a leave that is still waiting says so, and keeps waiting. */
 const NOTICE_MS = 3000;
@@ -31,9 +31,9 @@ const NOTICE_MS = 3000;
 /** How long "Close window without saving" waits for the handlers to keep what they hold. */
 const ABANDON_MS = 5000;
 
-const handlers = new Set();
-let inflight = null;
-let refusal = null;          // the kill of the last "Not closed…" toast
+const handlers = new Set<any>();
+let inflight: Promise<boolean> | null = null;
+let refusal: (() => void) | null = null;          // the kill of the last "Not closed…" toast
 let unmounted = false;       // a leave took the view on screen down; a stay puts it back
 
 /** What the refusal toast says the window was not. */
@@ -48,9 +48,8 @@ const NOT = { close: 'closed', reload: 'reloaded', 'vault-change': 'switched' };
  * that outlives the window (a draft) and answers true once it is kept. `false`, a rejection or
  * no answer within five seconds means it is not; a string (or an array of strings) means the
  * same and names what would be lost, which the question before the close quotes.
- * @param {(e: {reason: LeaveReason|'abandon'}) => boolean | string | string[] | Promise<boolean | string | string[]>} fn
  */
-export function onLeave(fn) {
+export function onLeave(fn: (e: { reason: LeaveReason | 'abandon'; }) => boolean | string | string[] | Promise<boolean | string | string[]>) {
   if (typeof fn !== 'function') throw new Error('window.onLeave: a function is required');
   handlers.add(fn);
   return () => handlers.delete(fn);
@@ -61,7 +60,7 @@ export function onLeave(fn) {
 // One sticky toast however many waits want it: the leave gate's own and the adapter's close
 // fan-out's (src/host/adapter.ts) are the same notice, not two.
 let holders = 0;
-let stillKill = null;
+let stillKill: (() => void) | null = null;
 
 /**
  * Put up the "still saving…" toast, or join the one that is up. Answers the release; the toast
@@ -93,8 +92,7 @@ async function runHandlers(reason) {
     try { return Promise.resolve(fn({ reason })); } catch (e) { return Promise.reject(e); }
   });
   // No ceiling (S28): a save that is slow — a big file, a sync client holding it — is waited for.
-  /** @type {{ fn: (() => void) | null }} */
-  const release = { fn: null };
+  const release: { fn: (() => void) | null; } = { fn: null };
   const notice = setTimeout(() => { release.fn = holdStillSaving(); }, NOTICE_MS);
   let settled;
   try {
@@ -109,12 +107,10 @@ async function runHandlers(reason) {
 /**
  * The pages the page host says could not be let go (`PageHost.problems()`: vault paths), in its
  * order. None when it does not say.
- * @returns {string[]}
  */
-function problemPages() {
+function problemPages(): string[] {
   const host = pageHost();
-  /** @type {unknown} */
-  let list = [];
+  let list: unknown = [];
   try { list = host && typeof host.problems === 'function' ? host.problems() : []; } catch (e) { console.error('[leave] problems', e); }
   return (Array.isArray(list) ? list : [])
     .map((p) => (typeof p === 'string' ? p : p && typeof p === 'object' && typeof p.path === 'string' ? p.path : ''))
@@ -125,9 +121,8 @@ function problemPages() {
  * A page that holds unsaved work and that no tab shows: a background tab's page left parked
  * when its tab was taken back by an overtaken navigation. It has to be listed by name, and
  * "Show" has to bring it back into a tab, or it is neither saved nor reachable (wave 2, open).
- * @param {string[]} paths
  */
-function orphansOf(paths) {
+function orphansOf(paths: string[]) {
   const shown = new Set(records().map((rec) => {
     const r = currentOf(rec);
     return r && r.type === 'page' ? r.path : null;
@@ -135,8 +130,8 @@ function orphansOf(paths) {
   return paths.filter((p) => !shown.has(p));
 }
 
-/** "a.md", "a.md and b.md", "a.md, b.md and 2 more". @param {string[]} paths */
-function namesOf(paths) {
+/** "a.md", "a.md and b.md", "a.md, b.md and 2 more". */
+function namesOf(paths: string[]) {
   const names = paths.map((p) => display(p) || p);
   if (names.length <= 1) return names[0] || '';
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
@@ -144,11 +139,7 @@ function namesOf(paths) {
   return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
 }
 
-/**
- * @param {LeaveReason} reason
- * @param {string} why
- */
-function refuse(reason, why) {
+function refuse(reason: LeaveReason, why: string) {
   stayWindow();
   bus.emit('window:refused', { reason });
   const problems = problemPages();
@@ -187,11 +178,8 @@ function refuse(reason, why) {
  *    the router's own `closing` handler). Bus
  *    `window:leaving` `{ reason }`. Answers true, and the handlers stay frozen: the caller
  *    either goes, or calls `stayWindow()`.
- *
- * @param {LeaveReason} reason
- * @returns {Promise<boolean>}
  */
-export function leaveWindow(reason) {
+export function leaveWindow(reason: LeaveReason): Promise<boolean> {
   if (inflight) return inflight;
   const why = NOT[reason] ? reason : 'close';
   inflight = (async () => {
@@ -201,7 +189,7 @@ export function leaveWindow(reason) {
     try {
       ok = await runHandlers(why);
     } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       ok = false;
       problem = String((e && e.message) || e);
     }
@@ -237,6 +225,9 @@ export function stayWindow() {
   }
 }
 
+
+type Answer = { late?: true, v?: unknown, e?: unknown, failed?: true };
+
 /**
  * "Close window without saving" asks here before it destroys the window: every `onLeave`
  * handler hears `reason: 'abandon'` and is given five seconds to keep what it holds (the
@@ -246,27 +237,19 @@ export function stayWindow() {
  *
  * Nothing is refused here and nothing is frozen by the core; a handler that froze its pages
  * to answer is thawed by `stayWindow()` when the caller decides to stay.
- * @returns {Promise<(string|null)[]>}
  */
-export async function abandonWindow() {
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let timer;
-  /** @type {Promise<{ late: true }>} */
-  const late = new Promise((resolve) => { timer = setTimeout(() => resolve({ late: true }), ABANDON_MS); });
-  /** @typedef {{ late?: true, v?: unknown, e?: unknown, failed?: true }} Answer */
+export async function abandonWindow(): Promise<(string | null)[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late: Promise<{ late: true; }> = new Promise((resolve) => { timer = setTimeout(() => resolve({ late: true }), ABANDON_MS); });
   const answers = [...handlers].map((fn) => {
-    /** @type {Promise<unknown>} */
-    let p;
+    let p: Promise<unknown>;
     try { p = Promise.resolve(fn({ reason: 'abandon' })); } catch (e) { p = Promise.reject(e); }
-    /** @type {Promise<Answer>} */
-    const answer = p.then((v) => ({ v }), (e) => ({ e, failed: true }));
+    const answer: Promise<Answer> = p.then((v) => ({ v }), (e) => ({ e, failed: true }));
     return Promise.race([answer, late]);
   });
-  /** @type {Answer[]} */
-  let settled = [];
+  let settled: Answer[] = [];
   try { settled = await Promise.all(answers); } finally { clearTimeout(timer); }
-  /** @type {(string | null)[]} */
-  const lost = [];
+  const lost: (string | null)[] = [];
   for (const s of settled) {
     if (s.late) { lost.push(null); continue; }
     if (s.failed) { console.error('[leave] abandon', s.e); lost.push(null); continue; }

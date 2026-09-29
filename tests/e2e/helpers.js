@@ -60,7 +60,7 @@ export async function devFault(page, spec) {
 }
 
 /**
- * One host command through the app's own bridge (`window.__bridge`, src/core/bridge/index.js).
+ * One host command through the app's own bridge (`window.__bridge`, src/core/bridge/index.ts).
  * @param {Page} page @param {string} cmd @param {...any} args
  * @returns {Promise<any>}
  */

@@ -48,8 +48,8 @@ const posix = (p) => p.split('\\').join('/');
 
 /** The four `ose:*` specifiers, as the import map in shell/index.html names them. */
 const ALIAS = {
-  'ose:core': here('src/core/core.js'),
-  'ose:ui': here('src/core/ui.js'),
+  'ose:core': here('src/core/core.ts'),
+  'ose:ui': here('src/core/ui.ts'),
   'ose:editor': here('src/editor/lib.js'),
   'ose:planner': here('src/planner/index.ts'),
 };
@@ -59,8 +59,8 @@ const KATEX = { katex: here('src/editor/katex-absent.js') };
 
 /** The build's library entries: a missing source fails the build. */
 const ENTRIES = {
-  core: here('src/core/core.js'),
-  ui: here('src/core/ui.js'),
+  core: here('src/core/core.ts'),
+  ui: here('src/core/ui.ts'),
   editor: here('src/editor/lib.js'),
   planner: here('src/planner/index.ts'),
   'ui.css': here('src/core/ui.css'),

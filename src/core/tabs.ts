@@ -14,8 +14,8 @@
 // object as the router's current route. `scroll` and `select` are per tab, so two tabs on one
 // folder remember two places in it.
 
-import { bus, uid } from './registry.js';
-import * as router from './router.js';
+import { bus, uid } from './registry.ts';
+import * as router from './router.ts';
 
 /** How many closed tabs Ctrl+Shift+T walks back through. */
 export const MAX_CLOSED = 20;
@@ -24,11 +24,11 @@ export const MAX_HISTORY = 100;
 /** Scroll and selection memories kept per tab. */
 export const MAX_MEMORY = 50;
 
-let tabs = [];          // records, in strip order
-let activeId = null;
-let closed = [];        // [{ rec, at }], newest first
-let mru = [];           // ids, most recently active first
-let home = null;        // the route a last closed tab falls back to (`ose.route.setHome`)
+let tabs: any[] = [];          // records, in strip order
+let activeId: any = null;
+let closed: any[] = [];        // [{ rec, at }], newest first
+let mru: any[] = [];           // ids, most recently active first
+let home: any = null;        // the route a last closed tab falls back to (`ose.route.setHome`)
 
 /*
  * The model as it was before the oldest change that has not been let through yet (C1). A
@@ -37,15 +37,15 @@ let home = null;        // the route a last closed tab falls back to (`ose.route
  * Background changes made while one is pending (a tab opened behind, a tab moved, a background
  * tab closed) are written into the snapshot too, so a rollback never undoes them.
  */
-let pending = null;
+let pending: { tabs: { rec: any; stack: any; index: any; }[]; activeId: null; closed: any[]; mru: any[]; } | null = null;
 
 /* ------------------------------------------------------------------------------ records */
 
 /**
  * A new tab record holding `route` as its one entry (or nothing).
- * @param {object|null} route  a normalised route
+ * @param route  a normalised route
  */
-export function newRecord(route) {
+export function newRecord(route: any | null) {
   return {
     id: uid(),
     stack: route ? [route] : [],
@@ -79,7 +79,7 @@ export function setActive(id) {
  * of the change a pending navigation may roll back (a tab opened behind), so it is written
  * into the snapshot as well.
  */
-export function insertRecord(rec, index, { background = false } = {}) {
+export function insertRecord(rec, index?, { background = false } = {}) {
   const at = Number.isInteger(index) ? Math.max(0, Math.min(index, tabs.length)) : tabs.length;
   tabs.splice(at, 0, rec);
   if (pending && background && !pending.tabs.some((e) => e.rec === rec)) {
@@ -167,7 +167,7 @@ export function replaceModel(recs, active) {
  * rename reaches history nobody is looking at, and a rollback cannot bring an old path back.
  */
 export function mapRoutes(fn) {
-  const seen = new Set();
+  const seen = new Set<any>();
   const each = (rec) => {
     if (seen.has(rec)) return;
     seen.add(rec);
@@ -254,9 +254,8 @@ export function emitTabs(reason = 'change') {
 
 /**
  * `ose.tabs.list()`: every tab, in strip order.
- * @returns {Array<{id: string, route: object|null, canBack: boolean, canForward: boolean}>}
  */
-export function list() { return tabs.map(publicTab); }
+export function list(): Array<{ id: string; route: any | null; canBack: boolean; canForward: boolean; }> { return tabs.map(publicTab); }
 
 /** `ose.tabs.active()`: the active tab, or null. */
 export function active() {

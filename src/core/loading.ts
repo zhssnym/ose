@@ -38,7 +38,7 @@ export function loadingLine(box, ms = LOADING_DELAY) {
  * so nothing moves when it goes); `stop` removes it or cancels the timer. Idempotent.
  */
 export function loadingOverlay(host, className = 'main-loading', ms = LOADING_DELAY) {
-  let node = null;
+  let node: HTMLDivElement | null = null;
   let timer = host ? setTimeout(() => {
     timer = null;
     if (!host.isConnected) return;

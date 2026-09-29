@@ -2,7 +2,7 @@
 import { test, expect, vi } from 'vitest';
 
 const saved = new Map();
-vi.mock('../../src/core/bridge/index.js', () => {
+vi.mock('../../src/core/bridge/index.ts', () => {
   const files = new Map([
     ['old.md', '# Old\n'],
     ['x.md', "See [o](old.md), `[c](old.md)`, <!-- [h](old.md) -->\r\n\r\n    [i](old.md)\r\n\r\n[r]: old.md\r\n"],
@@ -25,7 +25,7 @@ vi.mock('../../src/core/bridge/index.js', () => {
   return { bridge, setEpoch() {}, currentEpoch: () => 1, HostError: Error, hostError: (_c, e) => e };
 });
 
-const { rewriteInboundMany, findInbound, planRewrite } = await import('../../src/core/links.js');
+const { rewriteInboundMany, findInbound, planRewrite } = await import('../../src/core/links.ts');
 
 test('rewrite touches only real links, keeps CRLF, conflicts land in failed', async () => {
   const r = await rewriteInboundMany([{ from: 'old.md', to: 'sub/new.md' }]);

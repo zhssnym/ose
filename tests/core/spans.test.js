@@ -1,5 +1,5 @@
 // H6: link destinations are found with the editor's parser, so code, comments and maths are never touched.
-import { linkSpans } from '../../src/core/links.js';
+import { linkSpans } from '../../src/core/links.ts';
 import { test, expect } from 'vitest';
 const hrefs = async (t) => (await linkSpans(t)).map((s) => t.slice(s.start, s.end));
 test('only real links', async () => {

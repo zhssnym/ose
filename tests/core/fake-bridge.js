@@ -1,8 +1,8 @@
-// A bridge for the core tests: the methods src/core/bridge/index.js answers, over an
+// A bridge for the core tests: the methods src/core/bridge/index.ts answers, over an
 // in-memory vault, with every call written down in order. The core modules under test import
 // `bridge` from './bridge/index.js'; each test file swaps that module for this one:
 //
-//   vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+//   vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 //
 // Errors are thrown the way the real facade throws them (CONTRACT 4.2): an Error with `.code`.
 // `fail(cmd, code)` makes the next call of `cmd` fail with that code.

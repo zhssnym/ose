@@ -10,15 +10,15 @@
 //
 // Every test gets a fresh core (the router and the tab model keep module state).
 //
-// Depends on: core (src/core/router.js, tabs.js, pagehost.js, session.js).
+// Depends on: core (src/core/router.ts, tabs.js, pagehost.js, session.js).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
-let R;       // src/core/router.js
-let T;       // src/core/tabs.js
-let K;       // src/core/registry.js
+let R;       // src/core/router.ts
+let T;       // src/core/tabs.ts
+let K;       // src/core/registry.ts
 let host;    // the fake page host
 let main;    // the column
 
@@ -49,10 +49,10 @@ beforeEach(async () => {
   vi.resetModules();
   const fake = await import('./fake-bridge.js');
   fake.reset({ 'a.md': '# a\n', 'b.md': '# b\n', 'c.md': '# c\n', 'notes/n.md': '# n\n' });
-  K = await import('../../src/core/registry.js');
-  R = await import('../../src/core/router.js');
-  T = await import('../../src/core/tabs.js');
-  const P = await import('../../src/core/pagehost.js');
+  K = await import('../../src/core/registry.ts');
+  R = await import('../../src/core/router.ts');
+  T = await import('../../src/core/tabs.ts');
+  const P = await import('../../src/core/pagehost.ts');
   document.body.innerHTML = '';
   main = document.createElement('main');
   document.body.appendChild(main);
@@ -195,7 +195,7 @@ describe('tabs', () => {
   });
 
   it('a trashed file\'s tab shows its folder with the file selected; history is left alone', async () => {
-    const P = await import('../../src/core/pagehost.js');
+    const P = await import('../../src/core/pagehost.ts');
     const opened = [];
     P.setFolderHost({
       async open(_el, path, opts) {
@@ -227,7 +227,7 @@ describe('tabs', () => {
 
 describe('session', () => {
   it('a snapshot restores the same tabs, their histories and the active one, mounting one page', async () => {
-    const S = await import('../../src/core/session.js');
+    const S = await import('../../src/core/session.ts');
     await R.navigate(page('a.md'));
     await R.navigate(page('b.md'));
     await T.open(page('c.md'));
@@ -242,10 +242,10 @@ describe('session', () => {
     vi.resetModules();
     const fake = await import('./fake-bridge.js');
     fake.reset({ 'a.md': '# a\n', 'b.md': '# b\n', 'c.md': '# c\n', 'notes/n.md': '# n\n' });
-    R = await import('../../src/core/router.js');
-    T = await import('../../src/core/tabs.js');
-    const P = await import('../../src/core/pagehost.js');
-    const S2 = await import('../../src/core/session.js');
+    R = await import('../../src/core/router.ts');
+    T = await import('../../src/core/tabs.ts');
+    const P = await import('../../src/core/pagehost.ts');
+    const S2 = await import('../../src/core/session.ts');
     main.innerHTML = '';
     R.initRouter(main, { start: false });
     host = makeHost();
@@ -262,7 +262,7 @@ describe('session', () => {
   });
 
   it('nothing usable restores nothing', async () => {
-    const S = await import('../../src/core/session.js');
+    const S = await import('../../src/core/session.ts');
     expect(await S.restore({ v: 1, at: 0, active: 0, tabs: [] })).toBe(false);
     expect(await S.restore({ v: 99 })).toBe(false);
   });

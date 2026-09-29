@@ -7,15 +7,15 @@
 //
 // Every test gets fresh core modules (the gate keeps its handlers in module state).
 //
-// Depends on: core (src/core/leave.js, dialog.js toast).
+// Depends on: core (src/core/leave.ts, dialog.js toast).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
-let L;       // src/core/leave.js
-let K;       // src/core/registry.js
-let D;       // src/core/dialog.js
+let L;       // src/core/leave.ts
+let K;       // src/core/registry.ts
+let D;       // src/core/dialog.ts
 let events;
 let ran;
 
@@ -23,9 +23,9 @@ beforeEach(async () => {
   vi.resetModules();
   const fake = await import('./fake-bridge.js');
   fake.reset();
-  K = await import('../../src/core/registry.js');
-  L = await import('../../src/core/leave.js');
-  D = await import('../../src/core/dialog.js');
+  K = await import('../../src/core/registry.ts');
+  L = await import('../../src/core/leave.ts');
+  D = await import('../../src/core/dialog.ts');
   document.body.innerHTML = '';
   events = [];
   for (const ev of ['window:refused', 'window:leaving', 'window:stay']) K.bus.on(ev, (d) => events.push([ev, d]));

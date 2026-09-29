@@ -26,7 +26,7 @@ export const stem = (p) => {
 
 /** Normalise a path made of segments, resolving `.` and `..`. Returns '' for the root. */
 export function normalize(p) {
-  const out = [];
+  const out: any[] = [];
   for (const seg of String(p || '').split('/')) {
     if (!seg || seg === '.') continue;
     if (seg === '..') { out.pop(); continue; }

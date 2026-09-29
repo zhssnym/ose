@@ -2,10 +2,10 @@
 // nothing else exported. The core never draws and knows no view and no file of the shell: it
 // serves and it answers.
 //
-// Everything that touches the host is async and goes through `./bridge/index.js`. Everything
-// that is a registry (commands, views, status, settings sections) lives in `./registry.js` and
-// `./settings-core.js`. The router is `./router.js`, with the tabs' model in `./tabs.js`; it
-// reaches the page editor and the folder view through `./pagehost.js`, so that `ose:editor`
+// Everything that touches the host is async and goes through `./bridge/index.ts`. Everything
+// that is a registry (commands, views, status, settings sections) lives in `./registry.ts` and
+// `./settings-core.ts`. The router is `./router.ts`, with the tabs' model in `./tabs.ts`; it
+// reaches the page editor and the folder view through `./pagehost.ts`, so that `ose:editor`
 // stays a separate bundle and the shell's folder view stays the shell's.
 //
 // There are no plugins any more (W2): Day, Week, Month and Journal are `ose:planner`, a module
@@ -13,33 +13,33 @@
 // settings sections).
 
 /// <reference path="./globals.d.ts" />
-import { bus, store, commands, views, status, uid, debounce, esc } from './registry.js';
-import { bridge, setEpoch, currentEpoch, HostError } from './bridge/index.js';
-import * as router from './router.js';
-import { leaveWindow, stayWindow, onLeave, abandonWindow } from './leave.js';
-import { logLine, forwardErrors } from './log.js';
-import * as fileops from './fileops.js';
-import * as names from './names.js';
-import * as linksLib from './links.js';
-import { linkTarget, relativeHref } from './href.js';
-import * as settingsCore from './settings-core.js';
-import { patchState, stateCache, loadState, flushState } from './state.js';
-import { themePref, setTheme, resolvedTheme, initTheme } from './theme.js';
-import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from './keys.js';
-import { watch } from './watch.js';
-import { setPageHost, setFolderHost, setPageList, pageList } from './pagehost.js';
-import * as tabs from './tabs.js';
-import * as session from './session.js';
-import { local, loadLocal, flushLocal, migrateLocal } from './local.js';
-import * as journal from './journal.js';
-import * as focusLib from './focus.js';
-import { toast, confirm } from './dialog.js';
-import { initOpens } from './opens.js';
-import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
+import { bus, store, commands, views, status, uid, debounce, esc } from './registry.ts';
+import { bridge, setEpoch, currentEpoch, HostError } from './bridge/index.ts';
+import * as router from './router.ts';
+import { leaveWindow, stayWindow, onLeave, abandonWindow } from './leave.ts';
+import { logLine, forwardErrors } from './log.ts';
+import * as fileops from './fileops.ts';
+import * as names from './names.ts';
+import * as linksLib from './links.ts';
+import { linkTarget, relativeHref } from './href.ts';
+import * as settingsCore from './settings-core.ts';
+import { patchState, stateCache, loadState, flushState } from './state.ts';
+import { themePref, setTheme, resolvedTheme, initTheme } from './theme.ts';
+import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from './keys.ts';
+import { watch } from './watch.ts';
+import { setPageHost, setFolderHost, setPageList, pageList } from './pagehost.ts';
+import * as tabs from './tabs.ts';
+import * as session from './session.ts';
+import { local, loadLocal, flushLocal, migrateLocal } from './local.ts';
+import * as journal from './journal.ts';
+import * as focusLib from './focus.ts';
+import { toast, confirm } from './dialog.ts';
+import { initOpens } from './opens.ts';
+import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.ts';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
-export * from './ui-surface.js';
+export * from './ui-surface.ts';
 
 /* ------------------------------------------------------------------------------- the stamp */
 
@@ -57,8 +57,7 @@ const VERSION = {
 // The core's assets are served beside the page (docs/CORE.md "Where the app is served"):
 // the site's own origin, or the dev server's. No origin is spelled here.
 const assets = {
-  /** @param {string} name */
-  url(name) {
+  url(name: string) {
     const base = typeof location !== 'undefined' ? location.origin : '';
     return `${base}/${String(name || '').replace(/^\/+/, '')}`;
   },
@@ -68,10 +67,8 @@ const assets = {
 
 /**
  * Base64 from the host as bytes; bytes or an array of numbers are taken as they are.
- * @param {unknown} v
- * @returns {Uint8Array}
  */
-function toBytes(v) {
+function toBytes(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) return Uint8Array.from(v);
   if (typeof v !== 'string') return new Uint8Array(0);
@@ -84,17 +81,15 @@ function toBytes(v) {
 /**
  * Bytes (or an ArrayBuffer, or an array of numbers) as the base64 the host takes; a string is
  * taken to be base64 already.
- * @param {string | Uint8Array | ArrayBuffer | number[]} v
  */
-function toBase64(v) {
+function toBase64(v: string | Uint8Array | ArrayBuffer | number[]) {
   if (typeof v === 'string') return v;
   return fileops.bytesToBase64(v instanceof Uint8Array ? v : new Uint8Array(v));
 }
 
 /* --------------------------------------------------------------------------------- booting */
 
-/** @type {{ root: string | null, name: string | null }} */
-let vaultInfo = { root: null, name: null };
+let vaultInfo: { root: string | null; name: string | null; } = { root: null, name: null };
 
 /** 'windows', 'macos' or 'linux', from the host at boot (`ose.platform`). */
 let platformName = 'windows';
@@ -116,12 +111,9 @@ async function readRoot() {
 
 /**
  * After a pick or an open: take the new vault's epoch only when none was open (see above).
- * @template T
- * @param {T} answer
- * @returns {Promise<T>}
  */
-async function adopted(answer) {
-  const a = /** @type {{ root?: unknown } | null | undefined} */ (answer);
+async function adopted<T>(answer: T): Promise<T> {
+  const a = (answer as { root?: unknown } | null | undefined);
   if (a && a.root && !vaultInfo.root) {
     try { await readRoot(); } catch (e) { console.warn('[core] rootInfo', e); }
   }
@@ -132,9 +124,8 @@ async function adopted(answer) {
  * `ose.vault.open(path)`: the vault adopted in this window, or, when another window already has
  * it open, that window brought forward and `{ focused: true, label }` (X6). There are never two
  * windows on one vault.
- * @param {string} path
  */
-async function openVault(path) {
+async function openVault(path: string) {
   const r = await bridge.openVault(path);
   if (r && r.status === 'focused') return { focused: true, label: r.label };
   return adopted(r);
@@ -146,19 +137,15 @@ async function openVault(path) {
  * the vault file it is, a file elsewhere as an `abs:` page marked "outside vault", and a folder
  * outside the vault opens as a vault, in its own window (X6). `path` is a native absolute path
  * or an `abs:` one. -> Promise<boolean>, whether something opened.
- * @param {string} path
- * @param {{ line?: number, activate?: boolean }} [opts]
- * @returns {Promise<boolean>}
  */
-async function openOutside(path, opts = {}) {
+async function openOutside(path: string, opts: { line?: number; activate?: boolean; } = {}): Promise<boolean> {
   const r = await bridge.outsideOpen(path);
   if (!r || !r.path) return false;
   if (r.kind === 'dir' && !r.inside) {
     await bridge.openVaultWindow(absOf(r.path));
     return true;
   }
-  /** @type {import('./types.js').Route} */
-  const route = r.kind === 'dir' ? { type: 'folder', path: r.path } : { type: 'page', path: r.path };
+  const route: import('./types.ts').Route = r.kind === 'dir' ? { type: 'folder', path: r.path } : { type: 'page', path: r.path };
   if (route.type === 'page' && typeof opts.line === 'number' && opts.line > 0) route.line = opts.line;
   const t = await router.openTab(route, { reuse: true, activate: opts.activate !== false });
   return !!t.id;
@@ -259,7 +246,7 @@ async function saveThrough(path, text, opts) {
   try {
     return await bridge.saveFile(path, text, saveArgs(opts));
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     logLine(`files.save failed ${path}: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'error');
     throw e;
   }
@@ -315,7 +302,7 @@ export const ose = {
      * path, nothing adopted and nothing recorded), for a caller that must leave the window
      * before it opens the folder; without it the choice is adopted, as before.
      */
-    pick: (opts) => bridge.pickVault(opts).then(adopted),
+    pick: (opts?) => bridge.pickVault(opts).then(adopted),
     recent: () => bridge.recentVaults(),
     /**
      * Adopt `path` in this window, as before; or `{ focused: true, label }` when another window
@@ -331,15 +318,14 @@ export const ose = {
      * A window for the vault at `vaultPath` (a native folder path), or a new window with no
      * vault, which opens on the chooser. The window that already has the vault is brought
      * forward instead. -> `{ label, created }`
-     * @param {string} [vaultPath]
      */
-    open: (vaultPath) => bridge.openVaultWindow(vaultPath),
+    open: (vaultPath?: string) => bridge.openVaultWindow(vaultPath),
   },
 
   files: {
     /** True for an `abs:` path: a file outside the vault, opened where it is (X7). */
     isOutside: (path) => isOutside(path),
-    openOutside: (path, opts) => openOutside(path, opts),
+    openOutside: (path, opts?) => openOutside(path, opts),
     /** The native open-file dialog: a native absolute path, or null when cancelled. */
     pick: (opts) => bridge.pickFile(opts),
     /**
@@ -356,11 +342,11 @@ export const ose = {
     // Listings follow the user's Show hidden setting unless the caller says `{ hidden }` (H16).
     // What the host excludes (`.ose`, `.git`, the executable, temp files) is never listed.
     /** -> Entry[] `{ name, path, kind, ext, mtime, size, hidden, link?, readable? }`, folders first */
-    list: (path, opts) => bridge.list(path, withHidden(opts)),
+    list: (path, opts?) => bridge.list(path, withHidden(opts)),
     /** -> the root Entry, `name` the vault's, with `children` */
-    tree: (opts) => bridge.tree(withHidden(opts)),
+    tree: (opts?) => bridge.tree(withHidden(opts)),
     /** -> `{ exists, kind, mtime, size, hidden, link?, text? }`; `text` with `{ sniff: true }` */
-    stat: (path, opts) => bridge.stat(path, opts),
+    stat: (path, opts?) => bridge.stat(path, opts),
     exists: (path) => bridge.exists(path),
     mkdir: (path) => bridge.mkdir(path),
     rename: (from, to) => bridge.rename(from, to),
@@ -424,7 +410,7 @@ export const ose = {
       /** -> Draft | null */
       read: (path) => bridge.draftRead(path),
       /** `opts {ifRev}`: drop only a draft written at or before that edit. -> { dropped } */
-      drop: (path, opts) => bridge.draftDrop(path, opts),
+      drop: (path, opts?) => bridge.draftDrop(path, opts),
     },
 
     versions: {
@@ -458,7 +444,7 @@ export const ose = {
      * What the shell gathered from an OS drop, copied in byte for byte, one undo step (§5.5).
      * -> `{ created, failed, files, entry }`
      */
-    importEntries: (entries, folder, opts) => fileops.importEntries(entries, folder, opts),
+    importEntries: (entries, folder, opts?) => fileops.importEntries(entries, folder, opts),
     /** The undo journal of file operations (M17): session memory, newest first. */
     journal: {
       list: () => journal.list(),
@@ -471,7 +457,7 @@ export const ose = {
   /** File names (docs/CORE.md `ose.names`): literal, checked, never rewritten. */
   names: {
     split: (name) => names.split(name),
-    check: (name, opts) => names.check(name, opts),
+    check: (name, opts?) => names.check(name, opts),
     free: (folder, name, opts) => names.free(folder, name, opts),
     extChanged: (a, b) => names.extChanged(a, b),
     /** The name the chrome shows: the real name, `.md` stripped only with `settings.hideMdExt`. */
@@ -488,10 +474,8 @@ export const ose = {
   paths: {
     markdownExts: MARKDOWN_EXTS,
     textExts: TEXT_EXTS,
-    /** @param {string} path */
-    isMarkdown: (path) => isMarkdownPath(path),
-    /** @param {string} path */
-    isText: (path) => isTextPath(path),
+    isMarkdown: (path: string) => isMarkdownPath(path),
+    isText: (path: string) => isTextPath(path),
   },
 
   route: {
@@ -499,7 +483,7 @@ export const ose = {
     // navigate, back, forward and close answer Promise<boolean>: false when the page on screen
     // could not be left (its save failed or is waiting on a question), and then nothing moved.
     // `opts.tab`: 'current' (default), 'new', or a tab id (M23).
-    navigate: (route, opts) => router.navigate(route, opts),
+    navigate: (route, opts?) => router.navigate(route, opts),
     back: () => router.back(),
     forward: () => router.forward(),
     canBack: () => router.canBack(),
@@ -522,7 +506,7 @@ export const ose = {
   tabs: {
     list: () => tabs.list(),
     active: () => tabs.active(),
-    open: (route, opts) => tabs.open(route, opts),
+    open: (route, opts?) => tabs.open(route, opts),
     activate: (id) => tabs.activate(id),
     close: (id) => tabs.close(id),
     closeOthers: (id) => tabs.closeOthers(id),
@@ -534,7 +518,7 @@ export const ose = {
   /** Session restore (H19): the tabs and their histories, per machine and per vault. */
   session: {
     snapshot: () => session.snapshot(),
-    restore: (s) => session.restore(s),
+    restore: (s?) => session.restore(s),
   },
 
   /**
@@ -548,7 +532,7 @@ export const ose = {
   status,
 
   keys: {
-    bind: (combo, commandId, opts) => bindKey(combo, commandId, opts),
+    bind: (combo, commandId, opts?) => bindKey(combo, commandId, opts),
     shortcutFor,
     defaults: () => KEYMAP.concat(BODY_KEYS),
     label: comboLabel,
@@ -571,22 +555,18 @@ export const ose = {
    * planner's paths, vault settings), one key per concern, written debounced. A dotted key is
    * a path into the object. What belongs to this machine is `ose.local`.
    */
-  /** @param {string} key */
-  state(key) {
+  state(key: string) {
     const path = String(key).split('.').filter(Boolean);
-    /** @returns {unknown} */
-    const readAt = () => path.reduce((/** @type {any} reason: a walk into untyped JSON */ o, k) => (o && typeof o === 'object' ? o[k] : undefined), stateCache());
+    const readAt = (): unknown => path.reduce((/** reason: a walk into untyped JSON */ o: any, k) => (o && typeof o === 'object' ? o[k] : undefined), stateCache());
     return {
       get: () => readAt(),
-      /** @param {unknown} value */
-      set(value) {
+      set(value: unknown) {
         const [rootKey, ...rest] = path;
         if (rootKey === undefined) return;
         if (!rest.length) { patchState({ [rootKey]: value }); return; }
-        /** @type {Record<string, any>} */
-        const next = { ...(stateCache()[rootKey] || {}) };
+        const next: Record<string, any> = { ...(stateCache()[rootKey] || {}) };
         let at = next;
-        const last = /** @type {string} */ (rest.pop());
+        const last = (rest.pop() as string);
         for (const k of rest) { at[k] = { ...(at[k] || {}) }; at = at[k]; }
         at[last] = value;
         patchState({ [rootKey]: next });
@@ -598,7 +578,7 @@ export const ose = {
   bus,
   store,
 
-  search: (query, opts = {}) => bridge.search(query, withHidden(opts)),
+  search: (query, opts: any = {}) => bridge.search(query, withHidden(opts)),
 
   links: {
     resolve: (fromPath, href) => linkTarget(fromPath, href),
@@ -624,7 +604,7 @@ export const ose = {
   async pages() {
     const provider = pageList();
     if (provider) return [...(await provider())];
-    const out = [];
+    const out: any[] = [];
     const walk = (n) => {
       if (!n || !n.children) return;
       for (const c of n.children) {
@@ -682,8 +662,7 @@ export const ose = {
    * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Machine-local state").
    * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
    */
-  /** @param {string} text @param {'error' | 'warn' | 'info' | 'debug'} [level] */
-  log: (text, level = 'info') => { logLine(text, level); return Promise.resolve(null); },
+  log: (text: string, level: 'error' | 'warn' | 'info' | 'debug' = 'info') => { logLine(text, level); return Promise.resolve(null); },
   /**
    * `ose.reload()` (`app.reload`, "Reload window"; no chord since D8): the page again. It
    * leaves the window first (`window.leave('reload')`):
@@ -691,9 +670,8 @@ export const ose = {
    * is for a caller that has already left (Change vault). Answers true once the reload is on
    * its way. The app is served from where the window loaded it (X4), so the document reloads
    * itself, in the host as in a browser.
-   * @param {{ skipLeave?: boolean }} [opts]
    */
-  async reload(opts = {}) {
+  async reload(opts: { skipLeave?: boolean; } = {}) {
     if (!(opts && opts.skipLeave) && !(await leaveWindow('reload'))) return false;
     location.reload();
     return true;
@@ -710,8 +688,7 @@ export const ose = {
    * `start: false` mounts the router without drawing the empty surface, for a shell that opens
    * on a surface of its own and would otherwise flash the core's on every boot.
    */
-  /** @param {{ page?: HTMLElement, keys?: boolean, theme?: boolean, start?: boolean }} [o] */
-  init({ page, keys = true, theme = true, start = true } = {}) {
+  init({ page, keys = true, theme = true, start = true }: { page?: HTMLElement; keys?: boolean; theme?: boolean; start?: boolean; } = {}) {
     if (theme) initTheme();
     if (keys) initKeys();
     if (page) router.initRouter(page, { start });

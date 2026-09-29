@@ -9,12 +9,12 @@
 // and its trailing newline are untouched, because the text is spliced in place, never split
 // and rejoined. Nothing here touches the DOM.
 
-import { bridge } from './bridge/index.js';
-import { resolveHref, relativeHref, basename } from './href.js';
-import { logLine } from './log.js';
-import { pageHost } from './pagehost.js';
-import { isOutside, isMarkdownPath, isTextPath } from './paths.js';
-import { nfc } from './names.js';
+import { bridge } from './bridge/index.ts';
+import { resolveHref, relativeHref, basename } from './href.ts';
+import { logLine } from './log.ts';
+import { pageHost } from './pagehost.ts';
+import { isOutside, isMarkdownPath, isTextPath } from './paths.ts';
+import { nfc } from './names.ts';
 
 // A rename has to find *every* inbound link, so this pass is the one search that runs with no
 // cap at all, hidden files included (N20; `limit: 0` means "no cap" in both bridges). The
@@ -22,16 +22,13 @@ import { nfc } from './names.js';
 // links and the toast would then report a count that is not the truth.
 const SEARCH_LIMIT = 0;
 
-/** @param {unknown} p */
-const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+const clean = (p: unknown) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
 /**
  * Two vault paths are one file when they are equal in Unicode form C (M49): a link typed on a
  * Mac may hold `é` decomposed, and the host names files in form C.
- * @param {string | null} a
- * @param {string | null} b
  */
-const samePath = (a, b) => a !== null && b !== null && (a === b || nfc(a) === nfc(b));
+const samePath = (a: string | null, b: string | null) => a !== null && b !== null && (a === b || nfc(a) === nfc(b));
 
 /**
  * Keep the text a rewrite is about to replace (batch 12, "Versions"). This is the only write
@@ -47,7 +44,7 @@ async function keep(path, previous) {
   try {
     await bridge.versionKeep(path, previous, { force: true, reason: 'save' });
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     // A full disk has no room for it, a locked history folder no way in: neither stops the rewrite.
     console.warn('[links] version not kept', path, e && e.message ? e.message : e);
   }
@@ -66,8 +63,8 @@ function needlesFor(path) {
 }
 
 /** The parser (./mdparse.js), loaded the first time a link is looked for. */
-let parserP = null;
-const parser = () => (parserP ||= import('./mdparse.js'));
+let parserP: any = null;
+const parser = () => (parserP ||= import('./mdparse.ts'));
 
 /** Index of the `]` that closes the label opening at `open` (a `[`), or -1. */
 function labelEnd(text, open, limit) {
@@ -132,7 +129,7 @@ function destinationAt(text, from, limit) {
  */
 export async function linkSpans(text) {
   const { parse, visit } = await parser();
-  const out = [];
+  const out: any[] = [];
   const push = (start, href) => {
     const tailAt = href.search(/[#?]/);
     out.push({
@@ -149,7 +146,7 @@ export async function linkSpans(text) {
   const body = bom ? text.slice(bom) : text;
   let tree;
   try { tree = parse(body); } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     // A parser that throws rewrites nothing: better a link left stale than a file edited blind.
     console.warn('[links] parse', e && e.message ? e.message : e);
     return out;
@@ -196,8 +193,8 @@ const hitsOf = (r) => (r && Array.isArray(r.hits) ? r.hits : []);
  * only the text files among them (`isTextPath`, the one list in ./paths.js): a hit in a PDF or
  * an image holds no markdown link. The rewrite edits only markdown files (`isMarkdownPath`).
  */
-async function candidates(needles, seed = []) {
-  const paths = new Set(seed.map(clean).filter(Boolean));
+async function candidates(needles, seed: any[] = []) {
+  const paths = new Set<string>(seed.map(clean).filter(Boolean));
   for (const q of needles) {
     for (const h of hitsOf(await bridge.search(q, { limit: SEARCH_LIMIT, hidden: true }))) {
       if (h && h.path) paths.add(clean(h.path));
@@ -214,8 +211,7 @@ async function candidates(needles, seed = []) {
  */
 export async function findInbound(targetPath) {
   const target = clean(targetPath);
-  /** @type {{ path: string, count: number, lines: { line: number, text: string }[] }[]} */
-  const out = [];
+  const out: { path: string; count: number; lines: { line: number; text: string; }[]; }[] = [];
   // A file outside the vault has no inbound links: no vault page can link out of the vault.
   if (!target || isOutside(target)) return out;
   for (const path of (await candidates(needlesFor(target))).filter(isTextPath)) {
@@ -223,7 +219,7 @@ export async function findInbound(targetPath) {
     let text;
     try { text = await bridge.readText(path); } catch { continue; }
     const starts = lineStarts(text);
-    const lines = [];
+    const lines: any[] = [];
     for (const span of await linkSpans(text)) {
       if (!samePath(resolveHref(path, span.href), target)) continue;
       const n = lineAt(starts, span.start);
@@ -270,19 +266,16 @@ function cleanMoves(pairs) {
  * hrefs were already rewritten by an earlier pass): its hrefs were written against where it
  * was, so they are resolved from there and every one of them is written relative to the new
  * place (N16). Any other file only has its links into a `from` rewritten.
- * @param {string} text
- * @param {string} path
- * @param {Array<{from: string, to: string}>} moves  cleaned
- * @param {{settledSelf?: boolean}} [opts]
+ * @param moves  cleaned
  */
-async function editsFor(text, path, moves, { settledSelf = false } = {}) {
+async function editsFor(text: string, path: string, moves: Array<{ from: string; to: string; }>, { settledSelf = false }: { settledSelf?: boolean; } = {}) {
   // Keyed in form C, so a link that spells the name in the other Unicode form still follows.
   const toFor = new Map(moves.map((p) => [nfc(p.from), p.to]));
   const self = settledSelf ? null : moves.find((p) => p.to === path);
   // The hrefs in a file were written relative to where it was; `was` is that place.
   const was = self ? self.from : path;
   const moved = was !== path;
-  const edits = [];
+  const edits: any[] = [];
   for (const span of await linkSpans(text)) {
     const target = resolveHref(was, span.href);
     if (target === null) continue;
@@ -309,12 +302,8 @@ async function editsFor(text, path, moves, { settledSelf = false } = {}) {
  * because the markdown parser is loaded the first time it is needed. `opts.settled`: this
  * file's own hrefs were already rewritten for the move (the second pass), so it is not
  * treated as a file that moved.
- * @param {string} text
- * @param {string} filePath
- * @param {Array<{from: string, to: string}>} pairs
- * @param {{settled?: boolean}} [opts]
  */
-export async function planRewrite(text, filePath, pairs, opts = {}) {
+export async function planRewrite(text: string, filePath: string, pairs: Array<{ from: string; to: string; }>, opts: { settled?: boolean; } = {}) {
   const moves = cleanMoves(pairs);
   if (!moves.length || typeof text !== 'string') return [];
   const edits = await editsFor(text, clean(filePath), moves, { settledSelf: !!(opts && opts.settled) });
@@ -344,7 +333,7 @@ export async function planRewrite(text, filePath, pairs, opts = {}) {
  * name to hold links written from where it used to be.
  *
  * Two options split the pass in two, so the moved files can be done while the pages showing
- * them are still frozen (fileops.js movePath) and everything else after:
+ * them are still frozen (fileops.ts movePath) and everything else after:
  * - `only: 'moved'`: rewrite only the moved files' own hrefs, on disk; no search, no other file
  *   read, and the page host is not asked (the page is frozen and saved, and takes the new disk
  *   text as its baseline from `afterPathChange`).
@@ -354,21 +343,15 @@ export async function planRewrite(text, filePath, pairs, opts = {}) {
  * -> { files, links, failed: [path], rewritten: { [path]: hash } }; `rewritten` is the new hash
  *    of every file this call wrote, so a page showing one can take it as its own.
  */
-/**
- * @param {{ from: string, to: string }[]} pairs
- * @param {{ only?: 'moved' | null, settled?: Iterable<string> | null }} [opts]
- * @returns {Promise<{ files: number, links: number, failed: string[], rewritten: Record<string, string> }>}
- */
-export async function rewriteInboundMany(pairs, { only = null, settled = null } = {}) {
+export async function rewriteInboundMany(pairs: { from: string; to: string; }[], { only = null, settled = null }: { only?: 'moved' | null; settled?: Iterable<string> | null; } = {}): Promise<{ files: number; links: number; failed: string[]; rewritten: Record<string, string>; }> {
   const moves = cleanMoves(pairs);
-  /** @type {{ files: number, links: number, failed: string[], rewritten: Record<string, string> }} */
-  const res = { files: 0, links: 0, failed: [], rewritten: {} };
+  const res: { files: number; links: number; failed: string[]; rewritten: Record<string, string>; } = { files: 0, links: 0, failed: [], rewritten: {} };
   if (!moves.length) return res;
 
   const done = new Set([...(settled || [])].map(clean));
   const needles = [...new Set(moves.flatMap((p) => needlesFor(p.from)))];
-  const files = only === 'moved'
-    ? [...new Set(moves.map((m) => m.to).filter((to) => !done.has(to)))]
+  const files: string[] = only === 'moved'
+    ? [...new Set<string>(moves.map((m) => m.to).filter((to) => !done.has(to)))]
     : await candidates(needles, moves.map((m) => m.to));
 
   for (const path of files) {
@@ -378,13 +361,12 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
     if (only !== 'moved') {
       // The open page's buffer is the truth, not the disk: the editor makes the edit (H5).
       const own = settledSelf ? moves.filter((p) => p.to !== path) : moves;
-      /** @type {{ handled: boolean, changed?: number, failed?: string } | null | undefined} */
-      let asked = null;
+      let asked: { handled: boolean; changed?: number; failed?: string; } | null | undefined = null;
       try {
         const host = pageHost();
         asked = host && typeof host.rewriteLinksIn === 'function' ? await host.rewriteLinksIn(path, own, { settled: settledSelf }) : null;
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[links] rewriteLinksIn', path, e);
         asked = { handled: true, changed: 0, failed: String((e && e.message) || e) };
       }
@@ -399,8 +381,7 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       }
     }
 
-    /** @type {import('./bridge/commands.ts').ReadFile} */
-    let read;
+    let read: import('./bridge/commands.ts').ReadFile;
     try { read = await bridge.readFile(path); } catch { continue; }
     const { text, hash } = read;
     if (typeof text !== 'string') continue;
@@ -430,7 +411,7 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       res.links += edits.length;
       if (r.hash) res.rewritten[path] = r.hash;
     } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       console.error('[links] write', path, e);
       logLine(`links rewrite failed ${path}: ${e && e.code} ${e && e.message}`, 'warn');
       res.failed.push(path);

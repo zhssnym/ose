@@ -175,7 +175,7 @@ export const sidebarVisible = () => !!store.get('sidebar.open') && !autoHidden;
  * The one way the sidebar is opened or closed on purpose: `app.sidebar`, either chevron,
  * `app.focus-sidebar`, a folder revealed in the tree. It clears the window's own auto-hide
  * before it writes, and it does the work itself rather than leaning on the `sidebar.open`
- * watcher — `store.set` returns early when the value has not changed (src/core/registry.js),
+ * watcher — `store.set` returns early when the value has not changed (src/core/registry.ts),
  * and the whole broken state of QA-5 finding 3 was exactly that: preference open, window
  * hiding it, a toggle writing `true` over `true`, no watcher, nothing on screen, nothing said.
  * `fit` and `patchSidebar` are idempotent, so the watcher running as well costs nothing.

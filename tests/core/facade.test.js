@@ -5,8 +5,8 @@
 import { describe, expect, it, test, vi } from 'vitest';
 
 const calls = [];
-vi.mock('../../src/core/bridge/index.js', async () => {
-  const real = await vi.importActual('../../src/core/bridge/index.js');
+vi.mock('../../src/core/bridge/index.ts', async () => {
+  const real = await vi.importActual('../../src/core/bridge/index.ts');
   const handlers = new Map();
   const bridge = {
     kind: 'web', ready: Promise.resolve(),
@@ -23,8 +23,8 @@ vi.mock('../../src/core/bridge/index.js', async () => {
   return { ...real, bridge, setEpoch: real.setEpoch, currentEpoch: real.currentEpoch };
 });
 
-const { ose } = await import('../../src/core/core.js');
-const { bridge } = await import('../../src/core/bridge/index.js');
+const { ose } = await import('../../src/core/core.ts');
+const { bridge } = await import('../../src/core/bridge/index.ts');
 await ose.ready;
 
 test('the facade is whole', () => {

@@ -5,7 +5,7 @@
 //
 // The adapter under the facade is replaced by one that answers what each test scripts.
 //
-// Depends on: core (src/core/bridge/index.js).
+// Depends on: core (src/core/bridge/index.ts).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,7 +19,7 @@ vi.mock('../../src/host/adapter.ts', () => ({
   }),
 }));
 
-const B = await import('../../src/core/bridge/index.js');
+const B = await import('../../src/core/bridge/index.ts');
 
 beforeEach(() => {
   seen.length = 0;

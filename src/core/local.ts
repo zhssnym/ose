@@ -4,7 +4,7 @@
 // and every vault (reading comfort, Show hidden, the restore switch). `.ose/state.json` keeps
 // only what belongs to the vault and travels with it: pins, the planner's paths, vault settings.
 //
-// Both objects are read once in `ose.ready` and written back debounced, the way `state.js`
+// Both objects are read once in `ose.ready` and written back debounced, the way `state.ts`
 // writes the state file. A write sends the whole object, so it is merged first with what is on
 // disk: only the keys this window changed are written over, and whatever the host keeps in the
 // same file (the window bounds, the theme mirror) is never reverted by a stale copy.
@@ -13,14 +13,14 @@
 // typed and a missing one is a hard error), leaves the scope unloaded for the session: it is
 // logged, the defaults answer, and nothing is written over what could not be read.
 
-import { bridge } from './bridge/index.js';
-import { logLine } from './log.js';
+import { bridge } from './bridge/index.ts';
+import { logLine } from './log.ts';
 
 const WRITE_MS = 300;
 
 /** One scope: its cache, the keys changed since the last write, its timer. */
 function scope(name) {
-  return { name, cache: {}, loaded: false, touched: new Set(), timer: null, writing: null };
+  return { name, cache: {} as Record<string, any>, loaded: false, touched: new Set<any>(), timer: null, writing: null };
 }
 
 const scopes = { vault: scope('vault'), app: scope('app') };
@@ -31,7 +31,7 @@ async function load(s) {
     s.cache = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
     s.loaded = true;
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     s.cache = {};
     // No vault open is not a failure of the store: there is simply nothing to read yet.
     if (e && e.code === 'no_vault') { s.loaded = false; return; }
@@ -73,7 +73,7 @@ function write(s, { fresh = true } = {}) {
     try {
       await bridge.localSet(s.name, { ...s.cache });
     } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       for (const k of keys) s.touched.add(k);
       console.warn(`[local] ${s.name} write failed:`, (e && e.message) || e);
       logLine(`local state ${s.name} write failed: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'warn');
@@ -108,22 +108,20 @@ function handle(s, key) {
     get: () => s.cache[k],
     set: (value) => patch(s, k, value),
     // `{ fresh: false }` is for `pagehide`: no read of the file first, there is no time.
-    flush: (opts) => { if (s.timer) { clearTimeout(s.timer); s.timer = null; } return write(s, opts); },
+    flush: (opts?) => { if (s.timer) { clearTimeout(s.timer); s.timer = null; } return write(s, opts); },
   };
 }
 
 /**
  * `ose.local(key)` -> `{ get(), set(value), flush() }`, per machine and per vault. `set(undefined)`
  * removes the key. What is stored must survive JSON.
- * @param {string} key
  */
-export function local(key) { return handle(scopes.vault, key); }
+export function local(key: string) { return handle(scopes.vault, key); }
 
 /**
  * `ose.local.app(key)`: the same, per machine for every vault.
- * @param {string} key
  */
-local.app = (key) => handle(scopes.app, key);
+local.app = (key: string) => handle(scopes.app, key);
 
 /** The whole vault-scope object, read only (the migration below, and tests). */
 export function localCache(which = 'vault') { return scopes[which] ? scopes[which].cache : {}; }
@@ -133,10 +131,9 @@ export function localCache(which = 'vault') { return scopes[which] ? scopes[whic
  * `.ose/state.json` and now belongs to the machine is copied over: the recent files, the
  * sidebar and the reading settings. Copied, never deleted from the state file, so an older
  * build on another machine still finds what it had. `readingKeys` are the machine settings.
- * @param {object} state  the state file as loaded
- * @param {string[]} readingKeys
+ * @param state  the state file as loaded
  */
-export function migrateLocal(state, readingKeys) {
+export function migrateLocal(state: any, readingKeys: string[]) {
   const v = scopes.vault;
   if (!v.loaded) return false;
   if (v.cache.migrated === 1) return false;

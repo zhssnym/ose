@@ -9,7 +9,7 @@
 // `<name>.crswap` beside the target until `close()`, and a crash can leave one behind. It is a
 // temp file like the atomic writer's, excluded everywhere (docs/HOST.md "The hide rule").
 
-import { HostError } from '../core/bridge/errors.js';
+import { HostError } from '../core/bridge/errors.ts';
 
 export { HostError };
 

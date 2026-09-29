@@ -3,14 +3,14 @@
 // the vault and travels with it (pins, the planner's paths, vault settings); what belongs to
 // this machine is in the per-machine store (./local.js).
 // Merge is shallow at the top level: pass the whole sub-object for a key you own.
-import { bridge } from './bridge/index.js';
-import { toast } from './dialog.js';
-import { logLine } from './log.js';
+import { bridge } from './bridge/index.ts';
+import { toast } from './dialog.ts';
+import { logLine } from './log.ts';
 
-let cache = {};
+let cache: Record<string, any> = {};
 let loaded = false;
-let timer = null;
-let writing = null;
+let timer: any = null;
+let writing: Promise<void> | null = null;
 
 // The two keys of the file the host owns and patches itself: `window`, the bounds it saves at
 // the close request, and `theme`, the colour the next launch paints before the page exists.
@@ -28,7 +28,7 @@ export async function loadState() {
     cache = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
     loaded = true;
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     // A file that cannot be read is not an empty file. Writing over it would take the recent
     // files, the settings, the pins, the planner's paths and everything else with it, so the
     // cache serves reads and nothing goes to disk for the rest of the session.
@@ -62,7 +62,7 @@ async function refreshHostKeys() {
 function write({ host = true } = {}) {
   const send = async () => {
     if (host) await refreshHostKeys();
-    try { await bridge.setState(cache); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); console.warn('[shell] state write failed:', e.message || e); logLine(`state write failed: ${e.message || e}`, 'warn'); }
+    try { await bridge.setState(cache); } catch (err) { const e = (err as { code?: string, message?: string }); console.warn('[shell] state write failed:', e.message || e); logLine(`state write failed: ${e.message || e}`, 'warn'); }
   };
   writing = (writing || Promise.resolve()).then(send, send);
   return writing;

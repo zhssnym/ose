@@ -6,9 +6,9 @@
 // own scope. The page that draws them is the shell's; the core keeps the defaults, the read
 // and the write, what the rest of the app asks of a setting, applying them to the document,
 // and the registry of the sections a built-in module contributes.
-import { bus } from './registry.js';
-import { patchState, stateCache } from './state.js';
-import { local } from './local.js';
+import { bus } from './registry.ts';
+import { patchState, stateCache } from './state.ts';
+import { local } from './local.ts';
 
 export const FONT_SIZES = [14, 15, 16, 17];
 // A document's leading, not a web page's. 1.35 is what Word gives a 12pt Cambria body at
@@ -87,7 +87,7 @@ export function settings() {
 // A dialog that is open while a chord changes a value (Ctrl+= with settings up) has to redraw
 // itself. The core does not know that dialog, so it keeps a list of repainters the shell adds
 // and drops; nothing here ever reaches into anybody's DOM.
-const repainters = new Set();
+const repainters = new Set<any>();
 export function onRepaint(fn) { repainters.add(fn); return () => repainters.delete(fn); }
 function repaint() {
   for (const fn of [...repainters]) { try { fn(); } catch (e) { console.error('[settings] repaint', e); } }
@@ -105,7 +105,7 @@ const sectionMap = new Map();
 export const sections = {
   register(def) {
     if (!def || !def.id || typeof def.render !== 'function') throw new Error('settings.section: id and render required');
-    // First registration wins, as it does for a view (registry.js).
+    // First registration wins, as it does for a view (registry.ts).
     if (sectionMap.has(def.id)) { console.warn('[settings] section already registered:', def.id); return () => {}; }
     const entry = { order: 100, ...def };
     sectionMap.set(def.id, entry);

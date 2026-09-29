@@ -16,25 +16,23 @@
 // the bus), never for the tree: `ose.watch(fn)` leaves them out, and only a caller that names
 // an `abs:` folder hears the ones under it.
 
-import { bridge } from './bridge/index.js';
-import { clean, isOutside } from './paths.js';
+import { bridge } from './bridge/index.ts';
+import { clean, isOutside } from './paths.ts';
 
-/** @typedef {import('./types.js').FsChange} FsChange */
-/** @typedef {import('./types.js').FsEvent} FsEvent */
+export type FsChange = import('./types.ts').FsChange;
+export type FsEvent = import('./types.ts').FsEvent;
 
-/** @type {Set<{ folders: string[] | null, fn: (e: FsEvent) => void }>} */
-const subs = new Set();
+const subs: Set<{ folders: string[] | null; fn: (e: FsEvent) => void; }> = new Set();
 let wired = false;
 
-/** @param {string} path @param {string} folder */
-const under = (path, folder) => {
+const under = (path: string, folder: string) => {
   const p = clean(path);
   const f = clean(folder);
   return !f || p === f || p.startsWith(f + '/');
 };
 
-/** A change inside the vault: neither its path nor where it went is an `abs:` path. @param {FsChange} c */
-const inVault = (c) => !isOutside(c.path) && !(c.to && isOutside(c.to));
+/** A change inside the vault: neither its path nor where it went is an `abs:` path. */
+const inVault = (c: FsChange) => !isOutside(c.path) && !(c.to && isOutside(c.to));
 
 function wire() {
   if (wired) return;
@@ -57,21 +55,14 @@ function wire() {
 /**
  * The host's one shape, `{ changes, lost?, rescan? }` (docs/HOST.md "Events"). The host and
  * the core ship in the same executable, so the older shapes are not read any more (M47).
- * @param {unknown} data
- * @returns {{ changes: FsChange[], lost: boolean, rescan: boolean }}
  */
-function normalize(data) {
-  const d = /** @type {Partial<FsEvent> | null | undefined} */ (data);
+function normalize(data: unknown): { changes: FsChange[]; lost: boolean; rescan: boolean; } {
+  const d = (data as Partial<FsEvent> | null | undefined);
   const changes = d && Array.isArray(d.changes) ? d.changes.filter((c) => c && c.path) : [];
   return { changes, lost: !!(d && d.lost), rescan: !!(d && d.rescan) };
 }
 
-/**
- * @param {string | string[] | ((e: FsEvent) => void)} a
- * @param {(e: FsEvent) => void} [b]
- * @returns {() => boolean}
- */
-export function watch(a, b) {
+export function watch(a: string | string[] | ((e: FsEvent) => void), b?: (e: FsEvent) => void): () => boolean {
   const folders = typeof a === 'function' ? null : (Array.isArray(a) ? a : [a]).map(clean).filter(Boolean);
   const fn = typeof a === 'function' ? a : b;
   if (typeof fn !== 'function') throw new Error('watch: a function is required');

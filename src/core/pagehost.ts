@@ -28,7 +28,7 @@
 //   rewriteLinksIn(path, pairs)    -> Promise<{ handled, changed, failed? }>; `path` is open
 //                                     (on screen or parked): its links into `pairs` are
 //                                     rewritten in the buffer as one undoable edit and nothing
-//                                     is written to disk here (links.js, H5)
+//                                     is written to disk here (links.ts, H5)
 //   scrollToLine(line, col)        -> boolean, true when it jumped inside the mounted page
 //   selection()                    -> { from, to } | null, the caret to restore on back
 //   headingLine(text, heading)     -> 1-based line of that heading, or 0
@@ -52,9 +52,9 @@
 //
 // Only one of each at a time; each call answers a function that removes it again.
 
-import { headingSlug } from './href.js';
+import { headingSlug } from './href.ts';
 
-let host = null;
+let host: any = null;
 
 export function setPageHost(next) {
   host = next || null;
@@ -65,7 +65,7 @@ export function setPageHost(next) {
 export function pageHost() { return host; }
 export function hasPageHost() { return !!host; }
 
-let folders = null;
+let folders: any = null;
 
 /** `ose.setFolderHost(host)`: whoever draws a folder route (H15). Answers the unregister. */
 export function setFolderHost(next) {
@@ -81,7 +81,7 @@ export function folderHost() { return folders; }
  * folder — and the core must not import a sidebar. With nothing registered the picker falls
  * back to walking the vault itself, so it works wherever there is no tree.
  */
-let pages = null;
+let pages: any = null;
 export function setPageList(fn) {
   pages = typeof fn === 'function' ? fn : null;
   const mine = pages;

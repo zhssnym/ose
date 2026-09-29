@@ -1127,7 +1127,7 @@ arguments (an option left out is absent, not null), and turns every refusal into
 (`bridge/errors.js`). There is no `rpc` dispatcher, no `reloadShell`, and no window drag, resize,
 minimise or maximise.
 
-**OS opens** (`src/core/opens.js`, §5.3). Once Ose is installed, the OS can hand it files (a
+**OS opens** (`src/core/opens.ts`, §5.3). Once Ose is installed, the OS can hand it files (a
 double click, Open with: the manifest's `file_handlers`), and Chrome passes them on through its
 launch queue. The adapter turns each into an OpenRequest `{ path, outside, kind, line? }`, `path`
 a vault path when the file is inside the open vault, else `abs:`. A booting tab takes its queue

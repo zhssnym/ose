@@ -5,16 +5,16 @@
 // same chord (`folder.up`, "Go to parent folder") applies everywhere else: in the tree, in the
 // folder view, on the page chrome.
 //
-// Depends on: core (src/core/keys.js, registry.js), shell-surfaces (shell/keys.json).
+// Depends on: core (src/core/keys.ts, registry.js), shell-surfaces (shell/keys.json).
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
-const { bindKey, initKeys } = await import('../../src/core/keys.js');
-const { commands } = await import('../../src/core/registry.js');
+const { bindKey, initKeys } = await import('../../src/core/keys.ts');
+const { commands } = await import('../../src/core/registry.ts');
 
 const ran = [];
 

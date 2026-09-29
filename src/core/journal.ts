@@ -21,14 +21,14 @@
 // The steps' undo is fileops.js's (`undoSteps`); this file keeps the list and says when it
 // changed: `fileops:journal` `{ entries }` on the bus.
 
-import { bus, uid } from './registry.js';
-import { baseName } from './paths.js';
-import { undoSteps } from './fileops.js';
+import { bus, uid } from './registry.ts';
+import { baseName } from './paths.ts';
+import { undoSteps } from './fileops.ts';
 
 /** How many entries the session keeps. */
 export const MAX_ENTRIES = 50;
 
-let entries = [];
+let entries: any[] = [];
 let platform = 'windows';
 
 /** The core tells the journal where it runs, so a label can name the bin the way the OS does. */
@@ -55,9 +55,8 @@ function emit() {
 /**
  * Write an entry down. `undoable` defaults to true; a step that cannot be undone (a trash the
  * platform cannot restore, `id: null`) makes the whole entry not undoable. Answers the entry.
- * @param {{verb: string, label: string, steps: object[], undoable?: boolean}} e
  */
-export function record(e) {
+export function record(e: { verb: string; label: string; steps: any[]; undoable?: boolean; }) {
   const steps = Array.isArray(e.steps) ? e.steps : [];
   const cannot = steps.some((s) => s && s.op === 'trashed' && !s.id);
   const entry = {
@@ -94,7 +93,7 @@ const overlaps = (a, b) => a === b || a.startsWith(b + '/') || b.startsWith(a + 
 
 /** Every path an entry's steps name. */
 function pathsOf(entry) {
-  const out = [];
+  const out: any[] = [];
   for (const s of entry.steps) for (const k of ['path', 'from', 'to']) if (typeof s[k] === 'string' && s[k]) out.push(s[k]);
   return out;
 }
@@ -126,9 +125,8 @@ export function canUndo() { return !!newestUndoable(); }
  * Steps are undone in reverse order; a step that fails is listed and the others still run.
  * The steps that were undone leave the entry, so none is applied twice; the entry is marked
  * undone once none is left, and otherwise stays, holding the refused ones.
- * @param {string} [id]
  */
-export async function undo(id) {
+export async function undo(id: string) {
   const entry = id ? entries.find((e) => e.id === id) : newestUndoable();
   if (!entry) return { ok: false, entry: null, failed: [{ step: null, error: 'nothing to undo' }] };
   if (entry.undone) return { ok: false, entry: { ...entry }, failed: [{ step: null, error: 'already undone' }] };
@@ -143,7 +141,7 @@ export async function undo(id) {
   try {
     failed = await undoSteps(entry.steps.slice().reverse());
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     failed = [{ step: null, error: String((e && e.message) || e) }];
   } finally {
     entry.busy = false;

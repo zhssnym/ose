@@ -1,10 +1,10 @@
 // The quick-open matcher and list builder, in one place because three surfaces use it: the
-// palette's Ctrl+P mode, the search overlay's ranking, and `pickPage` in dialog.js (the Link
+// palette's Ctrl+P mode, the search overlay's ranking, and `pickPage` in dialog.ts (the Link
 // slash item and the `page.link` command). Keeping it here is what makes those three agree on
-// what "matches" means; it also keeps dialog.js from importing palette.js, which imports it.
-import { esc } from './registry.js';
-import { dirName } from './paths.js';
-import { display } from './names.js';
+// what "matches" means; it also keeps dialog.ts from importing palette.js, which imports it.
+import { esc } from './registry.ts';
+import { dirName } from './paths.ts';
+import { display } from './names.ts';
 
 const START = /[\s/\\._\-]/;
 
@@ -13,7 +13,7 @@ export function fuzzy(text, q) {
   if (!q) return { score: 0, hits: null };
   const t = text.toLowerCase(), n = t.length, m = q.length;
   if (m > n) return null;
-  const hits = [];
+  const hits: any[] = [];
   let ti = 0, score = 0, streak = 0;
   for (let qi = 0; qi < m; qi++) {
     const c = q[qi];
@@ -60,24 +60,16 @@ export function highlight(text, hits) {
  * stays free of imports that would close a cycle.
  * Returns [{ path, title, hint, score, hits, recent }], best first, capped at `limit`.
  */
-/**
- * @param {Iterable<string>} paths
- * @param {string} query
- * @param {{ recent?: string[], limit?: number, titles?: Map<string, string> | null }} [opts]
- * @returns {{ path: string, title: string, hint: string, score: number, hits: Set<number> | number[] | null, recent: boolean }[]}
- */
-export function pageItems(paths, query, { recent = [], limit = 200, titles = null } = {}) {
+export function pageItems(paths: Iterable<string>, query: string, { recent = [], limit = 200, titles = null }: { recent?: string[]; limit?: number; titles?: Map<string, string> | null; } = {}): { path: string; title: string; hint: string; score: number; hits: Set<number> | number[] | null; recent: boolean; }[] {
   const words = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rank = new Map(recent.map((p, i) => [p, i]));
-  /** @type {{ path: string, title: string, hint: string, score: number, hits: Set<number> | number[] | null, recent: boolean }[]} */
-  const out = [];
+  const out: { path: string; title: string; hint: string; score: number; hits: Set<number> | number[] | null; recent: boolean; }[] = [];
   for (const p of paths) {
     const title = (titles && titles.get(p)) || display(p);
     const lowPath = p.toLowerCase();
     const lowTitle = title.toLowerCase();
     let score = 0;
-    /** @type {Set<number> | null} */
-    let hits = null;
+    let hits: Set<number> | null = null;
     let ok = true;
     for (const w of words) {
       const inTitle = fuzzy(lowTitle, w);

@@ -14,12 +14,12 @@ of a vault is anywhere else but the machine-local state below. Vercel serves the
 
 ## The seam
 
-`src/core/bridge/index.js` is the facade over one adapter (`Adapter` in `src/core/types.js`):
+`src/core/bridge/index.ts` is the facade over one adapter (`Adapter` in `src/core/types.ts`):
 `{ invoke(name, args), subscribe(fn), platform?, assetUrl?, win?, close? }`, and the one adapter
 there is is `src/host/adapter.ts`, answering every command in the browser. The exact shapes are in
 `src/core/bridge/commands.ts`, kept by hand: a change of a command changes it, the facade and the
 adapter together. Every refusal is a `HostError` with one of the host's codes
-(`src/core/bridge/errors.js`), and a name nobody answers is `unknown_command`. `bridge.kind` is
+(`src/core/bridge/errors.ts`), and a name nobody answers is `unknown_command`. `bridge.kind` is
 `'web'` and `ose.host` is `'browser'`.
 
 ## Files

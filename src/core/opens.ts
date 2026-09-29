@@ -11,32 +11,29 @@
 // running window does the same with each `open` event. A request for a folder opens the folder.
 // Nothing here writes a file.
 
-import { bus } from './registry.js';
-import { bridge } from './bridge/index.js';
-import { openTab } from './router.js';
-import { logLine } from './log.js';
-import { toast } from './dialog.js';
-import { baseName, isOutside, outsideLabel } from './paths.js';
+import { bus } from './registry.ts';
+import { bridge } from './bridge/index.ts';
+import { openTab } from './router.ts';
+import { logLine } from './log.ts';
+import { toast } from './dialog.ts';
+import { baseName, isOutside, outsideLabel } from './paths.ts';
 
-/** @typedef {import('./bridge/commands.ts').OpenRequest} OpenRequest */
+export type OpenRequest = import('./bridge/commands.ts').OpenRequest;
 
 let started = false;
-/** @type {Promise<void>} requests are opened one batch after the other, in the order they came */
-let chain = Promise.resolve();
+/** requests are opened one batch after the other, in the order they came */
+let chain: Promise<void> = Promise.resolve();
 
 /**
  * A request as the route it opens: a folder route for a folder, a page route otherwise, with
  * the line when the request named one. Null when it is not a request.
- * @param {unknown} r
- * @returns {import('./types.js').Route | null}
  */
-export function routeOf(r) {
+export function routeOf(r: unknown): import('./types.ts').Route | null {
   if (!r || typeof r !== 'object') return null;
-  const req = /** @type {Partial<OpenRequest>} */ (r);
+  const req = (r as Partial<OpenRequest>);
   if (typeof req.path !== 'string' || !req.path) return null;
   if (req.kind === 'dir') return { type: 'folder', path: req.path };
-  /** @type {import('./types.js').Route} */
-  const route = { type: 'page', path: req.path };
+  const route: import('./types.ts').Route = { type: 'page', path: req.path };
   if (typeof req.line === 'number' && Number.isInteger(req.line) && req.line > 0) route.line = req.line;
   return route;
 }
@@ -44,12 +41,9 @@ export function routeOf(r) {
 /**
  * Open a batch: every request in a tab of its own (a tab that already shows the file is reused),
  * the last one brought forward. Answers how many were opened.
- * @param {unknown[]} requests
- * @returns {Promise<number>}
  */
-export function openRequests(requests) {
-  /** @type {import('./types.js').Route[]} */
-  const routes = [];
+export function openRequests(requests: unknown[]): Promise<number> {
+  const routes: import('./types.ts').Route[] = [];
   for (const q of Array.isArray(requests) ? requests : []) { const r = routeOf(q); if (r) routes.push(r); }
   const run = chain.then(async () => {
     let opened = 0;
@@ -64,7 +58,7 @@ export function openRequests(requests) {
         logLine(`opens ${route.type} ${where}`);
       } catch (e) {
         console.error('[opens]', e);
-        toast(`Could not open ${baseName(route.path) || 'the file'}: ${(e && /** @type {Error} */ (e).message) || e}`, 'err', 0);
+        toast(`Could not open ${baseName(route.path) || 'the file'}: ${(e && (e as Error).message) || e}`, 'err', 0);
       }
     }
     return opened;
@@ -75,11 +69,11 @@ export function openRequests(requests) {
 
 /** The queue the host kept for this window while it booted. */
 async function takeQueued() {
-  let list = [];
+  let list: any[] = [];
   try {
     list = await bridge.takeOpens();
   } catch (e) {
-    logLine(`opens: takeOpens failed: ${(e && /** @type {{ code?: string }} */ (e).code) || 'io'} ${(e && /** @type {Error} */ (e).message) || e}`, 'warn');
+    logLine(`opens: takeOpens failed: ${(e && (e as { code?: string }).code) || 'io'} ${(e && (e as Error).message) || e}`, 'warn');
     return;
   }
   if (Array.isArray(list) && list.length) await openRequests(list);

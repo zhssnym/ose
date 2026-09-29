@@ -6,7 +6,7 @@
 // Nothing here throws and nothing here waits: a log line that cannot be written is dropped,
 // never turned into an error of its own, and never into a loop of them.
 
-import { bridge } from './bridge/index.js';
+import { bridge } from './bridge/index.ts';
 
 const LEVELS = new Set(['error', 'warn', 'info', 'debug']);
 
@@ -15,14 +15,12 @@ const LEVELS = new Set(['error', 'warn', 'info', 'debug']);
 const ERROR_BUDGET = 30;
 let budget = ERROR_BUDGET;
 let dropped = 0;
-let budgetTimer = null;
+let budgetTimer: any = null;
 
 /**
  * One line into the host log, as `<stamp> <level> ui: <text>`. Fire and forget.
- * @param {string} text
- * @param {'error'|'warn'|'info'|'debug'} [level]
  */
-export function logLine(text, level = 'info') {
+export function logLine(text: string, level: 'error' | 'warn' | 'info' | 'debug' = 'info') {
   const lv = LEVELS.has(level) ? level : 'info';
   try { void bridge.log(String(text ?? ''), lv); } catch { /* no bridge: nothing to do */ }
 }
@@ -45,7 +43,7 @@ function spend() {
 export function describeError(err) {
   if (err instanceof Error) {
     const head = `${err.name || 'Error'}: ${err.message}`;
-    const coded = /** @type {Error & { code?: string, cmd?: string }} */ (err);
+    const coded = (err as Error & { code?: string, cmd?: string });
     const code = coded.code ? ` [${coded.code}${coded.cmd ? ' ' + coded.cmd : ''}]` : '';
     // V8 and WebKit both start the stack with the message line; the frames are what matter.
     const frames = String(err.stack || '').split('\n').filter((l) => /^\s*at\s|@/.test(l)).join('\n');

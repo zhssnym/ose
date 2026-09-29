@@ -2,7 +2,7 @@
 //
 // The shell's own copy of the core's `paths.js`: pure string functions with no state, which
 // the sidebar, the title bar and the palette all need. Keep it in step with
-// `src/core/paths.js`. There is no list of hidden names here any more: what is hidden is the
+// `src/core/paths.ts`. There is no list of hidden names here any more: what is hidden is the
 // host's one rule (dotfiles and the OS hidden attribute, `Entry.hidden`), and what is never
 // listed at all (`.ose`, `.git`, the exe) never reaches the shell (docs/HOST.md).
 //

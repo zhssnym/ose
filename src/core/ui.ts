@@ -1,9 +1,9 @@
-// `ose:ui` (docs/CORE.md). The entry of the `ui.js` bundle, and nothing but a list of names.
+// `ose:ui` (docs/CORE.md). The entry of the `ui.ts` bundle, and nothing but a list of names.
 //
 // The code is in `ose:core`, which is external to this bundle: the core's own router, key
 // engine and file operations raise the same dialogs and the same toasts, and there must be one
 // overlay stack in a running Ose, not two. So `ose:ui` is a facade over `ose:core`, the
-// emitted `ui.js` is twenty lines, and `import { toast } from 'ose:ui'` and the toast the
+// emitted `ui.ts` is twenty lines, and `import { toast } from 'ose:ui'` and the toast the
 // core raises are the same queue.
 //
 // The stylesheet that goes with it is `ui.css` on the same origin.

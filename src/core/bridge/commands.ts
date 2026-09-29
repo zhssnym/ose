@@ -7,7 +7,7 @@
 // `_Deserialize` pairs are kept as they were, so the facade's typedefs read the same.
 
 /**
- * Every host command, by the name the facade calls it with (src/core/bridge/index.js), with
+ * Every host command, by the name the facade calls it with (src/core/bridge/index.ts), with
  * its arguments in order and its answer. src/host/adapter.ts answers each one.
  */
 export type Commands = {

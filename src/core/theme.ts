@@ -3,14 +3,14 @@
 // light or dark setting until the user picks one. shell/first-paint.js has to agree with this.
 // The resolved value ('light'|'dark') goes on <html data-theme>, into store 'theme',
 // out on bus 'theme', and down to the host so it can recolour the native frame.
-import { bus, store, commands } from './registry.js';
-import { bridge } from './bridge/index.js';
+import { bus, store, commands } from './registry.ts';
+import { bridge } from './bridge/index.ts';
 
 const KEY = 'os.theme';
 const VALID = new Set(['light', 'dark', 'system']);
 
 let pref = 'system';
-let mq = null;
+let mq: MediaQueryList | null = null;
 
 export function themePref() { return pref; }
 

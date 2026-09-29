@@ -10,9 +10,9 @@
 // stays the one source of every hint the palette and the menus draw; `editor/commands.js`
 // reads the list and binds it inside a ProseMirror keymap, where a chord can stand down for a
 // code block or a table.
-import { commands, allCommands, commandsRevision } from './registry.js';
-import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.js';
-import { getFocus, exitFocus } from './focus.js';
+import { commands, allCommands, commandsRevision } from './registry.ts';
+import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.ts';
+import { getFocus, exitFocus } from './focus.ts';
 
 /** Cmd on macOS, Ctrl elsewhere. Read live: the shell sets `data-os` after the bridge answers. */
 export function isMac() {
@@ -164,9 +164,9 @@ export function comboFor(k) { return (isMac() && k.mac) || k.combo; }
 
 // First entry wins, so a command with an alias still shows its primary shortcut. Rebuilt when
 // the platform is settled: `data-os` may arrive after this module is first imported.
-let byCmd = null;
-let byCombo = null;
-let builtMac = null;
+let byCmd: Map<any, any> | null = null;
+let byCombo: Map<any, any> | null = null;
+let builtMac: boolean | null = null;
 let builtRev = -1;
 
 /**
@@ -210,20 +210,20 @@ export function bindKey(combo, commandId, { scope = 'window' } = {}) {
 /** What is bound to a combo right now: a binding, else the default, else null. */
 export function bindingFor(combo) {
   index();
-  return byCombo.get(normalizeCombo(combo)) || null;
+  return byCombo!.get(normalizeCombo(combo)) || null;
 }
 
 /**
  * `commands.register({ shortcut })` is a binding, not a printed hint: the chord fires the command
  * and `shortcutFor` answers it. It is read off the registry here rather than bound inside
- * `commands.register`, so `registry.js` keeps importing nothing and the chord goes with the
+ * `commands.register`, so `registry.ts` keeps importing nothing and the chord goes with the
  * command — the unsubscribe removes the command, the next index leaves the chord out. Scope is
  * always 'window'; a chord that should stand down inside the editor body is
  * `keys.bind(combo, id, { scope: 'body' })`. Everything that registers a command is built into
  * the app, so a `shortcut` may replace a default, as `tab.close` replaces `page.close` on Ctrl+W.
  */
 function commandShortcuts() {
-  const out = [];
+  const out: any[] = [];
   for (const c of allCommands()) {
     if (!c.shortcut) continue;
     const combo = normalizeCombo(c.shortcut);
@@ -238,8 +238,8 @@ function commandShortcuts() {
  * win"): Alt+Up there moves the block, and `keys.json`'s `folder.up` on the same chord applies
  * everywhere else.
  */
-let bodyComboCache = null;
-let bodyComboMac = null;
+let bodyComboCache: Set<string> | null = null;
+let bodyComboMac: boolean | null = null;
 function bodyCombos() {
   const mac = isMac();
   if (bodyComboCache && bodyComboMac === mac) return bodyComboCache;
@@ -284,7 +284,7 @@ function index() {
 }
 
 /** The palette, the slash menu and the context menu read their hints from here. */
-export function shortcutFor(id) { index(); return byCmd.get(id) || null; }
+export function shortcutFor(id) { index(); return byCmd!.get(id) || null; }
 
 // While an overlay input has focus these still fire; everything else is left to the overlay.
 // `app.quit` is in the set for the same reason `app.settings` is: with the caret in a dialog
@@ -317,7 +317,7 @@ export function combosOf(e) {
   const k = e.key;
   if (!k || k === 'Control' || k === 'Shift' || k === 'Alt' || k === 'Meta') return [];
   const mac = isMac();
-  const parts = [];
+  const parts: any[] = [];
   if (mac ? e.metaKey : e.ctrlKey) parts.push('mod');
   if (mac && e.ctrlKey) parts.push('ctrl');
   if (e.shiftKey) parts.push('shift');
@@ -375,10 +375,10 @@ export function initKeys() {
     }
 
     index();
-    let entry = null;
+    let entry: any = null;
     let combo = '';
     for (const c of combosOf(e)) {
-      entry = byCombo.get(normalizeCombo(c));
+      entry = byCombo!.get(normalizeCombo(c));
       if (entry) { combo = c; break; }
     }
     if (!entry || !combo) return;

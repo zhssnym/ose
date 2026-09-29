@@ -19,10 +19,10 @@
     "noImplicitAny": false,
     "paths": {
       "ose:core": [
-        "./src/core/core.js"
+        "./src/core/core.ts"
       ],
       "ose:ui": [
-        "./src/core/ui.js"
+        "./src/core/ui.ts"
       ],
       "ose:editor": [
         "./src/editor/lib.js"

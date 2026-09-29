@@ -16,23 +16,23 @@
 // activating and closing a tab, the 'route' and 'tabs' events, the window title and the recent
 // files. The page on screen is asked before it is left (C1); a page left because another tab
 // comes forward is parked instead, buffer and undo kept (M12, M24).
-import { bus, store, views, commands, debounce, esc } from './registry.js';
-import { bridge } from './bridge/index.js';
+import { bus, store, views, commands, debounce, esc } from './registry.ts';
+import { bridge } from './bridge/index.ts';
 // The editor is a separate bundle (`ose:editor`) and the folder view is the shell's; the core
 // imports neither. The shell registers them through ./pagehost.js.
-import { pageHost, folderHost, headingLineIn } from './pagehost.js';
-import { flushState } from './state.js';
-import { local } from './local.js';
-import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.js';
-import { display } from './names.js';
-import { toast } from './dialog.js';
-import { shortcutFor } from './keys.js';
-import { loadingOverlay } from './loading.js';
-import * as T from './tabs.js';
+import { pageHost, folderHost, headingLineIn } from './pagehost.ts';
+import { flushState } from './state.ts';
+import { local } from './local.ts';
+import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.ts';
+import { display } from './names.ts';
+import { toast } from './dialog.ts';
+import { shortcutFor } from './keys.ts';
+import { loadingOverlay } from './loading.ts';
+import * as T from './tabs.ts';
 // "Create it" is a file operation like any other (H12, M4): exclusive, any extension, never a
 // markdown heading written into a `.json`. Circular with ./fileops.js, which re-points the
 // history through `repoint` below; both only call each other at run time.
-import { create as createFile } from './fileops.js';
+import { create as createFile } from './fileops.ts';
 
 const MAX_RECENT = 40;
 // How many recent pages the empty surface lists (D7). Enough to find yesterday, not a dashboard.
@@ -40,26 +40,23 @@ const START_RECENT = 8;
 // Caret positions kept per route key (N44). The caret belongs to the file, not to a tab.
 const MAX_CARET_MEMORY = 50;
 
-/** @typedef {import('./types.js').Route} Route */
-/** @typedef {import('./types.js').TabRecord} TabRecord */
-/** @typedef {{ focus?: boolean, park?: boolean, reason?: string }} ShowOpts */
+export type Route = import('./types.ts').Route;
+export type TabRecord = import('./types.ts').TabRecord;
+export type ShowOpts = { focus?: boolean, park?: boolean, reason?: string };
 
-/** @type {HTMLElement | null} */
-let mainEl = null;
-/** @type {HTMLElement | null} */
-let scrollEl = null;
-let current = null;       // the route on screen: the same object as its tab's entry
-let mountedTab = null;    // the record that route belongs to
-let mountedView = null;   // a view's merged handle, or a folder handle
+let mainEl: HTMLElement | null = null;
+let scrollEl: HTMLElement | null = null;
+let current: any = null;       // the route on screen: the same object as its tab's entry
+let mountedTab: any = null;    // the record that route belongs to
+let mountedView: any = null;   // a view's merged handle, or a folder handle
 let seq = 0;
 // The edit the show in flight made to its own tab (a navigate's new entry, a back or forward's
 // move), so a newer show that overtakes it can take it back: `{ my, rec, before, after, route }`.
-let claim = null;
+let claim: { my: number; rec: TabRecord; before: { stack: Route[]; index: number; }; after: { stack: Route[]; index: number; }; route: Route | null; } | null = null;
 // The leave phase (ask, then tear down) of the newest show, while it runs. A newer show waits
 // for it before it asks or tears down itself, so a yes the older one got can be undone (`stay`)
 // on the page that gave it, not on a page already parked.
-/** @type {Promise<void> | null} */
-let leaving = null;
+let leaving: Promise<void> | null = null;
 // routeKey -> {from, to}, the caret the page was left with, so back and forward put it back
 // where it was rather than at the top (N44, N21). The editor is asked for it on the way out
 // and handed it on the way in; it ignores what it does not understand.
@@ -86,14 +83,12 @@ export function routeLabel(r) {
 
 /**
  * A route in its one shape, or null when it is not one.
- * @param {any} route  reason: anything a caller hands over, checked field by field below
- * @returns {Route | null}
+ * @param route  reason: anything a caller hands over, checked field by field below
  */
-export function normalize(route) {
+export function normalize(route: any): Route | null {
   if (!route || typeof route !== 'object') return null;
   if (route.type === 'page' && route.path) {
-    /** @type {import('./types.js').PageRoute} */
-    const r = { type: 'page', path: clean(route.path) };
+    const r: import('./types.ts').PageRoute = { type: 'page', path: clean(route.path) };
     // Only a real line survives: a 0, a float or a string would make the editor guess (C7).
     if (Number.isInteger(route.line) && route.line > 0) r.line = route.line;
     if (Number.isInteger(route.col) && route.col > 0) r.col = route.col;
@@ -105,14 +100,12 @@ export function normalize(route) {
     return r;
   }
   if (route.type === 'folder' && typeof route.path === 'string') {
-    /** @type {import('./types.js').FolderRoute} */
-    const r = { type: 'folder', path: clean(route.path) };
+    const r: import('./types.ts').FolderRoute = { type: 'folder', path: clean(route.path) };
     if (typeof route.select === 'string' && route.select) r.select = route.select;
     return r;
   }
   if (route.type === 'view' && route.name) {
-    /** @type {import('./types.js').ViewRoute} */
-    const r = { type: 'view', name: String(route.name) };
+    const r: import('./types.ts').ViewRoute = { type: 'view', name: String(route.name) };
     if (typeof route.arg === 'string' && route.arg) r.arg = route.arg;
     return r;
   }
@@ -280,13 +273,13 @@ function rememberScroll() {
   const key = routeKey(current);
   if (scrollEl) T.remember(mountedTab.scroll, key, scrollEl.scrollTop);
   if (current.type === 'folder' && mountedView && typeof mountedView.selection === 'function') {
-    let sel = null;
+    let sel: any = null;
     try { sel = mountedView.selection(); } catch (e) { console.warn('[router] folder selection', e); }
     T.remember(mountedTab.select, key, typeof sel === 'string' && sel ? sel : null);
   }
   const host = pageHost();
   if (current.type !== 'page' || !host || typeof host.selection !== 'function') return;
-  let sel = null;
+  let sel: any = null;
   try { sel = host.selection(); } catch (e) { console.warn('[router] selection', e); }
   caretMemory.delete(key);
   if (sel && Number.isInteger(sel.from)) caretMemory.set(key, sel);
@@ -305,7 +298,7 @@ export function liveScroll() {
  */
 export function liveSelection() {
   if (!current || current.type !== 'folder' || !mountedTab || !mountedView || typeof mountedView.selection !== 'function') return null;
-  let sel = null;
+  let sel: any = null;
   try { sel = mountedView.selection(); } catch (e) { console.warn('[router] folder selection', e); }
   return { key: routeKey(current), name: typeof sel === 'string' && sel ? sel : null, tab: mountedTab };
 }
@@ -330,10 +323,8 @@ const UNMOUNT_MS = 5000;
  * always proceeds; an `unmount` that never settles is named in a toast and left behind.
  */
 async function callUnmount(view, where) {
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let timer;
-  /** @type {Promise<void>} */
-  const late = new Promise((resolve) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late: Promise<void> = new Promise((resolve) => {
     timer = setTimeout(() => {
       const what = (current && routeLabel(current)) || 'A page';
       console.error(`[router] ${where}: unmount of ${what} did not finish in ${UNMOUNT_MS / 1000} s`);
@@ -365,7 +356,7 @@ async function teardown(mode) {
       try {
         const answer = mode === 'park' ? await host.close({ park: true }) : await host.close();
         if (answer === false) return false;
-      } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); console.warn('[router] close page:', e.message || e); }
+      } catch (err) { const e = (err as { code?: string, message?: string }); console.warn('[router] close page:', e.message || e); }
     }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
     await callUnmount(mountedView, current.type === 'folder' ? 'folder unmount' : 'view unmount');
@@ -418,7 +409,7 @@ async function mountPage(scroll, route, my) {
   // time it mounts: so a restored session, Recent and back or forward all work, and a path the
   // host finds inside this vault after all is shown as the vault file it is.
   if (isOutside(path)) {
-    let reg = null;
+    let reg: import('./bridge/commands.ts').OutsideFile | null = null;
     try { reg = await bridge.outsideOpen(path); } catch (e) {
       console.error('[router] outsideOpen', path, e);
       if (my !== seq) return;
@@ -426,7 +417,7 @@ async function mountPage(scroll, route, my) {
         <div class="miss">
           <div class="miss-title">Could not open this file</div>
           <div class="miss-path mono">${esc(outsideLabel(path))}</div>
-          <div class="miss-why">${esc((e && /** @type {Error} */ (e).message) || String(e))}</div>
+          <div class="miss-why">${esc((e && (e as Error).message) || String(e))}</div>
           <button class="btn" data-act="retry">Retry</button>
         </div>`);
       box.querySelector('[data-act="retry"]')?.addEventListener('click', () => {
@@ -442,12 +433,12 @@ async function mountPage(scroll, route, my) {
       return;
     }
   }
-  let st = null;
+  let st: import('./bridge/commands.ts').Stat_Serialize | null = null;
   // A stat that throws is not the same thing as a file that is not there: the first is a
   // locked file or a bridge fault and must never be offered "Create it", because that button
   // writes a stub over the path.
   try { st = await bridge.stat(path); } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     console.error('[router] stat', path, e);
     const box = emptyState(`
       <div class="miss">
@@ -496,7 +487,7 @@ async function mountPage(scroll, route, my) {
       try {
         await createFile(dirName(path), baseName(path), {});
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         if (!e || e.code !== 'exists') {
           toast(`Could not create ${path}: ${(e && e.message) || e}`, 'err', 0);
           return;
@@ -517,7 +508,7 @@ async function mountPage(scroll, route, my) {
     if (pages) await pages.open(host, path, { line, col, query, selection });
     mounted = host.childElementCount > 0;
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     console.error('[router] open page', e);
     toast('Could not open ' + path + ': ' + (e.message || e), 'err', 0);
   }
@@ -526,7 +517,7 @@ async function mountPage(scroll, route, my) {
   // working. Removed automatically as soon as a host renders something.
   if (!mounted && my === seq) {
     let text = '';
-    try { text = await bridge.readText(path); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); text = String(e.message || e); }
+    try { text = await bridge.readText(path); } catch (err) { const e = (err as { code?: string, message?: string }); text = String(e.message || e); }
     host.innerHTML = `
       <div class="page-col fallback">
         <h1 class="page-title">${esc(display(path))}</h1>
@@ -563,7 +554,7 @@ async function renderFolder(scroll, route, my, rec) {
     }
     mountedView = handle && typeof handle === 'object' ? handle : null;
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     console.error('[router] folder open', route.path, e);
     if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">Could not show this folder</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
@@ -591,7 +582,7 @@ async function renderView(scroll, route, my) {
     if (my !== seq) return;
     if (handle && typeof handle === 'object') mountedView = { ...v, ...handle };
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     console.error('[router] view mount', e);
     if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">This view failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
@@ -708,13 +699,11 @@ async function pageLets(mode) {
 }
 
 /** An older show's leave phase, waited for no longer than an unmount (a save that hangs). */
-/** @param {Promise<unknown>} p @returns {Promise<unknown>} */
-function bounded(p) {
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let timer;
+function bounded(p: Promise<unknown>): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     Promise.resolve(p).catch(() => {}),
-    new Promise((resolve) => { timer = setTimeout(resolve, UNMOUNT_MS); }),
+    new Promise<any>((resolve) => { timer = setTimeout(resolve, UNMOUNT_MS); }),
   ]).finally(() => clearTimeout(timer));
 }
 
@@ -728,10 +717,8 @@ function before(rec) {
 
 /**
  * The edit made: `c` from `before()`, completed with what `rec` holds now.
- * @param {{ rec: TabRecord, before: { stack: Route[], index: number } }} c
- * @param {Route | null} [route]
  */
-function made(c, route = null) {
+function made(c: { rec: TabRecord; before: { stack: Route[]; index: number; }; }, route: Route | null = null) {
   return { ...c, after: { stack: c.rec.stack.slice(), index: c.rec.index }, route };
 }
 
@@ -770,12 +757,7 @@ function overtake(c) {
  * opts: { focus, park, reason }. `park`: the page on screen stays alive for the tab that still
  * shows it. `reason` rides on the `tabs` event.
  */
-/**
- * @param {ShowOpts} [opts]
- * @param {{ rec: TabRecord, before: { stack: Route[], index: number }, after: { stack: Route[], index: number }, route: Route | null } | null} [own]
- * @returns {Promise<boolean>}
- */
-async function show(opts = {}, own = null) {
+async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack: Route[]; index: number; }; after: { stack: Route[]; index: number; }; route: Route | null; } | null = null): Promise<boolean> {
   T.beginChange();
   const my = ++seq;
   // An older show still in flight is overtaken: what it did to its own tab is taken back, so
@@ -784,10 +766,8 @@ async function show(opts = {}, own = null) {
   if (claim) { overtake(claim); claim = null; }
   claim = own ? { ...own, my } : null;
   const earlier = leaving;
-  /** @type {() => void} */
-  let release = () => {};
-  /** @type {Promise<void>} */
-  const phase = new Promise((resolve) => { release = () => resolve(); });
+  let release: () => void = (): void => {};
+  const phase: Promise<void> = new Promise((resolve) => { release = () => resolve(); });
   leaving = phase;
   const done = () => { release(); if (leaving === phase) leaving = null; };
   const settle = () => { if (claim && claim.my === my) claim = null; };
@@ -890,7 +870,7 @@ async function show(opts = {}, own = null) {
  * exactly what it was. Another tab showing the same route is not looked for: that is
  * `tabs.open`'s `reuse`.
  */
-export function navigate(route, opts = {}) {
+export function navigate(route, opts: any = {}) {
   const r = normalize(route);
   if (!r) return Promise.resolve(false);
   const where = opts.tab;
@@ -987,7 +967,7 @@ export function setHome(route) { T.setHome(normalize(route)); }
  * `ose.route.close()`: close the active tab (Ctrl+W). -> Promise<boolean>, false when its page
  * refused to be closed. With no tab open there is nothing to close, and that is true.
  */
-export function clearRoute(opts = {}) {
+export function clearRoute(opts: any = {}) {
   const id = T.activeTabId();
   if (!id) return Promise.resolve(true);
   return closeTab(id, opts);
@@ -1015,12 +995,7 @@ function onlyHome(rec) {
  * or a heading the route carries still lands in it. A tab opened with `activate: false` is
  * drawn in the strip and mounts nothing until it is brought forward.
  */
-/**
- * @param {unknown} route
- * @param {{ activate?: boolean, index?: number, reuse?: boolean, focus?: boolean }} [opts]
- * @returns {Promise<{ id: string | null, shown: boolean }>}
- */
-export async function openTab(route, { activate = true, index, reuse = true, focus } = {}) {
+export async function openTab(route: unknown, { activate = true, index, reuse = true, focus }: { activate?: boolean; index?: number; reuse?: boolean; focus?: boolean; } = {}): Promise<{ id: string | null; shown: boolean; }> {
   const r = normalize(route);
   if (!r) return { id: null, shown: false };
   if (reuse) {
@@ -1048,12 +1023,7 @@ export async function openTab(route, { activate = true, index, reuse = true, foc
 }
 
 /** `ose.tabs.activate(id)` -> Promise<boolean>. The page it leaves is parked, never asked. */
-/**
- * @param {string} id
- * @param {{ focus?: boolean }} [opts]
- * @returns {Promise<boolean>}
- */
-export function activateTab(id, { focus } = {}) {
+export function activateTab(id: string, { focus }: { focus?: boolean; } = {}): Promise<boolean> {
   const rec = T.recordOf(id);
   if (!rec) return Promise.resolve(false);
   if (id === T.activeTabId() && current && current === T.currentOf(rec)) return Promise.resolve(true);
@@ -1069,12 +1039,7 @@ export function activateTab(id, { focus } = {}) {
  * tab whose page no other tab shows: that page is released (saved and destroyed) first, and a
  * page that cannot be saved keeps its tab. False: nothing changed.
  */
-/**
- * @param {string} id
- * @param {{ focus?: boolean }} [opts]
- * @returns {Promise<boolean>}
- */
-export async function closeTab(id, { focus } = {}) {
+export async function closeTab(id: string, { focus }: { focus?: boolean; } = {}): Promise<boolean> {
   const rec = T.recordOf(id);
   if (!rec) return false;
   if (id !== T.activeTabId()) {
@@ -1154,13 +1119,7 @@ export function reopenCurrent() {
  * Only the active tab mounts; the rest are rows in the strip until they are brought forward.
  * False when the page on screen refused to be left (nothing changed then).
  */
-/**
- * @param {TabRecord[]} recs
- * @param {string} activeId
- * @param {{ focus?: boolean }} [opts]
- * @returns {Promise<boolean>}
- */
-export function restoreTabs(recs, activeId, { focus } = {}) {
+export function restoreTabs(recs: TabRecord[], activeId: string, { focus }: { focus?: boolean; } = {}): Promise<boolean> {
   if (!recs.length) return Promise.resolve(false);
   T.beginChange();
   T.replaceModel(recs, activeId);
@@ -1204,9 +1163,8 @@ function rekey(map, moves) {
  *
  * Also updates the recent list, the scroll, selection and caret memories, the store's `route`
  * and the window title.
- * @param {Array<{from: string, to: string}>} moves
  */
-export function repoint(moves) {
+export function repoint(moves: Array<{ from: string; to: string; }>) {
   const list = (moves || [])
     .map((m) => ({ from: clean(m && m.from), to: clean(m && m.to) }))
     .filter((m) => m.from && m.to && m.from !== m.to);
@@ -1234,7 +1192,7 @@ export function repoint(moves) {
   rekey(caretMemory, list);
 
   const recent = recentFiles();
-  const nextRecent = [];
+  const nextRecent: any[] = [];
   for (const p of recent) {
     const q = mapPath(p, list) ?? p;
     if (!nextRecent.includes(q)) nextRecent.push(q);
@@ -1263,7 +1221,7 @@ async function followTrash(paths) {
     const p = clean(r.path);
     return gone.find((g) => p === g || p.startsWith(g + '/')) || null;
   };
-  let activeHit = null;
+  let activeHit: { rec: any; to: { type: string; path: string; select: string; }; } | null = null;
   let changed = false;
   for (const rec of T.records()) {
     const r = T.currentOf(rec);

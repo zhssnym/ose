@@ -7,14 +7,14 @@
 //
 // Every test gets a fresh router (the module keeps its history in module state).
 //
-// Depends on: core (src/core/router.js).
+// Depends on: core (src/core/router.ts).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
-let R;       // src/core/router.js
-let K;       // src/core/registry.js
+let R;       // src/core/router.ts
+let K;       // src/core/registry.ts
 let fake;    // the fake bridge
 let host;    // the fake page host
 let main;    // the column
@@ -56,9 +56,9 @@ beforeEach(async () => {
   vi.resetModules();
   fake = await import('./fake-bridge.js');
   fake.reset({ 'a.md': '# a\n', 'b.md': '# b\n', 'c.md': '# c\n', 'notes/n.md': '# n\n', 'notes/sub/m.md': '# m\n' });
-  K = await import('../../src/core/registry.js');
-  R = await import('../../src/core/router.js');
-  const P = await import('../../src/core/pagehost.js');
+  K = await import('../../src/core/registry.ts');
+  R = await import('../../src/core/router.ts');
+  const P = await import('../../src/core/pagehost.ts');
   document.body.innerHTML = '';
   main = document.createElement('main');
   document.body.appendChild(main);

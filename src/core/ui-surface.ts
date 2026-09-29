@@ -1,6 +1,6 @@
 // What `ose:ui` is made of. The names live here and are re-exported twice: out of
-// `core.js`, because the core's own router and key engine use the same overlay stack and
-// the same toast, and out of `ui.js`, which is the `ose:ui` entry and does nothing but name
+// `core.ts`, because the core's own router and key engine use the same overlay stack and
+// the same toast, and out of `ui.ts`, which is the `ose:ui` entry and does nothing but name
 // them again from `ose:core`.
 //
 // That indirection is the point: there is exactly one overlay stack, one toast queue and one
@@ -19,9 +19,9 @@ export {
   toast, dismissToast,
   copyText,
   pageTitle,
-} from './dialog.js';
+} from './dialog.ts';
 
-export { icon, hasIcon, glyph } from './icons.js';
-export { fuzzy, highlight, pageItems } from './fuzzy.js';
-export { loadingLine, loadingOverlay, LOADING_DELAY } from './loading.js';
-export { esc } from './registry.js';
+export { icon, hasIcon, glyph } from './icons.ts';
+export { fuzzy, highlight, pageItems } from './fuzzy.ts';
+export { loadingLine, loadingOverlay, LOADING_DELAY } from './loading.ts';
+export { esc } from './registry.ts';

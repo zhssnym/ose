@@ -1,13 +1,13 @@
 // ose.names (CONTRACT 4.5, H12, H13): a name is literal, the extension is whatever follows the
 // last dot, and the free name is `stem 2.ext`.
 //
-// Depends on: core (src/core/names.js).
+// Depends on: core (src/core/names.ts).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reset } from './fake-bridge.js';
-import { check, extChanged, free, split } from '../../src/core/names.js';
+import { check, extChanged, free, split } from '../../src/core/names.ts';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
 describe('names.split', () => {
   it.each([

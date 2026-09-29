@@ -6,15 +6,15 @@
 // host call comes next; only after it succeeded is the router re-pointed, the page told, the bus
 // told and the links rewritten. A failed host call tells the page `ok:false` and rethrows.
 //
-// Depends on: core (src/core/fileops.js, names.js, router.js repoint, links.js).
+// Depends on: core (src/core/fileops.ts, names.js, router.js repoint, links.js).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calls, fail, reset, vault, writes } from './fake-bridge.js';
-import { create, duplicate, move, rename, trash } from '../../src/core/fileops.js';
-import { setPageHost } from '../../src/core/pagehost.js';
-import { bus } from '../../src/core/registry.js';
+import { create, duplicate, move, rename, trash } from '../../src/core/fileops.ts';
+import { setPageHost } from '../../src/core/pagehost.ts';
+import { bus } from '../../src/core/registry.ts';
 
-vi.mock('../../src/core/bridge/index.js', () => import('./fake-bridge.js'));
+vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
 /**
  * A page host that writes its calls into the bridge's call log, so one list holds the order of

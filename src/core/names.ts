@@ -6,9 +6,9 @@
 // extension or "cleans" a character away. It only refuses what no file system on Windows or
 // macOS can hold, and says why.
 
-import { bridge } from './bridge/index.js';
-import { clean, join, baseName } from './paths.js';
-import { settings } from './settings-core.js';
+import { bridge } from './bridge/index.ts';
+import { clean, join, baseName } from './paths.ts';
+import { settings } from './settings-core.ts';
 
 // Windows refuses these as a whole name and as the part before the first dot (`con.txt`).
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -20,10 +20,8 @@ const MAX_SEGMENT = 255;
 /**
  * `{ stem, ext }`, the extension without its dot and '' when there is none. A leading dot is
  * part of the stem: `.env` is `{ stem: '.env', ext: '' }`, and `a.tar.gz` is `a.tar` + `gz`.
- * @param {string} name
- * @returns {{stem: string, ext: string}}
  */
-export function split(name) {
+export function split(name: string): { stem: string; ext: string; } {
   const s = String(name ?? '');
   const base = s.slice(s.lastIndexOf('/') + 1);
   const i = base.lastIndexOf('.');
@@ -48,11 +46,8 @@ function segmentProblem(seg) {
  * Is `name` a name a file can have on Windows and macOS? Surrounding whitespace is trimmed and
  * nothing else is touched. With `folders`, `/` separates folders and every segment is checked;
  * without it a `/` is refused.
- * @param {string} name
- * @param {{folders?: boolean}} [opts]
- * @returns {{ok: true, name: string} | {ok: false, reason: string}}
  */
-export function check(name, { folders = false } = {}) {
+export function check(name: string, { folders = false }: { folders?: boolean; } = {}): { ok: true; name: string; } | { ok: false; reason: string; } {
   const s = String(name ?? '').trim();
   if (!s) return { ok: false, reason: 'a name cannot be empty' };
   if (s.includes('/') && !folders) return { ok: false, reason: 'a name cannot contain /' };
@@ -68,12 +63,9 @@ export function check(name, { folders = false } = {}) {
  * `stem 3.ext`, … With `dir`, the whole name is the stem, so a folder `v1.2` becomes `v1.2 2`
  * rather than `v1 2.2`. Asks the host; a race with a file that arrives after the answer is
  * settled by the host's exclusive create, not here.
- * @param {string} folder  vault-relative, '' for the root
- * @param {string} name
- * @param {{dir?: boolean}} [opts]
- * @returns {Promise<string>}
+ * @param folder  vault-relative, '' for the root
  */
-export async function free(folder, name, { dir: isDir = false } = {}) {
+export async function free(folder: string, name: string, { dir: isDir = false }: { dir?: boolean; } = {}): Promise<string> {
   const first = join(folder, name);
   if (!(await bridge.exists(first))) return first;
   const last = clean(name).split('/').pop() || '';
@@ -90,10 +82,8 @@ export async function free(folder, name, { dir: isDir = false } = {}) {
  * The name the chrome shows for a path (W8, H20): the file's real name with its extension,
  * everywhere, the same for every file. Only the machine setting `hideMdExt` strips a `.md`,
  * and only for display. '' for the vault root: the caller says the vault's name there.
- * @param {string} path
- * @returns {string}
  */
-export function display(path) {
+export function display(path: string): string {
   const name = baseName(path);
   if (!name) return '';
   if (settings().hideMdExt === true && /\.md$/i.test(name) && name.length > 3) return name.slice(0, -3);
@@ -103,10 +93,8 @@ export function display(path) {
 /**
  * True when the two names have different extensions, compared without case and in one Unicode
  * form: `a.md` → `a.MD` is not a change, `a.md` → `a.txt` and `a.md` → `a` are.
- * @param {string} a
- * @param {string} b
  */
-export function extChanged(a, b) {
+export function extChanged(a: string, b: string) {
   return nfc(split(a).ext).toLowerCase() !== nfc(split(b).ext).toLowerCase();
 }
 
@@ -114,15 +102,12 @@ export function extChanged(a, b) {
  * A name (or a path) in Unicode normal form C (M49). macOS hands a name typed in Finder over in
  * form D, `é` as `e` and a combining accent; the host sends names out in form C, and the core
  * compares in form C, so the two spellings of one name are one name.
- * @param {string} s
  */
-export const nfc = (s) => String(s ?? '').normalize('NFC');
+export const nfc = (s: string) => String(s ?? '').normalize('NFC');
 
 /**
  * True when two names (or paths) are the same name in either Unicode form. Case counts.
- * @param {string} a
- * @param {string} b
  */
-export function sameName(a, b) {
+export function sameName(a: string, b: string) {
   return a === b || nfc(a) === nfc(b);
 }

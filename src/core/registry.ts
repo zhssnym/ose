@@ -9,7 +9,7 @@ function makeEmitter() {
       map.get(name).add(fn);
       return () => map.get(name)?.delete(fn);
     },
-    emit(name, payload) {
+    emit(name, payload?) {
       const set = map.get(name);
       if (!set) return;
       for (const fn of [...set]) {
@@ -34,14 +34,14 @@ export const store = {
 };
 
 const cmdMap = new Map();
-// Bumped on every register and unregister. `keys.js` reads it to know when to rebuild its
+// Bumped on every register and unregister. `keys.ts` reads it to know when to rebuild its
 // index, because a command's `shortcut` is a real binding (docs/CORE.md
 // `ose.commands.register`): registering the command arms the chord and the unsubscribe takes
 // it back. The counter is how that happens without the registry — the
 // one file in the core that imports nothing — importing the key engine.
 let cmdRev = 0;
 export const commandsRevision = () => cmdRev;
-/** Every registered command, `when` guards ignored. `keys.js` only. */
+/** Every registered command, `when` guards ignored. `keys.ts` only. */
 export const allCommands = () => [...cmdMap.values()];
 export const commands = {
   register(cmd) {
@@ -118,16 +118,12 @@ export const status = {
    * reader that wants the string, with the rest beside it for the ones that draw them.
    * `choices` is `[{ value, label }]`; the shell draws the field as a menu of them, the current
    * `value` checked, and a pick calls `onChoose(value)`.
-   * @param {string} key
-   * @param {string | null | undefined | import('./types.js').StatusField} value
    */
-  set(key, value) {
-    /** @type {import('./types.js').StatusField} */
-    const obj = value && typeof value === 'object' ? value : { text: value };
+  set(key: string, value: string | null | undefined | import('./types.ts').StatusField) {
+    const obj: import('./types.ts').StatusField = value && typeof value === 'object' ? value : { text: value };
     const text = obj.text == null ? '' : String(obj.text);
     if (!text) { statusData.delete(key); statusWatchers.emit('change', status.all()); return; }
-    /** @type {import('./types.js').StatusEntry} */
-    const entry = { text, kind: obj.kind || null, onClick: typeof obj.onClick === 'function' ? obj.onClick : null };
+    const entry: import('./types.ts').StatusEntry = { text, kind: obj.kind || null, onClick: typeof obj.onClick === 'function' ? obj.onClick : null };
     if (typeof obj.title === 'string' && obj.title) entry.title = obj.title;
     if (Array.isArray(obj.choices)) {
       entry.choices = obj.choices
@@ -155,4 +151,4 @@ export const status = {
 // small shared helpers
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c));

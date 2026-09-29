@@ -17,7 +17,7 @@
 
 import { editorModeSetting, localSlot } from './host.js';
 import { readState } from './deps.js';
-import { isOutside } from '../core/paths.js';
+import { isOutside } from '../core/paths.ts';
 
 /** @typedef {'rich' | 'live' | 'source'} PageMode */
 

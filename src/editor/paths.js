@@ -1,12 +1,12 @@
 // Vault path helpers. Vault paths are relative to the root, forward slashes, no leading slash.
 // Everything here is pure; nothing touches the bridge.
 //
-// The functions live in `src/core/href.js`, because the core's own link resolver needs
+// The functions live in `src/core/href.ts`, because the core's own link resolver needs
 // four of them and the core may not import `ose:editor`. This file was a byte-for-byte copy
 // of them; it is the same list of names now, from one place, so a fix to `resolveHref` or
 // `linkTarget` cannot land in only half the app.
-export * from '../core/href.js';
-import { normalize as normalizePath } from '../core/href.js';
+export * from '../core/href.ts';
+import { normalize as normalizePath } from '../core/href.ts';
 
 /**
  * The extensions that make a file markdown to the editor (wave 2, H17): these open in the rich
@@ -25,10 +25,10 @@ export const isMarkdown = (p) => {
 
 /**
  * Files outside the vault (wave 3, X7): `abs:` and the absolute path with forward slashes. The
- * core owns the form (`src/core/paths.js`); the editor only asks which kind a path is and
+ * core owns the form (`src/core/paths.ts`); the editor only asks which kind a path is and
  * how to show it.
  */
-export { ABS, isOutside, outsideLabel } from '../core/paths.js';
+export { ABS, isOutside, outsideLabel } from '../core/paths.ts';
 
 /**
  * `normalize` for a path of either kind: a vault path is collapsed, an `abs:` path is kept as

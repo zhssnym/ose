@@ -1,34 +1,29 @@
 // Overlays: the one place a floating surface is created. The palette, settings, context menus
 // and the prompt/confirm dialogs all sit on this stack so Esc, click-outside and focus
 // restoration behave identically. Nobody in the app calls window.prompt/alert/confirm.
-import { esc } from './registry.js';
-import { bridge } from './bridge/index.js';
-import { icon } from './icons.js';
-import { titleOf } from './paths.js';
-import { highlight, pageItems } from './fuzzy.js';
-import { pageList } from './pagehost.js';
+import { esc } from './registry.ts';
+import { bridge } from './bridge/index.ts';
+import { icon } from './icons.ts';
+import { titleOf } from './paths.ts';
+import { highlight, pageItems } from './fuzzy.ts';
+import { pageList } from './pagehost.ts';
 
-/** @typedef {{ el: HTMLDivElement, box: HTMLDivElement, close: () => void, prevFocus: Element | null }} Overlay */
+export type Overlay = { el: HTMLDivElement, box: HTMLDivElement, close: () => void, prevFocus: Element | null };
 
-/** @type {Overlay[]} */
-const stack = [];
+const stack: Overlay[] = [];
 
 /**
  * The element `sel` inside `root`, which the caller has just drawn: one that is not there is a
  * bug in the markup above it, and says so instead of failing later on a null.
- * @template {HTMLElement} [T=HTMLElement]
- * @param {ParentNode} root
- * @param {string} sel
- * @returns {T}
  */
-export function part(root, sel) {
+export function part<T extends HTMLElement = HTMLElement>(root: ParentNode, sel: string): T {
   const found = root.querySelector(sel);
   if (!found) throw new Error(`[ui] missing ${sel}`);
-  return /** @type {T} */ (/** @type {unknown} */ (found));
+  return ((found as unknown) as T);
 }
 
-/** The element as an HTMLElement when it is one. @param {unknown} n @returns {HTMLElement | null} */
-const html = (n) => (n instanceof HTMLElement ? n : null);
+/** The element as an HTMLElement when it is one. */
+const html = (n: unknown): HTMLElement | null => (n instanceof HTMLElement ? n : null);
 
 export function overlayCount() { return stack.length; }
 export function closeTopOverlay() { stack[stack.length - 1]?.close(); }
@@ -45,8 +40,7 @@ export function focusOrigin() {
  * The sidebar rebuilds its rows while a dialog is open (an fs event lands mid-confirm); the
  * node focus would go back to is then detached. It tells us the replacement here (B4).
  */
-/** @param {Element | null} el */
-export function retargetFocusOrigin(el) {
+export function retargetFocusOrigin(el: Element | null) {
   if (stack[0] && el) stack[0].prevFocus = el;
 }
 export function overlayHasInputFocus() {
@@ -67,7 +61,7 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select, textar
  * overlay is a modal one and says so with `aria-modal`; a menu (dim:false) is not modal and
  * must not claim to be.
  */
-export function openOverlay(opts = {}) {
+export function openOverlay(opts: any = {}) {
   const { width = 420, top = null, at = null, dim = true, className = '', title = '', onClose = null } = opts;
 
   const prevFocus = document.activeElement;
@@ -153,11 +147,8 @@ export function openOverlay(opts = {}) {
  * task, for a window that would not take the focus yet (ADV-N: backgrounded, minimised, a
  * hidden web view); it only acts when the focus is not already on a field of the box, so it
  * never undoes what the user typed or where they tabbed in the meantime.
- * @param {HTMLElement} box
- * @param {HTMLElement|null} el
- * @param {() => void} [then]
  */
-export function focusField(box, el, then) {
+export function focusField(box: HTMLElement, el: HTMLElement | null, then?: () => void) {
   if (!el) return;
   const go = () => {
     if (!el.isConnected) return;
@@ -174,11 +165,8 @@ export function focusField(box, el, then) {
 
 /**
  * The row `sel` an event happened in, or null.
- * @param {Event} e
- * @param {string} sel
- * @returns {HTMLElement | null}
  */
-function rowAt(e, sel) {
+function rowAt(e: Event, sel: string): HTMLElement | null {
   return e.target instanceof Element ? html(e.target.closest(sel)) : null;
 }
 
@@ -187,17 +175,15 @@ function rowAt(e, sel) {
  * with it (cycling, so pressing it again moves on). Chords are left alone: the shell's window
  * listener has already had them, and anything with a modifier is not a letter jump.
  */
-/** @param {HTMLElement} box */
-function bindMenuKeys(box) {
-  /** @returns {HTMLElement[]} */
-  const rows = () => [...box.querySelectorAll('.menu-row')]
+function bindMenuKeys(box: HTMLElement) {
+  const rows = (): HTMLElement[] => [...box.querySelectorAll('.menu-row')]
     .map(html)
-    .filter(/** @returns {n is HTMLElement} */ (n) => n !== null && !(/** @type {HTMLButtonElement} */ (n)).disabled && n.offsetParent !== null);
+    .filter((n): n is HTMLElement => n !== null && !((n as HTMLButtonElement)).disabled && n.offsetParent !== null);
   box.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const list = rows();
     if (!list.length) return;
-    const at = list.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+    const at = list.indexOf((document.activeElement as HTMLElement));
     let next = -1;
     if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % list.length;
     else if (e.key === 'ArrowUp') next = at < 0 ? list.length - 1 : (at - 1 + list.length) % list.length;
@@ -205,8 +191,7 @@ function bindMenuKeys(box) {
     else if (e.key === 'End') next = list.length - 1;
     else if (e.key.length === 1 && e.key !== ' ') {
       const ch = e.key.toLowerCase();
-      /** @param {HTMLElement | undefined} n */
-      const starts = (n) => !!n && (n.textContent || '').trim().toLowerCase().startsWith(ch);
+      const starts = (n: HTMLElement | undefined) => !!n && (n.textContent || '').trim().toLowerCase().startsWith(ch);
       for (let i = 1; i <= list.length; i++) {
         const n = (at + i) % list.length;
         if (starts(list[n])) { next = n; break; }
@@ -222,12 +207,7 @@ function bindMenuKeys(box) {
 // sighted user reads first is the name a screen reader announces first (S40).
 let headSeq = 0;
 
-/**
- * @param {HTMLElement} box
- * @param {{ title?: string, danger?: boolean }} o
- * @returns {{ body: HTMLElement, cancel: HTMLElement, ok: HTMLElement }}
- */
-function dialogShell(box, { title, danger }) {
+function dialogShell(box: HTMLElement, { title, danger }: { title?: string; danger?: boolean; }): { body: HTMLElement; cancel: HTMLElement; ok: HTMLElement; } {
   box.classList.add('dlg');
   const headId = `dlg-head-${++headSeq}`;
   box.setAttribute('aria-labelledby', headId);
@@ -249,10 +229,8 @@ function dialogShell(box, { title, danger }) {
  * A one-line question. Answers the trimmed value, or null on cancel or an empty answer.
  * `select: [start, end]` is the input's selection once it has focus (a rename selects the stem
  * and leaves the extension alone); the default is the whole value.
- * @param {{ title?: string, value?: string, placeholder?: string, ok?: string, body?: string, select?: number[] | null }} [o]
- * @returns {Promise<string | null>}
  */
-export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'OK', body = '', select = null } = {}) {
+export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'OK', body = '', select = null }: { title?: string; value?: string; placeholder?: string; ok?: string; body?: string; select?: number[] | null; } = {}): Promise<string | null> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
@@ -260,7 +238,7 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
     const parts = dialogShell(ov.box, { title });
     parts.ok.textContent = ok;
     parts.body.innerHTML = (body ? `<p class="dlg-text">${esc(body)}</p>` : '') + `<input class="input" type="text" spellcheck="false">`;
-    const input = /** @type {HTMLInputElement} */ (part(parts.body, 'input'));
+    const input = (part(parts.body, 'input') as HTMLInputElement);
     input.value = value;
     input.placeholder = placeholder;
     parts.ok.addEventListener('click', () => finish(input.value.trim() || null));
@@ -283,10 +261,8 @@ export function prompt({ title = 'Rename', value = '', placeholder = '', ok = 'O
 
 /**
  * A yes or no question. Answers true for OK, false for Cancel, Esc or a click outside.
- * @param {{ title?: string, body?: string, ok?: string, danger?: boolean }} [o]
- * @returns {Promise<boolean>}
  */
-export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger = false } = {}) {
+export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger = false }: { title?: string; body?: string; ok?: string; danger?: boolean; } = {}): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
@@ -311,8 +287,12 @@ export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger 
  * Rows, not a select: the same list every picker in the app draws, so Up and Down walk it and
  * Enter takes the focused row. Nothing here needs the mouse.
  */
-export function choose({ title = 'Choose', body = '', options = [], cancel = 'Cancel' } = {}) {
-  const items = options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o))
+export function choose<T = string>({ title = 'Choose', body = '', options = [], cancel = 'Cancel' }: {
+  title?: string, body?: string, cancel?: string,
+  options?: ({ value: T, label?: string, note?: string, danger?: boolean } | string)[],
+} = {}): Promise<T | null> {
+  type Item = { value: T | string, label?: string, note?: string, danger?: boolean };
+  const items = options.map((o): Item => (typeof o === 'string' ? { value: o, label: o } : o))
     .filter((o) => o && o.value !== undefined);
   return new Promise((resolve) => {
     let done = false;
@@ -335,7 +315,7 @@ export function choose({ title = 'Choose', body = '', options = [], cancel = 'Ca
     cancelBtn.addEventListener('click', () => finish(null));
     ov.box.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      const at = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+      const at = rows.indexOf((document.activeElement as HTMLElement));
       if (at < 0) return;
       e.preventDefault();
       rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
@@ -370,7 +350,7 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true
 /** Every folder in the vault, root first, as vault-relative paths ('' is the root). */
 async function vaultFolders() {
   const out = [''];
-  let tree = null;
+  let tree: import('./bridge/commands.ts').Entry_Serialize | null = null;
   try { tree = await bridge.tree(); } catch { return out; }
   const walk = (n) => {
     if (!n || !n.children) return;
@@ -384,8 +364,8 @@ async function vaultFolders() {
 
 /** Every file in the vault, folder by folder, limited to `exts` (lowercase, no dot). */
 async function vaultFiles(exts) {
-  const out = [];
-  let tree = null;
+  const out: any[] = [];
+  let tree: import('./bridge/commands.ts').Entry_Serialize | null = null;
   try { tree = await bridge.tree(); } catch { return out; }
   const ok = (name) => {
     if (!exts || !exts.length) return true;
@@ -410,7 +390,7 @@ async function vaultFiles(exts) {
  * so callers must test `=== null`, not falsiness (the vault root is the empty string).
  */
 function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, empty }) {
-  return new Promise((resolve) => {
+  return new Promise<any>((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', title, onClose: () => { if (!done) { done = true; resolve(null); } } });
@@ -428,7 +408,7 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
         <span class="pal-mode">${esc(mode)}</span>
       </div>`;
 
-    const input = /** @type {HTMLInputElement} */ (part(ov.box, '.pal-input'));
+    const input = (part(ov.box, '.pal-input') as HTMLInputElement);
     const list = part(ov.box, '.pal-list');
     let items = all;
     let sel = 0;
@@ -500,10 +480,8 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
  * Folder picker (move to…, and the `plans` source). Resolves to a vault-relative path, `''`
  * for the vault root, or `null` when cancelled. `hide` drops a subtree from the list so a
  * folder cannot be moved into itself.
- * @param {{ title?: string, current?: string | null, hide?: string | null, enterLabel?: string }} [opts]
- * @returns {Promise<string | null>}
  */
-export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' } = {}) {
+export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' }: { title?: string; current?: string | null; hide?: string | null; enterLabel?: string; } = {}): Promise<string | null> {
   const all = (await vaultFolders()).filter((p) => !hide || (p !== hide && !p.startsWith(hide + '/')));
   return pickPath({
     // Only the caller knows what Enter does here: moving a file is a move, naming the folder the
@@ -517,10 +495,8 @@ export async function pickFolder({ title = 'Move to…', current = null, hide = 
 /**
  * File picker: the same surface, listing files. `ext` limits it and takes 'md', '.jsonl',
  * 'md,txt' or an array of those. Resolves to a vault-relative path or `null`.
- * @param {{ title?: string, ext?: string | string[] | null, current?: string | null }} [opts]
- * @returns {Promise<string | null>}
  */
-export async function pickFile({ title = 'Choose a file…', ext = null, current = null } = {}) {
+export async function pickFile({ title = 'Choose a file…', ext = null, current = null }: { title?: string; ext?: string | string[] | null; current?: string | null; } = {}): Promise<string | null> {
   const exts = (Array.isArray(ext) ? ext : String(ext ?? '').split(','))
     .map((e) => String(e).trim().replace(/^\./, '').toLowerCase())
     .filter(Boolean);
@@ -540,13 +516,11 @@ export async function pickFile({ title = 'Choose a file…', ext = null, current
 // (the stock sidebar, which narrows it to the focused folder) and reaches the core through
 // `setPageList`; with nothing registered the vault is walked instead.
 async function quickOpenData() {
-  const router = await import('./router.js');
-  /** @type {string[]} */
-  let recent = [];
+  const router = await import('./router.ts');
+  let recent: string[] = [];
   try { recent = router.recentFiles(); } catch { /* no history yet */ }
   const provider = pageList();
-  /** @type {string[]} */
-  let paths = [];
+  let paths: string[] = [];
   try { paths = provider ? [...(await provider())] : await vaultFiles(['md']); } catch (e) { console.error('[ui] page list', e); }
   return { paths, recent };
 }
@@ -558,7 +532,7 @@ async function quickOpenData() {
  */
 export async function pickPage({ title = 'Link a page…', current = null } = {}) {
   const { paths, recent } = await quickOpenData();
-  return new Promise((resolve) => {
+  return new Promise<any>((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = openOverlay({ width: 560, top: '15vh', className: 'pal pick', title, onClose: () => { if (!done) { done = true; resolve(null); } } });
@@ -576,10 +550,9 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
         <span class="pal-mode">pages</span>
       </div>`;
 
-    const input = /** @type {HTMLInputElement} */ (part(ov.box, '.pal-input'));
+    const input = (part(ov.box, '.pal-input') as HTMLInputElement);
     const list = part(ov.box, '.pal-list');
-    /** @type {ReturnType<typeof pageItems>} */
-    let items = [];
+    let items: ReturnType<typeof pageItems> = [];
     let sel = 0;
 
     function build() {
@@ -724,12 +697,10 @@ export function contextMenu(x, y, items) {
 
 // Newest last in the DOM, so `dismissToast` pops the last child. The host is a live region:
 // a screen reader hears a save error the way a sighted user sees it (D10).
-/** @type {HTMLDivElement | null} */
-let toastHost = null;
+let toastHost: HTMLDivElement | null = null;
 
 /** Each toast's kill, and whether it is sticky, for `dismissToast`. */
-/** @type {WeakMap<Element, { kill: () => void, sticky: boolean }>} */
-const toastState = new WeakMap();
+const toastState: WeakMap<Element, { kill: () => void; sticky: boolean; }> = new WeakMap();
 
 /**
  * A message above the status bar (docs/CORE.md `ose.toast`, H8). Errors surface here instead
@@ -741,14 +712,8 @@ const toastState = new WeakMap();
  * - `opts.actions`: `[{ label, run }]`, drawn as buttons, reachable with Tab. Running one
  *   closes the toast; `run` may return a promise and its failure is logged, not thrown.
  * - `kind === 'err'` gives the toast `role="alert"`, so a screen reader interrupts for it.
- *
- * @param {string} text
- * @param {'info'|'ok'|'warn'|'err'} [kind]
- * @param {number} [ms]
- * @param {{actions?: Array<{label: string, run: () => any}>}} [opts]
- * @returns {() => void}
  */
-export function toast(text, kind = 'info', ms = 4500, opts = {}) {
+export function toast(text: string, kind: 'info' | 'ok' | 'warn' | 'err' = 'info', ms: number = 4500, opts: { actions?: Array<{ label: string; run: () => any; }>; } = {}): () => void {
   if (!toastHost) {
     toastHost = document.createElement('div');
     toastHost.className = 'toasts';
@@ -765,8 +730,7 @@ export function toast(text, kind = 'info', ms = 4500, opts = {}) {
   line.className = 'toast-text';
   line.textContent = String(text);
   t.appendChild(line);
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let timer;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const kill = () => {
     clearTimeout(timer);
     t.remove();
@@ -815,7 +779,7 @@ export function toast(text, kind = 'info', ms = 4500, opts = {}) {
   return kill;
 }
 
-/** Esc with no overlay open (keys.js): drop the newest toast. True when there was one. */
+/** Esc with no overlay open (keys.ts): drop the newest toast. True when there was one. */
 export function dismissToast() {
   // A sticky toast is not Esc's to take: Esc also reaches the editor's block selection, and a
   // "not saved" notice must not go with a keystroke meant for something else. Its own close

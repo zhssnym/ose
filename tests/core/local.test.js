@@ -1,4 +1,4 @@
-// ose.local's debounced write (src/core/local.js, W5). A write reads the disk first and lays
+// ose.local's debounced write (src/core/local.ts, W5). A write reads the disk first and lays
 // the keys this window changed over it; a key set while that read is out must survive it, in
 // the cache and on disk. This was the "session save, seen once" of the wave-2 integration: the
 // recent list's write read the disk while the session's flush set 'session', and the merge put
@@ -7,16 +7,16 @@
 import { test, expect, vi } from 'vitest';
 let disk = { session: 'OLD' };
 const pending = [];
-vi.mock('../../src/core/bridge/index.js', () => ({
+vi.mock('../../src/core/bridge/index.ts', () => ({
   bridge: {
     localGet: () => new Promise((res) => pending.push(() => res(JSON.parse(JSON.stringify(disk))))),
     localSet: async (_n, v) => { disk = JSON.parse(JSON.stringify(v)); return null; },
   },
 }));
-vi.mock('../../src/core/log.js', () => ({ logLine: () => {} }));
+vi.mock('../../src/core/log.ts', () => ({ logLine: () => {} }));
 test('a key set while a write reads the disk is not lost', async () => {
   vi.useFakeTimers();
-  const L = await import('../../src/core/local.js');
+  const L = await import('../../src/core/local.ts');
   const p0 = L.loadLocal(); pending.shift()(); pending.shift()(); await p0;
   L.local('recent').set(['a.md']);
   const w1 = L.local('recent').flush();        // first write: awaiting localGet
