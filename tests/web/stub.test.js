@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The in-memory File System Access API (tests/stubs/fsa.js) that the Ose Web tests run on, and
 // the IndexedDB helper's memory backend (src/web/idb.js): both behave as the modules under
-// test will expect Chrome to (docs/WEB.md "Testing").
+// test will expect Chrome to (docs/HOST.md "Testing").
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createFsa } from '../stubs/fsa.js';

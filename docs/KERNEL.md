@@ -1,33 +1,34 @@
 # The Ose kernel
 
-`ose.exe` is the whole app: the Rust host (docs/HOST.md), the kernel, the editor, the planner and
-the shell (docs/SHELL.md), in one file. The kernel is the JavaScript that is logic rather than
-look, built into library bundles the executable carries and serves. It never draws and knows no
+Ose is one web app in Chrome: the host (the web adapter, docs/HOST.md), the kernel, the editor,
+the planner and the shell (docs/SHELL.md), in one build. The kernel is the JavaScript that is
+logic rather than look, built into library bundles the site serves. It never draws and knows no
 view and no file name of the shell. Everything the shell and the built-in modules do, they do
 through the hoses below, and nothing else. This file is the contract.
 
 There are no plugins (W2). Day, Week, Month and Journal are `ose:planner`, a module that ships
-inside the executable and registers through the same seams the shell uses: views, commands and a
+in the build and registers through the same seams the shell uses: views, commands and a
 settings section. The file formats they read are docs/FORMATS.md.
 
 ## Where the app is served
 
-The standard Tauri layout (X4, docs/HOST.md). The build writes `dist/`: the shell copied verbatim
-at its root, and the four library bundles and their stylesheets under `dist/ose/`. The window
-loads `index.html` from Tauri's own asset protocol, and `npm run tauri dev` loads the same files
-from the dev server.
+The build (X4, docs/HOST.md) writes `dist/`: the shell copied verbatim at its root, the four
+library bundles and their stylesheets under `dist/ose/`, and the worker, the manifest and the
+icons. Any static host serves it (Vercel, `vercel.json`); the page loads `index.html` from there,
+and `npm run dev` serves the same files from the sources.
 
 ```
 dist/index.html, main.js, …        the shell (shell/, copied as it is)
 dist/ose/kernel.js  editor.js  planner.js  ui.js  chunks/…
 dist/ose/ui.css  editor.css  planner.css
-vault.localhost                    the vault's files (images, PDFs, media with Range), and under
-                                   `/~abs/` the folder of a file outside the vault this window
-                                   opened. `vault://localhost` on macOS
+dist/sw.js  manifest.webmanifest  icons/
+./vault/<vaultId>/…                the vault's files (images, PDFs, media with Range), answered by
+                                   the worker from the vault; `./vault/~abs/<id>/<name>` a file
+                                   outside the vault this tab opened
 ```
 
-`shell/index.html` carries a static import map, which Tauri hashes into the CSP at build time,
-and literal stylesheet links:
+`shell/index.html` carries a static import map, which the build hashes into the page's CSP, and
+literal stylesheet links:
 
 ```html
 <script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js",
@@ -35,9 +36,9 @@ and literal stylesheet links:
 <link rel="stylesheet" href="./ose/ui.css">   (and editor.css, planner.css, then the shell's own)
 ```
 
-In the browser dev server the import map is inert: Vite rewrites the `ose:*` imports to the
-sources, and answers `/ose/*.css`. No file spells an origin. `ose.assets.url(name)` answers the
-URL of a kernel asset on the page's own origin (Tauri's in the app, the dev server's in a browser).
+In the dev server the import map is inert: Vite rewrites the `ose:*` imports to the sources, and
+answers `/ose/*.css`. No file spells an origin. `ose.assets.url(name)` answers the URL of a
+kernel asset on the page's own origin.
 
 ## `ose:kernel`
 
@@ -52,44 +53,41 @@ state file and the per-machine store are loaded. Every function that touches the
 ose.version                  { kernel, sha, short, date }   the build stamp
 ose.platform                 'windows' | 'macos' | 'linux'
 ose.ready                    Promise<void>
-ose.host                     'tauri' | 'browser'   whether quit, drag out and native opens are live
+ose.host                     'browser'             the one host there is
 ```
 
 ### The vault
 
 ```
 ose.vault.root / .name       the open vault, filled by `ose.ready`; null while none is open
-ose.vault.info()             -> { root, name, remembered, source, exeDir, logPath }
+ose.vault.info()             -> { root, name, remembered, source, exeDir, logPath }   `exeDir`
+                             is always null in a browser
 ose.vault.epoch              the host's count of adopted vaults, as this window read it at boot.
                              Every mutating call carries it; a call from an older vault is
                              refused with `[stale_vault]` instead of landing in the new one
-ose.vault.onChangeRequested(fn) -> unsubscribe  fn({ root, name }): a second launch named another
-                             folder. The host did not adopt it; the shell leaves the window
-                             (`ose.window.leave('vault-change')`), opens it and reloads. Kept
-                             until windows per vault pass G3: after that a second launch opens
-                             (or focuses) a window of its own, and this never fires
+ose.vault.onChangeRequested(fn) -> unsubscribe  fn({ root, name }): another folder was asked
+                             for. The host did not adopt it; the shell leaves the tab
+                             (`ose.window.leave('vault-change')`), opens it and reloads. The web
+                             adapter never sends it today; the hose stays for when it does
 ose.vault.onChange(fn)       -> unsubscribe  kept for old callers; never fires any more
-ose.vault.pick(opts?)        -> { root, name } | null  native picker. `{ adopt: false }` only chooses
+ose.vault.pick(opts?)        -> { root, name } | null  Chrome's folder picker. `{ adopt: false }` only chooses
                              (nothing adopted, nothing recorded); without it the choice is adopted
 ose.vault.recent()           -> [{ path, name, exists, current }]
-ose.vault.open(path)         -> { status: 'adopted', root, name, epoch }   adopt in this window.
+ose.vault.open(path)         -> { status: 'adopted', root, name, epoch }   adopt in this tab.
                              The caller reloads, after leaving. Or `{ focused: true, label }`:
-                             another window has that vault open and was brought forward instead
-                             (X6); nothing changed here
+                             another tab has that vault open (X6); nothing changed here
 ose.vault.forget(path)       drop one remembered vault; no path means stop remembering at all
     There is no `ose.vault.change()`. Changing vault is a dialog, and a dialog is shell.
 
-ose.windows.open(vaultPath?) -> { label, created }     a window for the vault at `vaultPath` (a
-                             native folder path), or a new window with no vault, which opens on
-                             the chooser. The window that already has that vault comes forward
-                             instead (`created: false`)
+ose.windows.open(vaultPath?) -> { label, created }     a browser tab for the vault at `vaultPath`
+                             (its `web:<id>` root), or a new tab with no vault, which opens on
+                             the chooser
 ```
 
-**A window per vault** (X6, D14). There are never two windows on one vault. Each window has its
-own vault, its own epoch, its own watcher and its own state; the host sends each window only its
-own events. A second launch on another vault, a folder dropped on the executable, or a file
-inside another Ose vault opens (or focuses) that vault's window. "Change vault…" still adopts in
-place, unless the vault is open in another window, which is then focused.
+**A tab per vault** (X6, D14). There are never two tabs on one vault: the tab holds a Web Lock on
+it (docs/HOST.md "Identity: vaults, roots, epochs, tabs"). Each tab has its own vault, its own
+epoch, its own watcher and its own state. "Change vault…" adopts in place, unless the vault is
+open in another tab, which is then said.
 
 ### Files
 
@@ -112,11 +110,11 @@ ose.files.trash(path)        -> { id, where }          the user's setting decide
 ose.files.trashWhere(path)   -> { where: 'system' | 'vault' }   where `trash` would put it now
 ose.files.trashList()        -> TrashItem[]            what can be restored, newest first
 ose.files.copyPath(from, to) -> { path, files }        a file or a whole folder, bytes, create-only
-ose.files.reveal(path)       -> null                   file manager
-ose.files.open(path)         -> null                   the platform's default app: only ever an
-                                                       explicit command, never how a file opens
-ose.files.assetUrl(path)     -> string                 vault.localhost URL for an <img>; for an
-                                                       `abs:` path, its `/~abs/` URL
+ose.files.open(path)         -> null                   the file in a browser tab, for the types a
+                                                       browser shows: only ever an explicit
+                                                       command, never how a file opens
+ose.files.assetUrl(path)     -> string                 `./vault/<id>/…` URL for an <img>; for an
+                                                       `abs:` path, its `./vault/~abs/` URL
 
 Entry = { name, path, kind: 'dir' | 'file', ext, mtime, size,
           hidden,                                      a dotfile, or the OS hidden attribute
@@ -203,25 +201,21 @@ slashes, the drive letter upper case, no `\\?\` prefix and NFC on macOS: `abs:D:
 life, and refuses an `abs:` path this window did not register (`[not_registered]`).
 
 ```
-ose.files.openOutside(path, { line?, activate? })  -> Promise<boolean>   a native absolute path
-                             or an `abs:` one: registered, then opened in a tab (one already on
-                             it is reused). A file inside this vault opens as the vault file it
-                             is; a folder outside the vault opens as a vault, in its own window
+ose.files.openOutside(path, { line?, activate? })  -> Promise<boolean>   an `abs:` path (a
+                             file the picker or the OS handed over; a native path typed in is
+                             refused): registered, then opened in a tab (one already on it is
+                             reused). A file inside this vault opens as the vault file it is
 ose.files.isOutside(path)    -> boolean                an `abs:` path
-ose.files.pick({ title? })   -> native path | null     the platform's open-file dialog
+ose.files.pick({ title? })   -> `abs:` path | null     Chrome's file picker
 ose.files.importOutside(from, to) -> { path, hash }    a registered `abs:` file copied byte for
                              byte to the vault path `to`, create-only ("Copy into the vault…")
-ose.files.dragOut(paths)     -> Promise<boolean>       vault or `abs:` paths dragged out of the
-                             window as copies (X8); false where there is no drag out (a
-                             browser). Nothing is moved or deleted by it
 ```
 
 On an `abs:` path these work: `read`, `readFile`, `save` (never keeps a version), `stat`,
-`exists`, `readBinary`, the drafts (kept under the vault key `outside`), `reveal`, `open`,
-`assetUrl` (read-only, the file's folder and below) and the watcher (the file's folder, not
-recursive). Refused: versions (`[unsupported]`), rename, move, trash, duplicate, links,
-backlinks and attachments. `paths.js` has the helpers: `ABS`, `isOutside`, `absOf` (the native
-path), `absFrom` (a native path in the `abs:` form) and `outsideLabel` (the path without the
+`exists`, `readBinary`, the drafts (kept under the vault key `outside`), `open`,
+`assetUrl` (read-only, the file itself) and the watcher (the file itself). Refused: versions (`[unsupported]`), rename, move, trash, duplicate, links,
+backlinks and attachments. `paths.js` has the helpers: `ABS`, `isOutside`, `absOf` (the path after
+`abs:`), `absFrom` (a path in the `abs:` form) and `outsideLabel` (the path without the
 prefix). `clean` keeps the prefix.
 
 ### File operations and the undo journal
@@ -657,19 +651,17 @@ ose.focus.get() / set(path) / exit() / name() / isUnder(path) / defaultNewFolder
     page's folder), else the vault root ''. Focus lasts for the session and is never restored
     (H18). Esc leaves it from anywhere that is not text being edited, and while it is on the
     status bar carries a `focus` field that names the folder and leaves focus when pressed.
-ose.window.title(text) / close() / quit()
-                             The window has the platform's own title bar, buttons and edges
-                             (X9): there is no minimise, maximise, drag or resize hose any more
-                             (`minimize`, `maximize`, `isMaximized` and `onMaximize` are retired).
-                             `close()` is this window's close path, as the OS button; `quit()`
-                             closes every window, each through its own save path
-ose.window.onClose(fn)       -> unsubscribe   the host awaits `fn()` before the window goes;
+ose.window.title(text) / close()
+                             The window is Chrome's own (X9): there is no minimise, maximise,
+                             drag, resize or quit hose. `close()` is this tab's close path
+                             through the leave gate, then `window.close()`, which Chrome honours
+                             for the installed app's window
+ose.window.onClose(fn)       -> unsubscribe   `close()` awaits `fn()` before the window goes;
                              `false` keeps it. A handler that throws counts as done
 ose.window.leave(reason)     -> Promise<boolean>   reason: 'close' | 'reload' | 'vault-change'
 ose.window.onLeave(fn)       -> unsubscribe        fn({ reason }) -> boolean | Promise<boolean>
                              reason is also 'abandon' (below), where a string names what is lost
 ose.window.stay()            a successful leave whose caller changed its mind
-ose.print.toPdf(path?, opts?) / dialog()   paper, through WebView2; null where the host cannot
 ose.openExternal(url)        an http, https or mailto link in a note; every other scheme refused
 ose.assets.url(name)         -> the URL of a kernel asset (see "Where the app is served").
                              `ose.assets.origins()` is retired with the app and ose origins (X4)
@@ -697,8 +689,10 @@ ose.toast(text, kind?, ms?, opts?)  -> kill
 
 ### Leaving the window
 
-Everything that throws the window's document away asks one gate first: the close button,
-`ose.reload()`, Change vault, a second launch that names another folder. `ose.window.leave(reason)`
+Everything that throws the window's document away asks one gate first: `ose.window.close()`,
+`ose.reload()`, Change vault. A close through Chrome's own button or a reload through its
+toolbar cannot be held: the editor starts a draft of every dirty page on `beforeunload` and the
+kernel banks its state on `pagehide`, so the text comes back as recovered changes. `ose.window.leave(reason)`
 runs every `onLeave` handler and awaits all of them, with no time limit (after three seconds a
 sticky "Still saving…" toast says why the window is still there). The editor's handler saves
 every open page, parked ones included.
@@ -719,7 +713,7 @@ every open page, parked ones included.
   `window:stay` and puts an unmounted view back.
 
 One leave runs at a time; a second call while one waits answers the same promise. The kernel
-itself subscribes the Tauri close fan-out to `leave('close')`.
+itself subscribes the adapter's close fan-out to `leave('close')`.
 
 `app.close-anyway` destroys the window without the fan-out, and it is in the palette at any time,
 not only after a refusal. Before it does, every `onLeave` handler hears `{ reason: 'abandon' }`:
@@ -938,7 +932,7 @@ renderMath(tex, { display })  -> HTMLElement
     with Temml's message on the element's `title`. A view that draws a statement of its own
     calls this; `render()` and the page editor already do.
 render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
-    read-only, links resolved, images through vault.localhost, and fenced code coloured with
+    read-only, links resolved, images through the `vault/` origin, and fenced code coloured with
     the same grammars and the same `--code-*` tokens the editor uses. `codeLanguage` is the
     language assumed for a fence that names none; a fence that names one always wins, and a
     block with neither, or with a name the pack does not have, stays plain text.
@@ -1111,48 +1105,35 @@ file and everything in this section are exactly as they read; only the inside di
 
 ## The host underneath
 
-docs/HOST.md: one typed command per operation (X5), the vault protocol, the one hide rule, the
-watcher, file versions, drafts, the trash, the per-machine store, windows per vault, OS opens,
-files outside the vault, encodings. Nothing here starts a program: the app makes no network call
-and runs nothing.
+docs/HOST.md: one typed command per operation (X5), the `vault/` origin, the one hide rule, the
+watcher, file versions, drafts, the trash, the per-machine store, tabs per vault, OS opens, files
+outside the vault, encodings. Nothing here starts a program, and the app makes no network call
+but loading its own files.
 
 **The bridge** (`src/kernel/bridge/`). `bridge/index.js` is the facade every module calls; its
 method names are the command names and never change with the transport. Underneath it an adapter
 answers `invoke(name, args)`:
 
-- `bridge/tauri.js`, in the host, calls the function tauri-specta generated for the command in
-  `bridge/bindings.ts` (Rust `read_file` is JS `readFile`), arguments positional. It unwraps the
-  `Result`: `{ status: 'ok', data }` is the answer, `{ status: 'error', error: { code, message } }`
-  a `HostError` with that code. Tauri's own refusals are mapped too: an argument serde could not
-  read is `bad_arg`, a command that is not registered `unknown_command`, anything else `io`. A
-  name that is not in the bindings is `unknown_command` at once: a hard error, never a null. It
-  listens to `fs`, `open` and `vault` on its own window only (each event is emitted to one
-  window), and owns the window API and drag out (`@crabnebula/tauri-plugin-drag`, `mode: 'copy'`,
-  loaded on the first drag). It is the only file that imports the bindings, so a browser never
-  loads `@tauri-apps/api`.
-- `bridge/http.js`, in the browser dev server, posts `POST /__bridge/<name> {"args": [...]}` to
-  the dev bridge (dev/bridge-plugin.mjs) and reads `[code] message` refusals.
-- `src/web/adapter.js`, in the Ose Web build only (`__OSE_WEB__`, docs/WEB.md), answers every
-  command in the browser over the folder the person picked; `bridge.kind` is `'web'`, which the
-  kernel treats as a browser tab like `'http'`. The desktop build defines the flag false and
-  carries none of it.
+- `src/web/adapter.js`, the one adapter, answers every command in the browser over the folder
+  the person picked (docs/HOST.md). `bridge.kind` is `'web'`. The command types are kept by hand
+  in `bridge/commands.ts`; a name the adapter does not have is `unknown_command`, a hard error,
+  never a null.
 
-Each facade method names its answer from the bindings (`RootInfo`, `Stat`, `Entry`, `Kept`, …);
+Each facade method names its answer from `commands.ts` (`RootInfo`, `Stat`, `Entry`, `Kept`, …);
 the untyped `call` answers `unknown`, so a field the host does not send is a type error. The
 facade adds the epoch to every mutating command's options struct (`setState` and `versionKeep`
 included), drops trailing absent
 arguments (an option left out is absent, not null), and turns every refusal into a `HostError`
-(`bridge/errors.js`). There is no `rpc` dispatcher, no `reloadShell`, no WebView2 adapter and no
-window drag, resize, minimise or maximise any more.
+(`bridge/errors.js`). There is no `rpc` dispatcher, no `reloadShell`, and no window drag, resize,
+minimise or maximise.
 
-**OS opens** (`src/kernel/opens.js`, §5.3). The host decides which window a path the OS hands
-over belongs to (a folder is a vault, and a file goes to the window whose vault holds it, to the
-window of the nearest ancestor with an `.ose/` folder, or else to the most recently focused
-window as a file outside the vault) and turns it into an OpenRequest `{ path, outside, kind,
-line? }`, `path` a vault path or `abs:`. A booting window takes its queue with `takeOpens` once
-its first surface is up (after session restore), and a running window gets the `open` event:
-each request opens in a tab of its own (a tab already on it is reused), a folder as a folder
-route, and the last one comes forward.
+**OS opens** (`src/kernel/opens.js`, §5.3). Once Ose is installed, the OS can hand it files (a
+double click, Open with: the manifest's `file_handlers`), and Chrome passes them on through its
+launch queue. The adapter turns each into an OpenRequest `{ path, outside, kind, line? }`, `path`
+a vault path when the file is inside the open vault, else `abs:`. A booting tab takes its queue
+with `takeOpens` once its first surface is up (after session restore), and a running tab gets
+the `open` event: each request opens in a tab of its own (a tab already on it is reused), a
+folder as a folder route, and the last one comes forward.
 
 ## Rules
 

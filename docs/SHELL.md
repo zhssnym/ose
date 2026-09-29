@@ -3,16 +3,15 @@
 The shell is the whole interface: the toolbar with its address bar, the tab strip, the
 sidebar's one tree, the folder view, Home, the palette and Go to file, the search panel, the
 status bar, the Settings page, the Trash view and the vault chooser. It is plain ES modules and
-CSS, no bundler, and it travels inside `ose.exe`, served on the `app` origin (docs/HOST.md). It
-is not the kernel: it draws, and it calls the hoses of `docs/KERNEL.md` like anything else.
+CSS, no bundler, copied verbatim into the build and served beside the kernel's bundles
+(docs/HOST.md). It is not the kernel: it draws, and it calls the hoses of `docs/KERNEL.md` like anything else.
 
-The window around it is the platform's own (X9, D11): Windows draws the title bar with its
-minimise, maximise (Snap Layouts included) and close buttons, macOS its traffic lights, and both
-move and resize the window. The shell draws no window button, no resize edge and no drag region;
-its top row is a plain toolbar. The window is at least 480 by 360.
+The window around it is Chrome's own, a tab or, once Ose is installed, an app window (X9, D11).
+The shell draws no window button, no resize edge and no drag region; its top row is a plain
+toolbar.
 
 The planner (Day, Week, Month, Journal) is not in the shell either. It is `src/planner`, one
-bundle `ose:planner` that ships inside the exe beside the kernel and the editor, and the shell
+bundle `ose:planner` that ships beside the kernel and the editor, and the shell
 loads it at boot. Its file formats are `docs/FORMATS.md`.
 
 ## Layout
@@ -76,9 +75,9 @@ sheet wins over an earlier one and `theme.css` wins over everything:
 ```
 
 The build copies `shell/` verbatim into `dist/`, beside the kernel's four bundles in `dist/ose/`,
-and Tauri serves `dist/` from its own asset protocol. The import map is the one inline script of
-the page; Tauri hashes it into the CSP of `tauri.conf.json` at build time. In the browser dev
-server the map is inert, because Vite rewrites every `ose:*` import itself, and the dev server
+and any static host serves `dist/` (Vercel, `vercel.json`). The import map is the one inline
+script of the page; the build hashes it into the page's CSP `<meta>` (vite.config.js). In the
+dev server the map is inert, because Vite rewrites every `ose:*` import itself, and the dev server
 answers `/ose/*.css`. No file of the shell names an origin.
 
 ## How it loads
@@ -109,14 +108,13 @@ ose.ready -> settings.apply -> vault chooser | mountShell
    fails to load is logged and said in one error toast, and the boot goes on without it.
 7. `startSurface()` (start.js): with `restoreSession` on and a usable session, the last session's
    tabs come back (`ose.session.restore()`), only the active one mounted; otherwise Home. The
-   files the OS asked this window to open (a double click, Open with, a path on the command
-   line) then open over them, each in a tab of its own, the last one in front: that is the
+   files the OS asked the installed app to open (a double click, Open with) then open over them, each in a tab of its own, the last one in front: that is the
    kernel's (`opens.js`, docs/KERNEL.md), and the shell does nothing for it.
 8. `ose.bus.emit('booted')`, then `offerRecovered()`: the Recovered changes sheet, when there are
    drafts.
 9. Once per vault on this machine, when the vault still has a `.ose/plugins` folder from before
-   the planner was built in, one toast says it is no longer used and can be deleted, with
-   **Show in Explorer**. Nothing is deleted for the user. The flag is `ose.local('notices')`.
+   the planner was built in, one toast says it is no longer used and can be deleted.
+   Nothing is deleted for the user. The flag is `ose.local('notices')`.
 
 **A boot that fails** (M38) never leaves a blank window. Whatever throws on the way ends on one
 page (`boot-error.js`): "Ose could not start", how far the boot got, the error, the stack under
@@ -310,9 +308,8 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
   which gives `.md`, `.markdown`, `.mdown` and `.mkd` the Rich / Live / Source switch and opens
   every other text file, extensionless ones included, as plain source, keeping its line endings
   and BOM;
-- a file that is not text gets a box with its name, size and type, and **Open with default
-  app**, **Show in folder** (for a file outside the vault, **Copy into the vault…**) and
-  **Reveal in Explorer**.
+- a file that is not text gets a box with its name, size and type, and **Open in a browser
+  tab** and **Show in folder** (for a file outside the vault, **Copy into the vault…**).
 
 | method | what the shell does |
 |---|---|
@@ -342,8 +339,8 @@ header offers **Leave the viewer**. A `.pdf` whose first kilobyte is not a PDF i
 the frame: the page says it could not be drawn. A missing media file draws the miss box with no
 button, so nothing is ever created over a media path.
 
-**Paper.** `page.export-pdf` (Ctrl+Alt+P) and `page.print` are the host's (docs/HOST.md
-"Print"); the sheet is black on white from either theme (`src/editor/print.css`).
+**Paper.** `page.export-pdf` (Ctrl+Alt+P) and `page.print` open Chrome's print dialog, where
+Save as PDF is a destination; Export titles the document after the page. The sheet is black on white from either theme (`src/editor/print.css`).
 
 ## Files
 
@@ -392,17 +389,18 @@ pasting files, and every one of them ends at `ose.fileops`, the kernel's one imp
 
 ### Files outside the vault
 
-A file anywhere on the machine can be opened in a tab (X7): **Open file…** (`file.open`, the
-system's dialog), a full path typed in the address bar, or the OS (Open with, a double click, a
-path on the command line; the kernel's `opens.js`). A file inside this vault opens as the vault
-page it is. Any other is an `abs:` page (`abs:D:/Notes/todo.md`): its tab, its Home row and its
-address say "outside vault" with the whole path, it is read, edited, saved in place, kept as a
+A file anywhere on the machine can be opened in a tab (X7): **Open file…** (`file.open`,
+Chrome's file picker), or the OS once Ose is installed (Open with, a double click; the kernel's
+`opens.js`). A browser has no paths, so a path typed in the address bar outside the vault is
+refused. A file inside this vault opens as the vault page it is. Any other is an `abs:` page
+(`abs:/web/<id>/todo.md`, docs/HOST.md "Files outside the vault"): its tab, its Home row and its
+address say "outside vault" with its name, it is read, edited, saved in place, kept as a
 draft and merged like a vault page, and it has no versions, no links or backlinks and no
 attachments. **Copy into the vault…** (`file.copy-into-vault`) asks for a folder and copies it
 there byte for byte under a free name, create-only, with Undo; the copy opens and the outside
-tab stays. In the browser, Open file… says it needs the app.
+tab stays.
 
-### Drag in and out
+### Drag in
 
 `drag.js`, for the tree and the folder view (X8, §5.5 of the wave-3 contract).
 
@@ -416,20 +414,15 @@ tab stays. In the browser, Open file… says it needs the app.
   refused: "too large to copy by drop; copy it in Explorer" (Finder on a Mac). What did not come
   in is listed in one sticky toast. A drop on the editor is the editor's (Rich: its image drop;
   Live: its paste handler), and any other drop is ignored.
-- **Out.** Alt+drag on a row of the tree or the folder view takes the row, or the whole selection
-  it is part of, out of the app as a copy (`ose.files.dragOut`, the host's native drag): onto the
-  desktop, into Explorer or Finder, into a mail. The vault's files are never moved or deleted
-  by it. In the browser a toast says "Drag out needs the app". The keyboard's way to the same
-  place is Reveal in Explorer.
+- **Out.** A browser tab cannot drag a vault file out to the system, so nothing does.
 - **Within.** A plain drag of a row onto a folder row, in either list, is a move through Move
   to…'s rules (never into itself, never where it already is), with its Undo.
 
-**The Trash view** (`trash.js`, `app.trash`, the view `trash`). Every item that can be restored:
-the vault's `.trash`, and the system bin on Windows and Linux, only items that came from this
-vault. Each row has its name, its original folder, when it was deleted and where it is. Enter or
-**Restore** (`trash.restore`) puts it back; a name that is taken again is refused with "A file
-with that name is already there", and nothing is overwritten. On macOS the system Trash cannot
-be listed, and the view says so.
+**The Trash view** (`trash.js`, `app.trash`, the view `trash`). Every item in the vault's
+`.trash`, which is where a delete goes: a browser cannot reach the system bin. Each row has its
+name, its original folder and when it was deleted. Enter or **Restore** (`trash.restore`) puts
+it back; a name that is taken again is refused with "A file with that name is already there",
+and nothing is overwritten.
 
 ## Leaving the window
 
@@ -440,20 +433,18 @@ window when it cannot:
 - **Reload window** (`app.reload`, no chord) is `ose.reload()`, which leaves first.
 - **Change vault…** chooses a folder without adopting it, then `switchVault(root)` in `vault.js`:
   leave (stop on false: the kernel has said why), `ose.vault.open(root)`, reload. The page's last
-  save lands in the vault it came from. When that vault is already open in another window, the
-  host brings that window forward instead (X6), this window stays as it was, and a toast says
-  "That vault is open in another window".
-- **A second launch** naming another folder runs the same `switchVault` until windows per vault
-  take over (gate G3); then it opens, or focuses, a window of its own and this handler goes.
+  save lands in the vault it came from. When that vault is already open in another tab, this
+  tab stays as it was (X6), and a toast says "That vault is open in another tab".
 
-## Windows
+## Tabs per vault
 
-One window per vault, never two on one (X6). **New window** (`app.new-window`, no chord) opens a
-window with no vault, on the chooser. In the Change vault… dialog and on the first-run chooser,
-Shift+Enter or Shift+click on a recent vault, or the **Open in new window** button, opens that
-vault in a window of its own and leaves this one as it was; with no row chosen the button asks
-for the folder first. A vault that is already open is focused instead, and the toast says so.
-Each window has its own tabs, session and epoch; closing one keeps the others.
+One browser tab per vault, never two on one (X6). **New window** (`app.new-window`, no chord)
+opens a browser tab with no vault, on the chooser. In the Change vault… dialog and on the
+first-run chooser, Shift+Enter or Shift+click on a recent vault, or the **Open in new tab**
+button, opens that vault in a tab of its own and leaves this one as it was; with no row chosen
+the button asks for the folder first. A vault already open in another tab is not opened twice,
+and the toast says so. Each tab has its own tabs strip, session and epoch; closing one keeps the
+others.
 - **The vault is gone**: the lost dialog. **Retry** closes it when the folder is back, and so does
   the watcher saying so. **Change vault…** there asks once whether to switch anyway; the text
   stays on this machine as a draft.
@@ -538,23 +529,20 @@ frame). The shell never touches `.ose/state.json` or the machine store directly:
 
 The vault's `.ose/state.json` travels with the vault (it is synced with it): pins, the planner's
 paths, and the vault settings above. Everything about how this machine looks at the vault is kept
-on the machine (`ose.local`, in the app's config folder, docs/HOST.md): the session, recent
+on the machine (`ose.local`, in the browser's storage for the site, docs/HOST.md
+"Machine-local state"): the session, recent
 files, the sidebar's width, open state and expansion, the per-folder sort, the side panel, the
-reading settings, Show hidden items, the restore switch, one-time notices, and the window's
-bounds and theme.
+reading settings, Show hidden items, the restore switch, one-time notices and the theme.
 
-## The browser dev server
+## The dev server
 
-`npm run dev` (port 5173) and `npm run dev:test` (5174, or `OSE_TEST_PORT`) serve this same
-shell over a Node implementation of the bridge (`dev/bridge-plugin.mjs`), which is how the app is
-looked at without building the exe. `vite.config.js` has `shell/` as its root and aliases
-`ose:kernel`, `ose:ui`, `ose:editor` and `ose:planner` onto their sources; the
-stylesheet middleware answers `/ui.css`, `/editor.css` and `/planner.css`.
-
-The vault is `OSE_ROOT`, else `ose.config.json` at the repo root, else the repo's parent folder;
-`dev:test` sets `OSE_ROOT` from `OSE_TEST_ROOT`. Drafts and the machine store go under
-`OSE_APPDATA`. A command the Node bridge does not implement fails with `[unknown_command]`, as the
-host's does (docs/HOST.md).
+`npm run dev` (http://localhost:5173) serves this same shell from its sources, over the same web
+adapter as the built site: a folder is picked in Chrome like anywhere else. `vite.config.js` has
+`shell/` as its root and aliases `ose:kernel`, `ose:ui`, `ose:editor` and `ose:planner` onto
+their sources; the stylesheet middleware answers `/ose/ui.css`, `/ose/editor.css` and
+`/ose/planner.css`. Pick a throwaway copy of a vault, never a real one, while working on Ose.
+`?opfs=1` on the URL opens the browser's private file system as the vault instead (the tests'
+hook, docs/HOST.md "Testing").
 
 ## Rules
 

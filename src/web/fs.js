@@ -1,9 +1,8 @@
-// Module fs of Ose Web (docs/WEB.md "fs"): every vault-file command of the host, answered in the
-// browser over the FileSystemDirectoryHandle the person picked. The reference semantics are
-// dev/files.mjs and dev/bridge-plugin.mjs (the Node twins of vault.rs, hide.rs, files.rs,
-// trashbin.rs and versions.rs); the answers, the error codes and the file names under
-// `.ose/history` and `.trash/.info` are theirs, so a vault left by Ose Web opens in ose.exe as it
-// was, and the other way round.
+// Module fs (docs/HOST.md "fs"): every vault-file command of the host, answered in the browser
+// over the FileSystemDirectoryHandle the person picked. The answers, the error codes and the
+// file names under `.ose/history` and `.trash/.info` are those of the desktop host this was
+// ported from, so a vault keeps its history across the move. The `.rs` and `dev/` names in the
+// comments below are where each piece came from: git history, at 6cee39d.
 //
 //   import { createFs } from './fs.js';
 //   const fs = createFs(root, { vaultId, epoch: () => 1, os: 'windows', log, outside, onRename });
@@ -209,7 +208,7 @@ async function pool(items, n, fn) {
 // ---------------------------------------------------------------- the module
 
 /**
- * The file commands for one vault (docs/WEB.md "fs").
+ * The file commands for one vault (docs/HOST.md "fs").
  * @param {FileSystemDirectoryHandle} root the vault, permission already granted
  * @param {FsOptions} opts
  */

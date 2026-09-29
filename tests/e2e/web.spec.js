@@ -1,4 +1,4 @@
-// Ose Web end to end (docs/WEB.md "Testing"): the built app, served by a plain static
+// Ose Web end to end (docs/HOST.md "Testing"): the built app, served by a plain static
 // server (web-serve.mjs, what any static host does), in Chromium, over the origin's private file
 // system as the vault. `?opfs=1` is the adapter's test hook: it opens
 // `navigator.storage.getDirectory()` instead of asking for a folder with the picker, which a

@@ -1,6 +1,5 @@
-// The Ose Web adapter (docs/WEB.md "The seam", "Commands › app"): the third bridge adapter,
-// beside tauri.js and http.js, answering every host command in the browser over the folder the
-// person picked. `create()` answers `{ invoke, subscribe, platform, assetUrl, win, close }`.
+// The adapter (docs/HOST.md "The seam", "Commands › app"): the one bridge adapter there is,
+// answering every host command in the browser over the folder the person picked. `create()` answers `{ invoke, subscribe, platform, assetUrl, win, close }`.
 //
 // One table: the fs commands (src/web/fs.js, when a vault is open), the local ones
 // (src/web/local.js) and the app's own below. A vault command with no vault is `no_vault`; a
@@ -564,7 +563,7 @@ export async function create(opts = {}) {
   if (typeof g.addEventListener === 'function') g.addEventListener('beforeunload', onBeforeUnload);
 
   /**
-   * `ose.window.close()`: the close path, as tauri.js runs it for the window's button. Every
+   * `ose.window.close()`: the close path. Every
    * `closing` handler is awaited (the editor's last save, the router's state flush); one that
    * answers `false` keeps the tab, and the pages the leave gate froze are handed back. Then
    * `window.close()`, which Chrome honours for an installed app's window and a tab a script
@@ -597,7 +596,7 @@ export async function create(opts = {}) {
     assetUrl: (path) => assetUrlFor(vault ? vault.id : vh.currentVault(), path, base || undefined),
     win: {
       setTitle: (text) => { try { if (g.document) g.document.title = String(text ?? ''); } catch { /* none */ } },
-      // No `closing` fan-out: `app.close-anyway`, after the person said so (as tauri.js).
+      // No `closing` fan-out: `app.close-anyway`, after the person said so.
       destroy: () => { try { if (typeof g.close === 'function') g.close(); } catch { /* not allowed */ } return null; },
       close: closeTab,
     },

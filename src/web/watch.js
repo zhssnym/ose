@@ -1,4 +1,4 @@
-// Module watch (docs/WEB.md "The watcher"): what changes on disk under the vault, and in the
+// Module watch (docs/HOST.md "The watcher"): what changes on disk under the vault, and in the
 // files from outside it the tab has open, becomes the `fs` event, in the shape
 // src-tauri/src/watcher.rs sends: `{ changes: [{ path, kind, to?, dir?, hidden? }], rescan?, lost? }`.
 //
@@ -232,7 +232,7 @@ export async function snapshot(root) {
 }
 
 /**
- * What changed between two snapshots, renames paired (docs/WEB.md "The watcher"): a delete and a
+ * What changed between two snapshots, renames paired (docs/HOST.md "The watcher"): a delete and a
  * create of one poll with the same name and the same size and `lastModified` (a folder: the same
  * contents), or, in one folder, the only such pair. Never across the bin's edge. A folder that
  * moved is one rename; what is under it is not reported again. `next` gets what was known under

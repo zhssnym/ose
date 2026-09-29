@@ -1,6 +1,6 @@
-// Module local of Ose Web (docs/WEB.md "Machine-local state", "Commands › local"): drafts, the
-// local store and the log, kept for this origin in IndexedDB (idb.js) where the desktop keeps
-// them in the app's folders on this machine. Nothing of it is ever in the vault.
+// Module local of Ose Web (docs/HOST.md "Machine-local state", "Commands › local"): drafts, the
+// local store and the log, kept for this origin in IndexedDB (idb.js). Nothing of it is ever in
+// the vault.
 //
 //   drafts  `<vaultKey>/<hash(path)>` for a vault path, `outside/<hash(abs path)>` for an `abs:`
 //           one: `{v:1, vault, path, text, baselineHash, mode, exact, rev, at}` as drafts.rs
@@ -10,7 +10,8 @@
 //           kept out of the page's hands as local.rs keeps them.
 //   log     one record per line, `<stamp> <level> <text>`, the newest 5000 kept, and the console.
 //
-// The semantics are the desktop's (drafts.rs, local.rs, commands.rs): a vault path with no vault
+// The semantics are the ones ported from the desktop host (drafts.rs, local.rs, commands.rs, in
+// git history at 6cee39d): a vault path with no vault
 // is `no_vault`; a mutating call naming another epoch is `stale_vault`; an `abs:` draft needs
 // neither (it is this machine's memory of what was typed for that file).
 

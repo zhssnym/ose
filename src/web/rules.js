@@ -1,12 +1,13 @@
-// The pure rules Ose Web shares with the host, ported from dev/files.mjs (itself the port of
-// hide.rs, vault.rs, encoding.rs and files.rs): the hash, the one hide rule, vault paths and
+// The pure rules of the host, ported from the desktop host (hide.rs, vault.rs, encoding.rs and
+// files.rs, in git history at 6cee39d): the hash, the one hide rule, vault paths and
 // names, the natural sort, text in the four encodings, the text sniff, and the HostError every
 // web module throws. No handle, no IndexedDB, no DOM here: src/web/fs.js, watch.js, local.js
-// and adapter.js all import it, and tests/web/rules.test.js holds it to dev/files.mjs.
+// and adapter.js all import it, and tests/web/rules.test.js holds it to the values files and
+// agents already rely on.
 //
 // One addition to the rule, the browser's own temp file: Chrome writes a `createWritable` into
 // `<name>.crswap` beside the target until `close()`, and a crash can leave one behind. It is a
-// temp file like the atomic writer's, excluded everywhere (docs/WEB.md "The hide rule").
+// temp file like the atomic writer's, excluded everywhere (docs/HOST.md "The hide rule").
 
 import { HostError } from '../kernel/bridge/errors.js';
 
@@ -23,7 +24,7 @@ export const fail = (code, message) => new HostError(message, code);
 const utf8Enc = new TextEncoder();
 
 /**
- * FNV-1a, 64 bits, over the raw bytes, as 16 lowercase hex digits (docs/HOST.md "The hash"):
+ * FNV-1a, 64 bits, over the raw bytes, as 16 lowercase hex digits (docs/HOST.md "Commands"):
  * `""` -> `cbf29ce484222325`, `"a"` -> `af63dc4c8601ec8c`. A string is hashed as its UTF-8 bytes.
  * @param {Uint8Array | string} data
  */
@@ -321,7 +322,7 @@ export function sniffEncoding(head) {
 // ---------------------------------------------------------------- errors from the browser
 
 /**
- * What the browser threw, as the HostError the host would have answered (docs/WEB.md "Errors").
+ * What the browser threw, as the HostError the host would have answered (docs/HOST.md "Errors").
  * A HostError passes through. `where` names the path for the message.
  * @param {unknown} e
  * @param {string} [where]

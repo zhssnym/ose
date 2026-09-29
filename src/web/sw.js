@@ -1,4 +1,4 @@
-// The service worker of Ose Web (docs/WEB.md "The service worker and the `vault/` origin").
+// The service worker of Ose Web (docs/HOST.md "The service worker and the `vault/` origin").
 //
 // Two jobs:
 // 1. Offline. The build (vite.web.config.js) writes the list of every file it made into

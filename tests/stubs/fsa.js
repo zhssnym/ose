@@ -1,4 +1,4 @@
-// An in-memory File System Access API for the Ose Web tests (docs/WEB.md "Testing"): a
+// An in-memory File System Access API for the Ose Web tests (docs/HOST.md "Testing"): a
 // FileSystemDirectoryHandle / FileSystemFileHandle pair over a tree held in memory, with
 // createWritable, getFile, removeEntry, entries/keys/values, resolve, isSameEntry, move,
 // queryPermission and requestPermission, plus a FileSystemObserver twin and helpers to seed

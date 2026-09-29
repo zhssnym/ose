@@ -1,5 +1,5 @@
 // What Chrome has and TypeScript's DOM library does not yet declare, for checkJs over src/web
-// (docs/WEB.md). The async iteration of a folder comes from the `dom.asynciterable` library
+// (docs/HOST.md). The async iteration of a folder comes from the `dom.asynciterable` library
 // (tsconfig.json); what is here is the rest: the pickers, the permission calls, `move`, the
 // FileSystemObserver and the launch queue.
 

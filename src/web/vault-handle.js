@@ -1,5 +1,5 @@
 // The vaults and the outside files of Ose Web, kept in IndexedDB, and this tab's hold on one
-// vault (docs/WEB.md "Identity: vaults, roots, epochs, tabs", "Files outside the vault").
+// vault (docs/HOST.md "Identity: vaults, roots, epochs, tabs", "Files outside the vault").
 //
 // ---------------------------------------------------------------- path helpers
 // (Reserved for the fs module's path helpers, should it need to share any here.)

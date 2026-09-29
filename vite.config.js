@@ -1,4 +1,4 @@
-// The one Vite config of Ose Web (docs/WEB.md): the app in Chrome over a folder on this machine,
+// The one Vite config of Ose Web (docs/HOST.md): the app in Chrome over a folder on this machine,
 // an installable offline PWA. The browser is the only host; src/web/adapter.js answers every
 // host command over the File System Access API.
 //

@@ -1,5 +1,5 @@
-// The one IndexedDB database of Ose Web (docs/WEB.md "Machine-local state"): what the desktop
-// keeps in the app's folders on this machine, kept for this origin instead. Every module of
+// The one IndexedDB database (docs/HOST.md "Machine-local state"): what belongs to this machine,
+// kept for this origin. Every module of
 // src/web that stores something goes through here, so there is one schema and one version.
 //
 //   db `ose-web`, version 1, object stores (out-of-line keys, strings unless said):

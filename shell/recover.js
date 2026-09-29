@@ -1,6 +1,6 @@
 // Recovered changes (C4, docs/SHELL.md "Recovered changes"). Text that never reached its file
 // — a save that failed, a window closed anyway, a crash — is kept by the editor as a draft on
-// this machine, outside the vault (docs/HOST.md "Drafts"). This file is the sheet that says so
+// this machine, outside the vault (docs/HOST.md "Machine-local state"). This file is the sheet that says so
 // when the window opens: every page with a draft, and when it was written. Opening a row opens
 // the page, and the editor puts the draft back or offers it (it knows whether the file changed
 // since). A draft whose file is gone cannot be opened; it can be saved as a new file.

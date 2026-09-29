@@ -1,5 +1,5 @@
 // Bridge facade. The one host is the browser: src/web/adapter.js answers every command over the
-// File System Access API (docs/WEB.md). The adapter implements `invoke(name, args) -> Promise`
+// File System Access API (docs/HOST.md). The adapter implements `invoke(name, args) -> Promise`
 // and `subscribe(fn({event, data}))`, and adds `win`, `platform` and `assetUrl` for what is not
 // a host command. This file is the surface the adapter answers to. Nothing else imports it.
 //
@@ -130,7 +130,7 @@ const valued = async (cmd, ...args) => {
 };
 
 /**
- * The vault epoch (docs/HOST.md "Epoch"): the host counts every vault a window adopts, and a
+ * The vault epoch (docs/HOST.md "Identity: vaults, roots, epochs, tabs"): the host counts every vault a window adopts, and a
  * mutating call that carries an older count than the window's is refused with `[stale_vault]`
  * instead of landing in the vault that replaced it. The kernel sets it from `rootInfo` at boot;
  * every mutating call below adds it to its options struct, so no caller can forget it. Unknown
@@ -209,7 +209,7 @@ export const bridge = {
 
   /** -> RootInfo `{ root, name, epoch }` for this window. @returns {Promise<RootInfo>} */
   rootInfo: () => as(call('rootInfo')),
-  // The vault itself (docs/HOST.md "The vault root"): `rootInfo` answers {root:null, name:null}
+  // The vault itself (docs/HOST.md "Identity: vaults, roots, epochs, tabs"): `rootInfo` answers {root:null, name:null}
   // while no vault is open; `pickVault` opens the native folder picker and adopts the choice;
   // `vaultInfo` adds where the root came from; `forgetVault` drops the remembered root.
   /** @returns {Promise<VaultInfo>} */
@@ -243,7 +243,7 @@ export const bridge = {
   // dragIcon}. The chooser names `exeDir` as its suggestion; drag out uses `dragIcon`.
   /** @returns {Promise<PlatformInfo>} */
   platformInfo: () => as(call('platform')),
-  // Listings (docs/HOST.md "The one hide rule"): `opts { hidden }` lists hidden entries too
+  // Listings (docs/HOST.md "The hide rule"): `opts { hidden }` lists hidden entries too
   // (a dotfile, or the OS hidden attribute); what is excluded (`.ose`, `.git`, the exe, temp
   // files) is never listed. The facade passes the user's Show hidden setting when the caller
   // names none. `stat` with `{ sniff: true }` adds `text`: whether the file reads as text.
@@ -305,7 +305,7 @@ export const bridge = {
   /** @param {string} query @param {object} [opts] @returns {Promise<SearchResult>} */
   search: (query, opts = {}) => as(call('search', query, opts)),
 
-  // The per-machine store (docs/HOST.md "Local state", W5): `app` for this machine, `vault`
+  // The per-machine store (docs/HOST.md "Machine-local state", W5): `app` for this machine, `vault`
   // for this machine and the open vault. Outside the vault, never synced. `localGet` answers
   // `{}` when there is nothing; `localSet` writes the whole object (at most 1 MB).
   /** -> object @param {'app' | 'vault'} scope @returns {Promise<unknown>} */
@@ -385,7 +385,7 @@ export const bridge = {
    */
   pickFile: (opts) => as(call('pickFile', opts)),
 
-  // Drafts (docs/HOST.md "Drafts"): the buffer a page could not write, per machine, outside
+  // Drafts (docs/HOST.md "Machine-local state"): the buffer a page could not write, per machine, outside
   // the vault. `draftRead` answers null when there is none, so it is the one that may.
   /** -> { at } @param {string} path @param {object} draft @param {object} [opts] @returns {Promise<DraftAt>} */
   draftWrite: (path, draft, opts) => as(valued('draftWrite', path, draft, withEpoch(opts))),
@@ -396,7 +396,7 @@ export const bridge = {
   /** opts { ifRev? } -> { dropped } @param {string} path @param {object} [opts] @returns {Promise<Dropped>} */
   draftDrop: (path, opts) => as(valued('draftDrop', path, withEpoch(opts))),
 
-  // Versions (docs/HOST.md "Versions"): `.ose/history`, tiered. `opts` is `{ force?, reason? }`,
+  // Versions (docs/HOST.md "Commands"): `.ose/history`, tiered. `opts` is `{ force?, reason? }`,
   // and carries the epoch like every other write. The host names the files; nothing here
   // builds a path into the history folder.
   /** -> { kept, id } @param {string} path @param {string} text @param {{ force?: boolean, reason?: string }} [opts] @returns {Promise<Kept>} */
@@ -440,7 +440,7 @@ export const bridge = {
   // vault that replaced it.
   /** @param {unknown} obj @returns {Promise<null>} */
   setState: (obj) => as(call('setState', obj, withEpoch())),
-  // `<stamp> <level> ui: <text>` in the host's log (docs/HOST.md "Log"). Never rejects: a log
+  // `<stamp> <level> ui: <text>` in the host's log (docs/HOST.md "Machine-local state"). Never rejects: a log
   // line that cannot be written must not become an error of its own.
   /** @param {string} text @param {string} [level] */
   log: (text, level = 'info') => call('log', String(text ?? ''), level).catch(() => null),

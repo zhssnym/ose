@@ -100,7 +100,7 @@ let vaultInfo = { root: null, name: null };
 let platformName = 'windows';
 
 /**
- * The vault the host has open, and its epoch (docs/HOST.md "Epoch"). Read once at boot; after
+ * The vault the host has open, and its epoch (docs/HOST.md "Identity: vaults, roots, epochs, tabs"). Read once at boot; after
  * that the epoch only moves forward with a reload, on purpose: a write that a page started
  * against the old vault must be refused by the host (`[stale_vault]`), not land in the new one.
  * The one exception is a window that had no vault at all (the first run's chooser): nothing
@@ -678,7 +678,7 @@ export const ose = {
   },
 
   /**
-   * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Log").
+   * One line in the host's log file, `<stamp> <level> ui: <text>` (docs/HOST.md "Machine-local state").
    * `level` is 'error', 'warn', 'info' (the default) or 'debug'. Never rejects.
    */
   /** @param {string} text @param {'error' | 'warn' | 'info' | 'debug'} [level] */

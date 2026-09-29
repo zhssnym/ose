@@ -3,7 +3,7 @@
 Read this before writing any UI. The app, the shell, the editor and the planner must look like
 they were made by one hand.
 
-**Vocabulary.** The **app** is `ose.exe`, the whole thing. The **shell** is the interface inside
+**Vocabulary.** The **app** is Ose in Chrome, the whole thing. The **shell** is the interface inside
 it: toolbar, address bar, tabs, sidebar, folder view, palette, search, settings, Home. The
 **planner** is Day, Week, Month and Journal, built into the app (`src/planner`). A **view** is a
 page of the app's own (Home, Settings, Trash, the planner's four) rather than a file.
@@ -267,16 +267,14 @@ chrome's face: they are not part of the document.
 
 ## Print and PDF
 
-Two commands, both on the host and neither through the browser's print dialog, which never
-returns in WebView2. `page.export-pdf` (Ctrl+Alt+P; Ctrl+Shift+P is the palette) asks for a file
-with the native save dialog and writes the PDF through WebView2's own engine; `page.print`
-opens the Windows print dialog, where Microsoft Print to PDF also lives. Neither changes the
-theme: `src/editor/print.css` holds every `@page` and `@media print` rule of the app, and it
+Two commands, both Chrome's print dialog. `page.export-pdf` (Ctrl+Alt+P; Ctrl+Shift+P is the
+palette) opens it with the page's title as the document's, so Save as PDF suggests the page's
+name; `page.print` opens it as it is. Neither changes the theme: `src/editor/print.css` holds every `@page` and `@media print` rule of the app, and it
 turns the palette black on white from either theme, so no rule elsewhere writes a print colour
 and syntax colour prints black. `@page` is A4 with `--print-margin` on every side; the body is
 `--print-fs` of `--font-doc` at `--print-lh`, which puts about 52 lines on the sheet and follows
-Settings' `Page face`. Backgrounds are off (the host would otherwise paint the sheet in the
-theme's own ground), so a done task prints as a ticked outline and a bullet is drawn with a
+Settings' `Page face`. Backgrounds are off (Chrome's default; with them on a sheet could take
+the theme's own ground), so a done task prints as a ticked outline and a bullet is drawn with a
 border rather than a fill. Only the page content goes on paper: the scrolling containers are
 flattened, no chrome, no meta line, no handles (the image block's button and drag bar included),
 no placeholders, no caret. A heading, and a run-in label that opens a paragraph of its own rather

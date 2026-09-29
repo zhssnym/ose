@@ -5,7 +5,7 @@
 //
 // A vault can open in a browser tab of its own: Shift+Enter on a row of either list, or the
 // "Open in new tab" button (`ose.windows.open`). There is never a second tab on one vault: the
-// adapter holds one lock per vault, and says so. See docs/WEB.md.
+// adapter holds one lock per vault, and says so. See docs/HOST.md.
 import { ose } from 'ose:kernel';
 import { esc, openOverlay, confirm, toast } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';

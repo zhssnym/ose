@@ -1,4 +1,4 @@
-// Module app of Ose Web (docs/WEB.md "Commands › app", "Identity", "Events"): src/web/adapter.js
+// Module app of Ose Web (docs/HOST.md "Commands › app", "Identity", "Events"): src/web/adapter.js
 // and src/web/vault-handle.js over the in-memory File System Access API (tests/stubs/fsa.js) and
 // idb.js's memory backend, the pure parts of src/web/sw.js, the manifest and the web build's
 // helpers. Every browser global the adapter reads (navigator.locks, the service worker

@@ -3,7 +3,7 @@
 // answers every command named in `Commands` below (src/web/fs.js and src/web/local.js do the
 // work). A change of a command changes this file, the facade and the adapter together.
 //
-// First written by the old desktop host's generator (tauri-specta); its `_Serialize` /
+// First written by the old desktop host's type generator; its `_Serialize` /
 // `_Deserialize` pairs are kept as they were, so the facade's typedefs read the same.
 
 /**
@@ -298,14 +298,14 @@ export type Dropped = {
 export type EditorMode = "rich" | "live" | "source";
 
 /**
- *  One entry of a listing or of the tree (docs/HOST.md "Entry"). `kind` is what a link points
+ *  One entry of a listing or of the tree (docs/HOST.md "Commands"). `kind` is what a link points
  *  at when the entry is a link; `link` says it is one and what kind; `readable: false` marks a
  *  folder the host could not open; `children` is filled by `tree` alone, never under a link.
  */
 export type Entry = Entry_Serialize | Entry_Deserialize;
 
 /**
- *  One entry of a listing or of the tree (docs/HOST.md "Entry"). `kind` is what a link points
+ *  One entry of a listing or of the tree (docs/HOST.md "Commands"). `kind` is what a link points
  *  at when the entry is a link; `link` says it is one and what kind; `readable: false` marks a
  *  folder the host could not open; `children` is filled by `tree` alone, never under a link.
  */
@@ -323,7 +323,7 @@ export type Entry_Deserialize = {
 };
 
 /**
- *  One entry of a listing or of the tree (docs/HOST.md "Entry"). `kind` is what a link points
+ *  One entry of a listing or of the tree (docs/HOST.md "Commands"). `kind` is what a link points
  *  at when the entry is a link; `link` says it is one and what kind; `readable: false` marks a
  *  folder the host could not open; `children` is filled by `tree` alone, never under a link.
  */
