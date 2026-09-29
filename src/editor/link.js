@@ -267,7 +267,7 @@ export async function linkCommand(view) {
  * answers the first. Same surface, same matcher and the same keys as quick open.
  */
 async function linkDialog({ value = '', canRemove = false } = {}) {
-  // The page list is the kernel's (`ose.pages()`): the same rows quick open and the page
+  // The page list is the core's (`ose.pages()`): the same rows quick open and the page
   // picker offer, narrowed by the focused folder when there is one.
   let paths = [];
   try { paths = await allPages(); } catch { paths = []; }

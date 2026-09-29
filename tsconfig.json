@@ -18,11 +18,11 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitAny": false,
     "paths": {
-      "ose:kernel": [
-        "./src/kernel/kernel.js"
+      "ose:core": [
+        "./src/core/core.js"
       ],
       "ose:ui": [
-        "./src/kernel/ui.js"
+        "./src/core/ui.js"
       ],
       "ose:editor": [
         "./src/editor/lib.js"

@@ -4,7 +4,7 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 // Crepe's theme, one file at a time instead of its `theme/common/style.css`, which is nothing
 // but these `@import`s plus `latex.css`. That one line pulls in `katex/dist/katex.min.css` and
-// with it sixty KaTeX font files, 1.0 MB of the built kernel, for a feature that is switched off
+// with it sixty KaTeX font files, 1.0 MB of the built core, for a feature that is switched off
 // below and a renderer the app does not use: maths is Temml and MathML (math.js).
 import '@milkdown/crepe/theme/common/prosemirror.css';
 import '@milkdown/crepe/theme/common/reset.css';

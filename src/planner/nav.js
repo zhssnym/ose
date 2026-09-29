@@ -94,7 +94,7 @@ export function detectedHtml() {
 
 /**
  * Open Settings › Planner, in a tab of its own (a tab already on Settings is reused).
- * @param {import('ose:kernel').ose} ose
+ * @param {import('ose:core').ose} ose
  * @returns {Promise<unknown>}
  */
 export function openPlannerSettings(ose) {
@@ -134,7 +134,7 @@ export function bindLinks(root, ose) {
 /**
  * The display name of a vault path (`ose.names.display`: the real name, `.md` hidden only with
  * the setting).
- * @param {import('ose:kernel').ose} ose
+ * @param {import('ose:core').ose} ose
  * @param {string} path
  * @returns {string}
  */

@@ -6,7 +6,7 @@
 // A vault can open in a browser tab of its own: Shift+Enter on a row of either list, or the
 // "Open in new tab" button (`ose.windows.open`). There is never a second tab on one vault: the
 // adapter holds one lock per vault, and says so. See docs/HOST.md.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, openOverlay, confirm, toast } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';
 import { errorOf } from './paths.js';
@@ -70,7 +70,7 @@ let switching = null;
  * lost-vault dialog, a second launch naming another folder:
  *
  * 1. `ose.window.leave('vault-change')`: the open page is saved into the vault it came from,
- *    and a page that cannot be saved keeps the window (the kernel says so, with [Show]).
+ *    and a page that cannot be saved keeps the window (the core says so, with [Show]).
  * 2. `ose.vault.open(root)` adopts the folder. If it cannot, the window is handed back
  *    (`ose.window.stay()`) and the reason is said.
  * 3. The window boots again on it, without asking a second time.

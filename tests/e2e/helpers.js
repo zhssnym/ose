@@ -1,5 +1,5 @@
 // What every no-loss scenario needs, over Ose Web: the vault (the origin's private file system,
-// which the app opens through the `?opfs=1` test hook, src/web/adapter.js), the bytes in it, a
+// which the app opens through the `?opfs=1` test hook, src/host/adapter.js), the bytes in it, a
 // fault switch on the writes, the drafts, the log, and a few moves in the page (boot, open a
 // page, type at the end of a line, the active route and tabs).
 //
@@ -7,8 +7,8 @@
 // empty vault: `boot` seeds it with fixtures.js first. The vault is read and written from inside the
 // page, the way another program writes a folder on disk, never through the app.
 //
-// The page is driven by keyboard and mouse like a person would; `window.__ose` (the kernel's
-// debugging handle, kernel.js) is read to know where the app is, and used to open a route only
+// The page is driven by keyboard and mouse like a person would; `window.__ose` (the core's
+// debugging handle, core.js) is read to know where the app is, and used to open a route only
 // where a person would have clicked something the scenario is not about.
 
 import { createHash } from 'node:crypto';
@@ -23,7 +23,7 @@ const FAULT_KEY = 'ose.e2e.fault';
 /**
  * The fault switch, installed in every document before the app's own scripts: a write to a
  * file whose name is armed fails in `createWritable` with the DOMException a full or locked
- * disk gives, which src/web/rules.js `fromDom` turns into the host error. It lives in
+ * disk gives, which src/host/rules.js `fromDom` turns into the host error. It lives in
  * sessionStorage, so it holds across a reload of the tab, as a disk fault would.
  */
 function installFaults(key) {
@@ -60,7 +60,7 @@ export async function devFault(page, spec) {
 }
 
 /**
- * One host command through the app's own bridge (`window.__bridge`, src/kernel/bridge/index.js).
+ * One host command through the app's own bridge (`window.__bridge`, src/core/bridge/index.js).
  * @param {Page} page @param {string} cmd @param {...any} args
  * @returns {Promise<any>}
  */
@@ -151,7 +151,7 @@ export async function stamp(page, rel) {
   return { sha: createHash('sha256').update(r.bytes).digest('hex'), mtime: r.mtime };
 }
 
-/** The log so far (IndexedDB `ose-web`, store `log`, src/web/local.js): every save is a line. */
+/** The log so far (IndexedDB `ose-web`, store `log`, src/host/local.js): every save is a line. */
 export function logText(page) {
   return page.evaluate(() => new Promise((resolve) => {
     const open = indexedDB.open('ose-web');
@@ -219,7 +219,7 @@ export function watchPage(page) {
   return log;
 }
 
-/** Wait for the kernel and a route after a load or a reload. */
+/** Wait for the core and a route after a load or a reload. */
 export async function waitBooted(page) {
   const log = watchPage(page);
   try {

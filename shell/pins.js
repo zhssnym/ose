@@ -14,7 +14,7 @@
 // the sidebar lends this file its lookup (`setLookup`). Until it has, a pin with no extension
 // is taken for a folder, and nothing is called missing on a guess.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 
 const { bus } = ose;
 

@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ose</title>
 <link rel="icon" href="./logo.png">
-<!-- The standard layout (docs/SHELL.md "How it loads"): the kernel's four bundles sit beside
+<!-- The standard layout (docs/SHELL.md "How it loads"): the core's four bundles sit beside
      the shell in ./ose/, and this import map, the one inline script the page has, names them.
      The build hashes it into the page's CSP (vite.config.js); in the dev server it is inert,
-     because Vite rewrites every ose:* import itself. The kernel's three sheets come first and the
+     because Vite rewrites every ose:* import itself. The core's three sheets come first and the
      shell's follow them, and win; theme.css is last so that its token overrides win over
      everything. -->
-<script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
+<script type="importmap">{"imports":{"ose:core":"./ose/core.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
 <link rel="stylesheet" href="./ose/ui.css">
 <link rel="stylesheet" href="./ose/editor.css">
 <link rel="stylesheet" href="./ose/planner.css">
@@ -24,7 +24,7 @@
 <body>
 <div id="app"></div>
 <!-- Every line of shell JavaScript is in a file: the CSP allows no inline script but the import
-     map above. main.js loads boot-error.js as a module of its own, so a kernel that fails to
+     map above. main.js loads boot-error.js as a module of its own, so a core that fails to
      load still leaves the error page. -->
 <script type="module" src="./first-paint.js"></script>
 <script type="module" src="./main.js"></script>

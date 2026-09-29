@@ -17,7 +17,7 @@
 
 import { editorModeSetting, localSlot } from './host.js';
 import { readState } from './deps.js';
-import { isOutside } from '../kernel/paths.js';
+import { isOutside } from '../core/paths.js';
 
 /** @typedef {'rich' | 'live' | 'source'} PageMode */
 
@@ -59,7 +59,7 @@ async function load() {
   try { state = await readState(); } catch { state = {}; }
   const legacy = Array.isArray(/** @type {any} */ (state).sourcePages) ? /** @type {unknown[]} */ (/** @type {any} */ (state).sourcePages) : [];
   for (const p of legacy.slice(-MAX)) if (typeof p === 'string' && p) out[p] = 'source';
-  try { slot.set({ ...out }); } catch { /* kept in memory by the kernel, or not at all */ }
+  try { slot.set({ ...out }); } catch { /* kept in memory by the core, or not at all */ }
   return out;
 }
 

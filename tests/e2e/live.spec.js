@@ -10,7 +10,7 @@
 // context: a first launch over a new vault (helpers.js boot), where markdown opens in Rich.
 //
 // Depends on: live-core (the view, tasks), live-widgets (tables, paste, reading), editor-page
-// (the switch, the modes, the Read toggle), kernel (settings, tabs), src/web (the log in
+// (the switch, the modes, the Read toggle), core (settings, tabs), src/host (the log in
 // IndexedDB, the writes the fault switch fails).
 
 import { expect, test } from './test.js';
@@ -31,7 +31,7 @@ async function openLive(page, rel, opts) {
   await setMode(page, 'live');
 }
 
-/** The lines of the log that are a save of `rel` (src/web/fs.js: `save ok`, `save conflict`, `save failed`). */
+/** The lines of the log that are a save of `rel` (src/host/fs.js: `save ok`, `save conflict`, `save failed`). */
 const saves = async (page, rel) => (await logText(page)).split('\n').filter((l) => /\bsave (ok|conflict|failed)\b/.test(l) && l.includes(rel));
 
 test.beforeEach(async ({ page }) => {

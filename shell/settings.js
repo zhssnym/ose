@@ -2,18 +2,18 @@
 // place in the app, with the sections listed on the left and the rows of one section on the
 // right. `route.arg` names the section to show (`{type:'view', name:'settings', arg:'planner'}`).
 //
-// The values are the kernel's (`ose.settings`, docs/KERNEL.md): it knows which key is kept per
+// The values are the core's (`ose.settings`, docs/CORE.md): it knows which key is kept per
 // machine and which one belongs to the vault, and it validates what it is handed. This file
 // only draws them, and draws the sections other parts of the app register through
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault, openInNewWindow } from './vault.js';
 
 const { bus, commands, store } = ose;
 
 // The steps a person can pick between are the page's, because they are what it draws. The
-// kernel validates against its own copy, so a step it does not know simply gets the default.
+// core validates against its own copy, so a step it does not know simply gets the default.
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
@@ -93,7 +93,7 @@ function currentValues() {
   };
 }
 
-/** A click on a segment, written through to the kernel. */
+/** A click on a segment, written through to the core. */
 function applySeg(group, v, box) {
   if (group === 'theme') ose.theme.set(v);
   else if (group === 'zoom') setZoom(+v);
@@ -112,7 +112,7 @@ function applySeg(group, v, box) {
   else if (group === 'mdext') save({ hideMdExt: v === 'on' });
 }
 
-/** Every segmented control on the page, lit to match what the kernel now says. */
+/** Every segmented control on the page, lit to match what the core now says. */
 function syncControls(box) {
   if (!box) return;
   const now = currentValues();
@@ -196,7 +196,7 @@ function filesHtml() {
 }
 
 /**
- * The Keys section: every chord the app answers to, read only. The kernel's defaults
+ * The Keys section: every chord the app answers to, read only. The core's defaults
  * (`ose.keys.defaults()`) with the shell's `keys.json` over them, the way the key engine
  * resolves them. A chord used in a page's text belongs to the editor while the caret is there,
  * and says so in the last column.
@@ -248,7 +248,7 @@ function vaultHtml() {
   return `<div class="set-info mono-sm text-select">
       <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
       <div><span>From</span><i class="set-vault-src">—</i></div>
-      <div><span>Version</span><i>${esc(`${ose.version.kernel} · ${ose.platform}`)}</i></div>
+      <div><span>Version</span><i>${esc(`${ose.version.core} · ${ose.platform}`)}</i></div>
       <div><span>Log</span><i class="set-log">—</i></div>
     </div>`;
 }

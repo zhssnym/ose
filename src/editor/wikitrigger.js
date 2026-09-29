@@ -129,7 +129,7 @@ class WikiView {
   /**
    * The vault's pages, from `ose.pages()` — the rows quick open and the page picker offer,
    * narrowed by the focused folder. The hose is async (a shell that registers no page list
-   * makes the kernel walk the tree), and this menu draws on a keystroke, so the list is asked
+   * makes the core walk the tree), and this menu draws on a keystroke, so the list is asked
    * for once per `[[` and kept: the rows appear on the frame after it resolves.
    */
   pages() {

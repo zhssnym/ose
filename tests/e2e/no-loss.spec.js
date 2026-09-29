@@ -5,9 +5,9 @@
 // Every scenario types into a file of its own under `e2e/` (fixtures.js), in a fresh browser
 // context: a first launch of the built app over a new vault (helpers.js boot).
 //
-// Depends on: src/web (the adapter, the OPFS test hook, drafts), kernel (tabs, session),
+// Depends on: src/host (the adapter, the OPFS test hook, drafts), core (tabs, session),
 // editor (instances, merge), shell-tree (the tree's F2 and Ctrl+Z), shell-places (tab marks),
-// shell-surfaces (the recovery sheet), kernel (ose.fileops and its undo journal).
+// shell-surfaces (the recovery sheet), core (ose.fileops and its undo journal).
 
 import { expect, test } from './test.js';
 import { FILES } from './fixtures.js';

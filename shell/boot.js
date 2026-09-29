@@ -17,7 +17,7 @@
 // `main.js` imports this file and calls `boot()`. Whatever throws in here ends on the boot
 // error page (`boot-error.js`, M38), never on a blank window.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
 import { mountShell } from './layout.js';
 import { mountVaultChooser } from './vault.js';
@@ -34,7 +34,7 @@ import { initTrash } from './trash.js';
 import { initRecover, offerRecovered } from './recover.js';
 import { showBootError } from './boot-error.js';
 
-/** `keys.json`: the chords the shell adds over the kernel's window map. */
+/** `keys.json`: the chords the shell adds over the core's window map. */
 async function loadKeys() {
   let map = null;
   try {
@@ -85,14 +85,14 @@ async function noticeOldPlugins() {
  * @returns {Promise<void>}
  */
 export async function boot() {
-  // The editor is the biggest bundle the window loads, and nothing in the kernel's own start
+  // The editor is the biggest bundle the window loads, and nothing in the core's own start
   // needs it: its download starts now and `initPageHost` waits for it below.
   void loadEditor();
 
   try {
     await ose.ready;
   } catch (e) {
-    showBootError(e, { stage: 'The kernel did not answer.', ose });
+    showBootError(e, { stage: 'The core did not answer.', ose });
     return;
   }
 
@@ -124,7 +124,7 @@ export async function boot() {
     // strip has to be listening before the first route event.
     initDashboard();
     initTabs(els.tabs, els.main);
-    // The one call that starts the kernel in the shell: the theme, the key engine, and the
+    // The one call that starts the core in the shell: the theme, the key engine, and the
     // router mounted into the shell's own page column. `start: false` because the shell
     // decides where the app opens (start.js).
     ose.init({ page: els.main, start: false });

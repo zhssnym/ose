@@ -1,7 +1,7 @@
 // The page seam: who draws a page, and which pages the app offers.
 //
-// The kernel's router never imports `ose:editor` — the editor is a bundle of its own and the
-// kernel must not know it exists (docs/KERNEL.md). The shell joins them here, and this file is
+// The core's router never imports `ose:editor` — the editor is a bundle of its own and the
+// core must not know it exists (docs/CORE.md). The shell joins them here, and this file is
 // the whole of the page host the router and `ose.fileops` talk to (docs/SHELL.md "The page
 // seam"): open, leave, park, close, release, the two halves of a rename, a move or a trash of
 // the page on screen, and link rewrites into pages that are open. Everything else the editor
@@ -20,7 +20,7 @@
 // some web view must cost the pages, not the whole window (M38). Without it the router shows a
 // page as plain text, the tree and every view still work, and a toast says why.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
 import { allPages } from './sidebar.js';
 import { clean } from './paths.js';
@@ -40,7 +40,7 @@ const pathOf = (h) => clean(h.path());
 
 /**
  * Start loading `ose:editor`, once, and answer the module (or null when it failed). `boot.js`
- * calls this first thing, so the biggest bundle in the window downloads while the kernel boots.
+ * calls this first thing, so the biggest bundle in the window downloads while the core boots.
  */
 export function loadEditor() {
   if (!editorLoad) {
@@ -75,7 +75,7 @@ const host = {
     released = null;
     if (isMediaFile(path)) {
       // The router hands a claimed path over even when it is not there (`claims` below), so
-      // the stat is ours: a missing file gets our box, never the kernel's "Create it".
+      // the stat is ours: a missing file gets our box, never the core's "Create it".
       let there = true;
       try { there = !!(await ose.files.exists(path)); } catch { there = true; }
       page = there ? mediaPage(el, path) : mediaMissingPage(el, path);
@@ -135,7 +135,7 @@ const host = {
 
   /**
    * Links in a file that is open (on screen or parked) are rewritten as an edit of its buffer,
-   * undoable, and saved by its autosave (H5). Undefined when the editor cannot: the kernel
+   * undoable, and saved by its autosave (H5). Undefined when the editor cannot: the core
    * then rewrites the file on disk as before.
    */
   async rewriteLinksIn(path, pairs) {
@@ -181,11 +181,11 @@ const host = {
   },
 
   // Every media path is ours to draw, there or not: the router skips its own "page not found"
-  // for these and calls `open` anyway (docs/KERNEL.md `setPageHost`).
+  // for these and calls `open` anyway (docs/CORE.md `setPageHost`).
   claims: (path) => isMediaFile(path),
 
   // `headingLine` is the editor's (setext headings, fenced code), and `ose:editor` does not
-  // export it yet (work/inbox/K1c/002). Until it does, the kernel's own ATX fallback in
+  // export it yet (work/inbox/K1c/002). Until it does, the core's own ATX fallback in
   // pagehost.js resolves a `#fragment`, which is every heading the vault actually has.
 };
 
@@ -208,7 +208,7 @@ async function remountReleased(ok, change) {
 }
 
 /**
- * Hand the page host and the page list to the kernel. Waits for the editor bundle; when it did
+ * Hand the page host and the page list to the core. Waits for the editor bundle; when it did
  * not load, the page host still goes in (media pages, and the router's plain-text fallback for
  * the rest) and one sticky toast says so.
  */
@@ -227,7 +227,7 @@ export async function initPageHost() {
   ose.setPageHost(host);
 
   // The other half: what quick open, the page picker and the editor's `[[` menu all list. The
-  // sidebar knows the tree and the focused folder; the kernel does not.
+  // sidebar knows the tree and the focused folder; the core does not.
   ose.setPageList(() => allPages());
 }
 

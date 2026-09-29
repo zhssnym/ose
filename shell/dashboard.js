@@ -1,7 +1,7 @@
 // Home (H19): where a new tab starts, where the last tab closes to, and what `app.home` opens.
 //
 // It is a view like any other (`ose.views.register('home', …)`), so the router mounts it, the
-// history remembers it and a tab holds it without anything new in the kernel; the kernel is
+// history remembers it and a tab holds it without anything new in the core; the core is
 // told it is the home (`ose.route.setHome`) and that is all it knows. What it draws, top to
 // bottom, with whitespace between the groups and no cards:
 //
@@ -16,7 +16,7 @@
 // the same page column, the same title and the same rows as everywhere else in Ose, so
 // arriving here does not feel like leaving the app.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, hasIcon } from 'ose:ui';
 import { openInNewTab } from './tabs.js';
 import { byViewOrder } from './order.js';
@@ -238,7 +238,7 @@ const view = {
 };
 
 /**
- * Register Home: the view, `app.home`, and the kernel's home route (the tab the last close
+ * Register Home: the view, `app.home`, and the core's home route (the tab the last close
  * falls back to). Before `ose.init`, so it is there for the first navigation.
  */
 export function initDashboard() {

@@ -6,7 +6,7 @@
 // transaction with a user event under `input.live.*`, so one Ctrl+Z takes it back.
 //
 // The chords are the body chords of the rest of the app: the table is `BODY_KEYS`, kept in
-// `src/kernel/keys.js` for the palette's hints and mirrored for the editor in `../keymap.js`,
+// `src/core/keys.js` for the palette's hints and mirrored for the editor in `../keymap.js`,
 // which this file reads, so a chord means the same thing in Rich and in Live. Only the ids Live
 // implements are bound here; the others fall through to CodeMirror or to the window.
 

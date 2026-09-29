@@ -3,7 +3,7 @@
 // Enter or a click scrolls the heading to the top and puts the caret at its start. There is
 // no panel: the picker is the whole feature (CLAUDE.md: minimal).
 //
-// Built on the kernel's overlay stack (openOverlay) with the palette's `.pal` classes, exactly
+// Built on the core's overlay stack (openOverlay) with the palette's `.pal` classes, exactly
 // as `pickPage` in `ose:ui` is, so Esc, click-outside and focus return are the same everywhere
 // a list is chosen from.
 

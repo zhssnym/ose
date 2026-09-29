@@ -3,9 +3,9 @@
 // file outside the vault Open file… and Copy into the vault… (X7). This is the
 // only UI for them. The tree and its context menu, the folder view, the palette, the title
 // bar's New file button and quick open's Shift+Enter all end here, and every one of them ends
-// at `ose.fileops`, the kernel's one implementation, which asks the open page to save before
-// anything on disk changes and refuses when it cannot (docs/KERNEL.md `ose.fileops`). The
-// kernel draws nothing: the name prompt, the extension question, the trash confirmation and
+// at `ose.fileops`, the core's one implementation, which asks the open page to save before
+// anything on disk changes and refuses when it cannot (docs/CORE.md `ose.fileops`). The
+// core draws nothing: the name prompt, the extension question, the trash confirmation and
 // every notice are this file's.
 //
 // A name is literal. What is typed is what is written: no `.md` appended, no extension kept
@@ -23,7 +23,7 @@
 // keyboard (`addContext`, the folder view), else the focused tree row, else the page on screen
 // (`setContext`, which the sidebar fills in).
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { prompt, confirm, pickFolder, toast, focusOrigin } from 'ose:ui';
 import { clean, join, baseName, dirName, errorOf, isOutside, outsideLabel } from './paths.js';
 
@@ -185,7 +185,7 @@ export function canMoveInto(from, folder) {
 
 /**
  * Ask the tree to show a path: expand down to it and, with `focus`, put the keyboard on its
- * row. The kernel's `paths:*` events say what changed; this says what the person should see.
+ * row. The core's `paths:*` events say what changed; this says what the person should see.
  */
 function reveal(path, focus) { bus.emit('tree:reveal', { path, focus: !!focus && fromSidebar() }); }
 
@@ -436,7 +436,7 @@ export function trashTitle() {
  * and its Undo brings it back. Several ask once, naming the real destination. Nothing is ever
  * deleted permanently: where the platform's bin refuses, the host puts it in the vault's
  * `.trash` and says so. The page is asked first and a refusal keeps it and its file (C6); the
- * tabs that showed a trashed file turn into its folder (the kernel's `paths:trashed`).
+ * tabs that showed a trashed file turn into its folder (the core's `paths:trashed`).
  *
  * @param {Target|Target[]} [targets]
  */
@@ -465,7 +465,7 @@ export async function trashPaths(targets) {
     const where = wheres.size === 1 ? [...wheres][0] : wheres.size ? 'mixed' : ose.settings.get().trash === 'vault' ? 'vault' : 'system';
     const what = trashed.length === 1 ? baseName(trashed[0]) : countOf(trashed);
     const fallback = where === 'mixed' ? `Moved ${what} to the trash` : `Moved ${what} to ${trashWords(where).to}`;
-    // The journal's label names the bin (M18); ours says the same for a kernel without one.
+    // The journal's label names the bin (M18); ours says the same for a core without one.
     done(res.entry, fallback);
   }
   return res;
@@ -540,7 +540,7 @@ export function copy(targets) {
  * Paste into `folder`: a cut moves (and the clipboard empties), a copy copies (`x 2.ext` when
  * the name is taken, so pasting into the same folder duplicates). One toast, with Undo.
  * @param {string|Target} [folder] a folder path, or a target whose folder is meant
- * @returns {Promise<object|null>} the kernel's result
+ * @returns {Promise<object|null>} the core's result
  */
 export async function paste(folder) {
   if (!clip) { toast('Nothing to paste', 'info', 1800); return null; }

@@ -1,8 +1,8 @@
 // The one door out of the editor bundle (round four, K1c).
 //
-// `ose:editor` is a library: it knows the kernel and nothing else. Every other file under
+// `ose:editor` is a library: it knows the core and nothing else. Every other file under
 // `src/editor/` imports what it needs from here, so the whole bundle has exactly one place
-// that names anything outside the folder — and `ose:kernel` and `ose:ui` are
+// that names anything outside the folder — and `ose:core` and `ose:ui` are
 // external to this bundle (vite.config.js), so there is one bridge, one overlay stack
 // and one toast queue in a running Ose, never two.
 //
@@ -12,7 +12,7 @@
 // `ose.files` under the shape the editor was written against, and nothing else in the folder
 // knows there is an `ose` at all.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import {
   confirm, contextMenu, copyText, esc, fuzzy, highlight, icon, openOverlay, pageItems,
   pickPage, prompt, toast,
@@ -24,7 +24,7 @@ export {
 };
 
 export const bus = ose.bus;
-/** Resolves when the kernel has the platform, the vault and the state (`ose.ready`). */
+/** Resolves when the core has the platform, the vault and the state (`ose.ready`). */
 export const ready = ose.ready;
 /** `{ root, name }` of the open vault, or nulls while none is open. */
 export const vault = () => ({ root: ose.vault.root, name: ose.vault.name });
@@ -71,9 +71,9 @@ export const defaultNewFolder = () => ose.focus.defaultNewFolder();
 export const findInbound = (path) => ose.links.inbound(path);
 
 /**
- * The splices the kernel's link rewrite would make in `text`, the file at `path`, for the moves
+ * The splices the core's link rewrite would make in `text`, the file at `path`, for the moves
  * `pairs` (`ose.links.planRewrite`, H5): `[{from, to, insert}]`, UTF-16 offsets into `text`.
- * `opts.settled` is the kernel's second pass. Resolves null on a kernel that has no planner, so
+ * `opts.settled` is the core's second pass. Resolves null on a core that has no planner, so
  * the caller can hand the file back to the disk path.
  */
 export async function planRewrite(text, path, pairs, opts = {}) {
@@ -100,7 +100,7 @@ export const titleOf = (p) => {
 
 /**
  * The window is about to go — closed, reloaded, or switched to another vault — and `fn` is
- * awaited first: `false` keeps it (docs/KERNEL.md `ose.window.onLeave`, C5). A kernel from
+ * awaited first: `false` keeps it (docs/CORE.md `ose.window.onLeave`, C5). A core from
  * before the leave gate only knows the close, so that is all that is heard there.
  */
 export const onWindowLeave = (fn) => (typeof ose.window.onLeave === 'function'
@@ -118,7 +118,7 @@ export const currentRoute = () => { try { return ose.route.current(); } catch { 
 
 /**
  * The one implementation of create and rename (`ose.fileops`, H12/H13): the editor names a
- * file and never builds a path into the host. Null on a kernel that does not have it yet.
+ * file and never builds a path into the host. Null on a core that does not have it yet.
  */
 export const fileops = () => ose.fileops || null;
 /** `ose.names`: split, check and the free-name search, or null. */
@@ -141,7 +141,7 @@ export function log(text, level = 'info') {
   } catch { /* a log that cannot be written is not an error of the page */ }
 }
 
-/** The chord a command answers to, as the menus print it. The key engine is the kernel's. */
+/** The chord a command answers to, as the menus print it. The key engine is the core's. */
 export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ export const titleSyncOn = () => ose.settings.get().titleSync === true;
 
 /**
  * `editorMode` (wave 3, X1): the mode a markdown file opens in when it remembers none of its
- * own. A machine setting; the kernel's default is 'rich'. modes.js validates what it reads.
+ * own. A machine setting; the core's default is 'rich'. modes.js validates what it reads.
  */
 export const editorModeSetting = () => ose.settings.get().editorMode;
 
@@ -202,7 +202,7 @@ export const bridge = {
   list: (path) => ose.files.list(path),
   tree: () => ose.files.tree(),
   rename: (from, to) => ose.files.rename(from, to),
-  // Where a deleted file goes is the user's setting, and the kernel applies it: the editor
+  // Where a deleted file goes is the user's setting, and the core applies it: the editor
   // says which file, never which bin.
   trash: (path) => ose.files.trash(path),
   reveal: (path) => ose.files.reveal(path),
@@ -222,19 +222,19 @@ export const bridge = {
 // A page reads with the hash of what it read and writes against that hash, in one host call
 // that compares and writes under one lock (`saveFile`); the host keeps the replaced bytes as a
 // version. The hash is the host's: this side carries it and compares it by equality, nothing
-// more. The epoch that stops a write landing in the wrong vault is added by the kernel.
+// more. The epoch that stops a write landing in the wrong vault is added by the core.
 
-// The kernel ships in the same executable as this bundle: every call below is there, and a
+// The core ships in the same executable as this bundle: every call below is there, and a
 // missing one is a hard error (X5), never a feature to detect. The types are the host's
 // generated bindings.
 
-/** @typedef {import('../kernel/bridge/commands.ts').ReadFile} ReadFile */
-/** @typedef {import('../kernel/bridge/commands.ts').SaveOutcome} SaveOutcome */
-/** @typedef {import('../kernel/bridge/commands.ts').Created} Created */
-/** @typedef {import('../kernel/bridge/commands.ts').Draft} Draft */
-/** @typedef {import('../kernel/bridge/commands.ts').DraftAt} DraftAt */
-/** @typedef {import('../kernel/bridge/commands.ts').DraftInfo} DraftInfo */
-/** @typedef {import('../kernel/bridge/commands.ts').Dropped} Dropped */
+/** @typedef {import('../core/bridge/commands.ts').ReadFile} ReadFile */
+/** @typedef {import('../core/bridge/commands.ts').SaveOutcome} SaveOutcome */
+/** @typedef {import('../core/bridge/commands.ts').Created} Created */
+/** @typedef {import('../core/bridge/commands.ts').Draft} Draft */
+/** @typedef {import('../core/bridge/commands.ts').DraftAt} DraftAt */
+/** @typedef {import('../core/bridge/commands.ts').DraftInfo} DraftInfo */
+/** @typedef {import('../core/bridge/commands.ts').Dropped} Dropped */
 /** @typedef {{ kept: boolean, id: string | null }} Kept */
 
 export const pageFiles = {
@@ -313,7 +313,7 @@ export function patchState(partial) {
   return Promise.resolve();
 }
 
-/** The editor's state, read-only. `{}` before the kernel has loaded it. */
+/** The editor's state, read-only. `{}` before the core has loaded it. */
 export function stateCache() {
   const v = slot.get();
   return v && typeof v === 'object' ? v : {};

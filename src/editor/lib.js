@@ -1,4 +1,4 @@
-// `ose:editor` — the bundle (docs/KERNEL.md).
+// `ose:editor` — the bundle (docs/CORE.md).
 //
 //   markdownPage(el, path, opts)  the page editor: title strip, properties, autosave, drafts,
 //                                 changes made on disk merged in (H7), versions, the Rich |
@@ -14,8 +14,8 @@
 //   render(markdown, opts)        the same markdown, read-only, as DOM.
 //   renderMath(tex, opts)         one formula, rendered with Temml to MathML.
 //
-// Everything the bundle needs from outside comes through `host.js` (the kernel: `ose:kernel`,
-// `ose:ui`) and nothing else. The stylesheet is `editor.css` on the kernel origin:
+// Everything the bundle needs from outside comes through `host.js` (the core: `ose:core`,
+// `ose:ui`) and nothing else. The stylesheet is `editor.css` on the core origin:
 // the bundler concatenates every `src/editor/*.css` this graph imports, plus the Crepe theme,
 // into that one file — `editor.css` itself, `code.css`, `table.css`, `source.css`,
 // `backlinks.css`, `render.css`, in that graph's order. No absolute URL is written anywhere
@@ -46,7 +46,7 @@ export { acquireCommands as holdPageCommands } from './page.js';
 export { beforePathChange, afterPathChange, saveAll } from './page.js';
 
 /**
- * The page host's wave-2 calls (docs/KERNEL.md, the page host):
+ * The page host's wave-2 calls (docs/CORE.md, the page host):
  *
  *   releasePage(path)                 -> Promise<boolean>  PageHost.release: the parked page of
  *                                        `path` is saved and destroyed; false = it could not be

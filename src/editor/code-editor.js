@@ -1,4 +1,4 @@
-// `codeEditor(el, opts)` (docs/KERNEL.md `ose:editor`): CodeMirror as a component.
+// `codeEditor(el, opts)` (docs/CORE.md `ose:editor`): CodeMirror as a component.
 //
 // The same editor source mode mounts, with two things added: a language from the CodeMirror
 // language pack (the one the code-block feature uses, so a `python` block and a `.py` file are
@@ -43,7 +43,7 @@ const normalize = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
  * a diff of the whole file for a one-character edit, and "a user edit must not reformat the
  * rest of the file" is not negotiable (CLAUDE.md; A, finding 6). A file with both kinds is
  * settled on its majority the first time it is written, which is the one case this cannot do
- * perfectly without tracking an ending per line; it is written down in docs/KERNEL.md.
+ * perfectly without tracking an ending per line; it is written down in docs/CORE.md.
  */
 function endingOf(raw) {
   const all = (String(raw).match(/\n/g) || []).length;
@@ -208,7 +208,7 @@ export function codeEditor(el, opts = {}) {
   // cannot differ (`ide()` in source.js). What is only this editor's is Ctrl+S.
   //
   // Ctrl+S here as well as in the shell: a code editor inside a dialog or a panel is not always
-  // under a chord the shell bound (docs/KERNEL.md, keyboard reachable every time). `keys.js`
+  // under a chord the shell bound (docs/CORE.md, keyboard reachable every time). `keys.js`
   // binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would otherwise
   // take it first and nothing inside CodeMirror could outrank a listener that runs before the
   // event ever descends. The exemption belongs in the key engine rather than here, and that is

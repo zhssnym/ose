@@ -8,7 +8,7 @@
 // The sheet comes up once, after the boot, and only when there is something in it. The command
 // `app.recovered` brings it back while there is.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, openOverlay, overlayCount, prompt, confirm, toast } from 'ose:ui';
 import { clean, baseName, dirName, isOutside, outsideLabel } from './paths.js';
 

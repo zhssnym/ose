@@ -12,7 +12,7 @@
 //
 // Nothing in this file imports `ose:*`, a stylesheet or the DOM at module top level. The two
 // modules that bring nodes of their own, maths (math-node.js) and the image block (image.js),
-// reach the kernel through host.js and are only imported inside `makeEngine`, which the app never
+// reach the core through host.js and are only imported inside `makeEngine`, which the app never
 // calls; the page passes them in through `configureMarkdown`'s options instead. One stylesheet
 // still comes in underneath: stringify.js reads the `$` rule from math.js, which imports Temml's
 // and its own CSS, so plain Node needs a loader that stubs `.css` (the tests alias it).

@@ -76,7 +76,7 @@ import { parseDoc, composeDoc, countWords, frontmatterEditable, setFrontmatterVa
 import * as P from './paths.js';
 import './editor.css';
 // The sheet: `@page` and every `@media print` rule of the app, in one file. It rides in with
-// the editor's stylesheet because that is the last one the kernel serves.
+// the editor's stylesheet because that is the last one the core serves.
 import './print.css';
 import './sheets.css';
 import { attachSheets } from './sheets.js';
@@ -150,7 +150,7 @@ function recoveredModeOf(p, r) {
 }
 
 // ---------------------------------------------------------------------------
-// the serializer's two checks (docs/KERNEL.md `ose:editor`, "Writing")
+// the serializer's two checks (docs/CORE.md `ose:editor`, "Writing")
 //
 // `readMarkdownChecked` and `openCheck` are crepe.js's, and neither throws; the try blocks here
 // only make sure that a bug in them can never read as a clean write or a clean open.
@@ -338,7 +338,7 @@ const blankPage = () => ({
 });
 
 /**
- * Mount the file at `path` into `el` and answer the handle (docs/KERNEL.md `ose:editor`).
+ * Mount the file at `path` into `el` and answer the handle (docs/CORE.md `ose:editor`).
  * The handle comes back at once; `handle.ready` is the open in flight.
  *
  * `opts.line` (1-based, a line of the file as the search overlay counts them) puts the caret in
@@ -393,7 +393,7 @@ function buildPage(el, path, opts) {
     covers: (from) => !!(page && covers(page.path, from)),
     /**
      * The page holds `target`: its path, or where a rename or a move in flight is taking it
-     * (the kernel may rewrite the moved files' links before `afterPathChange` re-points them).
+     * (the core may rewrite the moved files' links before `afterPathChange` re-points them).
      */
     holds: (target) => !!(page && (page.path === target
       || (page.moving && page.moving.to && covers(page.path, page.moving.from)
@@ -1245,7 +1245,7 @@ function buildPage(el, path, opts) {
   /**
    * The window is going (closed, reloaded, switched to another vault). The same as `canLeave`,
    * except that a question cannot be awaited into a window on its way out: it is shown, and
-   * the answer is no. A yes stays frozen until the kernel says the window stays after all.
+   * the answer is no. A yes stays frozen until the core says the window stays after all.
    */
   async function leaveWindow() {
     const p = page;
@@ -1318,7 +1318,7 @@ function buildPage(el, path, opts) {
   }
 
   // -------------------------------------------------------------------------
-  // path changes (C6): the kernel's file operations ask the page first
+  // path changes (C6): the core's file operations ask the page first
 
   /**
    * Before a rename, move, trash or copy of `change.from` (a file, or a folder above the page).
@@ -1374,7 +1374,7 @@ function buildPage(el, path, opts) {
   /**
    * After the host call, whether it succeeded or not. A rename or a move re-points the page:
    * `p.path` follows, and the buffer, the caret and the undo history stay where they are (the
-   * router was already re-pointed by the kernel). A trash leaves the page clean for the caller.
+   * router was already re-pointed by the core). A trash leaves the page clean for the caller.
    */
   async function afterPathChange(change) {
     const p = page;
@@ -4122,13 +4122,13 @@ function buildPage(el, path, opts) {
   // links into an open page (H5, §4.8)
 
   /**
-   * The kernel moved files (`pairs`, `[{from, to}]`) and asks this page, which holds `target`,
+   * The core moved files (`pairs`, `[{from, to}]`) and asks this page, which holds `target`,
    * to rewrite its links instead of the file on disk being written behind it. Source mode
    * applies `ose.links.planRewrite` as one CodeMirror change; the rich view rewrites the link
    * marks and images whose target moved, in one ProseMirror transaction. Either is an edit of
    * its own in the undo history: the page is dirty, and autosave writes it through the guard
    * as always. `o.settled`: this file's own hrefs were already rewritten for the move, so only
-   * links into the moved files are looked at (the kernel's second pass).
+   * links into the moved files are looked at (the core's second pass).
    * @returns {Promise<{handled: boolean, changed?: number, failed?: string}>}
    */
   async function rewriteLinks(target, pairs, o = {}) {
@@ -4141,7 +4141,7 @@ function buildPage(el, path, opts) {
     // file outside the vault is not part of the vault's links (X7).
     if (!list.length || p.plain || p.outside) return { handled: true, changed: 0 };
     try {
-      // Source and Live hold the file's text: the kernel's plan applies to it as one change.
+      // Source and Live hold the file's text: the core's plan applies to it as one change.
       const textView = () => (p.source ? p.source : p.live);
       if (textView()) {
         for (let round = 0; round < 2; round++) {
@@ -4175,7 +4175,7 @@ function buildPage(el, path, opts) {
   }
 
   /**
-   * The rich half of `rewriteLinks`, the same decisions the kernel's disk path makes
+   * The rich half of `rewriteLinks`, the same decisions the core's disk path makes
    * (links.js `rewriteInboundMany`): a href is resolved against where the page was written
    * (its old path when the page itself moved), and rewritten relative to where it is now when
    * its target moved, or when the page moved and the href would otherwise stop resolving. A
@@ -4425,8 +4425,8 @@ function wireGlobals() {
   // Spellcheck is a setting now (L12/E43): a page already open follows a change to it.
   bus.on('settings', () => { for (const i of [...instances]) i.applySpellcheck(); });
   // C5: the one leave gate. Closing the window, reloading it and switching vaults all await
-  // this, and a false keeps the window (docs/KERNEL.md `ose.window.onLeave`). The pages that
-  // said yes stay frozen until the kernel says the window stays after all.
+  // this, and a false keeps the window (docs/CORE.md `ose.window.onLeave`). The pages that
+  // said yes stay frozen until the core says the window stays after all.
   onWindowLeave(() => leaveAll());
   bus.on('window:stay', () => { for (const i of [...instances]) i.stay(); });
   // No save can finish in `beforeunload`; a draft can be started, and the browser is asked to
@@ -4529,7 +4529,7 @@ export function parkedPaths() { return parkedList(); }
 
 /**
  * `PageHost.problems()`: the paths of every live page, on screen or parked, whose text is not on
- * disk and could not be put there (not saved, a conflict, or its file deleted). The kernel's
+ * disk and could not be put there (not saved, a conflict, or its file deleted). The core's
  * leave gate names them, and reopens one no tab shows.
  * @returns {string[]}
  */
@@ -4548,7 +4548,7 @@ export function problemPages() {
  * `PageHost.rewriteLinksIn(path, pairs)` (H5, §4.8): the links of an open page — on screen or
  * parked — into files that moved are rewritten in the editor, as an edit of the page, instead of
  * the file being written on disk behind it. `{handled: false}` when no page holds `path`: the
- * kernel then rewrites the file on disk as before. `opts.settled`: the kernel's second pass,
+ * core then rewrites the file on disk as before. `opts.settled`: the core's second pass,
  * where the file's own hrefs were already rewritten for the move.
  * @param {string} path
  * @param {Array<{from: string, to: string}>} pairs
@@ -4733,7 +4733,7 @@ function registerCommands() {
     id: 'page.print', title: 'Print', group: 'page',
     when: hasPage, run: () => void printPage(),
   });
-  // The chords are the kernel's (keys.js): Ctrl+F for find, the outline's is its choice.
+  // The chords are the core's (keys.js): Ctrl+F for find, the outline's is its choice.
   commands.register({
     id: 'page.find', title: 'Find in page', group: 'page',
     when: hasPage, run: () => editorApi.find(),
@@ -4754,7 +4754,7 @@ function registerCommands() {
  */
 async function newPage() {
   const ops = fileops();
-  if (!ops || typeof ops.create !== 'function') { toast('could not create the page: this kernel has no file operations', 'err'); return false; }
+  if (!ops || typeof ops.create !== 'function') { toast('could not create the page: this core has no file operations', 'err'); return false; }
   let folder = '';
   try { folder = defaultNewFolder() || ''; } catch { folder = ''; }
   let path;

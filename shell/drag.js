@@ -9,7 +9,7 @@
 // or a file in another encoding lands as it was. A drag of a row is the internal move; a
 // browser tab cannot drag a vault file out to the system, so nothing here does.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
 import { baseName, errorOf } from './paths.js';
 import { undo } from './fileops.js';

@@ -110,7 +110,7 @@
 .media-dead { display: none; }
 
 /* The third line of the "not in the vault" box (media.js `mediaMiss`), in the `.empty` voice:
-   a missing attachment is a fact, not a fault, so it is not the kernel's red `.miss-why`. */
+   a missing attachment is a fact, not a fault, so it is not the core's red `.miss-why`. */
 .media-gone {
   margin-top: var(--sp-3);
   color: var(--fg-3);

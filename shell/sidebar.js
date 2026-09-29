@@ -23,7 +23,7 @@
 // takes it back (M17). This file only follows what happened: expansion, the selection and the
 // focused row. Pins are shell/pins.js's; a pin whose file is gone is greyed, never dropped
 // (L22).
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import {
   esc, icon, hasIcon, contextMenu, toast, copyText, confirm,
   focusOrigin, retargetFocusOrigin, overlayCount,
@@ -44,7 +44,7 @@ import { focusPage, sidebarVisible, setSidebarOpen, toggleSidebar } from './layo
 
 const { bus, commands, debounce, files, links, route } = ose;
 
-// The kernel's hoses this file leans on, named the way the batch-12 shell named them, so the
+// The core's hoses this file leans on, named the way the batch-12 shell named them, so the
 // code below reads as it always did. Everything here is `ose` and nothing else.
 const navigate = (r, opts) => route.navigate(r, opts);
 const currentRoute = () => route.current();
@@ -59,7 +59,7 @@ const findInbound = (path) => links.inbound(path);
 /** What a caught error says: its message, or the thing itself when it has none. */
 const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
-/** An icon from the set, or `fallback` while the kernel does not carry that name yet. */
+/** An icon from the set, or `fallback` while the core does not carry that name yet. */
 const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
 
 // Per-machine UI state (`ose.local`, W5): the tree's open folders beside the layout's open
@@ -317,7 +317,7 @@ function currentOf() {
   };
 }
 
-/** The root row's name: the tree's own answer, else the kernel's. */
+/** The root row's name: the tree's own answer, else the core's. */
 function vaultName() {
   return (tree && tree.name) || nameOfVault();
 }

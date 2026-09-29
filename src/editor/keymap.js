@@ -7,7 +7,7 @@
 // bindings see the key, and the menus print them.
 //
 // `ose.keys.bind(combo, id, { scope: 'body' })` is the other half: the shell binds a body
-// chord through the kernel, and `ose.keys.shortcutFor(id)` then prints it. This table is what
+// chord through the core, and `ose.keys.shortcutFor(id)` then prints it. This table is what
 // the editor answers by itself, in the editor, with no trip through the window listener.
 
 /** True on a Mac, by what the host told the page, else by what the browser says. */
@@ -74,7 +74,7 @@ const BY_CODE = {
  * character. `mod` is the platform's command modifier; a plain Ctrl on a Mac is `ctrl` and
  * matches nothing in the table, which is exactly the point.
  *
- * The same normalisation the kernel's key engine does, because the two have to agree on what
+ * The same normalisation the core's key engine does, because the two have to agree on what
  * a key is called; if `ose.keys` ever offers it, this goes and that is called instead.
  */
 export function combosOf(e) {

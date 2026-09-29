@@ -1,17 +1,17 @@
 // The one Vite config of Ose Web (docs/HOST.md): the app in Chrome over a folder on this machine,
-// an installable offline PWA. The browser is the only host; src/web/adapter.js answers every
+// an installable offline PWA. The browser is the only host; src/host/adapter.js answers every
 // host command over the File System Access API.
 //
 //   npm run dev       `vite`: the shell served as plain files from `shell/`, the four `ose:*`
-//                     specifiers aliased to their sources, the kernel stylesheets, the service
+//                     specifiers aliased to their sources, the core stylesheets, the service
 //                     worker (with no precache: dev stays on the network), the manifest and the
 //                     icons, on http://localhost:5173. Chrome allows the File System Access API
 //                     on localhost, so no certificate. `vite --port <n>` picks another port.
-//   npm run build     `vite build`: the deployable site in `dist/`. The kernel's four library
+//   npm run build     `vite build`: the deployable site in `dist/`. The core's four library
 //                     bundles into `dist/ose/`, the shell copied verbatim beside them, the web's
 //                     public files (`web/`: the manifest and the icons), a `<link rel="manifest">`
 //                     and the Content-Security-Policy `<meta>` added to `dist/index.html` (the
-//                     shell's own index.html is not edited), and last `dist/sw.js`, src/web/sw.js
+//                     shell's own index.html is not edited), and last `dist/sw.js`, src/host/sw.js
 //                     with the precache list and the build id written into it.
 //   npm run preview   `vite preview`: `dist/` as a static host serves it.
 //
@@ -19,22 +19,22 @@
 // it, vercel.json). Every URL in it is relative, so it works under a subpath too.
 //
 //   dist/index.html  dist/main.js  dist/boot.js  ...          the shell, copied from shell/
-//   dist/ose/kernel.js  editor.js  planner.js  ui.js  chunks/  the four bundles the import map names
+//   dist/ose/core.js  editor.js  planner.js  ui.js  chunks/  the four bundles the import map names
 //   dist/ose/ui.css  editor.css  planner.css                   the three stylesheets the shell links
 //   dist/manifest.webmanifest  dist/icons/  dist/sw.js          the PWA
 //
 // The bundles are libraries, not an app build: the entry file names are part of the contract
 // (the import map in shell/index.html spells them literally), so nothing but the chunks is
-// hashed. Who imports whom: `ose:kernel` is the base and bundles everything with state in it
+// hashed. Who imports whom: `ose:core` is the base and bundles everything with state in it
 // (the registries, the bridge, the router, the tabs, the key engine, the dialogs: one overlay
 // stack in a running Ose, not two). `ose:ui` is a facade that names those again from
-// `ose:kernel`; `ose:editor` imports `ose:kernel` and `ose:ui`; `ose:planner` imports `ose:ui`
+// `ose:core`; `ose:editor` imports `ose:core` and `ose:ui`; `ose:planner` imports `ose:ui`
 // and, lazily, `ose:editor`, and is handed `ose` by the shell. So every `ose:*` specifier is
 // external in every bundle, and nothing is bundled twice. date-fns is bundled into planner.js,
 // tree-shaken to what the planner uses.
 //
 // The tests (vitest.config.js) stand alone and do not load this file, except for the pure
-// helpers exported below (tests/web/adapter.test.js).
+// helpers exported below (tests/host/adapter.test.js).
 
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -48,8 +48,8 @@ const posix = (p) => p.split('\\').join('/');
 
 /** The four `ose:*` specifiers, as the import map in shell/index.html names them. */
 const ALIAS = {
-  'ose:kernel': here('src/kernel/kernel.js'),
-  'ose:ui': here('src/kernel/ui.js'),
+  'ose:core': here('src/core/core.js'),
+  'ose:ui': here('src/core/ui.js'),
   'ose:editor': here('src/editor/lib.js'),
   'ose:planner': here('src/planner/index.js'),
 };
@@ -59,11 +59,11 @@ const KATEX = { katex: here('src/editor/katex-absent.js') };
 
 /** The build's library entries: a missing source fails the build. */
 const ENTRIES = {
-  kernel: here('src/kernel/kernel.js'),
-  ui: here('src/kernel/ui.js'),
+  core: here('src/core/core.js'),
+  ui: here('src/core/ui.js'),
   editor: here('src/editor/lib.js'),
   planner: here('src/planner/index.js'),
-  'ui.css': here('src/kernel/ui.css'),
+  'ui.css': here('src/core/ui.css'),
 };
 
 /** The folder of the bundles inside the output; the shell must not have one. */
@@ -92,7 +92,7 @@ function stamp() {
 
 /* ------------------------------------------------------------------ the web build's helpers */
 
-/** The marker line in src/web/sw.js the build fills in. */
+/** The marker line in src/host/sw.js the build fills in. */
 const MARKER = /\/\* @ose-manifest \*\/ const MANIFEST = null;/;
 
 /** Every file under `dir`, relative, with forward slashes. @param {string} dir @returns {string[]} */
@@ -115,8 +115,8 @@ export function workerSource(files, outDir) {
   const h = createHash('sha256');
   for (const f of files) { h.update(f); h.update('\0'); h.update(readFileSync(path.join(outDir, f))); }
   const build = h.digest('hex').slice(0, 16);
-  const src = readFileSync(here('src/web/sw.js'), 'utf8');
-  if (!MARKER.test(src)) throw new Error('src/web/sw.js has lost its `/* @ose-manifest */` line');
+  const src = readFileSync(here('src/host/sw.js'), 'utf8');
+  if (!MARKER.test(src)) throw new Error('src/host/sw.js has lost its `/* @ose-manifest */` line');
   return { build, source: src.replace(MARKER, `const MANIFEST = ${JSON.stringify({ build, files })};`) };
 }
 
@@ -200,7 +200,7 @@ function webIntoTheBuild() {
 
 /* ------------------------------------------------------------------------- the dev server */
 
-// The three kernel stylesheets, at the paths the shell's links name: `/ose/ui.css`,
+// The three core stylesheets, at the paths the shell's links name: `/ose/ui.css`,
 // `/ose/editor.css` and `/ose/planner.css` (shell/index.html). Vite's SPA fallback would answer
 // the page for any unknown path, so the three are answered here as text/css: ui.css and
 // planner.css from their sources with their relative `@import`s inlined, editor.css as a list of
@@ -240,13 +240,13 @@ function kernelStylesheets() {
     return sheets.map((id) => `@import url("/@fs/${posix(id).replace(/^\/+/, '').split('?')[0]}?direct");`).join('\n');
   };
   const sheet = async (name) => {
-    if (name === 'ui.css') return inlineImports(readFileSync(here('src/kernel/ui.css'), 'utf8'), 'src/kernel/');
+    if (name === 'ui.css') return inlineImports(readFileSync(here('src/core/ui.css'), 'utf8'), 'src/core/');
     if (name === 'planner.css') return inlineImports(readFileSync(here('src/planner/planner.css'), 'utf8'), 'src/planner/');
     if (name === 'editor.css') return editorSheets();
     return null;
   };
   return {
-    name: 'ose-kernel-stylesheets',
+    name: 'ose-core-stylesheets',
     configureServer(server) {
       dev = server;
       server.middlewares.use(async (req, res, next) => {
@@ -314,7 +314,7 @@ function webDevAssets() {
         res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('Service-Worker-Allowed', '/');
-        res.end(readFileSync(here('src/web/sw.js')));
+        res.end(readFileSync(here('src/host/sw.js')));
       });
     },
     transformIndexHtml(html) { return withManifestLink(html); },
@@ -346,7 +346,7 @@ export default defineConfig(({ command, isPreview }) => {
         // An end-to-end scenario (OSE_E2E=1) drives pages that must not be reloaded under it
         // because someone saved a source file meanwhile.
         ...(process.env.OSE_E2E ? { hmr: false } : {}),
-        // The kernel sources the shell imports, which are outside the root by definition.
+        // The core sources the shell imports, which are outside the root by definition.
         fs: { allow: [here('.')] },
         watch: { ignored: ['**/node_modules/**', '**/dist/**', '**/work/**', '**/test-results/**', '**/.trash/**'] },
       },

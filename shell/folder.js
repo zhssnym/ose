@@ -3,7 +3,7 @@
 // folder's name, a small toolbar, the list of what is in it (name, type, modified, size, the
 // way Explorer lays it out) and, under the list, the folder's README rendered as a note.
 //
-// The kernel draws nothing (docs/KERNEL.md "Folders"). `initFolder()` registers this file as
+// The core draws nothing (docs/CORE.md "Folders"). `initFolder()` registers this file as
 // the folder host (`ose.setFolderHost`) before `ose.init`, and the router calls `open` with the
 // page column's scroller and the folder's path, then `refresh` on a file change and `unmount`
 // on the way out. The same list, compact, is what Home shows for the vault root
@@ -24,7 +24,7 @@
 // on the list's background is copied in; and Alt+drag takes the rows out of the app, as a
 // copy.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, hasIcon, toast, contextMenu } from 'ose:ui';
 import * as M from './folder-model.js';
 import * as fops from './fileops.js';
@@ -54,7 +54,7 @@ function display(entry) {
   return titleOf(entry.path) || entry.name;
 }
 
-/** An icon from the kernel's set, else the plain file or folder one: `icon()` falls back to a dot. */
+/** An icon from the core's set, else the plain file or folder one: `icon()` falls back to a dot. */
 const iconSvg = (name, fallback = 'file') => icon(hasIcon(name) ? name : fallback);
 
 const showHidden = () => !!ose.settings.get().showHidden;
@@ -819,7 +819,7 @@ function toolButton(cls, iconName, fallback, label, title) {
 
 /**
  * The folder view, drawn into the page column's scroller: the header, the toolbar, the list
- * and the README under it. Answers the handle the router keeps (docs/KERNEL.md "Folders").
+ * and the README under it. Answers the handle the router keeps (docs/CORE.md "Folders").
  * @param {HTMLElement} el
  * @param {string} path
  * @param {{select?: string, scrollTop?: number}} [opts]

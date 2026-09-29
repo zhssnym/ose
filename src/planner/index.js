@@ -8,7 +8,7 @@
 //
 // Imports: `ose:ui`, `date-fns`, files under src/planner, and `ose:editor` by dynamic import in
 // journal.js (its `render`). The views get `ose` from `initPlanner`; nothing here imports
-// `ose:kernel`.
+// `ose:core`.
 
 import './planner.css';
 import { createStore, renderSettings } from './settings.js';
@@ -20,7 +20,7 @@ import { openPlannerSettings } from './nav.js';
 
 /**
  * Register the planner. Called once by shell/boot.js after `ose.init`.
- * @param {object} ose the kernel facade
+ * @param {object} ose the core facade
  * @returns {{dispose: () => void, store: object}}
  */
 export function initPlanner(ose) {

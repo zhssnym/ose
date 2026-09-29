@@ -15,7 +15,7 @@
 // "outside vault" (X7, `ose.files.openOutside`). A page outside the vault reads, at rest, as
 // "Outside the vault", its folder, then its name.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, hasIcon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
 import * as M from './folder-model.js';
@@ -243,7 +243,7 @@ function setNote(text) {
 /**
  * An absolute path outside the vault (X7): the file opens in a tab marked "outside vault"
  * (`ose.files.openOutside`). A file that is inside another Ose vault, or inside this one after
- * all, is the kernel's to route. The field stays, with the reason, when nothing opened.
+ * all, is the core's to route. The field stays, with the reason, when nothing opened.
  * @param {string} abs the absolute path as typed, forward slashes
  */
 async function goOutside(abs) {

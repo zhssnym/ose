@@ -12,7 +12,7 @@
 // What the bar no longer draws, on purpose: the file's path (the address bar has it), `watch
 // on`, the theme, the host kind and a settings hint. Those were facts about the machinery,
 // and the bar is for the page.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, contextMenu } from 'ose:ui';
 import { zoomLabel } from './settings.js';
 

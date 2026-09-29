@@ -1,10 +1,10 @@
 // @ts-nocheck
-// The dialogs the editor asks for, and the two state calls, over the kernel (`ose:ui`,
+// The dialogs the editor asks for, and the two state calls, over the core (`ose:ui`,
 // `ose.state`) through `host.js`.
 //
 // The editor once loaded the shell's dialogs lazily and carried a fallback implementation of
 // every one of them, because the shell shipped separately and might not have been there. The
-// dialogs are the kernel's now (docs/KERNEL.md `ose:ui`): they are part of what a page editor
+// dialogs are the core's now (docs/CORE.md `ose:ui`): they are part of what a page editor
 // is handed, like the file system, so they are imported statically and there is nothing to
 // fall back to. What is left here is `choose`, which `ose:ui` does not have in that shape, and
 // the two thin state helpers.
@@ -74,7 +74,7 @@ export async function patchState(partial) {
   return hostPatchState(partial);
 }
 
-/** The loaded `.ose/state.json`, read-only. `{}` until the kernel has loaded it. */
+/** The loaded `.ose/state.json`, read-only. `{}` until the core has loaded it. */
 export async function readState() {
   const c = stateCache();
   return c && typeof c === 'object' ? c : {};

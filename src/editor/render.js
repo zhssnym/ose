@@ -1,5 +1,5 @@
 // @ts-nocheck
-// `render(markdown, opts)` (docs/KERNEL.md `ose:editor`): markdown as read-only DOM.
+// `render(markdown, opts)` (docs/CORE.md `ose:editor`): markdown as read-only DOM.
 //
 // A view that wants to *show* a note rather than edit it (the folder view's README, the
 // planner) should not have to boot Milkdown: this is marked with GFM on, through DOMPurify,

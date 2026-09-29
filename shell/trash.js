@@ -11,7 +11,7 @@
 //
 // Nothing here deletes anything. Emptying the bin is the platform's, where it has always been.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, hasIcon, toast } from 'ose:ui';
 import { baseName, dirName, errorOf, vaultName as nameOfVault } from './paths.js';
 import { dateLabel, iconName, sizeLabel } from './folder-model.js';

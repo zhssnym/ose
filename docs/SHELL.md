@@ -3,15 +3,15 @@
 The shell is the whole interface: the toolbar with its address bar, the tab strip, the
 sidebar's one tree, the folder view, Home, the palette and Go to file, the search panel, the
 status bar, the Settings page, the Trash view and the vault chooser. It is plain ES modules and
-CSS, no bundler, copied verbatim into the build and served beside the kernel's bundles
-(docs/HOST.md). It is not the kernel: it draws, and it calls the hoses of `docs/KERNEL.md` like anything else.
+CSS, no bundler, copied verbatim into the build and served beside the core's bundles
+(docs/HOST.md). It is not the core: it draws, and it calls the hoses of `docs/CORE.md` like anything else.
 
 The window around it is Chrome's own, a tab or, once Ose is installed, an app window (X9, D11).
 The shell draws no window button, no resize edge and no drag region; its top row is a plain
 toolbar.
 
 The planner (Day, Week, Month, Journal) is not in the shell either. It is `src/planner`, one
-bundle `ose:planner` that ships beside the kernel and the editor, and the shell
+bundle `ose:planner` that ships beside the core and the editor, and the shell
 loads it at boot. Its file formats are `docs/FORMATS.md`.
 
 ## Layout
@@ -28,7 +28,7 @@ shell/
   boot-error.js     the page a failed boot leaves (imports nothing)
   layout.js         the frame: toolbar, sidebar, page column, side panel, status bar
   titlebar.js       the toolbar: the sidebar's fold, back, forward, New file, the address bar
-  tabs.js           the strip, drawn from the kernel's tabs
+  tabs.js           the strip, drawn from the core's tabs
   sidebar.js        the one tree
   folder.js         the folder view (and its compact form on Home)
   folder-model.js   the folder view's pure model: sort, labels, README, parent
@@ -63,7 +63,7 @@ shell/
 sheet wins over an earlier one and `theme.css` wins over everything:
 
 ```html
-<script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
+<script type="importmap">{"imports":{"ose:core":"./ose/core.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
 <link rel="stylesheet" href="./ose/ui.css">
 <link rel="stylesheet" href="./ose/editor.css">
 <link rel="stylesheet" href="./ose/planner.css">
@@ -74,7 +74,7 @@ sheet wins over an earlier one and `theme.css` wins over everything:
 <link rel="stylesheet" href="./theme.css">
 ```
 
-The build copies `shell/` verbatim into `dist/`, beside the kernel's four bundles in `dist/ose/`,
+The build copies `shell/` verbatim into `dist/`, beside the core's four bundles in `dist/ose/`,
 and any static host serves `dist/` (Vercel, `vercel.json`). The import map is the one inline
 script of the page; the build hashes it into the page's CSP `<meta>` (vite.config.js). In the
 dev server the map is inert, because Vite rewrites every `ose:*` import itself, and the dev server
@@ -109,7 +109,7 @@ ose.ready -> settings.apply -> vault chooser | mountShell
 7. `startSurface()` (start.js): with `restoreSession` on and a usable session, the last session's
    tabs come back (`ose.session.restore()`), only the active one mounted; otherwise Home. The
    files the OS asked the installed app to open (a double click, Open with) then open over them, each in a tab of its own, the last one in front: that is the
-   kernel's (`opens.js`, docs/KERNEL.md), and the shell does nothing for it.
+   core's (`opens.js`, docs/CORE.md), and the shell does nothing for it.
 8. `ose.bus.emit('booted')`, then `offerRecovered()`: the Recovered changes sheet, when there are
    drafts.
 9. Once per vault on this machine, when the vault still has a `.ose/plugins` folder from before
@@ -125,15 +125,15 @@ they open as plain text, and one sticky toast says why.
 
 ### keys.json
 
-The window map is the kernel's (`ose.keys.defaults()`, with its macOS alternates and in-body
+The window map is the core's (`ose.keys.defaults()`, with its macOS alternates and in-body
 rules that JSON cannot say). `keys.json` adds the shell's chords over it; a chord here wins over
-a kernel default for the same combo. A body key (a chord the editor binds inside a page, such as
+a core default for the same combo. A body key (a chord the editor binds inside a page, such as
 Alt+Up for `block.move-up`) still wins while the caret is in the editor, and the `keys.json`
 binding of the same chord applies everywhere else.
 
 | chord | command |
 |---|---|
-| `mod+p` | `app.quickopen` (Go to file; Ctrl+O is the kernel's) |
+| `mod+p` | `app.quickopen` (Go to file; Ctrl+O is the core's) |
 | `mod+shift+p` | `app.palette` |
 | `mod+alt+p` | `page.export-pdf` |
 | `mod+alt+n` | `file.new` |
@@ -155,12 +155,12 @@ hex value anywhere else.
 
 ## Places: routes, tabs, Home
 
-A place is a route (docs/KERNEL.md): a page (`{type:'page', path}`), a folder
+A place is a route (docs/CORE.md): a page (`{type:'page', path}`), a folder
 (`{type:'folder', path}`, `''` being the vault root) or a view (`{type:'view', name}`: Home,
 Settings, Trash, Day, Week, Month, Journal). Every one of them has history, a tab, a window title
 and a place in the session.
 
-**Tabs with history** (M23). The kernel owns the tabs (`ose.tabs`) and each tab has its own back
+**Tabs with history** (M23). The core owns the tabs (`ose.tabs`) and each tab has its own back
 and forward. One route is mounted in the one page column: the active tab's current entry.
 `tabs.js` only draws the strip from `ose.tabs.on` snapshots and registers the tab commands.
 
@@ -300,7 +300,7 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
 ## The page seam: text, images, PDFs, binary files
 
 `page.js` is the shell's answer to `ose.setPageHost`: the one page host the router and
-`ose.fileops` talk to (docs/KERNEL.md). Every existing file opens in the app (H17):
+`ose.fileops` talk to (docs/CORE.md). Every existing file opens in the app (H17):
 
 - a PDF or an image goes to `media.js` (below);
 - anything else is asked about first, `ose.files.stat(path, { sniff: true })`: a file whose first
@@ -345,8 +345,8 @@ Save as PDF is a destination; Export titles the document after the page. The she
 ## Files
 
 `fileops.js` is the only UI for creating, renaming, moving, duplicating, trashing, copying and
-pasting files, and every one of them ends at `ose.fileops`, the kernel's one implementation
-(docs/KERNEL.md), which asks the page host before anything on disk changes.
+pasting files, and every one of them ends at `ose.fileops`, the core's one implementation
+(docs/CORE.md), which asks the page host before anything on disk changes.
 
 | command | title | chord | what it does |
 |---|---|---|---|
@@ -390,7 +390,7 @@ pasting files, and every one of them ends at `ose.fileops`, the kernel's one imp
 ### Files outside the vault
 
 A file anywhere on the machine can be opened in a tab (X7): **Open file…** (`file.open`,
-Chrome's file picker), or the OS once Ose is installed (Open with, a double click; the kernel's
+Chrome's file picker), or the OS once Ose is installed (Open with, a double click; the core's
 `opens.js`). A browser has no paths, so a path typed in the address bar outside the vault is
 refused. A file inside this vault opens as the vault page it is. Any other is an `abs:` page
 (`abs:/web/<id>/todo.md`, docs/HOST.md "Files outside the vault"): its tab, its Home row and its
@@ -426,13 +426,13 @@ and nothing is overwritten.
 
 ## Leaving the window
 
-Everything that throws the window's document away goes through the kernel's leave gate
-(`ose.window.leave`, docs/KERNEL.md, C5), which waits for every open page to save and keeps the
+Everything that throws the window's document away goes through the core's leave gate
+(`ose.window.leave`, docs/CORE.md, C5), which waits for every open page to save and keeps the
 window when it cannot:
 
 - **Reload window** (`app.reload`, no chord) is `ose.reload()`, which leaves first.
 - **Change vault…** chooses a folder without adopting it, then `switchVault(root)` in `vault.js`:
-  leave (stop on false: the kernel has said why), `ose.vault.open(root)`, reload. The page's last
+  leave (stop on false: the core has said why), `ose.vault.open(root)`, reload. The page's last
   save lands in the vault it came from. When that vault is already open in another tab, this
   tab stays as it was (X6), and a toast says "That vault is open in another tab".
 
@@ -503,12 +503,12 @@ the rows); the section's rows are on the right. Every change applies at once.
 - **Planner**, and any other section registered through `ose.settings.section({id, title,
   order, render})`: each renders into a box of its own, and one that throws is one line saying
   so.
-- **Keys**: every chord the app answers to, read only: the kernel's defaults with `keys.json`
+- **Keys**: every chord the app answers to, read only: the core's defaults with `keys.json`
   over them, and whether each applies everywhere or in a page's text.
 - **Vault**: the vault's path with **Change vault…**, where the root came from, the version, and
   the log file's path.
 
-The values are the kernel's (`ose.settings`), and the kernel knows where each one lives:
+The values are the core's (`ose.settings`), and the core knows where each one lives:
 
 | key | kept | default |
 |---|---|---|
@@ -538,7 +538,7 @@ reading settings, Show hidden items, the restore switch, one-time notices and th
 
 `npm run dev` (http://localhost:5173) serves this same shell from its sources, over the same web
 adapter as the built site: a folder is picked in Chrome like anywhere else. `vite.config.js` has
-`shell/` as its root and aliases `ose:kernel`, `ose:ui`, `ose:editor` and `ose:planner` onto
+`shell/` as its root and aliases `ose:core`, `ose:ui`, `ose:editor` and `ose:planner` onto
 their sources; the stylesheet middleware answers `/ose/ui.css`, `/ose/editor.css` and
 `/ose/planner.css`. Pick a throwaway copy of a vault, never a real one, while working on Ose.
 `?opfs=1` on the URL opens the browser's private file system as the vault instead (the tests'
