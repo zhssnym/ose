@@ -48,6 +48,7 @@ docs/
   LIVE.md           the Live mode: the text-is-truth rule, the reveal rule, the widgets
   HOST.md           the Rust host: typed commands, windows, the vault origin, flags, the build
   DESIGN.md         the visual system: tokens, components, the look
+  WEB.md            Ose Web: the same app in Chrome over a local folder, offline, on Vercel
 shell/              the interface, flat: index.html, main.js, the surfaces (tree, folder view,
                     Home, tabs, address bar, search, settings, trash), shell.css, tree.css,
                     places.css, folder.css, theme.css, keys.json, logo.png. Copied verbatim into
@@ -62,6 +63,8 @@ src/
                     merge of changes made on disk; live/ is the Live mode, reading/ the Reading
                     view
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
+  web/              Ose Web's host: the adapter over the File System Access API (fs, watch,
+                    local, vault-handle), the service worker; web/ holds its manifest
 src-tauri/          the host in Rust: typed commands (tauri-specta), a window per vault, vault fs
                     and the one hide rule, encodings, files outside the vault, watcher, versions,
                     trash, the local store, the vault origin, single instance
@@ -90,6 +93,8 @@ npm test               # vitest: serializer, kernel, editor, Live, reading, plan
 npm run test:e2e       # Playwright: no loss, Live, files outside the vault, on a temp vault copy
 npm run typecheck      # tsc checkJs over the save path, the kernel and Live: zero errors
 npm run lint           # Biome, warnings are errors
+npm run build:web      # dist-web/: Ose Web, the offline Chrome app (docs/WEB.md); Vercel runs it
+npm run dev:web        # Ose Web from the sources
 ```
 
 Both dev servers resolve the vault in this order: the `OSE_ROOT` environment variable, then
