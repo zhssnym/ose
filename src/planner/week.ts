@@ -10,10 +10,10 @@
 import { esc, loadingLine, toast } from 'ose:ui';
 import {
   blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays,
-} from './dates.js';
-import { lanes, parseTimetable, TIMETABLE } from './timetable.js';
-import { bindLinks, detectedHtml, goneHtml, missingHtml } from './nav.js';
-import { q1Of } from './settings.js';
+} from './dates.ts';
+import { lanes, parseTimetable, TIMETABLE } from './timetable.ts';
+import { bindLinks, detectedHtml, goneHtml, missingHtml } from './nav.ts';
+import { q1Of } from './settings.ts';
 
 const { START, END, HOUR_H, WORK_KINDS } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -26,18 +26,17 @@ const qLabel = (e) => (e.q ? `${e.q} · ` : '') + e.t;
 
 /**
  * The Week view.
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {object} the view definition
+ * @param store the planner settings store
+ * @returns the view definition
  */
-export function createWeekView(ose, store) {
-  let live = null;
+export function createWeekView(ose: any, store: any): any {
+  let live: { unmount(): void; refresh(): void; } | null = null;
 
   function mount(host) {
-    let alive = true, events = [], unknown = [], calMissing = false, lastDay = -1, seq = 0;
-    const offs = [];
+    let alive = true, events: any[] = [], unknown: any[] = [], calMissing = false, lastDay = -1, seq = 0;
+    const offs: any[] = [];
     /** The seven days, Monday first: always seven, so `w[0]` to `w[6]` are there. */
-    const days = () => /** @type {[Date, Date, Date, Date, Date, Date, Date]} */ (weekDays(new Date()));
+    const days = () => (weekDays(new Date()) as [Date, Date, Date, Date, Date, Date, Date]);
     const settings = () => store.get();
 
     host.innerHTML = `
@@ -59,14 +58,14 @@ export function createWeekView(ose, store) {
 
     /** The blocks drawn on day `i` (0 = Monday) of this week: parity applied. */
     const blocksOn = (i) => {
-      const date = /** @type {Date} */ (days()[i]);
+      const date = (days()[i] as Date);
       return events.filter((e) => e.d === i && blockApplies(e, date, q1Of(settings())));
     };
 
     function renderMeta() {
       const s = settings();
       const w = days();
-      const parts = [];
+      const parts: any[] = [];
       if (s.calendar && !calMissing) parts.push(`<button type="button" class="v-link" data-path="${esc(s.calendar)}">${esc(s.calendar)}</button>`);
       parts.push(`<span>${esc(shortDate(w[0]))} to ${esc(shortDate(w[6]))}</span>`);
       if (s.calendar && !calMissing) parts.push(`<span>${events.length} block${events.length === 1 ? '' : 's'}</span>`);
@@ -97,7 +96,7 @@ export function createWeekView(ose, store) {
       const w = days();
       const out = ['<div class="wk-hd wk-corner"></div>'];
       DAY_SHORT.forEach((d, i) => {
-        out.push(`<div class="wk-hd${i === ti ? ' today' : ''}"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String(/** @type {Date} */ (w[i]).getDate()).padStart(2, '0')}</span></div>`);
+        out.push(`<div class="wk-hd${i === ti ? ' today' : ''}"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String((w[i] as Date).getDate()).padStart(2, '0')}</span></div>`);
       });
       let times = '<div class="wk-times">';
       for (let h = Math.ceil(START); h <= Math.floor(END); h++) {
@@ -107,7 +106,7 @@ export function createWeekView(ose, store) {
       out.push(`${times}</div>`);
 
       const perDay = new Array(7).fill(0);
-      const sums = {};
+      const sums: Record<string, any> = {};
       const kinds = new Set(WORK_KINDS.map(([k]) => k));
       for (let d = 0; d < 7; d++) {
         const list = blocksOn(d);
@@ -195,7 +194,7 @@ export function createWeekView(ose, store) {
         stop();
         build();
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] week', e);
         toast(`Week: ${(e && e.message) || e}`, 'err');
         if (stop()) $('grid').innerHTML = '';

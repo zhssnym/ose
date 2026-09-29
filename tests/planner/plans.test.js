@@ -2,11 +2,11 @@
 // and which days a system has lost. Days before a system's first log record are not losses,
 // today unchecked is open, and a system never checked has lost nothing.
 //
-// Depends on: planner (src/planner/plans.js, dates.js). Skipped until they exist.
+// Depends on: planner (src/planner/plans.ts, dates.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
 
-const p = await import('../../src/planner/plans.js');
+const p = await import('../../src/planner/plans.ts');
 
 const day = (y, m, dd) => new Date(y, m - 1, dd);
 const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;

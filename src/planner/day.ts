@@ -13,17 +13,17 @@
 import { esc, loadingLine, toast } from 'ose:ui';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, startOfDay, ymd,
-} from './dates.js';
-import { lanes, parseTimetable, TIMETABLE } from './timetable.js';
+} from './dates.ts';
+import { lanes, parseTimetable, TIMETABLE } from './timetable.ts';
 import {
   applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
-} from './plans.js';
-import { groupsForDay, PRIORITY_RANK, taskDepth } from './tasks.js';
-import { createTodoIndex } from './todo.js';
+} from './plans.ts';
+import { groupsForDay, PRIORITY_RANK, taskDepth } from './tasks.ts';
+import { createTodoIndex } from './todo.ts';
 import {
   bindLinks, bindNav, detectedHtml, displayName, goneHtml, missingHtml, navHtml,
-} from './nav.js';
-import { q1Of } from './settings.js';
+} from './nav.ts';
+import { q1Of } from './settings.ts';
 
 const { START, END, HOUR_H } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -38,7 +38,7 @@ const note = (text) => `<div class="empty">${esc(text)}</div>`;
 
 /** The date and priority chips for one task. */
 function taskChips(t) {
-  const out = [];
+  const out: any[] = [];
   const today = ymd(new Date());
   if (t.due) {
     const cls = t.due < today ? 'err' : t.due === today ? 'accent' : '';
@@ -67,31 +67,29 @@ function taskRow(t) {
 
 /**
  * The Day view.
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {object} the view definition
+ * @param store the planner settings store
+ * @returns the view definition
  */
-export function createDayView(ose, store) {
-  let live = null;
+export function createDayView(ose: any, store: any): any {
+  let live: { unmount(): void; refresh(): void; } | null = null;
 
   function mount(host) {
     const todo = createTodoIndex(ose);
-    /**
-     * @type {{ cursor: Date, events: import('./timetable.js').TimetableEvent[],
-     *   systems: Array<{name: string, days: Set<number>}>,
-     *   log: {done: Map<string, boolean>, first: Map<string, string>, names: string[]},
-     *   planFile: string, planMissing: boolean, calMissing: boolean, logFile: string,
-     *   unknown: Array<{line: number, text: string}>, expanded: Set<string>, busy: boolean,
-     *   seq: number, taskNote: string, shown: Map<string, object> }}
-     */
-    const st = {
+    const st: {
+      cursor: Date; events: import('./timetable.ts').TimetableEvent[];
+      systems: Array<{ name: string; days: Set<number>; }>;
+      log: { done: Map<string, boolean>; first: Map<string, string>; names: string[]; };
+      planFile: string; planMissing: boolean; calMissing: boolean; logFile: string;
+      unknown: Array<{ line: number; text: string; }>; expanded: Set<string>; busy: boolean;
+      seq: number; taskNote: string; shown: Map<string, any>;
+    } = {
       cursor: startOfDay(new Date()),
       events: [], systems: [], log: { done: new Map(), first: new Map(), names: [] },
       planFile: '', planMissing: false, calMissing: false, logFile: '',
-      unknown: [], expanded: new Set(), busy: false, seq: 0, taskNote: '', shown: new Map(),
+      unknown: [], expanded: new Set<any>(), busy: false, seq: 0, taskNote: '', shown: new Map(),
     };
-    const offs = [];
-    let tickTimer = null, ro = null, alive = true;
+    const offs: any[] = [];
+    let tickTimer: ReturnType<typeof setTimeout> | null = null, ro: ResizeObserver | null = null, alive = true;
 
     host.innerHTML = `
 <div class="view-root" tabindex="-1">
@@ -216,7 +214,7 @@ export function createDayView(ose, store) {
       try {
         await ose.files.appendLine(st.logFile, JSON.stringify(checkRecord(st.cursor, name, next)));
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] system write', e);
         if (prev === undefined) st.log.done.delete(k); else st.log.done.set(k, prev);
         if (firstBefore === undefined) st.log.first.delete(name); else st.log.first.set(name, firstBefore);
@@ -260,7 +258,7 @@ export function createDayView(ose, store) {
       const hadFocus = !!was && document.activeElement === was;
       const caret = was ? was.selectionStart : 0;
       const files = todo.files();
-      const byPath = new Map(files.map((f) => [f.path, f]));
+      const byPath = new Map<string, any>(files.map((f) => [f.path, f]));
       st.shown = new Map(files.flatMap((f) => f.tasks).map((t) => [t.id, t]));
       const groups = groupsForDay(st.cursor, files).map((g) => ({ ...g, missing: byPath.get(g.path)?.missing, error: byPath.get(g.path)?.error }));
       const labelled = s.todo.length > 1;
@@ -291,7 +289,7 @@ export function createDayView(ose, store) {
           toast(`Nothing to add to at ${target}`, 'warn');
         }
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         input.value = text;
         console.error('[planner] add task', e);
         toast(`The task was not written: ${(e && e.message) || e}`, 'err');
@@ -311,7 +309,7 @@ export function createDayView(ose, store) {
         st.taskNote = res === 'changed' ? 'The todo file changed; reloaded.' : '';
         renderTasks();
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] task write', e);
         toast(`The task was not written: ${(e && e.message) || e}`, 'err');
       } finally {
@@ -352,8 +350,7 @@ export function createDayView(ose, store) {
       const s = settings();
       st.logFile = s.reports ? logPath(s.reports) : '';
       todo.setPaths(s.todo);
-      /** @type {[() => boolean, () => boolean, () => boolean]} */
-      const stops = [
+      const stops: [() => boolean, () => boolean, () => boolean] = [
         loadingLine(s.calendar ? $('tl') : null),
         loadingLine(s.reports ? $('sys') : null),
         loadingLine(s.todo.length ? $('tasks') : null),
@@ -387,7 +384,7 @@ export function createDayView(ose, store) {
         stops[2]();
         renderTasks();
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] day', e);
         toast(`Day: ${(e && e.message) || e}`, 'err');
       } finally {
@@ -397,7 +394,7 @@ export function createDayView(ose, store) {
 
     function go(delta) {
       st.cursor = delta === 0 ? startOfDay(new Date()) : addDays(st.cursor, delta);
-      st.expanded = new Set();
+      st.expanded = new Set<any>();
       st.taskNote = '';
       load();
     }
@@ -439,7 +436,7 @@ export function createDayView(ose, store) {
     const fit = (w) => root.classList.toggle('narrow', w < NARROW);
     fit(host.clientWidth);
     if (typeof ResizeObserver === 'function') {
-      ro = new ResizeObserver((entries) => fit(/** @type {ResizeObserverEntry} */ (entries[0]).contentRect.width));
+      ro = new ResizeObserver((entries) => fit((entries[0] as ResizeObserverEntry).contentRect.width));
       ro.observe(host);
     }
     // Left open past midnight: a view that was on today moves to the new today, so a check lands

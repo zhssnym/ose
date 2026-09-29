@@ -6,18 +6,17 @@
 //   - a new task is `ose.files.appendLine(path, '- [ ] …')`: the host adds the line break the
 //     file needs and touches nothing above it.
 
-import { newTaskLine, parseTasks, toggleTaskLine } from './tasks.js';
-import { ymd } from './dates.js';
+import { newTaskLine, parseTasks, toggleTaskLine } from './tasks.ts';
+import { ymd } from './dates.ts';
 
 /**
- * @param {object} ose
- * @returns {object} the index
+ * @returns the index
  */
-export function createTodoIndex(ose) {
-  let paths = [];
-  let files = [];            // [{ path, tasks, missing, error }]
+export function createTodoIndex(ose: any): any {
+  let paths: any[] = [];
+  let files: any[] = [];            // [{ path, tasks, missing, error }]
   let stale = true;
-  let reading = null;
+  let reading: Promise<any[]> | null = null;
 
   async function readOne(path) {
     try {
@@ -26,7 +25,7 @@ export function createTodoIndex(ose) {
       const r = await ose.files.readFile(path);
       return { path, tasks: parseTasks(r.text, path), missing: false };
     } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       console.warn('[planner] todo read', path, e);
       return { path, tasks: [], missing: false, error: String((e && e.message) || e) };
     }

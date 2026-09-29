@@ -27,7 +27,7 @@ const TODO_WORD = /(^|[^\p{L}])todos?([^\p{L}]|$)/u;
 const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 
 /** Every visible entry, with its depth; hidden entries and links are skipped with their subtree. */
-function flatten(node, depth = 0, out = []) {
+function flatten(node, depth = 0, out: any[] = []) {
   for (const c of (node && Array.isArray(node.children)) ? node.children : []) {
     const name = String((c && c.name) || '');
     if (!name || name.startsWith('.') || c.hidden || c.link) continue;
@@ -41,10 +41,8 @@ const shallowest = (rows) => [...rows].sort((a, b) => a.depth - b.depth || natur
 
 /**
  * Propose the four planner paths from a tree.
- * @param {{children?: object[]}} tree
- * @returns {{calendar: string|null, todo: string[], reports: string|null, journal: string|null}}
  */
-export function detectPaths(tree) {
+export function detectPaths(tree: { children?: any[]; }): { calendar: string | null; todo: string[]; reports: string | null; journal: string | null; } {
   const rows = flatten(tree);
   const files = rows.filter((r) => r.entry.kind !== 'dir');
   const dirs = rows.filter((r) => r.entry.kind === 'dir');

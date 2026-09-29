@@ -31,7 +31,7 @@ export default defineConfig({
     alias: [
       { find: /^ose:core$/, replacement: here('tests/stubs/core.js') },
       { find: /^ose:ui$/, replacement: here('tests/stubs/ui.js') },
-      { find: /^ose:planner$/, replacement: here('src/planner/index.js') },
+      { find: /^ose:planner$/, replacement: here('src/planner/index.ts') },
       { find: /^@milkdown\/crepe$/, replacement: here('tests/stubs/crepe.js') },
       { find: /^.+\.css(\?.*)?$/, replacement: here('tests/stubs/empty.js') },
     ],

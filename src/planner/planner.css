@@ -18,7 +18,7 @@
 .page-title:not([contenteditable="true"]):focus-visible { outline: none; }
 
 /* title row with the previous / today / next group on the right, and the keys that drive it
-   said once, quietly, in front of the buttons (nav.js navHtml) */
+   said once, quietly, in front of the buttons (nav.ts navHtml) */
 .v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
 .v-nav { display: flex; align-items: center; flex: none; margin-top: var(--sp-2); }
 /* adjacent buttons share one border: the overlap is the border width, not spacing */

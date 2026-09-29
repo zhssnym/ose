@@ -51,7 +51,7 @@ const ALIAS = {
   'ose:core': here('src/core/core.js'),
   'ose:ui': here('src/core/ui.js'),
   'ose:editor': here('src/editor/lib.js'),
-  'ose:planner': here('src/planner/index.js'),
+  'ose:planner': here('src/planner/index.ts'),
 };
 
 // See src/editor/katex-absent.js: Crepe's unused Latex feature would drag KaTeX in.
@@ -62,7 +62,7 @@ const ENTRIES = {
   core: here('src/core/core.js'),
   ui: here('src/core/ui.js'),
   editor: here('src/editor/lib.js'),
-  planner: here('src/planner/index.js'),
+  planner: here('src/planner/index.ts'),
   'ui.css': here('src/core/ui.css'),
 };
 
@@ -337,7 +337,7 @@ export default defineConfig(({ command, isPreview }) => {
       // the first page opened, where the late optimisation reloads the window under the user
       // (and under a no-loss scenario).
       optimizeDeps: {
-        entries: ['index.html', '../src/editor/lib.js', '../src/planner/index.js'],
+        entries: ['index.html', '../src/editor/lib.js', '../src/planner/index.ts'],
       },
       server: {
         port: 5173,

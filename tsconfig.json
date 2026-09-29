@@ -28,7 +28,7 @@
         "./src/editor/lib.js"
       ],
       "ose:planner": [
-        "./src/planner/index.js"
+        "./src/planner/index.ts"
       ]
     }
   },

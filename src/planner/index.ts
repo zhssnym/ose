@@ -4,28 +4,27 @@
 // registered here: four views, their commands, Settings › Planner and the file watches.
 //
 // What the planner reads and writes, and in which formats, is docs/FORMATS.md. Where the files
-// are is Settings › Planner (`settings.js`), found by name the first time (`detect.js`).
+// are is Settings › Planner (`settings.ts`), found by name the first time (`detect.ts`).
 //
 // Imports: `ose:ui`, `date-fns`, files under src/planner, and `ose:editor` by dynamic import in
-// journal.js (its `render`). The views get `ose` from `initPlanner`; nothing here imports
+// journal.ts (its `render`). The views get `ose` from `initPlanner`; nothing here imports
 // `ose:core`.
 
 import './planner.css';
-import { createStore, renderSettings } from './settings.js';
-import { createDayView } from './day.js';
-import { createWeekView } from './week.js';
-import { createMonthView } from './month.js';
-import { createJournalView, openToday, recoverOldDraft } from './journal.js';
-import { openPlannerSettings } from './nav.js';
+import { createStore, renderSettings } from './settings.ts';
+import { createDayView } from './day.ts';
+import { createWeekView } from './week.ts';
+import { createMonthView } from './month.ts';
+import { createJournalView, openToday, recoverOldDraft } from './journal.ts';
+import { openPlannerSettings } from './nav.ts';
 
 /**
  * Register the planner. Called once by shell/boot.js after `ose.init`.
- * @param {object} ose the core facade
- * @returns {{dispose: () => void, store: object}}
+ * @param ose the core facade
  */
-export function initPlanner(ose) {
+export function initPlanner(ose: any): { dispose: () => void; store: any; } {
   const store = createStore(ose);
-  const offs = [];
+  const offs: any[] = [];
   let disposed = false;
   const add = (off) => { if (typeof off === 'function') offs.push(off); };
 

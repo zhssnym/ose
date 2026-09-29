@@ -10,14 +10,14 @@
 // may be left out; and a line under a weekday that looks like a block but cannot be read is
 // counted and handed back with its line number, so the view can say so.
 
-import { blockMinutes } from './dates.js';
+import { blockMinutes } from './dates.ts';
 
 export const TIMETABLE = {
   START: 7,       // first hour drawn
   END: 23.5,      // last hour drawn
   HOUR_H: 48,     // px per hour
   /** which families count as personal work in the totals */
-  WORK_KINDS: [['maths', 'Maths'], ['nsi', 'NSI'], ['philo', 'Philo'], ['hg', 'HG'], ['bilan', 'Bilan']],
+  WORK_KINDS: [['maths', 'Maths'], ['nsi', 'NSI'], ['philo', 'Philo'], ['hg', 'HG'], ['bilan', 'Bilan']] as [string, string][],
 };
 
 // type keyword in the file -> colour family in the grid (--c-<family>); anything else is `rest`
@@ -59,11 +59,9 @@ function dayOfHeading(text) {
 
 const two = (n) => String(n).padStart(2, '0');
 
-/**
- * One block of the calendar, as `parseTimetable` answers it.
- * @typedef {{ d: number, s: string, e: string, sm: number, em: number, t: string, sub?: string,
- *   type: string, kind: string, q: 'Q1'|'Q2'|null, overnight?: boolean, line: number }} TimetableEvent
- */
+/** One block of the calendar, as `parseTimetable` answers it. */
+export type TimetableEvent = { d: number, s: string, e: string, sm: number, em: number, t: string, sub?: string,
+  type: string, kind: string, q: 'Q1'|'Q2'|null, overnight?: boolean, line: number };
 
 /**
  * The week, read from the calendar file. One weekday H1 per day; any other H1 (hours per week,
@@ -76,15 +74,13 @@ const two = (n) => String(n).padStart(2, '0');
  *           overnight block has `em` past 24 h (sm + its length). `q` is null, 'Q1' or 'Q2'.
  *           `line` is 1-based.
  *   unknown `[{ line, text }]`, `line` 1-based.
- * @param {string} text
- * @returns {{events: TimetableEvent[], unknown: Array<{line: number, text: string}>}}
  */
-export function parseTimetable(text) {
-  const events = [], unknown = [];
-  let day = null;
+export function parseTimetable(text: string): { events: TimetableEvent[]; unknown: Array<{ line: number; text: string; }>; } {
+  const events: any[] = [], unknown: any[] = [];
+  let day: any = null;
   const lines = String(text ?? '').replace(/^﻿/, '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const raw = /** @type {string} */ (lines[i]);
+    const raw = (lines[i] as string);
     const l = raw.trim();
     if (/^#\s/.test(l)) { day = dayOfHeading(l.slice(2)); continue; }
     if (day === null || !l) continue;
@@ -98,13 +94,12 @@ export function parseTimetable(text) {
     const kind = typeRaw ? stripAccents(typeRaw) : '';
     const [title = '', ...rest] = body.split(/\s+·\s+/);
     const q = qBefore || qAfter;
-    /** @type {TimetableEvent} */
-    const ev = {
+    const ev: TimetableEvent = {
       d: day,
       s: `${two(h1)}:${m1}`, e: `${two(h2)}:${m2}`,
       sm, em: sm + blockMinutes(sm, endRaw),
       t: title.trim(), type: TYPES[kind] || 'rest', kind,
-      q: q ? /** @type {'Q1'|'Q2'} */ (`Q${q}`) : null,
+      q: q ? (`Q${q}` as 'Q1'|'Q2') : null,
       line: i + 1,
     };
     if (rest.length) ev.sub = rest.join(' · ').trim();
@@ -120,12 +115,12 @@ export function parseTimetable(text) {
  * instead of one over the other: the alternating (Q1) and (Q2) blocks, while the parity is
  * unknown, are that case. Blocks that touch in time form one cluster and split its width; a
  * cluster of one is lane 0 of 1, the whole column.
- * @param {object[]} list events of one day
- * @returns {Array<{e: object, lane: number, lanes: number}>} lane is 0-based
+ * @param list events of one day
+ * @returns lane is 0-based
  */
-export function lanes(list) {
-  const out = [];
-  let cluster = [], ends = [], clusterEnd = -1;
+export function lanes(list: any[]): Array<{ e: any; lane: number; lanes: number; }> {
+  const out: any[] = [];
+  let cluster: any[] = [], ends: any[] = [], clusterEnd = -1;
   const close = () => {
     for (const row of cluster) row.lanes = ends.length;
     out.push(...cluster);

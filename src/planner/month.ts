@@ -6,14 +6,14 @@
 //
 // It always opens on this month (M32), and follows the date into the next one when it was on it. A day before a system's first record in the log is not a
 // loss, and a system nobody has checked yet has lost nothing (L16): the verdict is `dayVerdict`
-// in plans.js, the same one the tests read.
+// in plans.ts, the same one the tests read.
 
 import { esc, loadingLine, toast } from 'ose:ui';
-import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from './dates.js';
+import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from './dates.ts';
 import {
   dayVerdict, isGapLine, logPath, parseMonthlyPlan, parseSystemsLog, percentages, resolvePlanPath, systemsFor,
-} from './plans.js';
-import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from './nav.js';
+} from './plans.ts';
+import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from './nav.ts';
 
 /** `12 done · 2 lost · 16 open`. */
 const tallyText = (t) => `${t.done} done · ${t.lost} lost · ${t.open} open`;
@@ -29,19 +29,18 @@ function prose(text) {
 
 /**
  * The Month view.
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {object} the view definition
+ * @param store the planner settings store
+ * @returns the view definition
  */
-export function createMonthView(ose, store) {
-  let live = null;
+export function createMonthView(ose: any, store: any): any {
+  let live: { unmount(): void; refresh(): void; } | null = null;
 
   function mount(host) {
     let alive = true, seq = 0;
     let cursor = startOfMonth(new Date());
-    let plan = null, path = '', planExists = false, systems = [];
+    let plan: { title: string | null; intro: string; sections: Array<{ label: string; items: string[]; }>; hasSystems: boolean; systems: Array<{ name: string; days: Set<number>; }>; review: string; } | null = null, path = '', planExists = false, systems: any[] = [];
     let log = parseSystemsLog(''), logMissing = false, logFile = '';
-    const offs = [];
+    const offs: any[] = [];
     const settings = () => store.get();
 
     host.innerHTML = `
@@ -171,7 +170,7 @@ export function createMonthView(ose, store) {
         stop();
         render();
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] month', e);
         toast(`Month: ${(e && e.message) || e}`, 'err');
       } finally {

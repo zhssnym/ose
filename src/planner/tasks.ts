@@ -2,7 +2,7 @@
 // lines"). Pure: text in, data out; `toggleTaskLine` rewrites one line and returns it, it never
 // touches a file. The Day view writes that one line back with `ose.files.replaceLine` (M31).
 
-import { ymd } from './dates.js';
+import { ymd } from './dates.ts';
 
 // Obsidian Tasks markers. Written as escapes so the file survives any encoding.
 export const TASK_MARK = {
@@ -33,15 +33,12 @@ const dateOf = (val) => { const d = val.slice(0, 10); return RE_DATE.test(d) ? d
 
 /**
  * One markdown line -> a task, or null. `text` keeps the wording without any marker.
- * @param {string|null|undefined} raw
- * @returns {object|null}
  */
-export function parseTaskLine(raw) {
+export function parseTaskLine(raw: string | null | undefined): any | null {
   const m = RE_TASK.exec(String(raw ?? '').replace(/^﻿/, ''));
   if (!m) return null;
   const [, indent = '', box = '', body = ''] = m;
-  /** @type {{done: boolean, indent: number, text: string, due: string|null, scheduled: string|null, start: string|null, doneDate: string|null, created: string|null, priority: string, recurrence: string|null}} */
-  const t = {
+  const t: { done: boolean; indent: number; text: string; due: string | null; scheduled: string | null; start: string | null; doneDate: string | null; created: string | null; priority: string; recurrence: string | null; } = {
     done: box.toLowerCase() === 'x',
     indent: indent.length,
     text: body.trim(),
@@ -73,12 +70,9 @@ export function parseTaskLine(raw) {
  * exact source line, which is what it must still read before it is replaced. A byte-order mark
  * before the first line is not part of it: it is a byte of the file, not a character of the
  * line, and the host's `replaceLine` compares line 0 without it and keeps it (wave 3).
- * @param {string} text
- * @param {string} [path]
- * @returns {object[]}
  */
-export function parseTasks(text, path = '') {
-  const out = [];
+export function parseTasks(text: string, path: string = ''): any[] {
+  const out: any[] = [];
   const lines = String(text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const t = parseTaskLine(lines[i]);
@@ -90,12 +84,9 @@ export function parseTasks(text, path = '') {
 /**
  * Flip `[ ]` <-> `[x]` on the exact source line, keeping every other marker in place. Done
  * adds `✅ <today>` when the line has no done marker; undone takes it away.
- * @param {string} raw
- * @param {boolean} done
- * @param {string} today `YYYY-MM-DD`
- * @returns {string}
+ * @param today `YYYY-MM-DD`
  */
-export function toggleTaskLine(raw, done, today) {
+export function toggleTaskLine(raw: string, done: boolean, today: string): string {
   if (done) {
     let out = raw.replace(/\[ \]/, '[x]');
     if (!out.includes(TASK_MARK.done)) out = `${out.replace(/\s*$/, '')} ${TASK_MARK.done} ${today}`;
@@ -111,10 +102,8 @@ export function toggleTaskLine(raw, done, today) {
 
 /**
  * The date a task belongs on: due, else scheduled.
- * @param {object} t
- * @returns {string|null}
  */
-export const whenOf = (t) => t.due || t.scheduled || null;
+export const whenOf = (t: any): string | null => t.due || t.scheduled || null;
 
 /** Late or due first by date, then priority, then file order. */
 export const byDate = (a, b) => String(whenOf(a)).localeCompare(String(whenOf(b)))
@@ -126,13 +115,10 @@ export const byPriority = (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.
 
 /**
  * The open tasks that belong on one day: late, due that day, and undated.
- * @param {Date} date
- * @param {object[]} list
- * @returns {{overdue: object[], due: object[], undated: object[]}}
  */
-export function tasksForDay(date, list) {
+export function tasksForDay(date: Date, list: any[]): { overdue: any[]; due: any[]; undated: any[]; } {
   const day = ymd(date);
-  const overdue = [], due = [], undated = [];
+  const overdue: any[] = [], due: any[] = [], undated: any[] = [];
   for (const t of list || []) {
     if (t.done) continue;
     const w = whenOf(t);
@@ -149,11 +135,8 @@ export function tasksForDay(date, list) {
 /**
  * The same split per todo file (M34), in the order the files were given. A file with nothing
  * on that day is kept with `count: 0`, so the view can still name it.
- * @param {Date} date
- * @param {Array<{path: string, tasks: object[]}>} files
- * @returns {Array<{path: string, overdue: object[], due: object[], undated: object[], count: number}>}
  */
-export function groupsForDay(date, files) {
+export function groupsForDay(date: Date, files: Array<{ path: string; tasks: any[]; }>): Array<{ path: string; overdue: any[]; due: any[]; undated: any[]; count: number; }> {
   return (files || []).map((g) => {
     const b = tasksForDay(date, g.tasks);
     return { path: g.path, ...b, count: b.overdue.length + b.due.length + b.undated.length };
@@ -165,12 +148,10 @@ const MAX_DEPTH = 4;       // deeper nesting still renders, it just stops moving
 
 /**
  * Nesting level of a task line: a tab is one level, two spaces are one.
- * @param {{raw?: string}} t
- * @returns {number}
  */
-export function taskDepth(t) {
+export function taskDepth(t: { raw?: string; }): number {
   // `[\t ]*` matches every string, if only with ''.
-  const lead = /** @type {RegExpExecArray} */ (/^[\t ]*/.exec(String(t.raw ?? '').replace(/^﻿/, '')))[0];
+  const lead = (/^[\t ]*/.exec(String(t.raw ?? '').replace(/^﻿/, '')) as RegExpExecArray)[0];
   const tabs = (lead.match(/\t/g) || []).length;
   const spaces = lead.length - tabs;
   return Math.min(MAX_DEPTH, tabs + Math.floor(spaces / INDENT_UNIT));
@@ -178,10 +159,9 @@ export function taskDepth(t) {
 
 /**
  * The line a new task is appended as: `- [ ] <text>`, as typed, markers and all.
- * @param {string} text
- * @returns {string} '' when there is nothing to add
+ * @returns '' when there is nothing to add
  */
-export function newTaskLine(text) {
+export function newTaskLine(text: string): string {
   const t = String(text ?? '').replace(/[\r\n]+/g, ' ').trim();
   return t ? `- [ ] ${t}` : '';
 }

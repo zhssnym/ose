@@ -19,9 +19,9 @@
 import { confirm, esc, loadingLine, toast } from 'ose:ui';
 import {
   clock, dateFromName, daysBetween, journalFileName, journalHeading, shortDate, weekdayName, ymd,
-} from './dates.js';
-import { naturalCompare } from './plans.js';
-import { bindLinks, detectedHtml, missingHtml, openPlannerSettings } from './nav.js';
+} from './dates.ts';
+import { naturalCompare } from './plans.ts';
+import { bindLinks, detectedHtml, missingHtml, openPlannerSettings } from './nav.ts';
 
 const CHUNK = 30;            // days rendered per pass
 const MODES = ['full', 'compact'];
@@ -40,8 +40,8 @@ function isEntryHeading(line) {
 function parseEntry(text) {
   const lines = String(text ?? '').replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
   if (isEntryHeading(lines[0])) lines.shift();
-  const out = [];
-  let cur = [];
+  const out: any[] = [];
+  let cur: any[] = [];
   for (const ln of lines) {
     if (/^\s*---+\s*$/.test(ln)) { out.push(cur.join('\n')); cur = []; } else cur.push(ln);
   }
@@ -51,7 +51,7 @@ function parseEntry(text) {
 
 /** Without `ose:editor`: paragraphs, and an inner heading kept as a bold line. */
 function plainThought(text) {
-  const out = [];
+  const out: any[] = [];
   for (const b of String(text).split(/\n\s*\n/)) {
     const t = b.trim();
     if (!t) continue;
@@ -84,13 +84,12 @@ function entriesOf(items) {
  * Today's journal file: the one dated today in the folder, else `<journal>/YYYY-MM-DD.md` made
  * with its heading (`[exists]` = it appeared meanwhile: that one). A folder that is not there is
  * made only with `createFolder`; otherwise a toast says so and offers "Create it".
- * @param {object} ose
- * @param {object} store the planner settings store
- * @param {{createFolder?: boolean, then?: ((path: string) => unknown) | null}} [opts] `then` runs after
+ * @param store the planner settings store
+ * @param opts `then` runs after
  *   "Create it" made the folder and the file
- * @returns {Promise<string>} the path, or '' when there is none (the toast has said why)
+ * @returns the path, or '' when there is none (the toast has said why)
  */
-async function ensureToday(ose, store, { createFolder = false, then = null } = {}) {
+async function ensureToday(ose: any, store: any, { createFolder = false, then = null }: { createFolder?: boolean; then?: ((path: string) => unknown) | null; } = {}): Promise<string> {
   await store.ready;
   const folder = store.get().journal;
   if (!folder) {
@@ -100,11 +99,11 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
   }
   const now = new Date();
   const name = journalFileName(now);
-  let items = [];
+  let items: any[] = [];
   if (!createFolder) {
-    let st = null;
+    let st: any = null;
     try { st = await ose.files.stat(folder); } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       toast(`Could not read ${folder}: ${(e && e.message) || e}`, 'err');
       return '';
     }
@@ -121,7 +120,7 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
       return '';
     }
     try { items = await ose.files.list(folder); } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       toast(`Could not read ${folder}: ${(e && e.message) || e}`, 'err');
       return '';
     }
@@ -132,7 +131,7 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
   try {
     return (await ose.fileops.create(folder, name, { text: `${journalHeading(now)}\n\n` })).path;
   } catch (err) {
-    const e = /** @type {{ code?: string, message?: string }} */ (err);
+    const e = (err as { code?: string, message?: string });
     if (e && e.code === 'exists') return `${folder}/${name}`;
     toast(`Today's journal could not be created: ${(e && e.message) || e}`, 'err');
     return '';
@@ -153,11 +152,10 @@ async function openAtEnd(ose, path) {
 /**
  * `journal.today`: open today's journal file in the editor, creating `<journal>/YYYY-MM-DD.md`
  * with its heading when there is none. The caret goes to the last line.
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {Promise<boolean>} false when there is no journal folder or the file could not be made
+ * @param store the planner settings store
+ * @returns false when there is no journal folder or the file could not be made
  */
-export async function openToday(ose, store) {
+export async function openToday(ose: any, store: any): Promise<boolean> {
   const path = await ensureToday(ose, store, { then: (p) => openAtEnd(ose, p) });
   if (!path) return false;
   return openAtEnd(ose, path);
@@ -173,15 +171,15 @@ const dropOldDraft = () => { try { localStorage.removeItem(OLD_DRAFT); } catch {
  * Add `text` to today's entry as the composer did: after a `---` line when the day already has
  * something written, one line at a time with `appendLine`, so nothing above it is touched. The
  * old key goes only once every line is on disk.
- * @returns {Promise<string>} the path written, or '' when there was no file to write to
+ * @returns the path written, or '' when there was no file to write to
  */
-async function addToToday(ose, store, text) {
+async function addToToday(ose, store, text): Promise<string> {
   const write = async (path) => {
     const cur = String(await ose.files.read(path)).replace(/\r\n?/g, '\n');
     const lines = cur.split('\n');
     if (isEntryHeading(lines[0])) lines.shift();
     const hasBody = lines.join('\n').trim() !== '';
-    const out = [];
+    const out: any[] = [];
     if (cur !== '' && !cur.endsWith('\n\n')) out.push('');
     if (hasBody) out.push('---', '');
     out.push(...String(text).replace(/\r\n?/g, '\n').trim().split('\n'));
@@ -198,17 +196,16 @@ async function addToToday(ose, store, text) {
  * Once per start: when the old Journal left unsaved text in this machine's localStorage, offer
  * it (a sticky toast, and a palette command while it is there). The key goes only after the
  * text is written to today's entry, or on a confirmed "Discard".
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {() => void} removes the command
+ * @param store the planner settings store
+ * @returns removes the command
  */
-export function recoverOldDraft(ose, store) {
+export function recoverOldDraft(ose: any, store: any): () => void {
   if (!oldDraft().trim()) return () => {};
   const add = async () => {
     const text = oldDraft();
     if (!text.trim()) return;
     try { await addToToday(ose, store, text); } catch (err) {
-      const e = /** @type {{ code?: string, message?: string }} */ (err);
+      const e = (err as { code?: string, message?: string });
       console.error('[planner] journal draft', e);
       toast(`The text was not added: ${(e && e.message) || e}. It is kept for next time.`, 'err', 0);
     }
@@ -236,19 +233,18 @@ export function recoverOldDraft(ose, store) {
 
 /**
  * The Journal view.
- * @param {object} ose
- * @param {object} store the planner settings store
- * @returns {object} the view definition
+ * @param store the planner settings store
+ * @returns the view definition
  */
-export function createJournalView(ose, store) {
-  let live = null;
-  let renderMd = null;       // `ose:editor` render, once loaded
+export function createJournalView(ose: any, store: any): any {
+  let live: { unmount(): void; refresh(): void; } | null = null;
+  let renderMd: ((markdown: string, opts?: any) => HTMLElement | null) | null = null;       // `ose:editor` render, once loaded
   const editorReady = import('ose:editor').then((m) => { renderMd = m.render; }).catch(() => { /* the plain renderer */ });
 
   function mount(host) {
-    let alive = true, days = [], sig = '', shown = 0, dirError = '', loading = false, again = false;
-    let opened = new Set(), filling = false, folder = '';
-    const offs = [];
+    let alive = true, days: any[] = [], sig = '', shown = 0, dirError = '', loading = false, again = false;
+    let opened = new Set<any>(), filling = false, folder = '';
+    const offs: any[] = [];
     const settings = () => store.get();
     const mode = () => (MODES.includes(settings().journalMode) ? settings().journalMode : 'full');
     const chord = (() => { try { return ose.keys.shortcutFor('journal.today') || ''; } catch { return ''; } })();
@@ -306,10 +302,11 @@ export function createJournalView(ose, store) {
     /** Fill an entry's body: the editor's renderer when loaded, else plain paragraphs. */
     function fillBody(el, day) {
       if (!day.thoughts || !day.thoughts.length) { el.innerHTML = '<p class="faint">Empty entry</p>'; return; }
-      if (!renderMd) { el.innerHTML = day.thoughts.map(plainThought).join('<hr class="jr-sep">'); return; }
+      const md = renderMd;
+      if (!md) { el.innerHTML = day.thoughts.map(plainThought).join('<hr class="jr-sep">'); return; }
       if (!day.nodes) {
         day.nodes = day.thoughts.map((t) => {
-          try { return renderMd(t, { basePath: day.path }); } catch { const d = document.createElement('div'); d.innerHTML = plainThought(t); return d; }
+          try { return md(t, { basePath: day.path }); } catch { const d = document.createElement('div'); d.innerHTML = plainThought(t); return d; }
         });
       }
       el.textContent = '';
@@ -362,7 +359,7 @@ export function createJournalView(ose, store) {
       }
       const one = mode() === 'compact' ? compactHtml : dayHtml;
       const list = days.slice(0, shown);
-      const parts = [];
+      const parts: any[] = [];
       for (let i = 0; i < list.length; i++) {
         if (i > 0 && list[i].year !== list[i - 1].year) parts.push(`<div class="jr-year">${list[i].year}</div>`);
         parts.push(one(list[i]));
@@ -375,11 +372,7 @@ export function createJournalView(ose, store) {
       if (rest > 0) host.querySelector('[data-act="more"]').textContent = `Show earlier (${rest})`;
     }
 
-    /**
-     * @param {number} target
-     * @param {(() => unknown) | null} [before]
-     */
-    async function renderTo(target, before = null) {
+    async function renderTo(target: number, before: (() => unknown) | null = null) {
       const next = Math.min(days.length, Math.max(0, target));
       if (next <= shown) { if (before) before(); return; }
       const need = days.slice(shown, next).filter((d) => d.text === undefined);
@@ -409,12 +402,12 @@ export function createJournalView(ose, store) {
         await editorReady;
         if (!alive) return;
         const next = settings().journal || '';
-        if (next !== folder) { folder = next; days = []; sig = ''; shown = 0; opened = new Set(); }
+        if (next !== folder) { folder = next; days = []; sig = ''; shown = 0; opened = new Set<any>(); }
         if (!folder) { drawHeader(); drawRecord(); return; }
         stop = loadingLine($('record'));
-        let items = null;
+        let items: any = null;
         dirError = '';
-        try { items = await ose.files.list(folder); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); dirError = String((e && e.message) || e); }
+        try { items = await ose.files.list(folder); } catch (err) { const e = (err as { code?: string, message?: string }); dirError = String((e && e.message) || e); }
         if (!alive) return;
         const files = entriesOf(items);
         const nextSig = `${folder}::${files.map((f) => `${f.name}:${f.mtime || ''}:${f.size || ''}`).join('|')}`;
@@ -426,7 +419,7 @@ export function createJournalView(ose, store) {
           // a file that changed since it was read is read again
           if (old && old.mtime === f.mtime && old.size === f.size) return old;
           // entriesOf kept only the names that carry a date
-          const date = /** @type {Date} */ (dateFromName(f.name));
+          const date = (dateFromName(f.name) as Date);
           return { name: f.name, path: `${folder}/${f.name}`, date, year: date.getFullYear(), mtime: f.mtime, size: f.size };
         });
         const was = shown;
@@ -434,7 +427,7 @@ export function createJournalView(ose, store) {
         drawHeader();
         if (!days.length) { stop(); drawRecord(); } else await renderTo(Math.max(CHUNK, was), stop);
       } catch (err) {
-        const e = /** @type {{ code?: string, message?: string }} */ (err);
+        const e = (err as { code?: string, message?: string });
         console.error('[planner] journal', e);
         toast(`Journal: ${(e && e.message) || e}`, 'err');
       } finally {
@@ -526,7 +519,7 @@ export function createJournalView(ose, store) {
       io.observe($('more'));
       offs.push(() => io.disconnect());
     }
-    let scroller = null;
+    let scroller: any = null;
     for (let p = host; p; p = p.parentElement) {
       const oy = getComputedStyle(p).overflowY;
       if (oy === 'auto' || oy === 'scroll') { scroller = p; break; }

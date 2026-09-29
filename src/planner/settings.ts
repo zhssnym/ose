@@ -5,7 +5,7 @@
 // The first time there is no `planner` key, the choices the old plugins saved are copied over
 // (`plugins.day.paths.*`, `plugins.week.paths.calendar`, `plugins.month.paths.reports`,
 // `plugins.journal.paths.journal`, `plugins.journal.mode`), never deleted from where they were.
-// While the paths are not confirmed, detection (`detect.js`) fills whatever is still missing at
+// While the paths are not confirmed, detection (`detect.ts`) fills whatever is still missing at
 // every start; "These look right" stops that, and "Detect again" asks once more on demand.
 //
 // (Q1) weeks are `q1Anchor`, a Monday that starts a Q1 week; the weeks alternate from it. The
@@ -16,26 +16,23 @@
 // a segmented control, so it is reachable from the keyboard like the rest of the settings.
 
 import { esc, pickFile, pickFolder, toast } from 'ose:ui';
-import { detectPaths } from './detect.js';
-import { anchorFromParity, isQ1Week, parseYmd, q1AnchorFor, ymd } from './dates.js';
+import { detectPaths } from './detect.ts';
+import { anchorFromParity, isQ1Week, parseYmd, q1AnchorFor, ymd } from './dates.ts';
 
-/** @typedef {{v: 1, calendar: string|null, todo: string[], reports: string|null, journal: string|null, q1Parity: 'odd'|'even'|null, q1Anchor?: string, journalMode: 'full'|'compact', confirmed: boolean}} PlannerSettings */
+export type PlannerSettings = {v: 1, calendar: string|null, todo: string[], reports: string|null, journal: string|null, q1Parity: 'odd'|'even'|null, q1Anchor?: string, journalMode: 'full'|'compact', confirmed: boolean};
 
 const KEY = 'planner';
 const clean = (p) => (typeof p === 'string' && p.trim() ? p.replace(/\\/g, '/').trim().replace(/^\/+/, '').replace(/\/+$/, '') : null);
 
 /**
  * Any stored or half-built value -> a complete `PlannerSettings`.
- * @param {object} [raw]
- * @returns {PlannerSettings}
  */
-export function normalize(raw) {
+export function normalize(raw: any): PlannerSettings {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const todo = (Array.isArray(r.todo) ? r.todo : typeof r.todo === 'string' ? [r.todo] : [])
-    .map(clean).filter(Boolean);
+  const todo: string[] = (Array.isArray(r.todo) ? r.todo : typeof r.todo === 'string' ? [r.todo] : [])
+    .map(clean).filter((p): p is string => !!p);
   const anchor = parseYmd(r.q1Anchor);
-  /** @type {PlannerSettings} */
-  const out = {
+  const out: PlannerSettings = {
     v: 1,
     calendar: clean(r.calendar),
     todo: [...new Set(todo)],
@@ -52,20 +49,17 @@ export function normalize(raw) {
 
 /**
  * What the views hand `blockApplies`: the anchor, else an old parity not yet migrated, else null.
- * @param {PlannerSettings} s
- * @returns {string|null}
  */
-export const q1Of = (s) => (s && (s.q1Anchor || s.q1Parity)) || null;
+export const q1Of = (s: PlannerSettings): string | null => (s && (s.q1Anchor || s.q1Parity)) || null;
 
 /**
  * What the old plugins had saved, as planner settings (only the fields they knew).
- * @param {object} plugins the `plugins` key of `.ose/state.json`
- * @returns {Partial<PlannerSettings>}
+ * @param plugins the `plugins` key of `.ose/state.json`
  */
-export function migrate(plugins) {
+export function migrate(plugins: any): Partial<PlannerSettings> {
   const p = plugins && typeof plugins === 'object' ? plugins : {};
   const at = (id, key) => { const v = p[id] && p[id].paths && p[id].paths[key]; return clean(v); };
-  const out = {};
+  const out: Record<string, any> = {};
   const calendar = at('day', 'calendar') || at('week', 'calendar');
   if (calendar) out.calendar = calendar;
   const todo = at('day', 'todo');
@@ -81,11 +75,8 @@ export function migrate(plugins) {
 
 /**
  * Fill what is missing from a detection (`detectPaths`), keeping what is there.
- * @param {PlannerSettings} s
- * @param {{calendar: string|null, todo: string[], reports: string|null, journal: string|null}} found
- * @returns {PlannerSettings}
  */
-export function fillMissing(s, found) {
+export function fillMissing(s: PlannerSettings, found: { calendar: string | null; todo: string[]; reports: string | null; journal: string | null; }): PlannerSettings {
   return normalize({
     ...s,
     calendar: s.calendar || found.calendar,
@@ -105,11 +96,9 @@ function follow(p, from, to) {
 
 /**
  * The store. One per `initPlanner`.
- * @param {object} ose
- * @returns {{ready: Promise<void>, get: () => PlannerSettings, set: (partial: Partial<PlannerSettings>) => void, on: (fn: Function) => () => void, detect: (opts?: {replace?: boolean}) => Promise<PlannerSettings>, dispose: () => void}}
  */
-export function createStore(ose) {
-  const subs = new Set();
+export function createStore(ose: any): { ready: Promise<void>; get: () => PlannerSettings; set: (partial: Partial<PlannerSettings>) => void; on: (fn: Function) => () => void; detect: (opts?: { replace?: boolean; }) => Promise<PlannerSettings>; dispose: () => void; } {
+  const subs = new Set<any>();
   let cur = normalize(ose.state(KEY).get());
   const emit = () => { for (const fn of [...subs]) { try { fn(cur); } catch (e) { console.error('[planner] settings listener', e); } } };
   const write = (next) => {
@@ -266,17 +255,14 @@ const TITLES = {
 
 /**
  * Draw Settings › Planner into `el` and keep it live.
- * @param {HTMLElement} el
- * @param {ReturnType<typeof createStore>} store
- * @returns {{unmount: () => void}}
  */
-export function renderSettings(el, store) {
+export function renderSettings(el: HTMLElement, store: ReturnType<typeof createStore>): { unmount: () => void; } {
   let alive = true;
   const draw = () => {
     if (!alive) return;
     // redraws keep the focused control focused, so a keyboard user never loses their place
     // what can hold the focus in `el` is its buttons: HTML elements
-    const focus = document.activeElement && el.contains(document.activeElement) ? /** @type {HTMLElement} */ (document.activeElement) : null;
+    const focus = document.activeElement && el.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     const act = focus && (focus.dataset.act || '') + (focus.dataset.key || '') + (focus.dataset.v || '');
     el.innerHTML = html(store.get());
     if (act) {
