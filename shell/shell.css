@@ -85,11 +85,6 @@
   gap: var(--sp-4); padding: var(--sp-6); text-align: center;
 }
 .vault-text { margin: 0; max-width: 44ch; font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
-.vault-hint {
-  max-width: 100%; color: var(--fg-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.vault-hint:empty { display: none; }
 .vault-err { max-width: 60ch; color: var(--err); word-break: break-word; }
 
 /* The vaults this machine has opened before (S46), in the first-run column and in the

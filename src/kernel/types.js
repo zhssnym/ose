@@ -112,7 +112,6 @@
  * @property {(fn: (msg: { event: string, data: any }) => unknown) => () => void} subscribe
  * @property {string} [platform]
  * @property {(path: string) => string} [assetUrl]
- * @property {(paths: string[], icon: string | null) => Promise<boolean>} [dragOut]
  * @property {AdapterWindow} [win]
  * @property {() => void} [close]
  */

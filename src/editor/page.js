@@ -80,10 +80,6 @@ import './editor.css';
 import './print.css';
 import './sheets.css';
 import { attachSheets } from './sheets.js';
-// The print commands are the only thing in the editor that reaches past `host.js`: `ose.print`
-// is a hose of its own and the editor's `bridge` is a reading of `ose.files`. Two lines in
-// `host.js`'s bridge map would close this door again.
-import { ose } from 'ose:kernel';
 
 const { makeCrepe, editorView } = serializer;
 
@@ -4672,57 +4668,36 @@ async function newPage() {
 // ---------------------------------------------------------------------------
 // paper
 //
-// Two commands, both the host's: `Export to PDF` (Ctrl+Shift+P) writes the file through
-// WebView2's own PrintToPdf after a native save dialog, and `Print` opens the system print
-// dialog, which is also how "Microsoft Print to PDF" is reached.
+// Two commands, and both are Chrome's print dialog: `Print`, and `Export to PDF` (Ctrl+Shift+P),
+// which is the same dialog with the page's own title as the document's, so the file Chrome's
+// Save as PDF suggests is named after the page, never after the window ("Family · lifeos": the
+// vault's name is nobody's business but his).
 //
 // Neither touches the theme. The sheet is black on white from either theme because print.css
-// says so under `@media print`, and the swap that used to happen here is what left the app in
-// light mode: `window.print()` does not return in WebView2, so the restore never ran. Nothing
-// in the editor calls `window.print()` any more except the browser dev server's fallback, where
-// it is a real Chromium dialog and does return.
+// says so under `@media print`. `window.print()` returns when the dialog closes.
 
-/** `Export to PDF`: the save dialog, then the file, then a line saying where it went. */
-async function exportPdf() {
+/** `Export to PDF`: the print dialog, titled after the page, for Save as PDF. */
+function exportPdf() {
   if (!hasPage()) return;
   const path = editorApi.getPath();
   const inst = activeInst();
   const titled = inst && inst.titleEl() ? inst.titleEl().textContent.trim() : '';
   const name = titled || P.stem(path || '') || 'page';
-  let r;
-  // WebView2 copies the document title into the PDF's `/Title`, and ours is the window's
-  // ("Family · lifeos"): the vault's name is nobody's business but his. The page's own title
-  // stands in it for the length of the export.
   const windowTitle = document.title;
   document.title = name;
   try {
-    r = await ose.print.toPdf(null, { name, folder: editorApi.folder() || '' });
+    window.print();
   } catch (e) {
     toast('could not export: ' + (e.message || e), 'err');
-    return;
   } finally {
     document.title = windowTitle;
   }
-  if (!r) { toast('Export to PDF needs the app', 'warn'); return; }
-  if (r.browser) { toast('Export to PDF needs the app; in the browser, use Print', 'warn'); return; }
-  if (r.cancelled) return;
-  toast('saved ' + P.basename(String(r.path || '')));
 }
 
-/** `Print`: the system print dialog. In the browser there is none, so the page's own is used. */
-async function printPage() {
+/** `Print`: the print dialog. */
+function printPage() {
   if (!hasPage()) return;
-  let r;
-  try {
-    r = await ose.print.dialog();
-  } catch (e) {
-    toast('could not print: ' + (e.message || e), 'err');
-    return;
-  }
-  if (!r) { toast('printing needs the app', 'warn'); return; }
-  // The dev server's bridge cannot show a native dialog and says so; in a real browser
-  // `window.print()` is a Chromium dialog that returns, which is what makes the dev loop work.
-  if (r.browser) window.print();
+  try { window.print(); } catch (e) { toast('could not print: ' + (e.message || e), 'err'); }
 }
 
 /** The page the commands act on, for whoever needs to ask (the compatibility layer). */

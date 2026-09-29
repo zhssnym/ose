@@ -76,12 +76,7 @@ async function noticeOldPlugins() {
   let there = false;
   try { there = await ose.files.exists('.ose/plugins'); } catch { there = false; }
   if (!there) return;
-  toast('Day, Week, Month and Journal are built in now. The .ose/plugins folder is no longer used and can be deleted.', 'info', 0, {
-    actions: [{
-      label: 'Show in Explorer',
-      run: () => { ose.files.reveal('.ose/plugins').catch((e) => toast(String(e && e.message ? e.message : e), 'err')); },
-    }],
-  });
+  toast('Day, Week, Month and Journal are built in now. The .ose/plugins folder is no longer used and can be deleted.', 'info', 0);
   notices.set({ ...seen, plugins: true });
 }
 

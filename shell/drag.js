@@ -1,18 +1,13 @@
-// Drag in and drag out (docs/SHELL.md "Drag in and out", contract §5.5): the one place the
-// tree and the folder view go for a drop from the OS and for a drag to it.
+// Drag in (docs/SHELL.md "Drag in", contract §5.5): the one place the tree and the folder view
+// go for a drop from the OS.
 //
-// **In.** A drop from Explorer or Finder is an ordinary HTML5 `drop` (the host keeps Tauri's
-// own drag-drop off, X8, because it would turn HTML5 drag and drop off in WebView2 and the
-// tree's drag-to-move needs it). `takeDropped` turns the drop's items into entries — folders
+// A drop from Explorer or Finder is an ordinary HTML5 `drop`. `takeDropped` turns the drop's items into entries — folders
 // walked with `webkitGetAsEntry()`, their children read in batches — and `importDropped`
 // hands them to `ose.fileops.importEntries`, which makes the folders, writes every file as its
 // bytes through the create-only `createNewBinary` (never over anything, a taken name gets a
 // free one) and records one undo step. Nothing here reads a file as text: a byte-order mark
-// or a file in another encoding lands as it was.
-//
-// **Out.** Alt+drag on a row: the HTML5 drag is cancelled and `ose.files.dragOut` starts the
-// platform's own drag of the files, copy only. A plain drag stays the internal move. The
-// keyboard's way to the same place is Reveal in Explorer.
+// or a file in another encoding lands as it was. A drag of a row is the internal move; a
+// browser tab cannot drag a vault file out to the system, so nothing here does.
 
 import { ose } from 'ose:kernel';
 import { toast } from 'ose:ui';
@@ -177,23 +172,4 @@ export async function importDropped(dropped, folder) {
     ose.bus.emit('tree:reveal', { path: created[0], focus: false });
   }
   return created;
-}
-
-/**
- * Alt+dragstart on a row: the HTML5 drag is cancelled and the platform's own drag of `paths`
- * starts, as a copy. The vault's files stay where they are. In the browser, and on a host
- * where drag out is not registered, the kernel answers false and a toast says so.
- * @param {DragEvent} e the dragstart
- * @param {string[]} paths vault paths (or `abs:` ones)
- */
-export function dragOut(e, paths) {
-  e.preventDefault();
-  if (!paths.length) return;
-  const say = () => toast(ose.host === 'browser' ? 'Drag out needs the app' : 'Drag out is not available', 'info', 2600);
-  let out;
-  try { out = ose.files.dragOut(paths); } catch (err) { toast(`Drag out failed: ${errorOf(err).message}`, 'err'); return; }
-  Promise.resolve(out).then(
-    (ok) => { if (ok === false) say(); },
-    (err) => toast(`Drag out failed: ${errorOf(err).message}`, 'err'),
-  );
 }

@@ -35,7 +35,7 @@ import * as journal from './journal.js';
 import * as focusLib from './focus.js';
 import { toast, confirm } from './dialog.js';
 import { initOpens } from './opens.js';
-import { clean, isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
+import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.js';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
 // there is one overlay stack, one toast queue and one icon set in a running Ose.
@@ -99,10 +99,6 @@ let vaultInfo = { root: null, name: null };
 /** 'windows', 'macos' or 'linux', from the host at boot (`ose.platform`). */
 let platformName = 'windows';
 
-/** What the host said about itself at boot; `dragIcon` is the picture a drag out carries. */
-/** @type {{ dragIcon: string | null }} */
-let hostInfo = { dragIcon: null };
-
 /**
  * The vault the host has open, and its epoch (docs/HOST.md "Epoch"). Read once at boot; after
  * that the epoch only moves forward with a reload, on purpose: a write that a page started
@@ -145,22 +141,6 @@ async function openVault(path) {
 }
 
 /**
- * The native absolute path of a vault path or an `abs:` one, for the OS (drag out): the vault
- * root and the path joined with the platform's separator. Null when there is no vault.
- * @param {string} path
- * @returns {string | null}
- */
-function nativePath(path) {
-  if (isOutside(path)) return absOf(path);
-  const root = vaultInfo.root;
-  if (!root) return null;
-  const sep = platformName === 'windows' ? '\\' : '/';
-  const rel = clean(path).split('/').filter(Boolean).join(sep);
-  const base = root.replace(/[\\/]+$/, '');
-  return rel ? `${base}${sep}${rel}` : base;
-}
-
-/**
  * `ose.files.openOutside(path, opts)`: a file anywhere on the machine, in a tab. The host
  * registers it for this window (X7) and answers where it is: a file inside this vault opens as
  * the vault file it is, a file elsewhere as an `abs:` page marked "outside vault", and a folder
@@ -195,7 +175,6 @@ const ready = (async () => {
     const info = await bridge.platformInfo();
     if (info) {
       if (info.os) platformName = info.os === 'win' ? 'windows' : info.os === 'mac' ? 'macos' : String(info.os);
-      hostInfo = { dragIcon: typeof info.dragIcon === 'string' && info.dragIcon ? info.dragIcon : null };
     }
   } catch (e) { console.warn('[kernel] platform', e); }
   journal.setPlatform(platformName);
@@ -367,17 +346,6 @@ export const ose = {
      * create-only (`[exists]`). -> { path, hash }
      */
     importOutside: (from, to) => bridge.importOutside(from, to),
-    /**
-     * Files and folders dragged out of the window, as copies (X8): vault paths or `abs:` ones.
-     * Answers false where there is no drag out (a browser), true once the drag has started.
-     * The files themselves are never moved or deleted by it.
-     * @param {string[]} paths
-     */
-    dragOut: (paths) => {
-      const natives = (Array.isArray(paths) ? paths : []).map(nativePath).filter((p) => typeof p === 'string' && p !== '');
-      if (!natives.length) return Promise.resolve(false);
-      return bridge.dragOut(/** @type {string[]} */ (natives), hostInfo.dragIcon);
-    },
     read: (path) => bridge.readText(path),
     write: (path, text) => bridge.writeText(path, text),
     append: (path, text) => bridge.appendText(path, text),
@@ -405,7 +373,6 @@ export const ose = {
     trashList: () => fileops.trashList(),
     /** A file or a whole folder, bytes, create-only (`[exists]`). -> `{ path, files }` */
     copyPath: (from, to) => bridge.copyPath(from, to),
-    reveal: (path) => bridge.reveal(path),
     open: (path) => bridge.openPath(path),
     assetUrl: (path) => bridge.assetUrl(path),
 
@@ -683,16 +650,6 @@ export const ose = {
     on: (fn) => bus.on('focus', fn),
   },
 
-  /**
-   * Paper. The browser prints itself: both answer `{browser: true}` (src/web/adapter.js), and
-   * the caller opens Chrome's print dialog with `window.print()`, where Save as PDF is one of
-   * the destinations. An answer of `null` means printing is not there, and the caller says so.
-   */
-  print: {
-    toPdf: (path, opts) => bridge.printToPdf(path, opts),
-    dialog: () => bridge.showPrintUI(),
-  },
-
   /** An http/https/mailto link inside a note. The host refuses every other scheme. */
   openExternal: (url) => bridge.openExternal(url),
 
@@ -700,7 +657,6 @@ export const ose = {
     title: (text) => bridge.setTitle(text),
     /** This window, through its close path: the `closing` handlers run, as for the OS button. */
     close: () => bridge.win.close(),
-    quit: () => bridge.quit(),
     /**
      * The window is closing. `fn()` may return a promise and the host **awaits it** before the
      * window is destroyed, so the open page's last save finishes; resolving `false` keeps the

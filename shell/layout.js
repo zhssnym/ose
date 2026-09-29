@@ -8,7 +8,7 @@
 
 import { ose } from 'ose:kernel';
 import { icon } from 'ose:ui';
-import { isHost, onVaultChangeRequested } from './host.js';
+import { onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
 import { initSidebar } from './sidebar.js';
 import { initStatusbar } from './statusbar.js';
@@ -288,21 +288,18 @@ function watchVault() {
 
 /* --------------------------------------------------- the browser underneath */
 
-// S27. The web view is a browser, and a browser's own accelerators are still live in it: F5
-// and Ctrl+R reload the app — which throws away an unsaved buffer and every scrap of state
-// the page holds — Ctrl+U shows the source, F7 turns on caret browsing. Tauri exposes none of
-// wry's `browser_accelerator_keys`, so the page refuses them itself; Chromium lets a page do
-// that for all of these (they are not reserved shortcuts). Zoom's own hotkeys are off at the
-// web view (`zoomHotkeysEnabled: false` in both window configs), which is what leaves
-// Ctrl+= / Ctrl+- / Ctrl+0 free for our zoom commands.
+// S27. Ose runs in Chrome, and the browser's own accelerators are live in it: F5 and Ctrl+R
+// reload the app — which throws away an unsaved buffer and every scrap of state the page
+// holds — Ctrl+U shows the source, F7 turns on caret browsing. The page refuses them itself;
+// Chromium lets a page do that for all of these (they are not reserved shortcuts). A reload
+// that gets past this (the toolbar button) still leaves through `beforeunload` and the drafts.
 //
 // Ctrl+O is deliberately not here: it is quick open, which already takes the event in the
 // capture phase, so the web view's Open-file dialog never gets a chance either way. A key this
 // guard swallows must be one nothing in the app wants.
 //
 // Ctrl+R and Ctrl+Shift+R are in the set now (D8, C5). Ctrl+R used to be the app's own reload,
-// and a reload typed a moment after a keystroke lost that keystroke; the host also switches the
-// web view's accelerators off, and this guard holds either way. `app.reload` ("Reload
+// and a reload typed a moment after a keystroke lost that keystroke. `app.reload` ("Reload
 // window") stays in the palette with no chord, and it leaves through the save gate. The
 // keyboard's own Back and Forward keys are the web view's history, which is not the app's.
 const BROWSER_KEYS = new Set([
@@ -546,13 +543,6 @@ export function mountShell(rootEl) {
   // The other half of `app.focus-sidebar` (sidebar.js, Ctrl+Shift+E). No chord: Esc from the
   // tree does it, and the palette has it for everywhere else (D2).
   commands.register({ id: 'app.focus-page', title: 'Focus page', group: 'app', hint: 'the editor, or the view', run: () => { focusPage(); } });
-  // Quit goes to the host, which closes the window rather than exiting: the same path the
-  // close button takes, so the last save is awaited (S16).
-  commands.register({
-    id: 'app.quit', title: 'Quit', group: 'app', hint: 'saves the page first',
-    when: () => isHost(),
-    run: () => { ose.window.quit().catch((e) => console.error('[shell] quit', e)); },
-  });
   // The window again, once the open page has been saved. No chord: Ctrl+R is gone (D8), so a
   // reload is never one slip of the fingers away from a keystroke; the palette has it.
   commands.register({

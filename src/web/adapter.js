@@ -417,7 +417,6 @@ export async function create(opts = {}) {
       dragIcon: null,
     }),
 
-    quit: async () => null,
 
     outsideOpen: async (path) => {
       const p = String(path ?? '');
@@ -486,9 +485,6 @@ export async function create(opts = {}) {
       return null;
     },
 
-    reveal: async () => { throw fail('unsupported', 'a browser tab cannot show a file in the file manager'); },
-    printToPdf: async () => ({ browser: true }),
-    showPrintUI: async () => ({ browser: true }),
   };
 
   // ---------------------------------------------------------------- the table

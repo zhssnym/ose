@@ -1,7 +1,7 @@
 // Versions: the previous content of a file, kept under `.ose/history` by the host when a save
 // replaces it (wave 1, M2: the page's save is one host call that keeps the version itself); the
-// Versions… dialog that lists, compares and restores. Host side in src-tauri/src/versions.rs,
-// dev side in dev/bridge-plugin.mjs. See docs/HOST.md "Versions".
+// Versions… dialog that lists, compares and restores. Host side in src/web/fs.js. See
+// docs/WEB.md "Versions".
 //
 // Nothing in the editor keeps a version of its own before a write any more: the code editor
 // saves through the same compare-and-write the page does (wave 2), and the host keeps the

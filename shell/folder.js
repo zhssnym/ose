@@ -31,7 +31,7 @@ import * as fops from './fileops.js';
 import { openInNewTab } from './tabs.js';
 import * as pins from './pins.js';
 import { clean, baseName, dirName, titleOf, vaultName, errorOf } from './paths.js';
-import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, dragOut, setDragged, dragged } from './drag.js';
+import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, setDragged, dragged } from './drag.js';
 
 const { bus, commands, route } = ose;
 
@@ -588,8 +588,6 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     // A row inside the selection drags the selection; any other row, itself.
     const list = me.selected.has(en.name) ? chosen() : [en];
     const paths = list.map((x) => x.path);
-    // Alt: out of the app, as a copy (drag.js `dragOut`); nothing moves in the vault.
-    if (e.altKey) { dragOut(e, paths); return; }
     draggingHere = true;
     setDragged(paths);
     e.dataTransfer.effectAllowed = 'move';

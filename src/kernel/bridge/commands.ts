@@ -43,11 +43,6 @@ export type Commands = {
 	forgetVault: (path: string | null) => Promise<null>,
 	/**  `platform()`: what this host is. */
 	platform: () => Promise<PlatformInfo>,
-	/**
-	 *  `quit()`: every window closes through its own save path (CloseRequested -> the adapter's
-	 *  `closing` handshake -> destroy), so Ctrl+Q saves like the close button does (S16).
-	 */
-	quit: () => Promise<null>,
 	/**  `log(text, level)`: a line of the page's into the host log. */
 	log: (text: string, level: string | null) => Promise<null>,
 	/**  `tree({hidden})`: the whole vault as one entry. */
@@ -202,20 +197,8 @@ export type Commands = {
 } | null) => Promise<null>,
 	/**  `openExternal(url)`: http, https and mailto only. */
 	openExternal: (url: string) => Promise<null>,
-	/**  `openPath(path)` (**A**): in the default application; an executable is revealed instead. */
+	/**  `openPath(path)` (**A**): in a browser tab, for the types a browser shows; never a program. */
 	openPath: (path: string) => Promise<null>,
-	/**  `reveal(path)` (**A**): selected in the file manager. */
-	reveal: (path: string) => Promise<null>,
-	/**  `printToPdf(path, {name, folder})`: the page as a PDF; with no path the host asks where. */
-	printToPdf: (path: string | null, opts: {
-	name?: string | null,
-	folder?: string | null,
-} | null) => Promise<PdfOutcome>,
-	/**
-	 *  `showPrintUI()`: the system print dialog; returns at once. (The Rust name spells the last
-	 *  two letters apart so the JS name is `showPrintUI`, the name the page has always called.)
-	 */
-	showPrintUI: () => Promise<Shown>,
 	/**
 	 *  `outsideOpen(path)`: a native absolute path or `abs:`. Inside this window's vault it answers
 	 *  the vault path and registers nothing; anywhere else the file is registered for this window
@@ -504,8 +487,6 @@ export type PdfOpts = {
 	folder?: string | null,
 };
 
-export type PdfOutcome = ({ path: string; bytes: number }) & { cancelled?: never } | ({ cancelled: boolean }) & { bytes?: never; path?: never };
-
 export type PickFileOpts = {
 	title?: string | null,
 };
@@ -649,10 +630,6 @@ export type SearchResult = {
 	total: number,
 	capped: boolean,
 	stale: boolean,
-};
-
-export type Shown = {
-	shown: boolean,
 };
 
 export type Stat = Stat_Serialize | Stat_Deserialize;

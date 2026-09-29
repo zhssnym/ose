@@ -44,8 +44,6 @@ export { HostError, hostError };
 /** @typedef {import('./commands.ts').Kept} Kept */
 /** @typedef {import('./commands.ts').VersionInfo} VersionInfo */
 /** @typedef {import('./commands.ts').RestoredVersion} RestoredVersion */
-/** @typedef {import('./commands.ts').PdfOutcome} PdfOutcome */
-/** @typedef {import('./commands.ts').Shown} Shown */
 
 
 /** The platform the adapter reported, read by `bridge.platform`. */
@@ -412,19 +410,6 @@ export const bridge = {
   /** @param {string} path */
   assetUrl: (path) => (adapter && adapter.assetUrl ? adapter.assetUrl(path) : staticAssetUrl(path)),
 
-  /**
-   * Native absolute paths dragged out of the window as copies (X8, `tauri-plugin-drag`).
-   * Answers false where the host cannot (a browser), true once the drag has started.
-   * @param {string[]} paths
-   * @param {string | null} icon
-   * @returns {Promise<boolean>}
-   */
-  dragOut: async (paths, icon) => {
-    const a = await ready;
-    if (typeof a.dragOut !== 'function') return false;
-    return a.dragOut(paths, icon);
-  },
-
   win: {
     // Through the close path, so the `closing` handlers run as for the OS button.
     close: () => winCall('close'),
@@ -437,30 +422,15 @@ export const bridge = {
     destroy: () => winCall('destroy'),
   },
 
-  // The window's own title (S13): "<page> — <vault>" in the host, the tab title in a browser.
-  // Called by the router on every route change; never rejects the caller's flow.
+  // The tab's title (S13): "<page> — <vault>". Called by the router on every route change;
+  // never rejects the caller's flow.
   /** @param {string} text */
   setTitle: (text) => winCall('setTitle', String(text ?? '')),
-  // Quit through the close path of every window, so each editor's last save is awaited exactly
-  // as it is when the window's close button is pressed (S16).
-  /** @returns {Promise<null>} */
-  quit: () => as(call('quit')),
-
-  // Paper (docs/HOST.md "Print"). `printToPdf` writes the file and resolves with {path, bytes}
-  // once it is on disk, or with {cancelled:true} when the save dialog was cancelled; with no
-  // `path` the host asks where, `opts` being {name, folder} for that dialog. `showPrintUI`
-  // opens the system print dialog and returns at once.
-  /** @param {string | null | undefined} path @param {{ name?: string, folder?: string }} [opts] @returns {Promise<PdfOutcome>} */
-  printToPdf: (path, opts = {}) => as(call('printToPdf', path ?? null, opts)),
-  /** @returns {Promise<Shown>} */
-  showPrintUI: () => as(call('showPrintUI')),
 
   /** @param {string} url @returns {Promise<null>} */
   openExternal: (url) => as(call('openExternal', url)),
-  /** @param {string} path @returns {Promise<null>} */
-  reveal: (path) => as(call('reveal', path)),
-  // A file in the platform's default application (batch 12, N10/N24). Vault-relative, or a
-  // registered `abs:` path; `openExternal` keeps refusing every unknown scheme.
+  // A vault file in a browser tab, for the types a browser shows (batch 12, N10/N24).
+  // Vault-relative, or a registered `abs:` path; never a program.
   /** @param {string} path @returns {Promise<null>} */
   openPath: (path) => as(call('openPath', path)),
   /** @returns {Promise<unknown>} */

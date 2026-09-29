@@ -645,10 +645,10 @@ describe('adapter: platform, quit, print', () => {
     expect(await a.invoke('platform', [])).toEqual({
       os: 'linux', version: 'dev', exe: '', exeDir: null, root: `web:${id}`, logPath: 'IndexedDB: ose-web/log', build: null, dragIcon: null,
     });
-    expect(await a.invoke('quit', [])).toBeNull();
-    expect(await a.invoke('printToPdf', [null, {}])).toEqual({ browser: true });
-    expect(await a.invoke('showPrintUI', [])).toEqual({ browser: true });
-    expect(await code(() => a.invoke('reveal', ['a.md']))).toBe('unsupported');
+    // No desktop verbs: quitting, a native PDF export, showing a file in the file manager.
+    expect(await code(() => a.invoke('quit', []))).toBe('unknown_command');
+    expect(await code(() => a.invoke('printToPdf', [null, {}]))).toBe('unknown_command');
+    expect(await code(() => a.invoke('reveal', ['a.md']))).toBe('unknown_command');
   });
 
   it('tells the OS from the client hints or the user agent', () => {

@@ -7,8 +7,8 @@
 <link rel="icon" href="./logo.png">
 <!-- The standard layout (docs/SHELL.md "How it loads"): the kernel's four bundles sit beside
      the shell in ./ose/, and this import map, the one inline script the page has, names them.
-     Tauri hashes it into the CSP at build time; in the browser dev server it is inert, because
-     Vite rewrites every ose:* import itself. The kernel's three sheets come first and the
+     The build hashes it into the page's CSP (vite.config.js); in the dev server it is inert,
+     because Vite rewrites every ose:* import itself. The kernel's three sheets come first and the
      shell's follow them, and win; theme.css is last so that its token overrides win over
      everything. -->
 <script type="importmap">{"imports":{"ose:kernel":"./ose/kernel.js","ose:editor":"./ose/editor.js","ose:planner":"./ose/planner.js","ose:ui":"./ose/ui.js"}}</script>
