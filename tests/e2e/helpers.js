@@ -3,8 +3,8 @@
 // fault switch on the writes, the drafts, the log, and a few moves in the page (boot, open a
 // page, type at the end of a line, the active route and tabs).
 //
-// Every test runs in a fresh browser context, so it starts at a first launch with an empty
-// vault: `boot` seeds it with fixtures.js first. The vault is read and written from inside the
+// Every test runs in a fresh browser profile (test.js), so it starts at a first launch with an
+// empty vault: `boot` seeds it with fixtures.js first. The vault is read and written from inside the
 // page, the way another program writes a folder on disk, never through the app.
 //
 // The page is driven by keyboard and mouse like a person would; `window.__ose` (the kernel's
@@ -216,14 +216,6 @@ export function watchPage(page) {
   page.on('crash', () => log.push('the page crashed'));
   page.on('close', () => log.push('the page closed'));
   page.on('framenavigated', (f) => { if (f === page.mainFrame()) log.push(`navigated to ${f.url()}`); });
-  // Who closes the page: a `window.close()` says where it came from, a moment before it goes.
-  void page.addInitScript(() => {
-    const close = window.close.bind(window);
-    window.close = () => {
-      console.error(`window.close() from ${new Error('here').stack}`);
-      setTimeout(close, 500);
-    };
-  });
   return log;
 }
 

@@ -5,8 +5,9 @@
 //
 // The build is made fresh into a temp folder (tests/e2e/prepare.mjs, env.js), never the
 // repository's `dist/`. The vault is the browser's private file system for the origin, opened
-// through the `?opfs=1` test hook (src/web/adapter.js): every test has a fresh context, so a
-// fresh, empty vault that helpers.js boot seeds. One worker: the scenarios share the server.
+// through the `?opfs=1` test hook (src/web/adapter.js): every test has a fresh persistent
+// profile (tests/e2e/test.js), so a fresh, empty vault that helpers.js boot seeds. One
+// worker: the scenarios share the server.
 //
 // Browsers are not a dependency of the repo: `npx playwright install chromium` once per machine
 // (and in CI before the step).

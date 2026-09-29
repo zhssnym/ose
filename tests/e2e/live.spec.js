@@ -13,7 +13,7 @@
 // (the switch, the modes, the Read toggle), kernel (settings, tabs), src/web (the log in
 // IndexedDB, the writes the fault switch fails).
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 import { FILES } from './fixtures.js';
 import {
   boot, current, devFault, disk, diskBytes, draftPaths, editor, liveEditor, logText, openPage, setMode,

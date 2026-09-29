@@ -9,7 +9,7 @@
 // editor (instances, merge), shell-tree (the tree's F2 and Ctrl+Z), shell-places (tab marks),
 // shell-surfaces (the recovery sheet), kernel (ose.fileops and its undo journal).
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 import { FILES } from './fixtures.js';
 import {
   boot, bridge, buffer, current, devFault, disk, draftPaths, editor, openPage, revealInTree,
