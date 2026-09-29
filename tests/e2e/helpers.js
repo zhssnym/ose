@@ -191,6 +191,7 @@ export function liveEditor(page) {
  * @param {Page} page
  */
 export async function boot(page, files = FILES) {
+  watchPage(page);
   await page.addInitScript(installFaults, FAULT_KEY);
   await page.goto('/manifest.webmanifest');
   await writeFiles(page, files);
@@ -198,9 +199,33 @@ export async function boot(page, files = FILES) {
   await waitBooted(page);
 }
 
+/**
+ * What the page said while it booted: its console errors and warnings, uncaught errors, and
+ * whether it crashed or closed. Kept per page, so a boot that fails says why instead of only
+ * "the page was closed".
+ * @param {Page} page
+ */
+export function watchPage(page) {
+  const p = /** @type {any} */ (page);
+  if (p.__oseLog) return p.__oseLog;
+  /** @type {string[]} */
+  const log = [];
+  p.__oseLog = log;
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') log.push(`console.${m.type()}: ${m.text()}`); });
+  page.on('pageerror', (e) => log.push(`pageerror: ${e && e.stack ? e.stack : e}`));
+  page.on('crash', () => log.push('the page crashed'));
+  page.on('close', () => log.push('the page closed'));
+  return log;
+}
+
 /** Wait for the kernel and a route after a load or a reload. */
 export async function waitBooted(page) {
-  await page.waitForFunction(() => !!(window.__ose && window.__ose.route && window.__ose.route.current()), null, { timeout: 30_000 });
+  const log = watchPage(page);
+  try {
+    await page.waitForFunction(() => !!(window.__ose && window.__ose.route && window.__ose.route.current()), null, { timeout: 30_000 });
+  } catch (e) {
+    throw new Error(`the app did not boot: ${e && e.message ? e.message : e}\n--- what the page said ---\n${log.slice(-40).join('\n') || '(nothing)'}`);
+  }
 }
 
 /** The route on screen. */

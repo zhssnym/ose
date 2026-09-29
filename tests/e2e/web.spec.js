@@ -14,6 +14,7 @@
 
 import { expect, test } from '@playwright/test';
 import { DIST } from './env.js';
+import { waitBooted, watchPage } from './helpers.js';
 import { serveStatic } from './web-serve.mjs';
 
 /** The pages the scenarios type into: LF endings, `-` bullets, one blank line between blocks. */
@@ -94,16 +95,12 @@ async function opfsList(page, rel) {
   }, rel);
 }
 
-/** Wait for the kernel and a route after a load or a reload. */
-async function waitBooted(page) {
-  await page.waitForFunction(() => !!(window.__ose && window.__ose.route && window.__ose.route.current()), null, { timeout: 30_000 });
-}
-
 /**
  * The app over a vault holding `files`: a page of the origin seeds OPFS first (the manifest, so
  * no app code runs), then the app loads with the test hook.
  */
 async function boot(page, files = FILES) {
+  watchPage(page);
   await page.goto(`${server.url}/manifest.webmanifest`);
   await opfsWrite(page, files);
   await page.goto(`${server.url}/index.html?opfs=1`);
