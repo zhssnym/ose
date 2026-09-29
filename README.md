@@ -1,25 +1,35 @@
 # Ose
 
-Ose is like Obsidian, but made for myself, around my own taste and my aversion to extra features.
+Ose is a markdown editor in the spirit of Obsidian, built around a small, opinionated set of features. It runs in Chrome over a folder on your own machine, works offline, and keeps everything as plain files.
 
-## The problem
+## Why
 
-I want my notes, my plans and my journal to be plain files in a folder on my own machine. That is what an AI agent works best with: Claude Code can read and edit markdown directly, with no API, no export and no plugin in between. But plain files alone are not enough for me. I also want an app over them, like Obsidian, that draws my files as documents and builds a few views of my own from them.
+AI agents like Claude Code work best with plain local files: they can read and edit markdown directly, with no API, export or plugin in between. Plain files alone are not enough for daily use, though. You still want an app over them that renders pages as documents and builds views from them, the way Obsidian does.
 
-The usual way to get that app is a desktop program, and I tried it. It meant a build for Windows and another for the Mac, signing, releases to download and drop over the old one, and a Mac build that broke on its own while I was in class. The app was supposed to sit quietly next to my files, and I kept maintaining the app instead.
+That app is usually a desktop program, which brings its own maintenance: a build per operating system, code signing, releases to download and install, and platform-specific bugs. Ose avoids all of that by being a website that behaves like a local app. It opens a folder on your machine through Chrome's File System Access API, reads and writes the files in place, and works offline after the first visit. There is one build for every computer, and an update is simply a new deploy, picked up automatically. Your files never leave your machine: the site only serves the app's own code.
 
-So Ose is a website that works like a local app. It opens a folder on my machine in Chrome, reads and writes the files in place, and after the first visit it works offline. There is one build for every computer, and an update is just a new deploy that the app picks up by itself. The files never leave my machine: the website only serves the app's own code.
+## Features
 
-## The editor
+**The editor.** Markdown pages look like printed documents rather than web pages: Cambria, a ruled title box, compact justified text and square corners. Formulas between dollar signs render as real maths, and code files get syntax highlighting. A page can be read as one scrolling column or as the A4 sheets it prints on, and exported to PDF. Each page can be edited in Rich, Live or Source mode, and line endings and formatting are always preserved.
 
-A markdown page looks like a printed document rather than a web page: Cambria, a ruled title box, compact justified text and square corners. Formulas written between dollar signs render as real maths, and a code file gets syntax colours like a small IDE. A page can be read as one scrolling column or as the A4 sheets it prints on, and it exports to PDF. It is a file manager too: one tree of the whole folder, every file under its real name, nothing hidden from me.
+**The file manager.** One tree for the whole folder, a view for every folder, and every file listed under its real name. Nothing is hidden by name.
 
-## The views
-
-Ose reads some of my files and draws views over them: my day with its timetable and tasks, the week, the month's goals and review, and a journal. They are built into the app, not plugins. They read ordinary files whose paths I choose once in the settings, and they write back one line at a time, so the files stay mine and stay readable.
+**Built-in views.** Day (timetable and tasks), Week, Month (goals and review) and Journal read ordinary files whose paths are chosen once in the settings. They write back one line at a time, so the files stay readable and editable by anything else.
 
 ## The folder is the database
 
-Everything lives in the folder as plain files. Ose keeps no database, no index and no second copy of anything. What belongs to the folder is in `.ose/`, inside it, and what belongs to this computer stays in the browser. The folder therefore syncs with Google Drive, OneDrive or anything else that syncs a folder. Any AI agent can work in it while Ose is open, and Ose picks up the changes as they happen, because they are ordinary markdown and JSON.
+Everything lives in the folder as plain files. Ose keeps no database, no index and no second copy of anything. Vault settings, pins and file versions go in `.ose/` inside the folder; per-machine state (open tabs, recent files, unsaved drafts) stays in the browser. The folder can be synced with Google Drive, OneDrive or anything else that syncs a folder, and an AI agent can work in it while Ose is open: changes made on disk show up as they happen.
 
-Ose runs in Chrome, and it can be installed from Chrome as an app with its own window. How it is built, and how each part works, is in `docs/`.
+## Getting started
+
+Open the site in Chrome, choose a folder, and pick "Allow on every visit" so it opens again without asking. From Chrome's menu, Ose can be installed as an app with its own window.
+
+To run it from source:
+
+```
+npm install
+npm run dev      # http://localhost:5173
+npm test
+```
+
+How it is built and how each part works is documented in `docs/`.
