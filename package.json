@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:test": "node dev/test-server.mjs",
     "build": "vite build --config vite.kernel.config.js",
+    "build:web": "vite build --config vite.web.config.js",
+    "dev:web": "vite --config vite.web.config.js",
     "copy:shell": "node scripts/copy-shell.mjs",
     "ship": "npm run tauri:build && node scripts/ship.mjs",
     "tauri": "tauri",

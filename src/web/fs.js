@@ -373,7 +373,7 @@ export function createFs(root, opts) {
       if (earlier) {
         const h = await fileOrNull(earlier);
         if (h) {
-          try { const w = await h.createWritable(); await w.write(bytes); await w.close(); return relOf(earlier); } catch { /* a new name below */ }
+          try { const w = await h.createWritable(); await w.write(/** @type {any} */ (bytes)); await w.close(); return relOf(earlier); } catch { /* a new name below */ }
         }
       }
       const name = /** @type {string} */ (segs[segs.length - 1]);
@@ -571,7 +571,7 @@ export function createFs(root, opts) {
     out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     return out;
   }
-  /** @param {string} p */
+  /** @param {string} p @returns {Promise<VersionEntry[]>} */
   async function versionsOf(p) {
     const s = vSegs(p);
     const d = await dirOrNull(s);
@@ -1242,7 +1242,14 @@ export function createFs(root, opts) {
       return withLock(rel, async () => {
         const parent = await dirAt(segs.slice(0, -1), true);
         const name = /** @type {string} */ (segs[segs.length - 1]);
-        const fh = await parent.getFileHandle(name, { create: true });
+        let created = false;
+        /** @type {FileSystemFileHandle} */
+        let fh;
+        try { fh = await parent.getFileHandle(name); } catch (e) {
+          if (domName(e) !== 'NotFoundError') throw e;
+          fh = await parent.getFileHandle(name, { create: true });
+          created = true;
+        }
         const before = await bytesOf(fh);
         if (before.length && utf8OrNull(before) === null) throw fail('not_utf8', `not valid UTF-8: ${p}; the line is not added`);
         const eol = eolOf(before);
@@ -1257,6 +1264,7 @@ export function createFs(root, opts) {
           await w.close();
         } catch (e) {
           if (w) { try { await w.abort(); } catch { /* closed */ } }
+          if (created) { try { if ((await fh.getFile()).size === 0) await parent.removeEntry(name); } catch { /* gone */ } }
           throw writeFailed(e, rel);
         }
         return { hash: hash(concat(before, add)) };

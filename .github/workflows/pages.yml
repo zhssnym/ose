@@ -1,0 +1,59 @@
+# Ose Web on GitHub Pages (docs/WEB.md): every push to main builds `dist-web/` (the kernel
+# bundles with `__OSE_WEB__` true, the shell, the service worker, the manifest) and publishes it.
+# Every URL in the build is relative, so the project path (`/<repo>/`) needs nothing of its own.
+# The desktop build is build.yml's and is not touched here.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push replaces the one waiting, never the one running.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The web modules run on the in-memory File System Access API (tests/stubs/fsa.js); a
+      # failing test publishes nothing.
+      - name: Test the web modules
+        run: npx vitest run tests/web
+
+      - name: Build Ose Web
+        run: npm run build:web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
