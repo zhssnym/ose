@@ -328,6 +328,7 @@ export function createFs(root, opts) {
    */
   async function withLock(key, fn, web = true) {
     const k = fold(key);
+    for (let t = treeOver([k]); t; t = treeOver([k])) await t;
     const prev = locks.get(k) || Promise.resolve();
     /** @type {() => void} */
     let release = () => {};
@@ -348,6 +349,43 @@ export function createFs(root, opts) {
   }
   /** @param {Place} place */
   const lockKey = (place) => (place.outside ? `outside|${place.rel}` : place.rel);
+
+  /** Paths being moved or trashed, whole trees: folded path -> settles when done. @type {Map<string, Promise<void>>} */
+  const trees = new Map();
+  /** @param {string} a @param {string} b */
+  const overlaps = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  /** A tree in flight at, over or under one of `keys`, or null. @param {string[]} keys */
+  const treeOver = (keys) => {
+    for (const [t, done] of trees) if (keys.some((k) => overlaps(k, t))) return done;
+    return null;
+  };
+  /**
+   * `fn` with the paths `keys` held whole, for a move or a trash: it starts once no path lock at
+   * or under them is in flight in this tab (a save there finishes first), and every path lock
+   * asked for under them meanwhile waits until it is done (a save there then finds the file
+   * gone and answers the conflict, instead of writing into a folder that is being removed).
+   * @template T
+   * @param {string[]} keys @param {() => Promise<T>} fn @returns {Promise<T>}
+   */
+  async function withTrees(keys, fn) {
+    const ks = [...new Set(keys.map(fold))];
+    for (let t = treeOver(ks); t; t = treeOver(ks)) await t;
+    /** @type {() => void} */
+    let release = () => {};
+    const done = new Promise((r) => { release = () => r(undefined); });
+    for (const k of ks) trees.set(k, /** @type {Promise<void>} */ (done));
+    try {
+      for (;;) {
+        const busy = [...locks].filter(([lk]) => ks.some((k) => overlaps(lk, k))).map(([, chain]) => chain.catch(() => {}));
+        if (!busy.length) break;
+        await Promise.all(busy);
+      }
+      return await fn();
+    } finally {
+      for (const k of ks) if (trees.get(k) === done) trees.delete(k);
+      release();
+    }
+  }
 
   // -------------------------------------------------------------- writes
   /** @param {unknown} e @param {string} rel */
@@ -491,26 +529,94 @@ export function createFs(root, opts) {
 
   // -------------------------------------------------------------- moving and copying handles
   /**
-   * Copy every entry of `src` into `dst` (both folders), bytes, create-only.
-   * @param {FileSystemDirectoryHandle} src @param {FileSystemDirectoryHandle} dst @param {{ n: number }} count @param {string} rel
+   * What a file was when it was copied: its size, its time and the hash of the bytes copied.
+   * @typedef {{ size: number, mtime: number, hash: string }} Seen
+   * @typedef {{ files: Map<string, Seen>, dirs: Set<string> }} Manifest
    */
-  async function copyTree(src, dst, count, rel, depth = 0) {
+  /**
+   * Copy every entry of `src` into `dst` (both folders), bytes, create-only; with `seen`, note
+   * each file and folder copied, by its path under `src`.
+   * @param {FileSystemDirectoryHandle} src @param {FileSystemDirectoryHandle} dst @param {{ n: number }} count @param {string} rel
+   * @param {number} [depth] @param {Manifest | null} [seen] @param {string} [under]
+   */
+  async function copyTree(src, dst, count, rel, depth = 0, seen = null, under = '') {
     if (depth > 64) throw fail('io', `too deep to copy: ${rel}`);
     for await (const [name, h] of src.entries()) {
       const at = rel ? `${rel}/${name}` : name;
+      const key = under ? `${under}/${name}` : name;
       if (h.kind === 'directory') {
         const sub = await dst.getDirectoryHandle(name, { create: true });
-        await copyTree(/** @type {FileSystemDirectoryHandle} */ (h), sub, count, at, depth + 1);
+        seen?.dirs.add(key);
+        await copyTree(/** @type {FileSystemDirectoryHandle} */ (h), sub, count, at, depth + 1, seen, key);
       } else {
-        await createIn(dst, name, await bytesOf(/** @type {FileSystemFileHandle} */ (h)), at);
+        const f = await /** @type {FileSystemFileHandle} */ (h).getFile();
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        await createIn(dst, name, bytes, at);
+        seen?.files.set(key, { size: f.size, mtime: f.lastModified, hash: hash(bytes) });
         count.n++;
       }
     }
   }
+  /** The file is still what was copied: size, time and bytes. @param {FileSystemFileHandle} fh @param {Seen | undefined} was */
+  async function stillAsCopied(fh, was) {
+    if (!was) return false;
+    try {
+      const f = await fh.getFile();
+      if (f.size !== was.size || f.lastModified !== was.mtime) return false;
+      return hash(new Uint8Array(await f.arrayBuffer())) === was.hash;
+    } catch { return false; }
+  }
+  /**
+   * Every entry under `src` is one the copy took, unchanged since, and nothing was added.
+   * @param {FileSystemDirectoryHandle} src @param {Manifest} seen @param {string} under @param {{ files: number, dirs: number }} found
+   * @returns {Promise<boolean>}
+   */
+  async function unchangedSince(src, seen, under = '', found = { files: 0, dirs: 0 }, depth = 0) {
+    if (depth > 64) return false;
+    for await (const [name, h] of src.entries()) {
+      const key = under ? `${under}/${name}` : name;
+      if (h.kind === 'directory') {
+        if (!seen.dirs.has(key)) return false;
+        found.dirs++;
+        if (!(await unchangedSince(/** @type {FileSystemDirectoryHandle} */ (h), seen, key, found, depth + 1))) return false;
+      } else {
+        if (!(await stillAsCopied(/** @type {FileSystemFileHandle} */ (h), seen.files.get(key)))) return false;
+        found.files++;
+      }
+    }
+    return depth > 0 || (found.files === seen.files.size && found.dirs === seen.dirs.size);
+  }
+  /**
+   * Remove what the copy took from `src`, a file at a time, each one looked at just before it
+   * goes, then the emptied folders (never recursively): a file written or added since stays,
+   * and the answer is false.
+   * @param {FileSystemDirectoryHandle} src @param {Manifest} seen @param {string} under @returns {Promise<boolean>}
+   */
+  async function removeCopied(src, seen, under = '', depth = 0) {
+    if (depth > 64) return false;
+    /** @type {[string, FileSystemHandle][]} */
+    const ents = [];
+    for await (const e of src.entries()) ents.push(e);
+    let whole = true;
+    for (const [name, h] of ents) {
+      const key = under ? `${under}/${name}` : name;
+      if (h.kind === 'directory') {
+        if (!seen.dirs.has(key) || !(await removeCopied(/** @type {FileSystemDirectoryHandle} */ (h), seen, key, depth + 1))) { whole = false; continue; }
+        try { await src.removeEntry(name); } catch { whole = false; }
+      } else if (await stillAsCopied(/** @type {FileSystemFileHandle} */ (h), seen.files.get(key))) {
+        try { await src.removeEntry(name); } catch { whole = false; }
+      } else whole = false;
+    }
+    return whole;
+  }
 
   /**
    * Move an entry to `dstParent/dstName`, which must be free: `move()`, and when Chrome will not
-   * move it (a folder on some platforms), a whole copy first and the original removed after.
+   * move it (a folder on some platforms), a whole copy first and the original removed after,
+   * but only what is still as it was copied. Anything written into the original while it was
+   * copied (another program, a save) keeps it: the copy is removed and the move fails with `io`,
+   * or, when the change comes during the removal itself, both stay and the move fails with `io`.
+   * Nothing is ever removed that the copy does not hold.
    * @param {FileSystemHandle} handle @param {FileSystemDirectoryHandle} srcParent @param {string} srcName
    * @param {FileSystemDirectoryHandle} dstParent @param {string} dstName @param {string} rel
    */
@@ -520,16 +626,36 @@ export function createFs(root, opts) {
         if (domName(e) !== 'NotSupportedError') throw e;
       }
     }
+    const dropCopy = async () => { try { await dstParent.removeEntry(dstName, { recursive: handle.kind === 'directory' }); } catch { /* gone */ } };
     if (handle.kind === 'file') {
-      await createIn(dstParent, dstName, await bytesOf(/** @type {FileSystemFileHandle} */ (handle)), rel);
-    } else {
-      const d = await dstParent.getDirectoryHandle(dstName, { create: true });
-      try { await copyTree(/** @type {FileSystemDirectoryHandle} */ (handle), d, { n: 0 }, rel); } catch (e) {
-        try { await dstParent.removeEntry(dstName, { recursive: true }); } catch { /* gone */ }
-        throw e;
+      const fh = /** @type {FileSystemFileHandle} */ (handle);
+      const f = await fh.getFile();
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      await createIn(dstParent, dstName, bytes, rel);
+      if (!(await stillAsCopied(fh, { size: f.size, mtime: f.lastModified, hash: hash(bytes) }))) {
+        await dropCopy();
+        throw fail('io', `${rel}: the file changed while it was moved; it is left where it was`);
       }
+      await srcParent.removeEntry(srcName);
+      return;
     }
-    await srcParent.removeEntry(srcName, { recursive: handle.kind === 'directory' });
+    const src = /** @type {FileSystemDirectoryHandle} */ (handle);
+    /** @type {Manifest} */
+    const seen = { files: new Map(), dirs: new Set() };
+    const d = await dstParent.getDirectoryHandle(dstName, { create: true });
+    try { await copyTree(src, d, { n: 0 }, rel, 0, seen); } catch (e) {
+      await dropCopy();
+      throw e;
+    }
+    if (!(await unchangedSince(src, seen))) {
+      await dropCopy();
+      throw fail('io', `${rel}: the folder changed while it was moved; it is left where it was`);
+    }
+    if (!(await removeCopied(src, seen))) {
+      warn(`move: ${srcName} changed while it was removed after its copy to ${rel}; both are kept`);
+      throw fail('io', `${rel}: the folder changed while it was moved; what changed is left in ${srcName}, the rest is in ${dstName}`);
+    }
+    await srcParent.removeEntry(srcName);
   }
 
   // -------------------------------------------------------------- versions (versions.rs)
@@ -1014,6 +1140,10 @@ export function createFs(root, opts) {
     checkEpoch(o);
     const segs = segsOf(p);
     if (!segs.length) throw fail('bad_arg', 'refusing to trash the vault root');
+    return withTrees([relOf(segs)], () => trashLocked(p, segs));
+  }
+  /** @param {string} p @param {string[]} segs */
+  async function trashLocked(p, segs) {
     const at0 = await lookup(segs);
     if (!at0 || !at0.parent) throw fail('not_found', `nothing to trash: ${p}`);
     await requireVault();
@@ -1078,9 +1208,11 @@ export function createFs(root, opts) {
         if (info && typeof info.original === 'string') original = info.original;
         const dst = segsOf(original);
         if (!dst.length) throw fail('bad_arg', `not a place to restore to: ${original}`);
-        if (await lookup(dst)) throw fail('exists', `A file with that name is already there: ${original}`);
-        const parent = await dirAt(dst.slice(0, -1), true);
-        await moveEntry(src.handle, src.parent, entry, parent, /** @type {string} */ (dst[dst.length - 1]), relOf(dst));
+        await withTrees([relOf(dst), `${BIN}/${entry}`], async () => {
+          if (await lookup(dst)) throw fail('exists', `A file with that name is already there: ${original}`);
+          const parent = await dirAt(dst.slice(0, -1), true);
+          await moveEntry(src.handle, /** @type {FileSystemDirectoryHandle} */ (src.parent), entry, parent, /** @type {string} */ (dst[dst.length - 1]), relOf(dst));
+        });
         try { const infoDir = await dirAt([BIN, INFO]); await infoDir.removeEntry(`${entry}.json`); } catch { /* none */ }
         restored.push({ id, path: relOf(dst) });
       } catch (e) {
@@ -1091,6 +1223,44 @@ export function createFs(root, opts) {
     return { restored, failed };
   }
 
+  // -------------------------------------------------------------- appends
+  /**
+   * An append as a guarded replace (files.rs `append_line` opens with O_APPEND; the browser has
+   * no append, and `createWritable({keepExistingData})` copies the file as it is then and puts
+   * the copy back on `close()`, over whatever another program wrote meanwhile). So: read the
+   * file, write `before + add` whole, and in the last look before `close()` abort unless the
+   * file still holds `before` (or already the new bytes). A file that moved on is read again and
+   * the append made over the new bytes, a few times, and then `write_failed`: never a close over
+   * a change. Answers the bytes written.
+   * @param {string[]} segs @param {(before: Uint8Array) => Uint8Array} build the bytes to add
+   */
+  async function appendGuarded(segs, build) {
+    const place = { rel: relOf(segs), outside: false, segs, handle: null };
+    return withLock(place.rel, async () => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const disk = await readPlace(place);
+        const before = disk || new Uint8Array(0);
+        const next = concat(before, build(before));
+        let moved = false;
+        const lastLook = async (/** @type {boolean} */ created) => {
+          let cur = await readPlace(place);
+          if (created && cur && cur.length === 0) cur = null;
+          if (cur === null ? before.length === 0 : sameBytes(cur, before) || sameBytes(cur, next)) return;
+          moved = true;
+          throw new Error('changed on disk while appending');
+        };
+        try {
+          await writeAtomic(place, next, { lastLook });
+          return next;
+        } catch (e) {
+          if (!moved) throw e;
+          warn(`append: ${place.rel} changed on disk while appending; again over the new bytes`);
+        }
+      }
+      throw fail('write_failed', `${place.rel}: the file kept changing on disk; nothing was added`);
+    });
+  }
+
   // -------------------------------------------------------------- the commands
   /** `{status:'conflict', disk}`: what the disk holds instead of what the page expected. @param {Uint8Array | null} disk */
   const conflictOf = (disk) => ({ status: 'conflict', disk: { exists: !!disk, text: disk ? utf8OrNull(disk) : null, hash: disk ? hash(disk) : null } });
@@ -1098,6 +1268,40 @@ export function createFs(root, opts) {
   const mtimeOf = async (place) => {
     try { const h = await placeHandle(place); return h ? Math.floor((await h.getFile()).lastModified) : 0; } catch { return 0; }
   };
+
+  /**
+   * The rename itself, under the trees of both paths; answers whether anything moved.
+   * @param {string} a @param {string} b @param {string[]} src @param {string[]} dst
+   */
+  async function renameLocked(a, b, src, dst) {
+    const from = await lookup(src);
+    if (!from || !from.parent) throw fail(src.length ? 'not_found' : 'bad_arg', src.length ? `nothing to rename: ${a}` : 'the vault root cannot be renamed');
+    if (!dst.length) throw fail('bad_name', `not a name to rename to: ${b}`);
+    const ra = relOf(src);
+    const rb = relOf(dst);
+    if (ra === rb) return false;
+    if (from.kind === 'dir' && fold(rb).startsWith(`${fold(ra)}/`)) throw fail('bad_arg', `a folder cannot move into itself: ${a} -> ${b}`);
+    const dstName = /** @type {string} */ (dst[dst.length - 1]);
+    const there = await lookup(dst);
+    if (there && ra.toLowerCase() === rb.toLowerCase() && (await there.handle.isSameEntry(from.handle))) {
+      // A case-only rename on a disk that folds case: through `.<name>.<n>.case`.
+      const via = `.${dstName}.${Date.now() % 1_000_000}.case`;
+      await moveEntry(from.handle, from.parent, from.name, from.parent, via, ra);
+      const moved = from.kind === 'dir' ? await from.parent.getDirectoryHandle(via) : await from.parent.getFileHandle(via);
+      try { await moveEntry(moved, from.parent, via, from.parent, dstName, rb); } catch (e) {
+        try { await moveEntry(moved, from.parent, via, from.parent, from.name, ra); } catch { /* left under the temporary name */ }
+        throw fail('io', `${a} -> ${b}: ${msgOf(e)}`);
+      }
+    } else {
+      if (there) throw fail('exists', `target already exists: ${b}`);
+      const parent = await dirAt(dst.slice(0, -1), true);
+      try { await moveEntry(from.handle, from.parent, from.name, parent, dstName, rb); } catch (e) {
+        const he = fromDom(e, `${a} -> ${b}`);
+        throw he.code === 'exists' || he.code === 'no_vault' ? he : fail('io', `${a} -> ${b}: ${msgOf(e)}`);
+      }
+    }
+    return true;
+  }
 
   const commands = {
     tree,
@@ -1238,37 +1442,13 @@ export function createFs(root, opts) {
       const segs = segsOf(p);
       if (!segs.length) throw fail('bad_arg', 'no file name to write');
       await requireVault();
-      const rel = relOf(segs);
-      return withLock(rel, async () => {
-        const parent = await dirAt(segs.slice(0, -1), true);
-        const name = /** @type {string} */ (segs[segs.length - 1]);
-        let created = false;
-        /** @type {FileSystemFileHandle} */
-        let fh;
-        try { fh = await parent.getFileHandle(name); } catch (e) {
-          if (domName(e) !== 'NotFoundError') throw e;
-          fh = await parent.getFileHandle(name, { create: true });
-          created = true;
-        }
-        const before = await bytesOf(fh);
+      const next = await appendGuarded(segs, (before) => {
         if (before.length && utf8OrNull(before) === null) throw fail('not_utf8', `not valid UTF-8: ${p}; the line is not added`);
         const eol = eolOf(before);
         const sep = before.length && before[before.length - 1] !== 0x0a ? eol : '';
-        const add = enc.encode(sep + l + eol);
-        /** @type {FileSystemWritableFileStream | null} */
-        let w = null;
-        try {
-          w = await fh.createWritable({ keepExistingData: true });
-          await w.seek(before.length);
-          await w.write(/** @type {any} */ (add));
-          await w.close();
-        } catch (e) {
-          if (w) { try { await w.abort(); } catch { /* closed */ } }
-          if (created) { try { if ((await fh.getFile()).size === 0) await parent.removeEntry(name); } catch { /* gone */ } }
-          throw writeFailed(e, rel);
-        }
-        return { hash: hash(concat(before, add)) };
+        return enc.encode(sep + l + eol);
       });
+      return { hash: hash(next) };
     },
     replaceLine: async (/** @type {string} */ p, /** @type {unknown} */ index, /** @type {unknown} */ expected, /** @type {unknown} */ next, /** @type {unknown} */ o) => {
       checkEpoch(o);
@@ -1325,23 +1505,8 @@ export function createFs(root, opts) {
       const segs = segsOf(p);
       if (!segs.length) throw fail('bad_arg', 'no file name to write');
       await requireVault();
-      const rel = relOf(segs);
-      await withLock(rel, async () => {
-        const parent = await dirAt(segs.slice(0, -1), true);
-        const fh = await parent.getFileHandle(/** @type {string} */ (segs[segs.length - 1]), { create: true });
-        /** @type {FileSystemWritableFileStream | null} */
-        let w = null;
-        try {
-          const size = (await fh.getFile()).size;
-          w = await fh.createWritable({ keepExistingData: true });
-          await w.seek(size);
-          await w.write(/** @type {any} */ (enc.encode(String(text ?? ''))));
-          await w.close();
-        } catch (e) {
-          if (w) { try { await w.abort(); } catch { /* closed */ } }
-          throw writeFailed(e, rel);
-        }
-      });
+      const add = enc.encode(String(text ?? ''));
+      await appendGuarded(segs, () => add);
       return null;
     },
     writeBinary: async (/** @type {string} */ p, /** @type {unknown} */ b64, /** @type {unknown} */ o) => {
@@ -1367,33 +1532,12 @@ export function createFs(root, opts) {
       const src = segsOf(a);
       const dst = segsOf(b);
       await requireVault();
-      const from = await lookup(src);
-      if (!from || !from.parent) throw fail(src.length ? 'not_found' : 'bad_arg', src.length ? `nothing to rename: ${a}` : 'the vault root cannot be renamed');
-      if (!dst.length) throw fail('bad_name', `not a name to rename to: ${b}`);
-      const ra = relOf(src);
-      const rb = relOf(dst);
-      if (ra === rb) return null;
-      if (from.kind === 'dir' && fold(rb).startsWith(`${fold(ra)}/`)) throw fail('bad_arg', `a folder cannot move into itself: ${a} -> ${b}`);
-      const dstName = /** @type {string} */ (dst[dst.length - 1]);
-      const there = await lookup(dst);
-      if (there && ra.toLowerCase() === rb.toLowerCase() && (await there.handle.isSameEntry(from.handle))) {
-        // A case-only rename on a disk that folds case: through `.<name>.<n>.case`.
-        const via = `.${dstName}.${Date.now() % 1_000_000}.case`;
-        await moveEntry(from.handle, from.parent, from.name, from.parent, via, ra);
-        const moved = from.kind === 'dir' ? await from.parent.getDirectoryHandle(via) : await from.parent.getFileHandle(via);
-        try { await moveEntry(moved, from.parent, via, from.parent, dstName, rb); } catch (e) {
-          try { await moveEntry(moved, from.parent, via, from.parent, from.name, ra); } catch { /* left under the temporary name */ }
-          throw fail('io', `${a} -> ${b}: ${msgOf(e)}`);
-        }
-      } else {
-        if (there) throw fail('exists', `target already exists: ${b}`);
-        const parent = await dirAt(dst.slice(0, -1), true);
-        try { await moveEntry(from.handle, from.parent, from.name, parent, dstName, rb); } catch (e) {
-          const he = fromDom(e, `${a} -> ${b}`);
-          throw he.code === 'exists' || he.code === 'no_vault' ? he : fail('io', `${a} -> ${b}: ${msgOf(e)}`);
-        }
+      if (src.length && dst.length && relOf(src) !== relOf(dst)) {
+        const moved = await withTrees([relOf(src), relOf(dst)], () => renameLocked(a, b, src, dst));
+        if (moved) await followRename(relOf(src), relOf(dst));
+        return null;
       }
-      await followRename(ra, rb);
+      await renameLocked(a, b, src, dst);
       return null;
     },
 

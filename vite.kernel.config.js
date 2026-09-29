@@ -72,6 +72,9 @@ export default defineConfig(() => ({
     __OSE_SHA__: JSON.stringify(s.sha),
     __OSE_SHORT__: JSON.stringify(s.short),
     __OSE_DATE__: JSON.stringify(s.date),
+    // The desktop build: the Ose Web adapter's branch in src/kernel/bridge/index.js drops out.
+    // vite.web.config.js sets it true (docs/WEB.md "The seam").
+    __OSE_WEB__: 'false',
     __VUE_OPTIONS_API__: 'false',
     __VUE_PROD_DEVTOOLS__: 'false',
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',

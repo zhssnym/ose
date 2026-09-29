@@ -223,7 +223,7 @@ let abandoning = false;
 commands.register({
   id: 'app.close-anyway', title: 'Close window without saving', group: 'app',
   hint: 'unsaved text stays in the recovered changes',
-  when: () => bridge.kind !== 'http',
+  when: () => bridge.kind === 'tauri',
   // No `closing` fan-out: the user was told the page could not be saved and chose this. What
   // the hint promises is made true first: every handler is asked to keep its unsaved text as a
   // draft (`abandonWindow`), and when one could not, the user is asked again, by name, before
@@ -301,7 +301,7 @@ export const ose = {
   ready,
 
   /** 'tauri' | 'browser': whether quit, drag out and native opens are live. */
-  host: bridge.kind === 'http' ? 'browser' : bridge.kind,
+  host: bridge.kind === 'tauri' ? 'tauri' : 'browser',
 
   vault: {
     get root() { return vaultInfo.root; },

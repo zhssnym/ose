@@ -4,8 +4,9 @@
 // 1. Offline. The build (vite.web.config.js) writes the list of every file it made into
 //    MANIFEST below, with its build stamp; install caches them all under `ose-web-<build>`, and
 //    every request for the app is answered from that cache: after the first visit nothing is
-//    fetched. A new build is a new cache; the old one is deleted on activate. In dev (`npm run
-//    dev:web`) MANIFEST stays null and the app is left to the network.
+//    fetched. A new build is a new cache, taken when the old build's tabs are closed; the old
+//    cache is deleted then, on activate. In dev (`npm run dev:web`) MANIFEST stays null and the
+//    app is left to the network.
 // 2. The `vault/` origin. `vault/<vaultId>/<path>` answers a vault file and
 //    `vault/~abs/<outsideId>/<name>` a file opened from outside, from the handle kept in
 //    IndexedDB (`getFile()`), a Range answered with 206 as protocol.rs does, the type from
@@ -13,7 +14,8 @@
 //    page), it asks the page that made the request over a MessageChannel.
 //
 // A module worker (registered with `type: 'module'`) with no import: the build copies it as it
-// is, with MANIFEST filled in, and the tests import its pure parts. It opens the same database `ose-web` as src/web/idb.js, with the same stores should it be first.
+// is, with MANIFEST filled in, and the tests import its pure parts. It opens the same database
+// `ose-web` as src/web/idb.js, with the same stores should it be first.
 
 /* @ose-manifest */ const MANIFEST = null;
 
@@ -62,6 +64,11 @@ function mimeOf(ext) {
   }
 }
 
+/** Types a browser runs when it is navigated to (protocol.rs `active`): served with
+ *  `Content-Security-Policy: sandbox`, so a vault page or SVG opened in a tab is shown, never
+ *  executed, and cannot reach this origin's IndexedDB (the vault handles) or its caches. @param {string} ext */
+export const isActive = (ext) => ['html', 'htm', 'xhtml', 'svg', 'xml', 'xsl'].includes(ext);
+
 /** @param {string} name */
 const extOf = (name) => {
   const i = name.lastIndexOf('.');
@@ -99,12 +106,33 @@ async function dbGet(store, key) {
   } finally { db.close(); }
 }
 
+// ---------------------------------------------------------------- the one hide rule
+// rules.js `isExcluded`, repeated here because the worker imports nothing (the tests hold the
+// two to the same answers): never served, as never listed.
+
+const EXCLUDED_ANYWHERE = ['.ose', '.git'];
+const EXCLUDED_AT_ROOT = ['ose.exe', 'ose.pdb', 'ose.exe.new', 'ose.exe.old', 'ose.app', 'ose.app.old',
+  'ose-update.zip', 'ose-update-tmp', 'webview2loader.dll', 'os.exe', 'os.pdb', 'os.exe.new', 'os.exe.old',
+  'os.app', 'os.app.old', 'os-update.zip', 'os-update-tmp'];
+/** @param {string} name */
+const isTemp = (name) => /^\..+\.\d+\.\d+\.tmp$/.test(name) || /^\..+\.\d+\.case$/.test(name) || /.\.crswap$/.test(name)
+  || name.startsWith('~$') || (name.startsWith('.~lock.') && name.endsWith('#'));
+/** A vault path's segments that the hide rule excludes. @param {string[]} segs */
+export function excludedSegs(segs) {
+  if (segs.length >= 2 && (segs[0] || '').toLowerCase() === '.trash' && (segs[1] || '').toLowerCase() === '.info') return true;
+  return segs.some((seg, depth) => {
+    const low = seg.toLowerCase();
+    return EXCLUDED_ANYWHERE.includes(low) || isTemp(seg) || (depth === 0 && EXCLUDED_AT_ROOT.includes(low));
+  });
+}
+
 // ---------------------------------------------------------------- the vault origin
 
 /**
  * `vault/<vaultId>/<path>` or `vault/~abs/<id>/<name>`, relative to the scope, as
- * `{ outside, vault, id, name, path, segs }`, or null when it is not a well-formed one. A `..`,
- * `.ose` or `.git` segment is never served.
+ * `{ outside, vault, id, name, path, segs }`, or null when it is not a well-formed one. A `..`
+ * segment is never served, nor anything the hide rule excludes (`.ose`, `.git`, `.trash/.info`,
+ * temp files, the app's files at the root).
  * @param {string} rel the part after `vault/`
  */
 export function parseVaultPath(rel) {
@@ -119,7 +147,7 @@ export function parseVaultPath(rel) {
   const vault = segs[0] || '';
   if (!/^[0-9a-f]{16}$/.test(vault)) return null;
   const inner = segs.slice(1);
-  if (inner.some((s) => ['.ose', '.git'].includes(s.toLowerCase()) || s.endsWith('.crswap'))) return null;
+  if (excludedSegs(inner)) return null;
   return { outside: false, vault, id: '', name: inner[inner.length - 1] || '', path: inner.join('/'), segs: inner };
 }
 
@@ -171,7 +199,14 @@ async function askClient(clientId, t) {
  */
 export function fileResponse(file, name, range) {
   const size = file.size;
-  const headers = { 'Content-Type': mimeOf(extOf(name)), 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
+  const ext = extOf(name);
+  /** @type {Record<string, string>} */
+  const headers = {
+    'Content-Type': mimeOf(ext), 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes',
+    // A file is what its extension says, never what its bytes look like (protocol.rs, L18).
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (isActive(ext)) headers['Content-Security-Policy'] = 'sandbox';
   const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
   if (!m) return new Response(file, { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
   let start;
@@ -189,15 +224,20 @@ export function fileResponse(file, name, range) {
   });
 }
 
+/** A plain answer with no body worth sniffing. @param {string} text @param {number} status */
+const plain = (text, status) => new Response(text, {
+  status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' },
+});
+
 /** @param {any} event @param {string} rel */
 async function vaultResponse(event, rel) {
   const t = parseVaultPath(rel);
-  if (!t) return new Response('not found', { status: 404 });
+  if (!t) return plain('not found', 404);
   let file = null;
   try { file = await readHere(t); } catch { file = null; }
   if (!file) {
     const asked = await askClient(event.clientId || event.resultingClientId || '', t);
-    if (!asked.file) return new Response('not found', { status: asked.status });
+    if (!asked.file) return plain('not found', asked.status);
     file = asked.file;
   }
   return fileResponse(file, t.name, event.request.headers.get('range'));
@@ -205,14 +245,26 @@ async function vaultResponse(event, rel) {
 
 // ---------------------------------------------------------------- the lifecycle
 
+/**
+ * The install's requests: past the HTTP cache (`cache: 'reload'`). The entry files keep their
+ * names from build to build (index.html, main.js, ose/kernel.js…), and a host's `max-age` would
+ * otherwise hand a new build's worker the old build's copies, whose chunks are in no cache.
+ * @param {string[]} files @param {string} scope
+ */
+export function precacheRequests(files, scope) {
+  return files.map((f) => new Request(new URL(f, scope).href, { cache: 'reload' }));
+}
+
 if (typeof sw.addEventListener === 'function' && typeof sw.registration !== 'undefined') {
   sw.addEventListener('install', (/** @type {any} */ event) => {
     event.waitUntil((async () => {
       if (FILES.length) {
         const cache = await caches.open(CACHE);
-        await cache.addAll(FILES.map((f) => new URL(f, sw.registration.scope).href));
+        await cache.addAll(precacheRequests(FILES, sw.registration.scope));
       }
-      await sw.skipWaiting();
+      // No skipWaiting: a new build waits until every tab of the old one is closed, so a page
+      // never loads a chunk of one build into the code of another in the middle of an edit.
+      // The first install has nothing to wait for and takes the page at once (claim below).
     })());
   });
 
@@ -234,7 +286,7 @@ if (typeof sw.addEventListener === 'function' && typeof sw.registration !== 'und
     if (!MANIFEST) return;
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const hit = await cache.match(req, { ignoreSearch: true });
+      const hit = (await cache.match(req, { ignoreSearch: true })) || (await caches.match(req, { ignoreSearch: true }));
       if (hit) return hit;
       // A navigation to the app's folder (with `?vault=`) is the page itself.
       if (req.mode === 'navigate') {

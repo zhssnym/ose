@@ -1,4 +1,5 @@
-// Bridge facade. Picks the Tauri adapter inside the Tauri host, the HTTP adapter in a browser.
+// Bridge facade. Picks the Tauri adapter inside the Tauri host, the Ose Web adapter in the web
+// build (docs/WEB.md "The seam", `__OSE_WEB__`), the HTTP adapter in any other browser.
 // Adapters implement `invoke(name, args) -> Promise` and `subscribe(fn({event, data}))`, and may
 // add `win`, `platform`, `assetUrl` and `dragOut` for what is not a host command.
 // This file is the surface every adapter answers to. Nothing else imports an adapter.
@@ -9,6 +10,7 @@
 // error: nothing here guesses what an older host might have answered.
 
 /// <reference path="../globals.d.ts" />
+/// <reference path="../../web/web.d.ts" />
 import { bus } from '../registry.js';
 import { assetPath } from '../paths.js';
 import { HostError, hostError } from './errors.js';
@@ -50,6 +52,9 @@ export { HostError, hostError };
 
 const hasWindow = typeof window !== 'undefined';
 const isTauri = hasWindow && !!window.__TAURI_INTERNALS__;
+// The web build defines `__OSE_WEB__` true; the desktop build defines it false, so this branch
+// and the adapter it imports drop out of `dist/`. Absent (the dev server, the tests): false.
+const isWeb = typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__ === true && !isTauri;
 
 /** The platform the adapter reported, read by `bridge.platform`. */
 const platform = { os: 'windows' };
@@ -94,7 +99,12 @@ function dispatch({ event, data }) {
 let adapter = null;
 /** @type {Promise<Adapter>} */
 const ready = (async () => {
-  const mod = isTauri ? await import('./tauri.js') : await import('./http.js');
+  /** @type {{ create: () => Promise<unknown> }} */
+  let mod;
+  // The build flag first, alone, so the desktop build folds it to false and drops the import.
+  if (typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__ === true && !isTauri) mod = await import('../../web/adapter.js');
+  else if (isTauri) mod = await import('./tauri.js');
+  else mod = await import('./http.js');
   const a = /** @type {Adapter} */ (await mod.create());
   adapter = a;
   a.subscribe(dispatch);
@@ -175,12 +185,30 @@ const winCall = async (name, ...args) => {
   return typeof own === 'function' ? /** @type {(...x: unknown[]) => unknown} */ (own)(...args) : null;
 };
 
+/**
+ * Ose Web's `vault/` form before the adapter is ready (src/web/adapter.js `assetUrlFor`, which
+ * takes over once it is): `./vault/<vaultId>/<path>` beside the page, the tab's vault from
+ * sessionStorage. An `abs:/web/<id>/<name>` file is `./vault/~abs/<id>/<name>`.
+ * @param {string} path
+ */
+const webAssetUrl = (path) => {
+  const s = String(path ?? '');
+  const out = /^abs:\/web\/([0-9a-f]{16})\/([^/]+)$/.exec(s);
+  let id = null;
+  try { id = sessionStorage.getItem('ose.web.vault'); } catch { /* storage refused */ }
+  const rel = out
+    ? `vault/~abs/${out[1]}/${encodeURIComponent(out[2] || '')}`
+    : `vault/${id || '_'}/${s.replace(/^\.?\//, '').split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
+  try { return new URL(rel, new URL('./', location.href)).href; } catch { return `./${rel}`; }
+};
+
 // Synchronous, and used in <img src> possibly before `ready` resolves, so the origin comes from
 // the detected host; the adapter's own version takes over as soon as there is one.
 /** @param {string} path */
 const staticAssetUrl = (path) => {
   const p = assetPath(path);
   if (isTauri) return /windows/i.test(navigator?.userAgent || '') ? `http://vault.localhost/${p}` : `vault://localhost/${p}`;
+  if (isWeb) return webAssetUrl(path);
   return `/vault/${p}`;
 };
 
@@ -195,8 +223,8 @@ const staticAssetUrl = (path) => {
 const as = (p) => /** @type {Promise<T>} */ (p);
 
 export const bridge = {
-  /** @type {'tauri' | 'http'} */
-  kind: isTauri ? 'tauri' : 'http',
+  /** @type {'tauri' | 'http' | 'web'} */
+  kind: /** @type {'tauri' | 'http' | 'web'} */ (isTauri ? 'tauri' : isWeb ? 'web' : 'http'),
   /** 'windows', 'macos' or 'linux', once the adapter has said; 'windows' until then. */
   get platform() { return platform.os; },
   ready,

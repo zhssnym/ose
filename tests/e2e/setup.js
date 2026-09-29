@@ -7,7 +7,7 @@ import { URL_BASE } from './env.js';
 
 /** @returns {Promise<void>} */
 export default async function setup() {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.OSE_E2E_CHROMIUM ? { executablePath: process.env.OSE_E2E_CHROMIUM } : {});
   try {
     const page = await browser.newPage();
     await page.goto(`${URL_BASE}/index.html`);

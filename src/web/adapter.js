@@ -25,6 +25,12 @@ import { startWatch } from './watch.js';
 /** @typedef {import('./local.js').Local} Local */
 /** @typedef {ReturnType<typeof createFs>} Fs */
 /** @typedef {{ path: string, outside: boolean, kind: 'file' | 'dir', line?: number }} OpenRequest */
+/**
+ * The adapter, plus `_state()` for the tests and the integrator.
+ * @typedef {Adapter & { platform: string, assetUrl: (path: string) => string, close: () => void,
+ *   _state: () => { vault: { id: string, name: string, source: string } | null, fs: Fs | null, local: Local,
+ *   watching: boolean, inflight: number } }} WebAdapter
+ */
 
 /** The fs module's commands: with no vault open, each is `no_vault`. */
 export const FS_COMMANDS = ['tree', 'list', 'stat', 'exists', 'search', 'readText', 'readFile', 'saveFile', 'createNew',
@@ -63,6 +69,8 @@ const SW_WAIT = 3000;
 const BLOB_LIFE = 60_000;
 /** How long a boot waits for this tab's own vault lock (a reload lets go a moment late). */
 const RELOAD_WAIT = 1500;
+/** After `window.close()`, how long before a tab Chrome kept open boots again. */
+const CLOSE_CHECK = 500;
 
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -137,7 +145,7 @@ async function serviceWorker() {
 /**
  * The adapter.
  * @param {{ serviceWorker?: boolean }} [opts] `serviceWorker: false` skips the worker (tests)
- * @returns {Promise<Adapter & { platform: string, assetUrl: (path: string) => string, close: () => void }>}
+ * @returns {Promise<WebAdapter>}
  */
 export async function create(opts = {}) {
   const g = G();
@@ -188,8 +196,13 @@ export async function create(opts = {}) {
   function mount(rec, source) {
     unmount();
     vault = { id: rec.id, name: rec.handle.name || rec.name, handle: rec.handle, source };
+    // local.js drops the older of two colliding drafts only once this resolves, so with no fs
+    // (the vault closed meanwhile) it rejects, and both drafts stay.
     /** @type {Local} */
-    const loc = createLocal(rec.id, { epoch: vh.epoch, keepVersion: (p, b, o) => (fs ? fs.keepVersion(p, b, o) : Promise.resolve(null)) });
+    const loc = createLocal(rec.id, {
+      epoch: vh.epoch,
+      keepVersion: (p, b, o) => (fs ? fs.keepVersion(p, b, o) : Promise.reject(fail('no_vault', 'no vault is open in this tab'))),
+    });
     local = loc;
     const theFs = createFs(rec.handle, {
       vaultId: rec.id,
@@ -220,10 +233,10 @@ export async function create(opts = {}) {
   /**
    * Adopt a vault in this tab: the lock, the epoch one more, remembered, mounted. Null when
    * another tab holds it.
-   * @param {vh.VaultRecord} rec @param {string} source
+   * @param {vh.VaultRecord} rec @param {string} source @param {number} [wait] ms to wait for the lock
    */
-  async function adopt(rec, source) {
-    if (!(await vh.holdVault(rec.id))) return null;
+  async function adopt(rec, source, wait = 0) {
+    if (!(await vh.holdVault(rec.id, { wait }))) return null;
     vh.setCurrentVault(rec.id);
     const epoch = vh.bumpEpoch();
     await vh.vaults.touch(rec.id);
@@ -236,7 +249,24 @@ export async function create(opts = {}) {
   // Boot: which vault, if any, this tab opens without asking.
   await (async () => {
     let fromUrl = null;
-    try { fromUrl = new URLSearchParams(g.location ? g.location.search : '').get('vault'); } catch { /* no URL */ }
+    let opfs = false;
+    try {
+      const q = new URLSearchParams(g.location ? g.location.search : '');
+      fromUrl = q.get('vault');
+      opfs = q.get('opfs') === '1';
+    } catch { /* no URL */ }
+    // The test hook (tests/e2e/web.spec.js): `?opfs=1` opens the origin's private file system
+    // as the vault, with no picker. Only this flag reaches it; it is the origin's own sandbox,
+    // never a folder of the person's, and the handle is remembered like a picked one so a
+    // reload finds it again.
+    if (opfs) {
+      const st = g.navigator && g.navigator.storage;
+      if (!st || typeof st.getDirectory !== 'function') return;
+      const id = await vh.vaults.add(await st.getDirectory());
+      const rec = await vh.vaults.get(id);
+      if (rec && !(await adopt(rec, 'picked', RELOAD_WAIT))) logLine('info', `web: vault ${id} (opfs) is open in another tab`);
+      return;
+    }
     if (fromUrl === 'none') { vh.setCurrentVault(null); return; }
     const own = vh.currentVault();
     const want = fromUrl || own || (await vh.lastVault());
@@ -537,6 +567,33 @@ export async function create(opts = {}) {
   };
   if (typeof g.addEventListener === 'function') g.addEventListener('beforeunload', onBeforeUnload);
 
+  /**
+   * `ose.window.close()`: the close path, as tauri.js runs it for the window's button. Every
+   * `closing` handler is awaited (the editor's last save, the router's state flush); one that
+   * answers `false` keeps the tab, and the pages the leave gate froze are handed back. Then
+   * `window.close()`, which Chrome honours for an installed app's window and a tab a script
+   * opened; where it does not, the tab boots again on what was just saved, so it never stays
+   * on a view the close already took down.
+   */
+  let closingNow = false;
+  async function closeTab() {
+    if (closingNow) return false;
+    closingNow = true;
+    try {
+      const pending = emit('window', { closing: true });
+      const outcome = await Promise.allSettled(pending);
+      if (outcome.some((r) => r.status === 'fulfilled' && r.value === false)) {
+        try { (await import('../kernel/leave.js')).stayWindow(); } catch { /* nothing frozen */ }
+        return false;
+      }
+      try { if (typeof g.close === 'function') g.close(); } catch { /* not allowed */ }
+      setTimeout(() => {
+        try { if (!g.closed && g.location && typeof g.location.reload === 'function') g.location.reload(); } catch { /* gone */ }
+      }, CLOSE_CHECK);
+      return true;
+    } finally { closingNow = false; }
+  }
+
   return {
     invoke,
     subscribe(fn) { subs.add(fn); return () => { subs.delete(fn); }; },
@@ -544,8 +601,9 @@ export async function create(opts = {}) {
     assetUrl: (path) => assetUrlFor(vault ? vault.id : vh.currentVault(), path, base || undefined),
     win: {
       setTitle: (text) => { try { if (g.document) g.document.title = String(text ?? ''); } catch { /* none */ } },
+      // No `closing` fan-out: `app.close-anyway`, after the person said so (as tauri.js).
       destroy: () => { try { if (typeof g.close === 'function') g.close(); } catch { /* not allowed */ } return null; },
-      close: async () => { try { if (typeof g.close === 'function') g.close(); } catch { /* not allowed */ } return null; },
+      close: closeTab,
     },
     close() {
       if (typeof g.removeEventListener === 'function') g.removeEventListener('beforeunload', onBeforeUnload);

@@ -42,6 +42,16 @@ jobs:
       - name: Build Ose Web
         run: npm run build:web
 
+      # The built folder itself, served statically, in Chromium over OPFS (tests/e2e/web.spec.js):
+      # open, type, save, a change on disk, rename, trash, reload, offline.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test the built Ose Web end to end
+        run: npx playwright test tests/e2e/web.spec.js
+        env:
+          OSE_WEB_DIST: dist-web
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

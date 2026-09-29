@@ -6,9 +6,13 @@
 
 // ---------------------------------------------------------------- the app's part
 //
-//   vaults   `{ id, name, handle, openedAt }` in the store `vaults`: a folder the person picked,
-//            its id 16 random hex digits made the first time, kept when the same folder
-//            (`isSameEntry`) is picked again. The root the page sees is `web:<id>`.
+//   vaults   `{ id, name, handle, openedAt, forgotten? }` in the store `vaults`: a folder the
+//            person picked, its id 16 random hex digits made the first time, kept when the same
+//            folder (`isSameEntry`) is picked again. The root the page sees is `web:<id>`. The
+//            drafts of a vault are filed under its id, so an id never dies while a draft is
+//            filed under it: a vault forgotten, or pruned from the recent list, with drafts left
+//            stays as a record marked `forgotten` (out of the list, not openable by its root),
+//            and the same folder picked again gets its id back, and with it its drafts.
 //   outside  `{ id, name, handle, openedAt }` in the store `outside`: a file from Open file… or
 //            the OS, named `abs:/web/<id>/<name>` above the adapter.
 //   the tab  its vault in `sessionStorage['ose.web.vault']`, its epoch in
@@ -31,7 +35,7 @@ const S_SOURCE = 'ose.web.source';
 const RECENT_MAX = 10;
 
 /**
- * @typedef {{ id: string, name: string, handle: FileSystemDirectoryHandle, openedAt: number }} VaultRecord
+ * @typedef {{ id: string, name: string, handle: FileSystemDirectoryHandle, openedAt: number, forgotten?: boolean }} VaultRecord
  * @typedef {{ id: string, name: string, handle: FileSystemFileHandle, openedAt: number }} OutsideRecord
  */
 
@@ -76,43 +80,72 @@ async function same(a, b) {
 
 // ---------------------------------------------------------------- the vaults
 
+/**
+ * `now`, or one past the newest kept when the clock has not moved on since (two opens in one
+ * millisecond): the vault opened last is always first in the list.
+ * @param {VaultRecord[]} all newest first @param {number} now
+ */
+const after = (all, now) => Math.max(now, ((all[0] && all[0].openedAt) || 0) + 1);
+
+/** Whether any draft is filed under the vault `id` (local.js keys `<id>/<hash>`); true when the
+ *  drafts cannot be read, so an id is never let go on a guess. @param {string} id */
+async function hasDrafts(id) {
+  try { return (await idb.entries('drafts')).some(([k]) => typeof k === 'string' && k.startsWith(`${id}/`)); } catch { return true; }
+}
+
+/** Every record, the forgotten ones too, newest first. @returns {Promise<VaultRecord[]>} */
+async function records() {
+  const all = (await idb.entries('vaults')).map(([, v]) => /** @type {VaultRecord} */ (v)).filter((v) => v && v.id);
+  return all.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
+}
+
+/** Let a record go, or, while drafts are filed under its id, keep it marked forgotten.
+ *  @param {VaultRecord} v */
+async function letGo(v) {
+  if (await hasDrafts(v.id)) { if (!v.forgotten) await idb.put('vaults', { ...v, forgotten: true }, v.id); }
+  else await idb.del('vaults', v.id);
+}
+
 export const vaults = {
   /** Every vault, newest first. @returns {Promise<VaultRecord[]>} */
   async list() {
-    const all = (await idb.entries('vaults')).map(([, v]) => /** @type {VaultRecord} */ (v)).filter((v) => v && v.id);
-    return all.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
+    return (await records()).filter((v) => !v.forgotten);
   },
   /** @param {string | null | undefined} id @returns {Promise<VaultRecord | null>} */
   async get(id) {
     if (!id) return null;
     const v = await idb.get('vaults', id);
-    return v && v.handle ? /** @type {VaultRecord} */ (v) : null;
+    return v && v.handle && !v.forgotten ? /** @type {VaultRecord} */ (v) : null;
   },
   /**
    * The folder kept, its id answered: the id it already had when it is the same folder as one
-   * kept before (`isSameEntry`), a new one otherwise. The ten newest are kept.
+   * kept before (`isSameEntry`, a forgotten record too, so its drafts are found again), a new
+   * one otherwise. The twenty newest are listed; an older one goes, or stays forgotten while it
+   * has drafts.
    * @param {FileSystemDirectoryHandle} handle
    * @param {number} [now]
    * @returns {Promise<string>}
    */
   async add(handle, now = Date.now()) {
-    const all = await vaults.list();
+    const every = await records();
     let id = null;
-    for (const v of all) if (await same(v.handle, handle)) { id = v.id; break; }
+    for (const v of every) if (await same(v.handle, handle)) { id = v.id; break; }
     if (!id) id = newId();
-    await idb.put('vaults', { id, name: handle.name, handle, openedAt: now }, id);
-    const keep = await vaults.list();
-    for (const v of keep.slice(RECENT_MAX * 2)) await idb.del('vaults', v.id);
+    await idb.put('vaults', { id, name: handle.name, handle, openedAt: after(every, now) }, id);
+    for (const v of (await vaults.list()).slice(RECENT_MAX * 2)) await letGo(v);
+    for (const v of await records()) if (v.forgotten && !(await hasDrafts(v.id))) await idb.del('vaults', v.id);
     return id;
   },
   /** Opened now: first in the recent list. @param {string} id @param {number} [now] */
   async touch(id, now = Date.now()) {
     const v = await vaults.get(id);
-    if (v) await idb.put('vaults', { ...v, openedAt: now }, id);
+    if (v) await idb.put('vaults', { ...v, openedAt: after(await vaults.list(), now) }, id);
   },
   /** @param {string} id */
   async forget(id) {
-    await idb.del('vaults', id);
+    const v = /** @type {VaultRecord | undefined} */ (await idb.get('vaults', id));
+    if (v && v.id) await letGo(v);
+    else await idb.del('vaults', id);
     if ((await idb.get('meta', 'lastVault')) === id) await idb.del('meta', 'lastVault');
   },
 };

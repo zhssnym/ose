@@ -34,6 +34,9 @@ export async function loadState() {
     console.warn('[shell] state load failed:', e.message || e);
     cache = {};
     loaded = false;
+    // No vault open (the chooser is on screen): there is no file to lose and none to write, so
+    // nothing to warn about. Adopting a vault reloads the page, which reads its file.
+    if (e && e.code === 'no_vault') return cache;
     try { toast(`could not read the state file: ${e.message || e}. Nothing will be saved this session.`, 'err', 0); } catch { /* no DOM */ }
   }
   return cache;

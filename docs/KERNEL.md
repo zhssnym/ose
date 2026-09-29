@@ -1132,6 +1132,10 @@ answers `invoke(name, args)`:
   loads `@tauri-apps/api`.
 - `bridge/http.js`, in the browser dev server, posts `POST /__bridge/<name> {"args": [...]}` to
   the dev bridge (dev/bridge-plugin.mjs) and reads `[code] message` refusals.
+- `src/web/adapter.js`, in the Ose Web build only (`__OSE_WEB__`, docs/WEB.md), answers every
+  command in the browser over the folder the person picked; `bridge.kind` is `'web'`, which the
+  kernel treats as a browser tab like `'http'`. The desktop build defines the flag false and
+  carries none of it.
 
 Each facade method names its answer from the bindings (`RootInfo`, `Stat`, `Entry`, `Kept`, …);
 the untyped `call` answers `unknown`, so a field the host does not send is a type error. The

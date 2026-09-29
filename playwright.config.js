@@ -20,6 +20,10 @@ process.env.OSE_E2E_BASE = BASE;
 
 const CI = !!process.env.CI;
 
+// A Chromium of another Playwright release, where the one this release expects is not
+// installed (`OSE_E2E_CHROMIUM=/path/to/chrome`); unset, Playwright's own.
+const LAUNCH = process.env.OSE_E2E_CHROMIUM ? { executablePath: process.env.OSE_E2E_CHROMIUM } : {};
+
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: '**/*.spec.js',
@@ -41,6 +45,7 @@ export default defineConfig({
     viewport: { width: 1280, height: 820 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: LAUNCH,
   },
   projects: [{ name: 'chromium' }],
   webServer: {

@@ -24,9 +24,12 @@ answering every command in the browser. The reference semantics are `dev/files.m
 
 The adapter is chosen by a build flag: `vite.web.config.js` defines `__OSE_WEB__: true`,
 `vite.kernel.config.js` defines it `false` (so the desktop bundle drops the branch), and the
-facade reads it as `typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__`. `bridge.kind` is `'web'`;
-the kernel treats `'web'` as it treats `'http'` wherever it asks "is this a browser tab"
-(`kernel.js`: `host: 'browser'`, and `app.close-anyway` off).
+facade reads it as `typeof __OSE_WEB__ !== 'undefined' && __OSE_WEB__ === true`, first and alone in
+the adapter choice, so the desktop build folds it to false and `dist/` carries no line of
+`src/web/` (`vite.config.js`, the dev server over the Node bridge, defines it false too; the tests
+leave it undefined, which is false). `bridge.kind` is `'web'`; the kernel treats `'web'` as it
+treats `'http'` wherever it asks "is this a browser tab" (`kernel.js`: `host` is `'browser'` for
+anything but `'tauri'`, and `app.close-anyway` only in Tauri).
 
 ## Files
 
@@ -105,8 +108,13 @@ Versions belong to fs, not local: they live in the vault, `.ose/history`, as on 
 export function startWatch(root, fs, emit, opts?) -> stop()
 // emit(event, data): the adapter's fan-out; watch sends only ('fs', FsEvent)
 // opts: { outside?: { list() -> Promise<{ path, handle }[]> }, interval?: number (ms, default 2000),
-//         observer?: constructor (default globalThis.FileSystemObserver) }
+//         observer?: constructor (default globalThis.FileSystemObserver; null forces polling),
+//         hiddenInterval?, liveness?, document? (tests) }
+// stop.ready: Promise<'observer' | 'poll'>; stop.mode(); stop.refresh(): re-read the outside list now
 ```
+
+The adapter starts it when a vault mounts and stops it on `close()` and on a switch of vault;
+after `pickFile`, `outsideOpen` or a launch registers an outside file it calls `stop.refresh()`.
 
 ### local: `src/web/local.js`
 
@@ -116,9 +124,14 @@ export function createLocal(vaultKey, opts?) -> Local
 // opts: { epoch: () => number, keepVersion?: (path, bytes, o) => Promise<unknown> }
 // methods: draftWrite, draftList, draftRead, draftDrop, localGet, localSet, log   (the commands)
 //   rekeyDrafts(from, to)   (fs.onRename)
-//   logLines(n?) -> string[]   the newest lines, for "Copy the log"
+//   logLines(n?) -> Promise<string[]>   the newest lines, oldest first, for "Copy the log"
 //   write(level, text)      the log writer fs and the adapter use (log() is the page's `ui:` one)
+//   flush(), hostGet(key), hostSet(key, value)   pending writes; the host keys of `app`
 ```
+
+`keepVersion` is what a draft re-key that collides does with the older draft: it must reject
+when it did not keep the bytes, because local deletes the older draft once it resolves. The
+adapter passes `fs.keepVersion`, and a rejection when no vault is open.
 
 ### app: `src/web/adapter.js`, `vault-handle.js`, `sw.js`, the manifest, the build
 
@@ -143,7 +156,10 @@ everything its handlers throw and rethrows `fromDom(e)`, so no `DOMException` re
   hex digits, made the first time a folder is picked; a folder picked again (`isSameEntry`) keeps
   its id. `rootInfo().root` is `web:<id>`, `name` is the folder's name. There is no absolute path in
   a browser, and `web:` is neither a drive nor a leading slash, so the address bar never takes it
-  for one. The vault key of drafts and the local store is the `id`.
+  for one. The vault key of drafts and the local store is the `id`, so an id never dies while
+  a draft is filed under it: a vault forgotten, or pruned from the twenty kept, with drafts left
+  stays as a record marked `forgotten` (out of the recent list, not openable by its root), and
+  the same folder picked again gets its id back, and its drafts with it.
 - A tab has one vault: `sessionStorage['ose.web.vault']`, else `?vault=<id>` on the URL (what
   `openVaultWindow` opens), else `meta.lastVault`. At boot the adapter reads its handle and asks
   `queryPermission({ mode: 'readwrite' })`: `granted` opens it; anything else answers `rootInfo`
@@ -188,9 +204,9 @@ change, not part of this one. The File System Access API does not expose links: 
 What the desktop keeps in the app's folders on this machine, Ose Web keeps for its origin in
 IndexedDB (`idb.js`, database `ose-web`): the vaults and outside handles, drafts (`drafts`,
 `<vaultKey>/<pathKey>` with `pathKey = hash(path)`, the vault key `outside` for `abs:` paths), the
-local store (`local`: `app` and `vault:<vaultKey>`, 1 MB each, the host keys `window` and `theme`
-kept out of `app` as local.rs does), and the log (`log`, the newest 5000 lines). Nothing of it is
-in the vault. What the desktop keeps in the vault, Ose Web keeps there too: `.ose/state.json`
+local store (`local`: `app` and `vault:<vaultKey>`, 1 MB each, the host keys `window`, `theme` and
+`legacyOrigin` kept out of `app` as local.rs does), and the log (`log`, the newest 5000 lines).
+Nothing of it is in the vault. What the desktop keeps in the vault, Ose Web keeps there too: `.ose/state.json`
 (`getState`/`setState`) and `.ose/history` (versions). The origin's storage is asked to persist
 (`navigator.storage.persist()`) at the first adopt, so Chrome does not evict drafts under pressure.
 
@@ -203,9 +219,22 @@ the rename (files.rs) is a read of the target just before `close()`: when it hol
 bytes compared nor the new ones, the writable is `abort()`ed and the answer is the conflict. When
 `close()` fails, the new bytes are written to `<stem>.unsaved-<stamp>.<ext>` beside the target
 (exclusive create) and the error is `write_failed … your text is in <that path>`, as the desktop's
-set-aside; when that fails too, the page keeps the text and its draft. `appendLine` opens with
-`keepExistingData: true`, seeks to the end and writes only the new line. Creates are exclusive:
-the name is looked up first, under the path's lock.
+set-aside; when that fails too, the page keeps the text and its draft. The browser has no
+`O_APPEND`: `appendLine` and `appendText` are a guarded replace. The file is read, `before` plus
+the new bytes is written whole, and the last look before `close()` aborts unless the file still
+holds `before` (or already the new bytes); a file another program changed meanwhile is read again
+and the line added over what it holds now, up to five times, then `write_failed`. An append never
+closes over another program's write. Creates are exclusive: the name is looked up first, under
+the path's lock.
+
+A folder Chrome will not `move()` is copied. Each file copied is noted (size, time, hash), and the
+original is walked again before anything is removed: a file changed or added since leaves the
+original whole, the copy is removed, and the move is `io`. Then the original goes a file at a
+time, each one looked at just before, and its folders only once they are empty; a change in that
+last moment keeps what changed where it was (both copies stay, `io`). `rename`, `trash` and a
+restore hold their paths whole while they run: they start once every path lock at or under them
+in this tab is free, and a save under them waits until they are done (then finds the file gone,
+the conflict).
 
 ## Errors
 
@@ -224,9 +253,14 @@ back as a list.
 - `fs`: `{ changes: [{ path, kind, to?, dir?, hidden? }], rescan?, lost? }` exactly as
   `watcher.rs` sends it (see "The watcher" below).
 - `open`: `{ requests: OpenRequest[] }` for a `launchQueue` launch after the first `takeOpens`.
-- `window`: `{ closing: true }` on `beforeunload`. A browser does not wait for promises there:
-  when any handler answers `false` or a promise that has not settled, the adapter calls
-  `preventDefault()` and Chrome asks "Leave site?". The drafts cover the rest.
+- `window`: `{ closing: true }` from `win.close()` (the kernel's close path): every handler is
+  awaited as tauri.js does, one answering `false` keeps the tab, then `window.close()` (which
+  Chrome honours for an installed app's window; where it does not, the tab boots again on what
+  was just saved). It is **not** sent on `beforeunload`: the router's `closing` handler always
+  answers a promise still running, so "Leave site?" would show on every close, and a person
+  answering Stay would come back to a view already taken down. Instead the adapter asks
+  "Leave site?" only while a write is in flight; the kernel's `pagehide` banking and the drafts
+  cover the rest, as with the dev bridge.
 
 ## The watcher
 
@@ -255,7 +289,8 @@ comparing `{kind, size, lastModified}`) when there is not or when `observe()` th
 
 ## The service worker and the `vault/` origin
 
-`sw.js` precaches the build (the list `vite.web.config.js` writes into it, versioned by the build
+`sw.js` precaches the build (the list `vite.web.config.js` writes into it, the cache named by a
+hash of every built file, so any change is a new cache; `platform().build` still reports the git
 stamp) and answers every app request from the cache: after the first visit nothing is fetched.
 `assetUrl(path)` is `./vault/<vaultId>/<path>` (and `./vault/~abs/<outsideId>/<name>`); the worker
 answers it from the handle in IndexedDB (`getFile()`, `Range` answered with 206 as protocol.rs
@@ -263,7 +298,20 @@ does, the type from protocol.rs's table), and when the worker has no permission 
 that made the request (`clients.get(event.clientId)`, a `MessageChannel`) for the bytes. The
 adapter's `create()` waits for the worker to control the page (at most 3 s; `clients.claim()` on
 activate) so the first `<img>` already goes through it. The facade's `staticAssetUrl` answers the
-same form for Ose Web before the adapter is ready.
+same form for Ose Web before the adapter is ready (the tab's vault from sessionStorage). A new
+build does not take over a running tab: it waits until the old build's tabs are closed, so a
+page never mixes code of two builds in the middle of an edit. The install fetches with
+`cache: 'reload'`, past the HTTP cache: the entry files keep their names from build to build, and
+a host's `max-age` would otherwise give a new build's cache the old build's `kernel.js`. The worker
+applies the hide rule (`excludedSegs`, the same answers as rules.js `isExcluded`): `.ose`, `.git`,
+`.trash/.info`, temp files and the app's files at the root are a 404. Every answer says
+`X-Content-Type-Options: nosniff`, and html, htm, xhtml, svg, xml and xsl are served with
+`Content-Security-Policy: sandbox` (protocol.rs `active`): here `vault/` is the app's own origin,
+so a vault page opened in a tab would otherwise run with the app's IndexedDB, the vault handles
+in it. The built `index.html` carries the desktop's policy as a `<meta>` (vite.web.config.js
+`withCsp`): `'self'` for everything (`vault/` included), the import map by its hash, `data:` and
+`blob:` where the desktop has them, `object-src`, `base-uri` and `form-action` `'none'`; no other
+host is named, so the page reaches no network.
 
 ## Commands
 
@@ -329,11 +377,11 @@ and needs the vault (`no_vault` when the root is gone or permission was withdraw
 |---|---|---|
 | `rootInfo()` | `{root, name, epoch}`, nulls with no vault | `web:<id>` |
 | `vaultInfo()` | `{root, name, remembered, source, epoch}` | `remembered` true when the vault is in IndexedDB; `source` `remembered`, `picked` or `opened`, null with none |
-| `pickVault(opts?: {adopt?})` | the picker; null on cancel; `adopt:false` answers `{root, name}` only | `showDirectoryPicker({id:'ose-vault', mode:'readwrite'})`; stored; adopted unless `adopt:false`; `{root, name, epoch}` |
+| `pickVault(opts?: {adopt?})` | the picker; null on cancel; `adopt:false` answers `{root, name}` only | `showDirectoryPicker({id:'ose-vault', mode:'readwrite'})`; stored (even with `adopt:false`, since `openVault` needs the handle after); adopted unless `adopt:false`; `{root, name, epoch}` |
 | `openVault(path)` | adopt with no dialog, or `{status:'focused', label}` | `web:<id>` of a known vault (else `not_found`); permission asked (`no_vault` when refused); the tab lock; `{status:'adopted', root, name, epoch}` |
 | `openVaultWindow(path?)` | `{label, created}` | `window.open('./?vault=<id>')`, or `./` with no path; `{label:'tab', created:true}`; a blocked pop-up is `unsupported` |
 | `recentVaults()` | `[{path, name, exists, current}]`, newest first, at most ten | from IndexedDB; `exists` true (a browser cannot tell without asking) |
-| `forgetVault(path?)` | with a path drop that entry; without, forget the remembered root; null | delete the record / clear `meta.lastVault` |
+| `forgetVault(path?)` | with a path drop that entry; without, forget the remembered root; null | delete the record (kept marked `forgotten` while drafts are filed under its id) / clear `meta.lastVault` |
 | `platform()` | `{os, version, exe, exeDir, root, logPath, build, dragIcon}` | `os` from `navigator.userAgentData` or the UA; `version` and `build` from the build stamp; `exe` `''`, `exeDir` null, `logPath` `'IndexedDB: ose-web/log'`, `dragIcon` null |
 | `quit()` | null | null: a tab is closed by its person |
 | `outsideOpen(path)` | `{path, inside, name, exists, kind}` | see "Files outside the vault" |
@@ -361,6 +409,23 @@ Not host commands, the adapter's own: `win.setTitle` (the tab title), `win.destr
 - Folder mtimes are not known (0); file mtimes are `lastModified`.
 - The encodings are UTF-8, UTF-16LE, UTF-16BE and windows-1252, as the dev bridge's.
 
+## Where the modules differ from the reference
+
+Each is deliberate and follows the desktop (`commands.rs`, `drafts.rs`, `local.rs`) or HOST.md
+where the Node twin is looser:
+
+- fs: `readText`, `readBinary` and `readFile` of a missing file or of a folder are `not_found`
+  (the dev bridge says `io` for a folder); `rename` of a folder into itself is `bad_arg`;
+  `appendLine` on a file that is not UTF-8 is `not_utf8`, as HOST.md says. On a file outside
+  the vault a failed `close()` has no folder to set the bytes aside in: a plain `write_failed`,
+  and the page keeps the text and its draft.
+- local: a draft of an `abs:` file skips the epoch check (the desktop does; the dev bridge
+  does not). With no vault open, `draftList` still answers the outside files' drafts, so no
+  typed text is hidden. `app` keeps `window`, `theme` and `legacyOrigin` for the host, a vault's
+  object keeps `window`. `abs:` paths are not checked against the registry (no
+  `not_registered` from a draft command).
+- A vault picked in one millisecond after another is still the newest in the recent list.
+
 ## Testing
 
 `tests/stubs/fsa.js` is an in-memory File System Access API: path-based handles, `createWritable`
@@ -370,3 +435,21 @@ folders), permissions, fault injection (`fsa.fail(op, path, name)`), outside cha
 (`fsa.install()` puts it and the pickers on `globalThis`). `idb.js` runs on memory where there is
 no IndexedDB. Each module has its test file in `tests/web/`, and the fs tests run the same cases
 as `tests/dev-bridge/files.test.js` where the semantics are shared. Never a real vault.
+
+End to end, `tests/e2e/web.spec.js` (part of `npm run test:e2e`, or alone with
+`npx playwright test tests/e2e/web.spec.js`) serves a built `dist-web/` with a plain static
+server (`tests/e2e/web-serve.mjs`, also `node tests/e2e/web-serve.mjs [dir] [port]` by hand)
+and drives it in Chromium over the origin's private file system as the vault. `OSE_WEB_DIST`
+names a built folder to serve as it is (the Pages workflow tests the very folder it publishes);
+unset, the spec builds one into a temp folder first. Scenarios: the first visit's chooser and
+Choose folder… (the picker answering OPFS), type and save with the bytes checked, a BOM and
+CRLF kept, a change on disk merged into a dirty page and taken in place on a clean one (with
+FileSystemObserver, and with the polling fallback), rename, trash to `.trash` with its sidecar,
+the tabs back after a reload, vault media from the worker with a range, and offline: after the
+first visit the server is closed and the browser set offline, and the app reloads and saves.
+
+The test hook: `?opfs=1` on the page's URL makes the adapter open
+`navigator.storage.getDirectory()` as the vault at boot, remembered like a picked folder, with
+no picker. Nothing else reaches it, and it is the origin's own sandbox, never a folder of the
+person's. `OSE_E2E_CHROMIUM` points the whole e2e suite at a Chromium of another Playwright
+release when the one it expects is not installed.

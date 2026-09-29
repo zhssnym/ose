@@ -6,7 +6,8 @@
 //                       copied beside them (scripts/copy-shell.mjs); then the web's own files:
 //                       `sw.js` (src/web/sw.js with the precache list and the build id written
 //                       into it), `manifest.webmanifest` (web/), `icons/` (from src-tauri/icons)
-//                       and a `<link rel="manifest">` added to `dist-web/index.html`. The
+//                       and a `<link rel="manifest">` and the Content-Security-Policy `<meta>`
+//                       (the desktop's policy, `withCsp`) added to `dist-web/index.html`. The
 //                       shell's own index.html is not edited.
 //   npm run dev:web     `vite`: the dev server of vite.config.js (the shell as plain files, the
 //                       `ose:*` aliases, the kernel stylesheets) without the Node bridge, with
@@ -68,6 +69,45 @@ export function withManifestLink(html) {
   return html.replace('</head>', '<link rel="manifest" href="./manifest.webmanifest">\n</head>');
 }
 
+/**
+ * The desktop's policy (tauri.conf.json `app.security.csp`) for the web build, as a `<meta>` the
+ * page carries (a static host sends no header). `vault:` is `vault/` on this origin, so `'self'`
+ * holds it; the one inline script, the import map, is allowed by its hash, as Tauri hashes it.
+ * No host but this one is named anywhere: the page reaches no network of its own.
+ * @param {string[]} inlineHashes `'sha256-…'` of every inline script
+ */
+export function webCsp(inlineHashes) {
+  return [
+    "default-src 'self'",
+    `script-src 'self' ${inlineHashes.join(' ')}`.trim(),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' blob:",
+    "connect-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "frame-src 'self' blob:",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ');
+}
+
+/** The policy into the built page, first thing in `<head>` after the charset, so it covers the
+ *  import map; once. @param {string} html */
+export function withCsp(html) {
+  if (/http-equiv="Content-Security-Policy"/i.test(html)) return html;
+  const hashes = [];
+  for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+    hashes.push(`'sha256-${createHash('sha256').update(m[1] || '').digest('base64')}'`);
+  }
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${webCsp(hashes)}">`;
+  const charset = /<meta charset="[^"]*">\n?/i.exec(html);
+  if (charset) return html.replace(charset[0], `${charset[0].replace(/\n?$/, '\n')}${meta}\n`);
+  return html.replace('<head>', `<head>\n${meta}`);
+}
+
 /** After the bundles: the shell, the manifest, the icons, the page's link, then the worker. */
 function webIntoTheBuild() {
   let outDir = path.join(OUT, 'ose');
@@ -83,7 +123,7 @@ function webIntoTheBuild() {
         copyFileSync(here(from), path.join(top, to));
       }
       const page = path.join(top, 'index.html');
-      writeFileSync(page, withManifestLink(readFileSync(page, 'utf8')));
+      writeFileSync(page, withCsp(withManifestLink(readFileSync(page, 'utf8'))));
       const files = filesUnder(top).filter((f) => f !== 'sw.js');
       const { build, source } = workerSource(files, top);
       writeFileSync(path.join(top, 'sw.js'), source);

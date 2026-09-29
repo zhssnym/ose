@@ -69,6 +69,36 @@ async function afterNextWrite(hook) {
   return () => { proto.write = write; };
 }
 
+/** Run `hook` once, right before the next createWritable() of a file: between a command's read
+ *  and its writable, where another program's change must not be written over. @param {() => void | Promise<void>} hook */
+function beforeNextWritable(hook) {
+  fsa.seed({ '__probe': '' });
+  const proto = Object.getPrototypeOf(fsa.handle('__probe'));
+  fsa.remove('__probe');
+  const create = proto.createWritable;
+  proto.createWritable = async function patched(/** @type {any} */ o) {
+    proto.createWritable = create;
+    await hook();
+    return create.call(this, o);
+  };
+  return () => { proto.createWritable = create; };
+}
+
+/** Run `hook` once, on the `n`th createWritable() of a file from now (1 = the next).
+ *  @param {number} n @param {() => void | Promise<void>} hook */
+function onWritable(n, hook) {
+  fsa.seed({ '__probe': '' });
+  const proto = Object.getPrototypeOf(fsa.handle('__probe'));
+  fsa.remove('__probe');
+  const create = proto.createWritable;
+  let seen = 0;
+  proto.createWritable = async function patched(/** @type {any} */ o) {
+    if (++seen === n) { proto.createWritable = create; await hook(); }
+    return create.call(this, o);
+  };
+  return () => { proto.createWritable = create; };
+}
+
 describe('saveFile', () => {
   it('creates a missing file when expectedHash is null, folders included, no swap file left', async () => {
     const r = await F.saveFile('a/b/new.md', 'text\n', { expectedHash: null });
@@ -420,6 +450,45 @@ describe('appendLine', () => {
     expect(await F.versionList('a.log')).toEqual([]);
   });
 
+  it('a line another program appends while the writable is open is kept, and ours goes after it', async () => {
+    fsa.seed({ 'todo.md': 'a\n' });
+    await afterNextWrite(() => { fsa.write('todo.md', 'a\nfrom-agent\n'); });
+    const r = await F.appendLine('todo.md', 'mine');
+    expect(fsa.readText('todo.md')).toBe('a\nfrom-agent\nmine\n');
+    expect(r).toEqual({ hash: hash('a\nfrom-agent\nmine\n') });
+    expect(tree().some((p) => p.endsWith('.crswap'))).toBe(false);
+  });
+
+  it('a line another program appends between the read and the writable is kept whole', async () => {
+    fsa.seed({ 'todo.md': 'a\n' });
+    beforeNextWritable(() => { fsa.write('todo.md', 'a\nagent-long-line\n'); });
+    await F.appendLine('todo.md', 'mine');
+    expect(fsa.readText('todo.md')).toBe('a\nagent-long-line\nmine\n');
+  });
+
+  it('a file that keeps changing is write_failed, and what the other program wrote stays', async () => {
+    fsa.seed({ 'todo.md': 'a\n' });
+    let n = 0;
+    const proto = Object.getPrototypeOf(fsa.handle('todo.md'));
+    const create = proto.createWritable;
+    proto.createWritable = async function patched(/** @type {any} */ o) { fsa.write('todo.md', `a\n${++n}\n`); return create.call(this, o); };
+    try {
+      await expect(F.appendLine('todo.md', 'mine')).rejects.toEqual(coded('write_failed'));
+    } finally { proto.createWritable = create; }
+    expect(fsa.readText('todo.md')).toBe(`a\n${n}\n`);
+  });
+
+  it('appendText keeps what another program wrote too', async () => {
+    fsa.seed({ 't.txt': 'a' });
+    await afterNextWrite(() => { fsa.write('t.txt', 'a+theirs'); });
+    await F.appendText('t.txt', '+mine');
+    expect(fsa.readText('t.txt')).toBe('a+theirs+mine');
+    fsa.seed({ 'u.txt': 'a' });
+    beforeNextWritable(() => { fsa.write('u.txt', 'a+theirs'); });
+    await F.appendText('u.txt', '+mine');
+    expect(fsa.readText('u.txt')).toBe('a+theirs+mine');
+  });
+
   it('appendText appends as given, folders made', async () => {
     await F.appendText('x/t.txt', 'a');
     await F.appendText('x/t.txt', 'b\r\n');
@@ -717,6 +786,66 @@ describe('rename', () => {
     setup({ dirMove: false, files: { 'd/a.md': 'a', 'd/s/b.bin': new Uint8Array([1, 2]) } });
     await F.rename('d', 'e/f');
     expect(tree()).toEqual(['e/', 'e/f/', 'e/f/a.md', 'e/f/s/', 'e/f/s/b.bin']);
+  });
+
+  it('a save in this tab during a folder copy waits, then finds the file moved: a conflict, never lost', async () => {
+    setup({ dirMove: false, files: { 'old/a.md': 'A0' } });
+    /** @type {Promise<any> | null} */
+    let save = null;
+    onWritable(1, async () => {
+      save = F.saveFile('old/a.md', 'A1 typed', { expectedHash: hash('A0') });
+      // Give the save every chance to land in the middle of the copy.
+      await Promise.race([save, new Promise((r) => setTimeout(r, 30))]);
+    });
+    await F.rename('old', 'new');
+    const r = await /** @type {Promise<any>} */ (/** @type {unknown} */ (save));
+    expect(r.status).toBe('conflict');
+    expect(fsa.readText('new/a.md')).toBe('A0');
+    expect(fsa.exists('old')).toBe(false);
+  });
+
+  it('a file another program writes during a folder copy stops the move: the original stays, no copy', async () => {
+    setup({ dirMove: false, files: { 'old/a.md': 'A0', 'old/b.md': 'B0' } });
+    onWritable(1, () => { fsa.write('old/a.md', 'A1 theirs'); });
+    await expect(F.rename('old', 'new')).rejects.toEqual(coded('io'));
+    expect(fsa.readText('old/a.md')).toBe('A1 theirs');
+    expect(fsa.readText('old/b.md')).toBe('B0');
+    expect(fsa.exists('new')).toBe(false);
+    expect(renames).toEqual([]);
+  });
+
+  it('a file added to the folder during its copy stops the move too', async () => {
+    setup({ dirMove: false, files: { 'old/a.md': 'A0' } });
+    onWritable(1, () => { fsa.write('old/added.md', 'new one'); });
+    await expect(F.rename('old', 'new')).rejects.toEqual(coded('io'));
+    expect(fsa.readText('old/added.md')).toBe('new one');
+    expect(fsa.readText('old/a.md')).toBe('A0');
+    expect(fsa.exists('new')).toBe(false);
+  });
+
+  it('a file written while the original is being removed stays there; the rest is in the copy', async () => {
+    setup({ dirMove: false, files: { 'old/a.md': 'A0', 'old/b.md': 'B0' } });
+    const dirProto = Object.getPrototypeOf(fsa.root);
+    const removeEntry = dirProto.removeEntry;
+    dirProto.removeEntry = async function patched(/** @type {string} */ name, /** @type {any} */ o) {
+      dirProto.removeEntry = removeEntry;
+      fsa.write('old/b.md', 'B1 theirs');
+      return removeEntry.call(this, name, o);
+    };
+    try {
+      await expect(F.rename('old', 'new')).rejects.toEqual(coded('io'));
+    } finally { dirProto.removeEntry = removeEntry; }
+    expect(fsa.readText('old/b.md')).toBe('B1 theirs');
+    expect(fsa.readText('new/a.md')).toBe('A0');
+    expect(fsa.readText('new/b.md')).toBe('B0');
+  });
+
+  it('a folder trashed while another program writes into it is not removed', async () => {
+    setup({ dirMove: false, files: { 'd/a.md': 'A0' } });
+    onWritable(1, () => { fsa.write('d/a.md', 'A1 theirs'); });
+    await expect(F.trash('d')).rejects.toEqual(coded('io'));
+    expect(fsa.readText('d/a.md')).toBe('A1 theirs');
+    expect(tree().filter((p) => p.startsWith('.trash/') && p !== '.trash/' && p !== '.trash/.info/')).toEqual([]);
   });
 
   it('a copy that fails halfway leaves the original and no half copy', async () => {

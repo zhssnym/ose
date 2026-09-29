@@ -139,7 +139,7 @@ export default defineConfig({
   base: './',
   root: shellRoot,
   resolve: { alias },
-  define: { __VUE_OPTIONS_API__: 'false', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
+  define: { __OSE_WEB__: 'false', __VUE_OPTIONS_API__: 'false', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
   // The dev bridge is the Node host for a browser. Under `tauri dev` the page talks to the real
   // host, and a second watcher on the vault would only cost (CONTRACT F11).
   plugins: [kernelStylesheets(), repoPages(), ...(process.env.TAURI_ENV_PLATFORM ? [] : [bridgePlugin()])],
