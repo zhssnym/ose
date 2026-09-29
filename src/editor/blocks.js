@@ -75,7 +75,7 @@ function setRange(view, range, extra) {
     const nodes = nodesIn(tr.doc, range.from, range.to);
     const single = nodes.length === 1;
     let sel = null;
-    if (single && NodeSelection.isSelectable(nodes[0].node)) {
+    if (single && NodeSelection.isSelectable(nodes[0]?.node)) {
       try { sel = NodeSelection.create(tr.doc, range.from); } catch { sel = null; }
     }
     if (!sel) sel = TextSelection.between(tr.doc.resolve(range.from), tr.doc.resolve(range.to));
@@ -153,7 +153,7 @@ function extend(view, dir) {
       if (!after) return setRange(view, cur);
       to += after.nodeSize;
     } else if (nodes.length > 1) {
-      to = nodes[nodes.length - 1].pos;                 // give the last one back
+      to = nodes[nodes.length - 1]?.pos;                // give the last one back
     } else {
       const before = doc.resolve(from).nodeBefore;
       if (!before) return setRange(view, cur);
@@ -166,7 +166,7 @@ function extend(view, dir) {
       if (!before) return setRange(view, cur);
       from -= before.nodeSize;
     } else if (nodes.length > 1) {
-      from += nodes[0].node.nodeSize;                   // give the first one back
+      from += nodes[0]?.node.nodeSize;                  // give the first one back
     } else {
       const after = doc.resolve(to).nodeAfter;
       if (!after) return setRange(view, cur);
@@ -321,7 +321,7 @@ export function blockKeysPlugin() {
   return new Plugin({
     key: BLOCK_KEY,
     state: {
-      init: () => null,
+      init: () => /** @type {{from: number, to: number, head: string} | null} */ (null),
       apply(tr, prev) {
         const meta = tr.getMeta(BLOCK_KEY);
         if (meta !== undefined) return meta || null;
@@ -374,7 +374,7 @@ export function blockKeysPlugin() {
         },
       },
       // A block selection is not a text selection: hide the native highlight under it.
-      attributes: (state) => (BLOCK_KEY.getState(state) ? { class: 'os-blocksel' } : null),
+      attributes: (state) => (BLOCK_KEY.getState(state) ? { class: 'os-blocksel' } : /** @type {Record<string, string>} */ ({})),
       decorations(state) {
         const s = BLOCK_KEY.getState(state);
         if (!s) return null;
@@ -406,8 +406,14 @@ export function htmlBlockPlugin() {
             // Into the final document: through the rest of this transaction and the ones after.
             let s = start;
             let e = end;
-            for (let r = m + 1; r < t.mapping.maps.length; r++) { s = t.mapping.maps[r].map(s, -1); e = t.mapping.maps[r].map(e, 1); }
-            for (let q = n + 1; q < trs.length; q++) { s = trs[q].mapping.map(s, -1); e = trs[q].mapping.map(e, 1); }
+            for (let r = m + 1; r < t.mapping.maps.length; r++) {
+              const later = /** @type {import('@milkdown/kit/prose/transform').StepMap} */ (t.mapping.maps[r]);
+              s = later.map(s, -1); e = later.map(e, 1);
+            }
+            for (let q = n + 1; q < trs.length; q++) {
+              const after = /** @type {import('@milkdown/kit/prose/state').Transaction} */ (trs[q]);
+              s = after.mapping.map(s, -1); e = after.mapping.map(e, 1);
+            }
             from = Math.min(from, s);
             to = Math.max(to, e);
           });

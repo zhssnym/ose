@@ -36,7 +36,8 @@ export function createWeekView(ose, store) {
   function mount(host) {
     let alive = true, events = [], unknown = [], calMissing = false, lastDay = -1, seq = 0;
     const offs = [];
-    const days = () => weekDays(new Date());
+    /** The seven days, Monday first: always seven, so `w[0]` to `w[6]` are there. */
+    const days = () => /** @type {[Date, Date, Date, Date, Date, Date, Date]} */ (weekDays(new Date()));
     const settings = () => store.get();
 
     host.innerHTML = `
@@ -58,7 +59,7 @@ export function createWeekView(ose, store) {
 
     /** The blocks drawn on day `i` (0 = Monday) of this week: parity applied. */
     const blocksOn = (i) => {
-      const date = days()[i];
+      const date = /** @type {Date} */ (days()[i]);
       return events.filter((e) => e.d === i && blockApplies(e, date, q1Of(settings())));
     };
 
@@ -96,7 +97,7 @@ export function createWeekView(ose, store) {
       const w = days();
       const out = ['<div class="wk-hd wk-corner"></div>'];
       DAY_SHORT.forEach((d, i) => {
-        out.push(`<div class="wk-hd${i === ti ? ' today' : ''}"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String(w[i].getDate()).padStart(2, '0')}</span></div>`);
+        out.push(`<div class="wk-hd${i === ti ? ' today' : ''}"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String(/** @type {Date} */ (w[i]).getDate()).padStart(2, '0')}</span></div>`);
       });
       let times = '<div class="wk-times">';
       for (let h = Math.ceil(START); h <= Math.floor(END); h++) {
@@ -193,7 +194,8 @@ export function createWeekView(ose, store) {
         ({ events, unknown } = parseTimetable(text));
         stop();
         build();
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] week', e);
         toast(`Week: ${(e && e.message) || e}`, 'err');
         if (stop()) $('grid').innerHTML = '';

@@ -28,7 +28,7 @@ export async function showBootError(err, { stage = 'Ose could not start.', ose =
   shown = true;
 
   const message = describe(err);
-  const stack = err && err.stack ? String(err.stack) : '';
+  const stack = err && typeof err === 'object' && 'stack' in err && err.stack ? String(err.stack) : '';
   const log = await logPath(ose);
   try { if (ose && typeof ose.log === 'function') await Promise.resolve(ose.log(`boot failed: ${stage} ${message}\n${stack}`, 'error')); } catch { /* the log is what failed */ }
 

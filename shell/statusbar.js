@@ -76,7 +76,7 @@ function openChoices(item, button) {
   })));
   if (!ov || !ov.box) return;
   ov.box.setAttribute('aria-label', item.title || item.key);
-  const rows = [...ov.box.querySelectorAll('.menu-row')];
+  const rows = /** @type {HTMLElement[]} */ ([...ov.box.querySelectorAll('.menu-row')]);
   rows.forEach((row, i) => {
     row.setAttribute('role', 'menuitemradio');
     row.setAttribute('aria-checked', item.choices[i] && item.choices[i].value === item.value ? 'true' : 'false');
@@ -98,21 +98,23 @@ function openChoices(item, button) {
 export function initStatusbar(node) {
   node.className = 'statusbar';
   node.innerHTML = `<div class="st-left"></div><div class="st-right"></div>`;
-  leftEl = node.querySelector('.st-left');
-  rightEl = node.querySelector('.st-right');
+  // Both were drawn just above.
+  leftEl = /** @type {HTMLElement} */ (node.querySelector('.st-left'));
+  rightEl = /** @type {HTMLElement} */ (node.querySelector('.st-right'));
 
   status.watch(renderLeft);
   // A field set with an `onClick` is a button, and this is where it is pressed.
   leftEl.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
     const b = e.target.closest('.st-click');
-    if (!b) return;
+    if (!(b instanceof HTMLElement)) return;
     const item = status.all().find((s) => s.key === b.dataset.key);
     if (item && hasChoices(item)) { openChoices(item, b); return; }
     if (item && item.onClick) { try { item.onClick(); } catch (err) { console.error('[shell] status', err); } }
   });
   bus.on('settings', renderRight);
   rightEl.addEventListener('click', (e) => {
-    if (e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
+    if (e.target instanceof Element && e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
   });
   renderLeft();
   renderRight();

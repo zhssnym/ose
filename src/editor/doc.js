@@ -80,10 +80,11 @@ export function parseDoc(text) {
 
   const preTitle = (rest.match(/^(?:[ \t]*\n)*/) || [''])[0];
   const after = rest.slice(preTitle.length);
-  const firstLine = after.split('\n', 1)[0];
+  const [firstLine = ''] = after.split('\n', 1);
   const h1 = firstLine.match(ATX_H1);
+  const title = h1 && h1[1];
 
-  if (!h1 || !h1[1]) {
+  if (!title) {
     return {
       eol, eols, lines, bom, endsWithNewline, frontmatterRaw, style: detectStyle(rest),
       frontmatter: frontmatterRaw ? parseFrontmatter(frontmatterRaw) : null,
@@ -104,7 +105,7 @@ export function parseDoc(text) {
   return {
     eol, eols, lines, bom, endsWithNewline, frontmatterRaw, style: detectStyle(rest),
     frontmatter: frontmatterRaw ? parseFrontmatter(frontmatterRaw) : null,
-    preTitle, titleLine: firstLine, title: h1[1], gap,
+    preTitle, titleLine: firstLine, title, gap,
     body: afterTitle.slice(gap.length),
   };
 }
@@ -207,14 +208,17 @@ function locateFrontmatterLine(raw, key) {
   const lines = String(raw || '').split('\n');
   let found = null;
   for (let i = 1; i < lines.length; i++) {
-    if (/^---[ \t]*$/.test(lines[i])) break;            // the closing fence
-    const m = FM_KEY_LINE.exec(lines[i]);
-    if (!m || m[1].trim() !== key) continue;
+    const line = lines[i] ?? '';
+    if (/^---[ \t]*$/.test(line)) break;                // the closing fence
+    const m = FM_KEY_LINE.exec(line);
+    if (!m) continue;
+    const [, k = '', sep = '', value = ''] = m;
+    if (k.trim() !== key) continue;
     if (found) return null;                              // duplicate key: ambiguous
     const next = lines[i + 1] || '';
     const multi = (/^\s+\S/.test(next) || /^-\s/.test(next)) && !/^---[ \t]*$/.test(next);
-    if (multi || /^[|>][-+]?\s*$/.test(m[3].trim())) return null;
-    found = { index: i, key: m[1], sep: m[2], value: m[3] };
+    if (multi || /^[|>][-+]?\s*$/.test(value.trim())) return null;
+    found = { index: i, key: k, sep, value };
   }
   return found;
 }

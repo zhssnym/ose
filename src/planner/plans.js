@@ -108,11 +108,13 @@ export async function resolvePlanPath(list, date, reportsDir) {
 
 /** Split a document on its H1 headings. The text before the first H1 has `head: null`. */
 function h1Sections(text) {
-  const out = [{ head: null, body: [] }];
+  /** @type {{head: string|null, body: string[]}} */
+  let cur = { head: null, body: [] };
+  const out = [cur];
   for (const raw of String(text ?? '').replace(/^﻿/, '').split(/\r?\n/)) {
     const m = /^#\s+(.+?)\s*$/.exec(raw);
-    if (m) out.push({ head: m[1].trim(), body: [] });
-    else out[out.length - 1].body.push(raw);
+    if (m) { cur = { head: (m[1] ?? '').trim(), body: [] }; out.push(cur); }
+    else cur.body.push(raw);
   }
   return out;
 }
@@ -141,7 +143,9 @@ export const isGapLine = (line) => /^_gap:[\s\S]*_$/i.test(String(line ?? '').tr
  */
 function goalSections(lines) {
   const sections = [], paras = [];
-  let cur = null, para = [];
+  /** @type {{label: string, items: string[]} | null} */
+  let cur = null;
+  let para = [];
   const flush = () => { if (para.length) { paras.push(para.join(' ')); para = []; } };
   for (const raw of lines) {
     const l = raw.trim();
@@ -212,10 +216,11 @@ export function parseSystems(text) {
     const m = name.match(/\(([^)]*)\)\s*$/);
     if (m) {
       const set = new Set();
-      for (const tok of m[1].toLowerCase().split(/[\s,]+/).filter(Boolean)) {
+      for (const tok of (m[1] ?? '').toLowerCase().split(/[\s,]+/).filter(Boolean)) {
         const r = tok.match(/^([a-z]{3})-([a-z]{3})$/);
-        if (r && r[1] in DAYTOK && r[2] in DAYTOK) {
-          const a = DAYTOK[r[1]], b = DAYTOK[r[2]];
+        const from = r?.[1] ?? '', to = r?.[2] ?? '';
+        if (r && from in DAYTOK && to in DAYTOK) {
+          const a = DAYTOK[from], b = DAYTOK[to];
           for (let i = a; ; i = (i + 1) % 7) { set.add(i); if (i === b) break; }
         } else if (tok in DAYTOK) set.add(DAYTOK[tok]);
       }

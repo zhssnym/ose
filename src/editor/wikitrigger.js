@@ -78,12 +78,12 @@ class WikiView {
     // A pointerdown in the menu must not blur the editor, or the caret moves under us.
     el.addEventListener('pointerdown', (e) => e.preventDefault());
     el.addEventListener('pointerup', (e) => {
-      const row = e.target instanceof Element ? e.target.closest('.row') : null;
-      if (row) void this.run(this.items[+row.dataset.i]);
+      const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.row')) : null;
+      if (row) void this.run(this.items[Number(row.dataset.i)]);
     });
     el.addEventListener('pointermove', (e) => {
-      const row = e.target instanceof Element ? e.target.closest('.row') : null;
-      if (row) this.select(+row.dataset.i, false);
+      const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.row')) : null;
+      if (row) this.select(Number(row.dataset.i), false);
     });
 
     this.onKey = (e) => this.key(e);
@@ -178,8 +178,8 @@ class WikiView {
   select(i, scroll = true) {
     if (!this.items.length) return;
     this.index = Math.max(0, Math.min(i, this.items.length - 1));
-    for (const row of this.el.querySelectorAll('.row')) {
-      const on = +row.dataset.i === this.index;
+    for (const row of /** @type {NodeListOf<HTMLElement>} */ (this.el.querySelectorAll('.row'))) {
+      const on = Number(row.dataset.i) === this.index;
       row.classList.toggle('current', on);
       if (on && scroll) row.scrollIntoView({ block: 'nearest' });
     }
@@ -223,7 +223,8 @@ class WikiView {
       try {
         // In the open page's own folder, numbered when taken, never over a file (link.js).
         target = await createFreePage(P.dirname(from), item.name, `# ${item.name}\n`);
-      } catch (err) {
+      } catch (e) {
+        const err = /** @type {{ code?: string, message?: string }} */ (e);
         toast('could not create the page: ' + (err.message || err), 'err');
         this.busy = false;
         return;

@@ -60,6 +60,12 @@ function dayOfHeading(text) {
 const two = (n) => String(n).padStart(2, '0');
 
 /**
+ * One block of the calendar, as `parseTimetable` answers it.
+ * @typedef {{ d: number, s: string, e: string, sm: number, em: number, t: string, sub?: string,
+ *   type: string, kind: string, q: 'Q1'|'Q2'|null, overnight?: boolean, line: number }} TimetableEvent
+ */
+
+/**
  * The week, read from the calendar file. One weekday H1 per day; any other H1 (hours per week,
  * free windows, …) closes the current day so its prose is ignored, and prose anywhere is
  * ignored. A line under a weekday that looks like a block but does not parse is `unknown`.
@@ -71,33 +77,34 @@ const two = (n) => String(n).padStart(2, '0');
  *           `line` is 1-based.
  *   unknown `[{ line, text }]`, `line` 1-based.
  * @param {string} text
- * @returns {{events: object[], unknown: Array<{line: number, text: string}>}}
+ * @returns {{events: TimetableEvent[], unknown: Array<{line: number, text: string}>}}
  */
 export function parseTimetable(text) {
   const events = [], unknown = [];
   let day = null;
   const lines = String(text ?? '').replace(/^﻿/, '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
+    const raw = /** @type {string} */ (lines[i]);
     const l = raw.trim();
     if (/^#\s/.test(l)) { day = dayOfHeading(l.slice(2)); continue; }
     if (day === null || !l) continue;
     const m = l.match(LINE);
     const bad = () => { if (LOOKS_LIKE_BLOCK.test(l)) unknown.push({ line: i + 1, text: raw }); };
     if (!m) { bad(); continue; }
-    const [, h1, m1 = '00', h2, m2 = '00', body, qBefore, typeRaw, qAfter] = m;
+    const [, h1 = '', m1 = '00', h2 = '', m2 = '00', body = '', qBefore, typeRaw, qAfter] = m;
     if (+h1 > 24 || +h2 > 24 || +m1 > 59 || +m2 > 59) { bad(); continue; }
     const sm = +h1 * 60 + +m1;
     const endRaw = +h2 * 60 + +m2;
     const kind = typeRaw ? stripAccents(typeRaw) : '';
-    const [title, ...rest] = body.split(/\s+·\s+/);
+    const [title = '', ...rest] = body.split(/\s+·\s+/);
     const q = qBefore || qAfter;
+    /** @type {TimetableEvent} */
     const ev = {
       d: day,
       s: `${two(h1)}:${m1}`, e: `${two(h2)}:${m2}`,
       sm, em: sm + blockMinutes(sm, endRaw),
       t: title.trim(), type: TYPES[kind] || 'rest', kind,
-      q: q ? `Q${q}` : null,
+      q: q ? /** @type {'Q1'|'Q2'} */ (`Q${q}`) : null,
       line: i + 1,
     };
     if (rest.length) ev.sub = rest.join(' · ').trim();

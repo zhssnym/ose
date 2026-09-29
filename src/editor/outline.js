@@ -66,8 +66,8 @@ export function pickHeading({ view, title, onTitle }) {
         <span class="pal-mode">headings</span>
       </div>`;
 
-    const input = ov.box.querySelector('.pal-input');
-    const list = ov.box.querySelector('.pal-list');
+    const input = /** @type {HTMLInputElement} */ (ov.box.querySelector('.pal-input'));
+    const list = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-list'));
     let items = [];
     let sel = 0;
 
@@ -78,8 +78,7 @@ export function pickHeading({ view, title, onTitle }) {
         sel = Math.max(0, current);
       } else {
         items = all
-          .map((h) => ({ h, m: fuzzy(h.text, q.toLowerCase()) }))
-          .filter((x) => x.m)
+          .flatMap((h) => { const m = fuzzy(h.text, q.toLowerCase()); return m ? [{ h, m }] : []; })
           .sort((a, b) => b.m.score - a.m.score)
           .map((x) => ({ h: x.h, hits: x.m.hits }));
         sel = 0;
@@ -97,7 +96,7 @@ export function pickHeading({ view, title, onTitle }) {
       items.forEach(({ h, hits }, i) => {
         const row = document.createElement('div');
         row.className = 'row pal-row' + (i === sel ? ' active' : '');
-        row.dataset.i = i;
+        row.dataset.i = String(i);
         row.setAttribute('role', 'option');
         // One indent step per level below the title; the level itself sits in the hint slot.
         row.innerHTML = '<span class="ed-ol-ind"></span>'.repeat(Math.max(0, h.level - 1))
@@ -123,14 +122,16 @@ export function pickHeading({ view, title, onTitle }) {
       else if (e.key === 'Enter') { e.preventDefault(); if (items.length) finish(items[sel].h); }
     });
     list.addEventListener('click', (e) => {
-      const row = e.target.closest('.pal-row');
+      /** @type {HTMLElement|null} */
+      const row = e.target instanceof Element ? e.target.closest('.pal-row') : null;
       if (!row) return;
-      finish(items[+row.dataset.i].h);
+      finish(items[Number(row.dataset.i)].h);
     });
     list.addEventListener('mousemove', (e) => {
-      const row = e.target.closest('.pal-row');
-      if (!row || +row.dataset.i === sel) return;
-      sel = +row.dataset.i;
+      /** @type {HTMLElement|null} */
+      const row = e.target instanceof Element ? e.target.closest('.pal-row') : null;
+      if (!row || Number(row.dataset.i) === sel) return;
+      sel = Number(row.dataset.i);
       list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
     });
 

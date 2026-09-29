@@ -55,6 +55,9 @@ const cssVar = (name, fallback = 'currentColor') => {
  * @param {(file:File)=>Promise<string>} [o.attachFile]   File -> vault path of the copy (drops)
  * @param {()=>string|null} [o.pagePath]  the open file, for the hrefs a drop writes
  * @param {boolean} [o.slashCommands]   false in the round-trip harness: no menu, no block keys
+ * @param {() => void} [o.onChange]   after every transaction that changes the document
+ * @param {(api: import('@milkdown/kit/plugin/listener').ListenerManager) => void} [o.on]
+ *   Crepe's own listeners (blur, focus, …)
  */
 export async function makeCrepe(o) {
   const crepe = new Crepe({
@@ -230,7 +233,7 @@ const ENGINES = new WeakMap();
  * serializer. One per instance.
  *
  * @param {import('@milkdown/crepe').Crepe} crepe
- * @returns {import('./guard.js').MdEngine & { canonicalise: (md: string) => string, roundTrip: Function }}
+ * @returns {import('./engine.js').Engine}
  */
 export function engineOf(crepe) {
   let engine = ENGINES.get(crepe);
@@ -266,7 +269,8 @@ export function readMarkdownChecked(crepe, original) {
     const doc = liveDoc(crepe);
     if (!doc) return { status: 'unsafe', text: null, reason: 'the editor is gone' };
     return guard.checkWrite(engineOf(crepe), doc, original);
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     return { status: 'unsafe', text: null, reason: `the guard failed: ${String((e && e.message) || e).split('\n')[0]}` };
   }
 }
@@ -285,7 +289,8 @@ export function openCheck(crepe, body) {
     const view = editorView(crepe);
     if (!view) return { ok: false, reason: 'the editor is gone', missing: [] };
     return guard.checkOpen(engineOf(crepe), body, view.state.doc);
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     return { ok: false, reason: `the check failed: ${String((e && e.message) || e).split('\n')[0]}`, missing: [] };
   }
 }
@@ -352,7 +357,8 @@ export function roundTrip(crepe, markdown, original = markdown, opt = {}) {
  */
 export function blockMarkdown(crepe, node) {
   const engine = engineOf(crepe);
-  const doc = engine.schema.nodes.doc.create(null, node);
+  // every Milkdown schema has its `doc`
+  const doc = /** @type {import('@milkdown/kit/prose/model').NodeType} */ (engine.schema.nodes.doc).create(null, node);
   return postProcess(engine.serialize(doc), { mdast: engine.mdast });
 }
 

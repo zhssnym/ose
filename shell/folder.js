@@ -35,6 +35,13 @@ import { DRAG_TYPE, hasOsFiles, isInternal, takeDropped, importDropped, setDragg
 
 const { bus, commands, route } = ose;
 
+/**
+ * One row of a folder, as the host lists it (`ose.files.list`).
+ * @typedef {{name: string, path: string, kind: string, ext?: string, mtime: number, size: number,
+ *   hidden?: boolean, link?: string|null, readable?: boolean|null}} Row
+ */
+/** @typedef {{path: string, kind: 'file'|'dir'}} Target */
+
 /** The route of a folder, with the child to select when there is one. */
 export const folderRoute = (path, select) => (select ? { type: 'folder', path: clean(path), select } : { type: 'folder', path: clean(path) });
 
@@ -84,9 +91,18 @@ let uidSeq = 0;
 /**
  * One folder's list, drawn into `el`. The folder view uses it whole; Home uses it compact
  * (fewer columns, no header, a single click opens).
+ * @param {*} el
+ * @param {string} path
+ * @param {{compact?: boolean, onChange?: ((me: object) => void)|null, onLoad?: ((me: object) => void)|null,
+ *   select?: string|null}} [opts]
  * @returns the list's handle
  */
 function createList(el, path, { compact = false, onChange = null, onLoad = null, select = null } = {}) {
+  /**
+   * @type {{path: string, compact: boolean, entries: Row[], rows: Row[], spec: {key: string, dir: 'asc'|'desc'},
+   *   selected: Set<string>, anchor: string|null, focus: string|null, error: {code: string|null, message: string}|null,
+   *   sig: string, alive: boolean, loaded: boolean}}
+   */
   const me = {
     path: clean(path),
     compact,
@@ -123,6 +139,7 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
 
   const byName = (name) => me.rows.find((e) => e.name === name) || null;
   const indexOf = (name) => me.rows.findIndex((e) => e.name === name);
+  /** @type {(e: Row) => Target} */
   const targetOf = (e) => ({ path: e.path, kind: e.kind === 'dir' ? 'dir' : 'file' });
   /**
    * What an operation acts on: the selected rows, and only those. The row the keyboard merely
@@ -252,11 +269,12 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
   /** Select what has arrived, once it is in the rows; what is not there yet waits. */
   function selectArrivals() {
     const here = me.rows.filter((e) => arriving.has(e.name));
-    if (!here.length) return;
+    const first = here[0];
+    if (!first) return;
     for (const e of here) arriving.delete(e.name);
     me.selected = new Set(here.map((e) => e.name));
-    me.anchor = here[0].name;
-    me.focus = here[0].name;
+    me.anchor = first.name;
+    me.focus = first.name;
     syncSelected();
     syncActive();
   }
@@ -295,7 +313,8 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     resort();
     if (select && byName(select)) { selectOnly(select); select = null; }
     else if (standAt >= 0 && me.rows.length && !me.focus && !me.selected.size) {
-      const next = me.rows[Math.min(standAt, me.rows.length - 1)].name;
+      // In range: the rows are not empty.
+      const next = /** @type {Row} */ (me.rows[Math.min(standAt, me.rows.length - 1)]).name;
       if (hadSelection) selectOnly(next); else { me.focus = next; syncActive(false); }
     }
     selectArrivals();
@@ -341,7 +360,8 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     if (delta === -Infinity) next = 0;
     else if (delta === Infinity) next = me.rows.length - 1;
     else next = at < 0 ? (delta > 0 ? 0 : me.rows.length - 1) : Math.max(0, Math.min(me.rows.length - 1, at + delta));
-    const name = me.rows[next].name;
+    // In range: clamped to the rows, which are not empty.
+    const name = /** @type {Row} */ (me.rows[next]).name;
     if (extend) selectRange(name);
     else if (keep) { me.focus = name; syncActive(); }
     else selectOnly(name);
@@ -365,6 +385,7 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
     const from = walk ? at + 1 : Math.max(0, at);
     for (let k = 0; k < n; k++) {
       const e = me.rows[(from + k) % n];
+      if (!e) continue;
       if (display(e).toLowerCase().startsWith(want)) { selectOnly(e.name); return; }
     }
   }
@@ -515,7 +536,7 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
 
   listEl.addEventListener('focus', () => {
     // The first Tab into the list stands on a row, so the arrows have somewhere to start.
-    if (!me.focus && me.rows.length) { me.focus = me.rows[0].name; syncActive(); }
+    if (!me.focus && me.rows.length) { me.focus = /** @type {Row} */ (me.rows[0]).name; syncActive(); }
   });
 
   listEl.addEventListener('keydown', (e) => {
@@ -714,9 +735,8 @@ function createList(el, path, { compact = false, onChange = null, onLoad = null,
       for (const off of offs) { try { off && off(); } catch { /* gone */ } }
       el.textContent = '';
     },
-    ready: null,
+    ready: load(),
   };
-  handle.ready = load();
   return handle;
 }
 
@@ -744,6 +764,9 @@ function newFolderHere(path) { void fops.newFolder(clean(path)); }
  * `chord` names the list's own key for a command the keymap does not bind (Ctrl+X is the
  * list's, so the editor keeps its own); `run` replaces the command's own run for a row that
  * must act on several rows where the command takes one (Pin).
+ * @param {string} id
+ * @param {*} arg
+ * @param {{chord?: string, run?: (() => unknown)|null}} [opts]
  * @returns {object|null} null when the command is not registered
  */
 function commandItem(id, arg, { chord = '', run = null } = {}) {
@@ -827,12 +850,13 @@ async function openFolder(el, path, opts = {}) {
     </div>`;
   el.appendChild(root);
 
-  const titleEl = root.querySelector('.fv-title');
-  const countEl = root.querySelector('.fv-count');
+  // Drawn just above, as is everything this function looks up in `root`.
+  const titleEl = /** @type {HTMLElement} */ (root.querySelector('.fv-title'));
+  const countEl = /** @type {HTMLElement} */ (root.querySelector('.fv-count'));
   titleEl.textContent = folderName(p);
   titleEl.title = p || vaultName();
 
-  const btn = (c) => root.querySelector('.' + c);
+  const btn = (c) => /** @type {HTMLElement} */ (root.querySelector('.' + c));
   const tools = {
     paste: btn('fv-paste'), undo: btn('fv-undo'), sort: btn('fv-sort'), hidden: btn('fv-hidden'),
   };
@@ -877,14 +901,15 @@ async function openFolder(el, path, opts = {}) {
 
   /** The README under the list: the first of README.md, readme.md, index.md, read-only. */
   async function drawReadme() {
-    const box = root.querySelector('.fv-readme');
+    const box = /** @type {HTMLElement} */ (root.querySelector('.fv-readme'));
+    const part = (c) => /** @type {HTMLElement} */ (box.querySelector(c));
     // Every entry, hidden ones too: a folder's README is its own page whatever its attributes.
     const hit = M.readmeOf(list.error ? [] : list.entries());
     const key = hit ? `${hit.path}:${hit.mtime}:${hit.size}` : null;
     if (key === readmeFor) return;
     readmeFor = key;
     const my = ++readmeSeq;
-    if (!hit) { box.hidden = true; box.querySelector('.fv-readme-body').textContent = ''; return; }
+    if (!hit) { box.hidden = true; part('.fv-readme-body').textContent = ''; return; }
     let text = '';
     let render = null;
     try {
@@ -897,11 +922,11 @@ async function openFolder(el, path, opts = {}) {
       return;
     }
     if (my !== readmeSeq || dead) return;
-    box.querySelector('.fv-readme-name').textContent = hit.name;
-    const edit = box.querySelector('.fv-edit');
+    part('.fv-readme-name').textContent = hit.name;
+    const edit = part('.fv-edit');
     edit.onclick = () => void route.navigate({ type: 'page', path: hit.path });
     edit.title = `Edit ${hit.name}`;
-    const out = box.querySelector('.fv-readme-body');
+    const out = part('.fv-readme-body');
     out.textContent = '';
     try {
       out.appendChild(render(text, {
@@ -932,8 +957,9 @@ async function openFolder(el, path, opts = {}) {
   syncTools(list);
   // The router keeps the scroll per route; the host puts it back once the rows exist.
   if (typeof opts.scrollTop === 'number' && opts.scrollTop > 0) {
+    const top = opts.scrollTop;
     const scroller = el.closest('.main-scroll') || el;
-    requestAnimationFrame(() => { if (scroller.isConnected) scroller.scrollTop = opts.scrollTop; });
+    requestAnimationFrame(() => { if (scroller.isConnected) scroller.scrollTop = top; });
   }
 
   return {
@@ -966,6 +992,7 @@ function sortMenu(anchor) {
   const r = anchor ? anchor.getBoundingClientRect() : { left: 80, bottom: 80 };
   // The current choice wears the dot, the one mark the app has for "this one".
   const mark = (on) => (on ? icon('dot') : '');
+  /** @type {{label?: string, iconSvg?: string, run?: () => void, sep?: boolean}[]} */
   const items = M.SORT_KEYS.map((k) => ({
     label: SORT_WORDS[k], iconSvg: mark(spec.key === k),
     run: () => v.list.setSort({ key: k, dir: spec.key === k ? spec.dir : M.nextSortSpec(spec, k).dir }),

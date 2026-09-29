@@ -33,13 +33,14 @@ const dateOf = (val) => { const d = val.slice(0, 10); return RE_DATE.test(d) ? d
 
 /**
  * One markdown line -> a task, or null. `text` keeps the wording without any marker.
- * @param {string} raw
+ * @param {string|null|undefined} raw
  * @returns {object|null}
  */
 export function parseTaskLine(raw) {
   const m = RE_TASK.exec(String(raw ?? '').replace(/^﻿/, ''));
   if (!m) return null;
-  const [, indent, box, body] = m;
+  const [, indent = '', box = '', body = ''] = m;
+  /** @type {{done: boolean, indent: number, text: string, due: string|null, scheduled: string|null, start: string|null, doneDate: string|null, created: string|null, priority: string, recurrence: string|null}} */
   const t = {
     done: box.toLowerCase() === 'x',
     indent: indent.length,
@@ -50,7 +51,7 @@ export function parseTaskLine(raw) {
   const first = body.search(RE_FIRST_MARK);
   if (first >= 0) {
     t.text = body.slice(0, first).trim();
-    for (const [, mark, payload] of body.slice(first).matchAll(RE_SCAN)) {
+    for (const [, mark = '', payload = ''] of body.slice(first).matchAll(RE_SCAN)) {
       const val = payload.trim();
       if (mark in PRIORITY) { t.priority = PRIORITY[mark]; if (val) t.text = `${t.text} ${val}`.trim(); continue; }
       switch (mark) {
@@ -168,7 +169,8 @@ const MAX_DEPTH = 4;       // deeper nesting still renders, it just stops moving
  * @returns {number}
  */
 export function taskDepth(t) {
-  const lead = /^[\t ]*/.exec(String(t.raw ?? '').replace(/^﻿/, ''))[0];
+  // `[\t ]*` matches every string, if only with ''.
+  const lead = /** @type {RegExpExecArray} */ (/^[\t ]*/.exec(String(t.raw ?? '').replace(/^﻿/, '')))[0];
   const tabs = (lead.match(/\t/g) || []).length;
   const spaces = lead.length - tabs;
   return Math.min(MAX_DEPTH, tabs + Math.floor(spaces / INDENT_UNIT));

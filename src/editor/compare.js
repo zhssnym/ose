@@ -38,20 +38,21 @@ const side = (doc) => ({
  * marked `kind: 'primary'` takes the focus, so Enter is the default. Without `actions` there is
  * one Close button and the promise resolves to undefined, as it always has.
  *
- * @param {object} o
- * @param {string} o.title
- * @param {string} o.a
- * @param {string} o.b
+ * @param {object} [o]
+ * @param {string} [o.title]
+ * @param {string} [o.a]
+ * @param {string} [o.b]
  * @param {string} [o.aLabel]
  * @param {string} [o.bLabel]
  * @param {string} [o.note]   one line under the two texts
- * @param {Array<{label: string, value: string, kind?: 'primary'|'danger'}>} [o.actions]
+ * @param {Array<{label: string, value: string, kind?: 'primary'|'danger'}> | null} [o.actions]
  * @returns {Promise<void|string|null>}
  */
 export function compareTexts({ title = 'Compare', a = '', b = '', aLabel = '', bLabel = '', note = '', actions = null } = {}) {
   const asking = Array.isArray(actions) && actions.length > 0;
   return new Promise((resolve) => {
     let merge = null;
+    /** @type {string|null|undefined} */
     let answer = asking ? null : undefined;
     const ov = openOverlay({
       width: 'min(1100px, 94vw)', className: 'dlg-ov', title,
@@ -91,7 +92,7 @@ export function compareTexts({ title = 'Compare', a = '', b = '', aLabel = '', b
     foot.append(noteEl, close);
     let first = close;
     if (asking) {
-      for (const act of actions) {
+      for (const act of actions || []) {
         const btn = document.createElement('button');
         btn.className = 'btn' + (act.kind ? ' ' + act.kind : '');
         btn.type = 'button';

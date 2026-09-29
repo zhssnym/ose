@@ -28,6 +28,9 @@ export function pickPage(opts) {
  * choose({title, body?, options:[{label, value, kind?:'primary'|'danger'}], cancel?})
  *   -> Promise<value>   Esc or a click outside resolves to `cancel` (null by default).
  * Put the safest option first: it gets the initial focus.
+ * @template T
+ * @param {{ title?: string, body?: string, options?: { label: string, value: T, kind?: string }[], cancel?: T | null }} [opts]
+ * @returns {Promise<T | null>}
  */
 export function choose({ title = '', body = '', options = [], cancel = null } = {}) {
   return new Promise((resolve) => {

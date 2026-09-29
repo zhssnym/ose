@@ -46,7 +46,8 @@ async function keep(path, previous) {
   if (!path || !previous) return;
   try {
     await bridge.versionKeep(path, previous, { force: true, reason: 'save' });
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     // A full disk has no room for it, a locked history folder no way in: neither stops the rewrite.
     console.warn('[links] version not kept', path, e && e.message ? e.message : e);
   }
@@ -147,7 +148,8 @@ export async function linkSpans(text) {
   const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   const body = bom ? text.slice(bom) : text;
   let tree;
-  try { tree = parse(body); } catch (e) {
+  try { tree = parse(body); } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     // A parser that throws rewrites nothing: better a link left stale than a file edited blind.
     console.warn('[links] parse', e && e.message ? e.message : e);
     return out;
@@ -381,7 +383,8 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       try {
         const host = pageHost();
         asked = host && typeof host.rewriteLinksIn === 'function' ? await host.rewriteLinksIn(path, own, { settled: settledSelf }) : null;
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[links] rewriteLinksIn', path, e);
         asked = { handled: true, changed: 0, failed: String((e && e.message) || e) };
       }
@@ -426,7 +429,8 @@ export async function rewriteInboundMany(pairs, { only = null, settled = null } 
       res.files++;
       res.links += edits.length;
       if (r.hash) res.rewritten[path] = r.hash;
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       console.error('[links] write', path, e);
       logLine(`links rewrite failed ${path}: ${e && e.code} ${e && e.message}`, 'warn');
       res.failed.push(path);

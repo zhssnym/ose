@@ -56,6 +56,8 @@ const isUnderFocus = (path) => ose.focus.isUnder(path);
 const relativeHref = (from, to) => links.href(from, to);
 const rewriteInboundMany = (pairs) => links.rewriteMoved(pairs);
 const findInbound = (path) => links.inbound(path);
+/** What a caught error says: its message, or the thing itself when it has none. */
+const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /** An icon from the set, or `fallback` while the kernel does not carry that name yet. */
 const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
@@ -165,13 +167,17 @@ const LINK_WORDS = {
 
 // Every row is the same grid: 16px chevron slot, 14px glyph, name, an optional tail. Folders
 // and files at the same depth put their text at the same x.
+/**
+ * @param {{cls?: string, depth?: number, glyphHtml?: string, chevron?: boolean | null, text: string,
+ *   tail?: string, hint?: string, badge?: string, title?: string, data?: Record<string, string>}} row
+ */
 function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail = '', hint = '', badge = '', title = '', data = {} }) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
   const inTree = data.path !== undefined && data.pin !== '1' && data.root !== '1';
   if (inTree && selected.has(data.path)) b.classList.add('selected');
-  b.style.setProperty('--d', depth);
+  b.style.setProperty('--d', String(depth));
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
   if (inTree || data.pin === '1') b.draggable = true; // moves within the vault; see drag and drop
   // A tree to a screen reader, not a list of unrelated buttons (S39): the level is 1-based,
@@ -728,7 +734,7 @@ export async function refreshTree() {
       // failed call is noise on top of a vault that has been unplugged (S29): the shell has
       // one dialog for it, and `vaultLost` is idempotent while that dialog is up.
       if (await vaultGone(e)) { vaultLost(); return; }
-      toast('Could not read the vault: ' + (e.message || e), 'err');
+      toast('Could not read the vault: ' + messageOf(e), 'err');
       return;
     }
     if (tree) { tree.path = ''; if (!tree.children) tree.children = []; }
@@ -1046,7 +1052,7 @@ async function askAboutRenames() {
     toast(res.links
       ? `${res.links} link${res.links === 1 ? '' : 's'} in ${res.files} file${res.files === 1 ? '' : 's'} updated`
       : 'Nothing to update', 'info', 2600);
-    for (const p of res.failed || []) toast('Could not update links in ' + (p && p.path ? p.path : p), 'err', 0);
+    for (const p of res.failed || []) toast('Could not update links in ' + p, 'err', 0);
   } finally {
     askingRenames = false;
     if (pendingRenames.length) void askAboutRenames();
@@ -1202,11 +1208,13 @@ async function copyLink(path, kind) {
  * The thing a tree command acts on (D3): `{ path, kind }` for the focused tree row (the row
  * focus will return to, while a palette or menu is up: see focusOrigin), else the route on
  * screen (a page, or a folder), else null. The root row is `{ path: '', kind: 'dir' }`.
+ * @returns {import('./fileops.js').Target | null}
  */
 function treeTarget() {
   const o = focusOrigin();
   const row = o && scrollEl && scrollEl.contains(o) && o.closest ? o.closest('.sb-row[data-path]') : null;
-  if (row) return { path: row.dataset.path, kind: row.dataset.kind };
+  // A tree row carries its path and its kind, `file` or `dir`.
+  if (row instanceof HTMLElement) return /** @type {import('./fileops.js').Target} */ ({ path: row.dataset.path, kind: row.dataset.kind });
   const r = currentRoute();
   if (r && r.type === 'page') return { path: r.path, kind: 'file' };
   if (r && r.type === 'folder') return { path: clean(r.path || ''), kind: 'dir' };
@@ -1252,6 +1260,7 @@ function sortMenu(t, at) {
   const path = folderOf(t);
   const spec = sortSpec(path);
   const mark = (on) => (on ? icon('dot') : '');
+  /** @type {{label?: string, iconSvg?: string, run?: () => void, sep?: boolean}[]} */
   const items = SORT_KEYS.map((k) => ({
     label: SORT_WORDS[k], iconSvg: mark(spec.key === k),
     run: () => setSortSpec(path, { key: k, dir: spec.key === k ? spec.dir : nextSortSpec(spec, k).dir }),
@@ -1374,7 +1383,7 @@ function menuItem(id, target, label) {
         if (out && typeof out.catch === 'function') out.catch((e) => toast(String(e.message || e), 'err', 0));
       } catch (e) {
         console.error('[shell] menu', id, e);
-        toast(String(e.message || e), 'err', 0);
+        toast(String(messageOf(e)), 'err', 0);
       }
     },
   };
@@ -1420,7 +1429,9 @@ function multiMenu(batch) {
  * selection first, so a menu is never about rows the user is not pointing at.
  */
 function menuItemsForRow(row) {
-  const target = targetOf(row);
+  // Both callers hand a row with a path: openMenuAt checks it, and the right-click leaves out
+  // the view rows, the only ones without.
+  const target = /** @type {{path: string, kind: string}} */ (targetOf(row));
   const batch = isSelectable(row) ? batchFor(target) : null;
   if (!batch && isSelectable(row)) clearSelection();
   return batch ? multiMenu(batch) : menuFor(target.path, target.kind);
@@ -1469,6 +1480,7 @@ function buildHead() {
     b.addEventListener('click', () => {
       // From the strip, "here" is the folder of the route on screen, not a row.
       const r = currentRoute();
+      /** @type {import('./fileops.js').Target} */
       const here = r && r.type === 'folder' ? { path: clean(r.path || ''), kind: 'dir' }
         : r && r.type === 'page' ? { path: dirName(r.path), kind: 'dir' } : { path: getFocus() || '', kind: 'dir' };
       if (t.id === 'file.new') void newFile(here);
@@ -1504,7 +1516,8 @@ export function initSidebar(node) {
   el.className = 'sidebar';
   el.innerHTML = '<div class="sb-head" role="toolbar" aria-label="Files"></div><div class="sb-scroll" tabindex="-1"></div>';
   headEl = el.querySelector('.sb-head');
-  scrollEl = el.querySelector('.sb-scroll');
+  // Drawn just above.
+  scrollEl = /** @type {HTMLElement} */ (el.querySelector('.sb-scroll'));
 
   const saved = slot('sidebar').get() || {};
   if (Array.isArray(saved.expanded)) expanded = new Set(saved.expanded.filter((p) => typeof p === 'string' && p));
@@ -1529,8 +1542,9 @@ export function initSidebar(node) {
   // folder's chevron folds it and goes nowhere. Ctrl+click toggles a tree row in the
   // selection and Shift+click selects the run from the anchor to it (C17).
   scrollEl.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row');
-    if (!row) return;
+    if (!(row instanceof HTMLElement)) return;
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
     if (e.detail === 0) return;
@@ -1563,6 +1577,7 @@ export function initSidebar(node) {
 
   // A double click on a folder also folds it, as a file manager's tree does.
   scrollEl.addEventListener('dblclick', (e) => {
+    if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row.dir');
     if (!row || e.target.closest('.tw') || row.getAttribute('aria-expanded') === null) return;
     toggleDir(row);
@@ -1571,21 +1586,22 @@ export function initSidebar(node) {
   // The middle button opens a row in a tab of its own, in the tree and in the pins alike.
   scrollEl.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
+    if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row');
     if (!row) return;
     e.preventDefault();
     openRowAside(row);
   });
   // Firefox and Chromium both start an autoscroll on a middle press unless it is refused.
-  scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.sb-row')) e.preventDefault(); });
+  scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target instanceof Element && e.target.closest('.sb-row')) e.preventDefault(); });
 
   // A name the column cut gets the whole path on hover, and a name that fits gets nothing
   // (R21). Measured on the row under the pointer, one row at a time.
   scrollEl.addEventListener('mouseover', (e) => {
-    const name = e.target.closest && e.target.closest('.sb-row > .grow');
-    if (!name) return;
+    const name = e.target instanceof Element && e.target.closest('.sb-row > .grow');
+    if (!(name instanceof HTMLElement)) return;
     const cut = name.scrollWidth > name.clientWidth;
-    if (cut) name.title = name.parentElement.dataset.path || name.textContent;
+    if (cut) name.title = name.parentElement?.dataset.path || name.textContent || '';
     else name.removeAttribute('title');
   });
 
@@ -1593,13 +1609,14 @@ export function initSidebar(node) {
   // However a row got the keyboard (a click, an arrow, a dialog handing focus back), it is the
   // tab stop and the row a rename or move follows to its new name.
   scrollEl.addEventListener('focusin', (e) => {
-    const row = e.target.closest && e.target.closest('.sb-row');
+    const row = e.target instanceof Element && e.target.closest('.sb-row');
     if (row && rowKey(row) !== roving) setRoving(row);
   });
 
   // Right-click inside a selection of several opens the menu for all of them; outside it,
   // the selection is dropped first.
   scrollEl.addEventListener('contextmenu', (e) => {
+    if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }

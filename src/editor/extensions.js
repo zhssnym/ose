@@ -26,6 +26,10 @@ import * as backlinks from './backlinks.js';
 import * as linkstate from './linkstate.js';
 import * as wikitrigger from './wikitrigger.js';
 
+/**
+ * What a module may export; each one exports only the hooks it needs.
+ * @type {Array<{plugins?: Function, featureConfig?: Function, registerCommands?: Function, [name: string]: unknown}>}
+ */
 const MODULES = [table, math, space, code, commandsMod, menu, image, source, versions, backlinks, linkstate, wikitrigger];
 
 /** @returns {import('@milkdown/kit/prose/state').Plugin[]} */

@@ -91,7 +91,7 @@ npm run build          # dist/: the site Vercel serves
 npm run preview        # dist/ served as a static host serves it
 npm test               # vitest: serializer, kernel, editor, Live, reading, planner, shell, web
 npm run test:e2e       # Playwright: no loss, Live and Ose Web, on the built app
-npm run typecheck      # tsc checkJs over the save path, the kernel, Live and src/web: zero errors
+npm run typecheck      # tsc checkJs over all of src/ and shell/, strict: zero errors
 npm run lint           # Biome, warnings are errors
 ```
 
@@ -138,8 +138,8 @@ app like everything else; what a vault decides is only where its files are (Sett
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
   Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml, turndown (HTML
   paste), node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
-- checkJs covers the set in `tsconfig.json`; `@ts-ignore` and `@ts-expect-error` are banned in it,
-  and a file comes out of the set rather than hide an error.
+- checkJs covers all of `src/` and `shell/`, with `strict` on (`noImplicitAny` still off);
+  `@ts-ignore` and `@ts-expect-error` are banned, and a type error is fixed, not hidden.
 - Colours, fonts and sizes come from the tokens in `ui.css` only. No hex values elsewhere.
   Spacing from the scale; no bare pixel paddings.
 - Both themes, every time. Keyboard reachable, every time: every action has a command, every

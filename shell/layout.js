@@ -104,6 +104,11 @@ function fit() {
 // arrows move it. 8px a step, 32px with Shift, Home/End to the limits, Enter back to the default.
 const RS_STEP = 8, RS_BIG = 32;
 
+/**
+ * @param {HTMLElement} handle
+ * @param {{get: () => number, set: (v: number) => void, min: number, max: number | (() => number),
+ *   invert?: boolean, done?: (v: number) => void}} opts
+ */
 function makeResizer(handle, { get, set, min, max, invert, done }) {
   // `max` may be a function: the sidebar's ceiling is a share of the window (L5), so it moves
   // when the window does and is asked for at every step.
@@ -217,7 +222,7 @@ function watchMainWidth(el) {
   measureMain();
   if (typeof ResizeObserver !== 'function') return;
   const ro = new ResizeObserver((entries) => {
-    const e = entries[entries.length - 1];
+    const e = /** @type {ResizeObserverEntry} */ (entries[entries.length - 1]);
     measureMain(e.contentRect ? e.contentRect.width : undefined);
   });
   ro.observe(el);
@@ -417,7 +422,7 @@ export const panel = {
   /**
    * Open it with `mount` unless `id` is already open, in which case close it.
    * @param {string} id
-   * @param {Function} mount
+   * @param {(el: HTMLElement) => ({unmount?: Function, focus?: Function}|void)} mount
    * @param {{title?: string}} [opts]
    * @returns {boolean} whether the panel is open now
    */
@@ -500,13 +505,15 @@ export function mountShell(rootEl) {
 
   // The tab strip sits above the page column and outside it: the router clears `.main` on
   // every navigation, so anything that has to survive one lives in the column around it.
+  // all of them are in the markup just written
+  const part = (sel) => /** @type {HTMLElement} */ (shell.querySelector(sel));
   const els = {
-    titlebar: shell.querySelector('.titlebar'),
-    sidebar: shell.querySelector('.sidebar'),
-    tabs: shell.querySelector('.tabs'),
-    main: shell.querySelector('.main'),
-    statusbar: shell.querySelector('.statusbar'),
-    panel: shell.querySelector('.sidepanel'),
+    titlebar: part('.titlebar'),
+    sidebar: part('.sidebar'),
+    tabs: part('.tabs'),
+    main: part('.main'),
+    statusbar: part('.statusbar'),
+    panel: part('.sidepanel'),
   };
   mainEl = els.main;
   buildPanel();
@@ -523,7 +530,7 @@ export function mountShell(rootEl) {
   });
   fit();
 
-  makeResizer(shell.querySelector('.rs-sidebar'), {
+  makeResizer(part('.rs-sidebar'), {
     min: S_MIN, max: sMax,
     get: () => wantS,
     set: (v) => { wantS = v; fit(); },

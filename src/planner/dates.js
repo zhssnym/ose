@@ -39,15 +39,15 @@ export const ym = (d) => format(d, 'yyyy-MM');
 
 /**
  * `2026-09-26` -> a local Date at midnight, or null when the text is not a real date.
- * @param {string} s
+ * @param {string|null|undefined} s
  * @returns {Date|null}
  */
 export function parseYmd(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s ?? ''));
   if (!m) return null;
-  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   // 2026-02-31 rolls into March in the constructor; a date that rolled is not the one written
-  return isValid(d) && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? d : null;
+  return isValid(d) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
 }
 
 /**
@@ -199,7 +199,7 @@ export function isQ1Week(date, q1) {
 /** `1`, `'1'`, `'Q1'`, `'q1'` -> 1; anything else -> null (a block of every week). */
 function weekMark(q) {
   const m = /^q?([12])$/i.exec(String(q ?? '').trim());
-  return m ? +m[1] : null;
+  return m ? Number(m[1]) : null;
 }
 
 /**

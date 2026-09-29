@@ -500,6 +500,8 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
  * Folder picker (move to…, and the `plans` source). Resolves to a vault-relative path, `''`
  * for the vault root, or `null` when cancelled. `hide` drops a subtree from the list so a
  * folder cannot be moved into itself.
+ * @param {{ title?: string, current?: string | null, hide?: string | null, enterLabel?: string }} [opts]
+ * @returns {Promise<string | null>}
  */
 export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' } = {}) {
   const all = (await vaultFolders()).filter((p) => !hide || (p !== hide && !p.startsWith(hide + '/')));
@@ -515,6 +517,8 @@ export async function pickFolder({ title = 'Move to…', current = null, hide = 
 /**
  * File picker: the same surface, listing files. `ext` limits it and takes 'md', '.jsonl',
  * 'md,txt' or an array of those. Resolves to a vault-relative path or `null`.
+ * @param {{ title?: string, ext?: string | string[] | null, current?: string | null }} [opts]
+ * @returns {Promise<string | null>}
  */
 export async function pickFile({ title = 'Choose a file…', ext = null, current = null } = {}) {
   const exts = (Array.isArray(ext) ? ext : String(ext ?? '').split(','))

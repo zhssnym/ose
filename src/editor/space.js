@@ -122,6 +122,7 @@ function contentRuns(source, lo, hi) {
   if (!(hi > lo)) return runs;
   // Content is anything but whitespace and the `>` of a quoted line (see `blankRun`).
   let offset = lo;
+  /** @type {{start: {offset: number}, end: {offset: number} | null} | null} */
   let cur = null;
   for (const line of source.slice(lo, hi).split('\n')) {
     if (/[^\s>]/.test(line)) {
@@ -231,7 +232,7 @@ export function plugins() {
     },
     appendTransaction(_trs, _old, state) {
       if (!needsPad(state.doc)) return null;
-      const para = state.schema.nodes.paragraph.createAndFill();
+      const para = state.schema.nodes.paragraph?.createAndFill();
       if (!para) return null;
       // Outside the history: the pad is not something the user did, so Ctrl+Z never walks back
       // through it.

@@ -34,6 +34,7 @@ export function normalize(raw) {
   const todo = (Array.isArray(r.todo) ? r.todo : typeof r.todo === 'string' ? [r.todo] : [])
     .map(clean).filter(Boolean);
   const anchor = parseYmd(r.q1Anchor);
+  /** @type {PlannerSettings} */
   const out = {
     v: 1,
     calendar: clean(r.calendar),
@@ -274,7 +275,8 @@ export function renderSettings(el, store) {
   const draw = () => {
     if (!alive) return;
     // redraws keep the focused control focused, so a keyboard user never loses their place
-    const focus = document.activeElement && el.contains(document.activeElement) ? document.activeElement : null;
+    // what can hold the focus in `el` is its buttons: HTML elements
+    const focus = document.activeElement && el.contains(document.activeElement) ? /** @type {HTMLElement} */ (document.activeElement) : null;
     const act = focus && (focus.dataset.act || '') + (focus.dataset.key || '') + (focus.dataset.v || '');
     el.innerHTML = html(store.get());
     if (act) {
@@ -301,6 +303,7 @@ export function renderSettings(el, store) {
     switch (b.dataset.act) {
       case 'choose': {
         const row = ROWS.find((r) => r.key === key);
+        if (!row) break;
         const picked = row.kind === 'folder'
           ? await pickFolder({ title: TITLES[key], current: s[key], enterLabel: 'choose' })
           : await pickFile({ title: TITLES[key], ext: 'md', current: s[key] });

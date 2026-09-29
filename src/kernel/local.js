@@ -30,7 +30,8 @@ async function load(s) {
     const v = await bridge.localGet(s.name);
     s.cache = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
     s.loaded = true;
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     s.cache = {};
     // No vault open is not a failure of the store: there is simply nothing to read yet.
     if (e && e.code === 'no_vault') { s.loaded = false; return; }
@@ -71,7 +72,8 @@ function write(s, { fresh = true } = {}) {
     }
     try {
       await bridge.localSet(s.name, { ...s.cache });
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       for (const k of keys) s.touched.add(k);
       console.warn(`[local] ${s.name} write failed:`, (e && e.message) || e);
       logLine(`local state ${s.name} write failed: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'warn');

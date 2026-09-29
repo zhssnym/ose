@@ -110,7 +110,9 @@ export async function makeEngine() {
  * replaced that is already there, so under happy-dom or in the app this does nothing.
  */
 function headless() {
-  const g = globalThis;
+  // what is stubbed is only ever looked up by these names, never checked for its full type
+  const g = /** @type {{document?: object, requestAnimationFrame?: Function, getComputedStyle?: Function,
+   *   addEventListener?: Function, removeEventListener?: Function, dispatchEvent?: Function}} */ (globalThis);
   g.document ??= { compatMode: 'CSS1Compat', body: {}, querySelector: () => null, createElement: () => { throw new Error('no dom'); } };
   g.requestAnimationFrame ??= (f) => setTimeout(f, 0);
   g.getComputedStyle ??= () => ({ getPropertyValue: () => '' });

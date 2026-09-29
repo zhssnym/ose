@@ -105,7 +105,7 @@ async function looksLikePdf(url) {
     const bytes = first && first.value ? first.value.subarray(0, 1024) : null;
     if (!bytes || !bytes.length) return false;
     let text = '';
-    for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+    for (const b of bytes) text += String.fromCharCode(b);
     return text.includes('%PDF-');
   } catch (e) {
     console.warn('[media] could not read the head of', url, e);
@@ -450,7 +450,8 @@ export function binaryPage(el, path) {
       <p class="binary-why">This file is not text, so it is not shown here.</p>
       <div class="binary-actions"></div>
     </div>`;
-  const actions = col.querySelector('.binary-actions');
+  // Drawn just above.
+  const actions = /** @type {HTMLElement} */ (col.querySelector('.binary-actions'));
   const button = (label, iconName, run, primary = false) => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -460,7 +461,7 @@ export function binaryPage(el, path) {
       try {
         const out = run();
         if (out && typeof out.catch === 'function') out.catch((err) => toast(err.message || String(err), 'err', 0));
-      } catch (err) { toast(err.message || String(err), 'err', 0); }
+      } catch (err) { toast(String((err && typeof err === 'object' && 'message' in err && err.message) || err), 'err', 0); }
     });
     actions.appendChild(b);
     return b;

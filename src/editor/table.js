@@ -290,14 +290,15 @@ function alignColumn(view, value) {
   const { map, table, tableStart } = rect;
   let already = true;
   for (let col = rect.left; col < rect.right && already; col++) {
-    const header = table.nodeAt(map.map[col]);
+    // every index inside the rect is a cell of the map
+    const header = table.nodeAt(/** @type {number} */ (map.map[col]));
     if (!header || header.attrs.alignment !== value) already = false;
   }
   const next = already ? null : value;
   const tr = state.tr;
   for (let col = rect.left; col < rect.right; col++) {
     for (let row = 0; row < map.height; row++) {
-      const at = map.map[row * map.width + col];
+      const at = /** @type {number} */ (map.map[row * map.width + col]);
       const cell = table.nodeAt(at);
       if (!cell || cell.attrs.alignment === next) continue;
       tr.setNodeMarkup(tableStart + at, null, { ...cell.attrs, alignment: next });
@@ -513,7 +514,7 @@ function popoverKeys(view) {
   const onKeyDown = (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const handle = target.closest('.milkdown-table-block .handle.cell-handle');
+    const handle = /** @type {HTMLElement|null} */ (target.closest('.milkdown-table-block .handle.cell-handle'));
     if (!handle) return;
     const take = () => { event.preventDefault(); event.stopPropagation(); };
     const buttons = buttonsOf(handle);
@@ -541,7 +542,7 @@ function popoverKeys(view) {
           const cell = isInTable(st) ? cellAt(st.selection.$head) : null;
           const blk = cell ? blockAtPos(view, cell.pos + 1) : null;
           const fresh = blk && blk.querySelector(`.handle.cell-handle[data-role="${role}"]`);
-          const first = fresh && fresh.querySelector('.button-group button');
+          const first = fresh && /** @type {HTMLElement|null} */ (fresh.querySelector('.button-group button'));
           if (first) first.focus();
         });
       }
@@ -550,7 +551,7 @@ function popoverKeys(view) {
     if (isRun) {
       take();
       // Milkdown binds these buttons to `pointerdown`, so `click` never reaches them.
-      target.closest('button').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      target.closest('button')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
       view.focus();
       return;
     }

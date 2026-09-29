@@ -55,8 +55,8 @@ export const vaultName = (fallback = 'Vault') => (ose.vault && ose.vault.name) |
 export function errorOf(e) {
   const text = String((e && typeof e === 'object' && 'message' in e ? e.message : e) ?? '');
   const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
-  const own = e && typeof e === 'object' && e.code ? String(e.code) : null;
-  return { code: own || (m ? m[1] : null), message: m ? m[2] : text };
+  const own = e && typeof e === 'object' && 'code' in e && e.code ? String(e.code) : null;
+  return { code: own || (m ? m[1] ?? null : null), message: m ? m[2] ?? '' : text };
 }
 
 /**

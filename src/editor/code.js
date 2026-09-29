@@ -239,7 +239,7 @@ function openPicker(pm, pos, blockDom) {
   function move(step) {
     if (!rows.length) return;
     active = (active + step + rows.length) % rows.length;
-    for (const li of Array.from(list.children)) {
+    for (const li of /** @type {HTMLElement[]} */ (Array.from(list.children))) {
       const i = Number(li.id.slice('os-lang-row-'.length));
       li.setAttribute('aria-selected', String(i === active));
       if (i === active) li.dataset.active = 'true'; else delete li.dataset.active;

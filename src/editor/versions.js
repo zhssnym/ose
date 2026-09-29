@@ -90,7 +90,8 @@ async function restore(path, id) {
   }
   try {
     await bridge.versionRestore(path, id);
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ message?: string }} */ (err);
     toast('could not restore that version: ' + (e && e.message ? e.message : e), 'err');
     return;
   }
@@ -132,7 +133,7 @@ function versionsOverlay(ov, path, rows, current) {
       const r = rows[sel];
       if (!r || r.text === null) { toast('that version could not be read', 'warn'); return; }
       await compareTexts({ title: 'Version', a: current, b: r.text, aLabel: 'the file now', bLabel: when(r.at) });
-      const row = body.querySelector('.row.current');
+      const row = /** @type {HTMLElement|null} */ (body.querySelector('.row.current'));
       (row || diffBtn).focus();
     };
     diffBtn.addEventListener('click', () => { void compare(); });
@@ -169,7 +170,7 @@ function versionsOverlay(ov, path, rows, current) {
         row.addEventListener('dblclick', () => finish(r.id));
         body.append(row);
       });
-      const current = body.querySelector('.row.current');
+      const current = /** @type {HTMLElement|null} */ (body.querySelector('.row.current'));
       current?.scrollIntoView({ block: 'nearest' });
       if (had) current?.focus();
     };
@@ -185,23 +186,25 @@ function versionsOverlay(ov, path, rows, current) {
     box.append(head, body, foot);
     // Straight away, not on a frame: a hidden window fires no frames and the dialog would
     // open with the focus still in the page behind it.
-    const first = body.querySelector('.row');
+    const first = /** @type {HTMLElement|null} */ (body.querySelector('.row'));
     (first || ok).focus();
   });
 }
 
 /** Without the shell: the same choice on the fallback surface deps.js builds. */
 function versionsFallback(rows) {
+  /** @type {Array<{label: string, value: string|null}>} */
+  const options = [
+    { label: 'Close', value: null },
+    ...rows.slice(0, 8).map((r) => ({
+      label: `${when(r.at)}  ${r.diff ? `+${r.diff.added} −${r.diff.removed}` : ''}`,
+      value: r.id,
+    })),
+  ];
   return choose({
     title: 'Versions',
     body: 'Restore an earlier version of this page.',
-    options: [
-      { label: 'Close', value: null },
-      ...rows.slice(0, 8).map((r) => ({
-        label: `${when(r.at)}  ${r.diff ? `+${r.diff.added} −${r.diff.removed}` : ''}`,
-        value: r.id,
-      })),
-    ],
+    options,
     cancel: null,
   });
 }
@@ -214,7 +217,8 @@ async function openVersions() {
   let rows;
   try {
     rows = await loadVersions(path, current);
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ message?: string }} */ (err);
     toast('could not read the version history: ' + (e && e.message ? e.message : e), 'err');
     return;
   }

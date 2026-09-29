@@ -40,7 +40,8 @@ export async function followHref(href, fromPath) {
   if (P.isExternal(raw)) {
     try {
       await bridge.openExternal(raw);
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       // The host allows http, https and mailto and refuses the rest by design (platform.rs).
       // Saying so names the scheme, which is the one thing the user needs to know (N9).
       const scheme = (/^([a-z][a-z0-9+.-]*):/i.exec(raw) || [])[1];

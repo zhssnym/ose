@@ -27,7 +27,8 @@ export async function loadState() {
     const s = await bridge.getState();
     cache = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
     loaded = true;
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     // A file that cannot be read is not an empty file. Writing over it would take the recent
     // files, the settings, the pins, the planner's paths and everything else with it, so the
     // cache serves reads and nothing goes to disk for the rest of the session.
@@ -61,7 +62,7 @@ async function refreshHostKeys() {
 function write({ host = true } = {}) {
   const send = async () => {
     if (host) await refreshHostKeys();
-    try { await bridge.setState(cache); } catch (e) { console.warn('[shell] state write failed:', e.message || e); logLine(`state write failed: ${e.message || e}`, 'warn'); }
+    try { await bridge.setState(cache); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); console.warn('[shell] state write failed:', e.message || e); logLine(`state write failed: ${e.message || e}`, 'warn'); }
   };
   writing = (writing || Promise.resolve()).then(send, send);
   return writing;

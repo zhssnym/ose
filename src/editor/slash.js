@@ -298,7 +298,8 @@ function filtered(query) {
       .map((it, i) => ({ it, s: score(q, it), i }))
       .filter((r) => r.s > -Infinity)
       .sort((a, b) => b.s - a.s || a.i - b.i);
-    if (scored.length) out.push({ ...g, items: scored.map((r) => r.it), top: scored[0].s });
+    const best = scored[0];
+    if (best) out.push({ ...g, items: scored.map((r) => r.it), top: best.s });
   }
   return out.sort((a, b) => b.top - a.top);
 }
@@ -325,7 +326,7 @@ function matchAt(view) {
   const before = parent.textBetween(0, $from.parentOffset, undefined, '￼');
   const i = before.lastIndexOf('/');
   if (i < 0) return null;
-  if (i > 0 && !/\s/.test(before[i - 1])) return null;
+  if (i > 0 && !/\s/.test(before.charAt(i - 1))) return null;
   const query = before.slice(i + 1);
   if (query.length > MAX_QUERY || /[\s/]/.test(query)) return null;
   return {
@@ -362,12 +363,12 @@ class SlashView {
     // Keep the caret where it is: a pointerdown in the menu must not blur the editor.
     el.addEventListener('pointerdown', (e) => e.preventDefault());
     el.addEventListener('pointerup', (e) => {
-      const row = e.target instanceof Element ? e.target.closest('.row') : null;
-      if (row) this.run(this.items[+row.dataset.i]);
+      const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.row')) : null;
+      if (row) this.run(this.items[Number(row.dataset.i)]);
     });
     el.addEventListener('pointermove', (e) => {
-      const row = e.target instanceof Element ? e.target.closest('.row') : null;
-      if (row) this.select(+row.dataset.i, false);
+      const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.row')) : null;
+      if (row) this.select(Number(row.dataset.i), false);
     });
 
     this.onKey = (e) => this.key(e);
@@ -447,8 +448,8 @@ class SlashView {
   select(i, scroll = true) {
     if (!this.items.length) return;
     this.index = Math.max(0, Math.min(i, this.items.length - 1));
-    for (const row of this.el.querySelectorAll('.row')) {
-      const on = +row.dataset.i === this.index;
+    for (const row of /** @type {NodeListOf<HTMLElement>} */ (this.el.querySelectorAll('.row'))) {
+      const on = Number(row.dataset.i) === this.index;
       row.classList.toggle('current', on);
       if (on && scroll) row.scrollIntoView({ block: 'nearest' });
     }

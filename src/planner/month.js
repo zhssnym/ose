@@ -40,7 +40,7 @@ export function createMonthView(ose, store) {
     let alive = true, seq = 0;
     let cursor = startOfMonth(new Date());
     let plan = null, path = '', planExists = false, systems = [];
-    let log = { done: new Map(), first: new Map(), names: [] }, logMissing = false, logFile = '';
+    let log = parseSystemsLog(''), logMissing = false, logFile = '';
     const offs = [];
     const settings = () => store.get();
 
@@ -170,7 +170,8 @@ export function createMonthView(ose, store) {
         systems = systemsFor(plan, log, at);
         stop();
         render();
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] month', e);
         toast(`Month: ${(e && e.message) || e}`, 'err');
       } finally {

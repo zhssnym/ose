@@ -24,6 +24,7 @@ let strip = null;
 // screen. The router owns everything inside it; only the two aria attributes are ours.
 let panelEl = null;
 // The last snapshot the kernel sent: `{ tabs: Tab[], active: id|null }`.
+/** @type {{tabs: Array<{id: string, route: {type: string, path?: string, name?: string} | null, canBack: boolean, canForward: boolean}>, active: string|null}} */
 let snap = { tabs: [], active: null };
 // Paths whose page has unsaved changes, from the editor's own `doc:dirty` / `doc:state`.
 const dirty = new Set();
@@ -209,7 +210,7 @@ function step(delta) {
   const tabs = snap.tabs || [];
   if (tabs.length < 2) return;
   const at = Math.max(0, tabs.findIndex((t) => t.id === snap.active));
-  activate(tabs[(at + delta + tabs.length) % tabs.length].id);
+  activate(tabs[(at + delta + tabs.length) % tabs.length]?.id);
 }
 
 const activeTab = () => (snap.tabs || []).find((t) => t.id === snap.active) || null;
@@ -270,17 +271,18 @@ export function initTabs(node, panel) {
   if (panelEl) panelEl.setAttribute('role', 'tabpanel');
 
   strip.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
     const el = e.target.closest('.tab');
-    if (!el) return;
+    if (!(el instanceof HTMLElement)) return;
     if (e.target.closest('.tab-x')) { void closeTab(el.dataset.id); return; }
     activate(el.dataset.id);
   });
   // Middle click closes, as it does in every browser and every editor.
-  strip.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.tab')) e.preventDefault(); });
+  strip.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target instanceof Element && e.target.closest('.tab')) e.preventDefault(); });
   strip.addEventListener('auxclick', (e) => {
-    if (e.button !== 1) return;
+    if (e.button !== 1 || !(e.target instanceof Element)) return;
     const el = e.target.closest('.tab');
-    if (!el) return;
+    if (!(el instanceof HTMLElement)) return;
     e.preventDefault();
     void closeTab(el.dataset.id);
   });

@@ -365,7 +365,7 @@ async function teardown(mode) {
       try {
         const answer = mode === 'park' ? await host.close({ park: true }) : await host.close();
         if (answer === false) return false;
-      } catch (e) { console.warn('[router] close page:', e.message || e); }
+      } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); console.warn('[router] close page:', e.message || e); }
     }
   } else if (mountedView && typeof mountedView.unmount === 'function') {
     await callUnmount(mountedView, current.type === 'folder' ? 'folder unmount' : 'view unmount');
@@ -446,7 +446,8 @@ async function mountPage(scroll, route, my) {
   // A stat that throws is not the same thing as a file that is not there: the first is a
   // locked file or a bridge fault and must never be offered "Create it", because that button
   // writes a stub over the path.
-  try { st = await bridge.stat(path); } catch (e) {
+  try { st = await bridge.stat(path); } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     console.error('[router] stat', path, e);
     const box = emptyState(`
       <div class="miss">
@@ -494,7 +495,8 @@ async function mountPage(scroll, route, my) {
       // gets its H1 and anything else starts empty (ose.fileops.create).
       try {
         await createFile(dirName(path), baseName(path), {});
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         if (!e || e.code !== 'exists') {
           toast(`Could not create ${path}: ${(e && e.message) || e}`, 'err', 0);
           return;
@@ -514,7 +516,8 @@ async function mountPage(scroll, route, my) {
   try {
     if (pages) await pages.open(host, path, { line, col, query, selection });
     mounted = host.childElementCount > 0;
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     console.error('[router] open page', e);
     toast('Could not open ' + path + ': ' + (e.message || e), 'err', 0);
   }
@@ -523,7 +526,7 @@ async function mountPage(scroll, route, my) {
   // working. Removed automatically as soon as a host renders something.
   if (!mounted && my === seq) {
     let text = '';
-    try { text = await bridge.readText(path); } catch (e) { text = String(e.message || e); }
+    try { text = await bridge.readText(path); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); text = String(e.message || e); }
     host.innerHTML = `
       <div class="page-col fallback">
         <h1 class="page-title">${esc(display(path))}</h1>
@@ -559,7 +562,8 @@ async function renderFolder(scroll, route, my, rec) {
       return;
     }
     mountedView = handle && typeof handle === 'object' ? handle : null;
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     console.error('[router] folder open', route.path, e);
     if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">Could not show this folder</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
@@ -586,7 +590,8 @@ async function renderView(scroll, route, my) {
     const handle = await v.mount(scroll, route);
     if (my !== seq) return;
     if (handle && typeof handle === 'object') mountedView = { ...v, ...handle };
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     console.error('[router] view mount', e);
     if (my !== seq) return;
     scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">This view failed</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));

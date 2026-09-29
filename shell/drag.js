@@ -113,7 +113,9 @@ export function takeDropped(dt) {
   }
   if (!items.length && dt && dt.files) loose.push(...dt.files);
   return (async () => {
+    /** @type {DropEntry[]} */
     const entries = [];
+    /** @type {{path: string, error: string}[]} */
     const refused = [];
     for (const entry of roots) await walk(entry, '', entries, refused);
     for (const f of loose) {

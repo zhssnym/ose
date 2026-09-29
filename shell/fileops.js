@@ -91,9 +91,13 @@ function activeProvider() {
 }
 
 const isTarget = (t) => !!t && typeof t === 'object' && !(t instanceof Event) && typeof t.path === 'string';
+/** @returns {Target} */
 const norm = (t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' : 'file' });
 
-/** One target: the one handed in, the first of a list handed in, else the context's. */
+/**
+ * One target: the one handed in, the first of a list handed in, else the context's.
+ * @returns {Target|null}
+ */
 function one(arg) {
   if (isTarget(arg)) return norm(arg);
   if (Array.isArray(arg)) return arg.length && isTarget(arg[0]) ? norm(arg[0]) : null;
@@ -102,7 +106,10 @@ function one(arg) {
   return isTarget(t) ? norm(t) : null;
 }
 
-/** Every target: a list handed in, one handed in, else the context's selection. */
+/**
+ * Every target: a list handed in, one handed in, else the context's selection.
+ * @returns {Target[]}
+ */
 function many(arg) {
   if (Array.isArray(arg)) return arg.filter(isTarget).map(norm);
   if (isTarget(arg)) return [norm(arg)];
@@ -124,7 +131,7 @@ function stemRange(value, kind = 'file') {
   return [start, ext ? s.length - ext.length - 1 : s.length];
 }
 
-const cap = (s) => { const t = String(s || '').replace(/\.$/, ''); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+const cap = (s) => { const t = String(s || '').replace(/\.$/, ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
 
 /**
  * Say that an operation did not happen. Sticky, because a file that did not move is not news
@@ -220,7 +227,7 @@ function folderFor(target) {
  * back only if that name cannot be used.
  *
  * @param {Target} [target]
- * @param {{name?: string}} [opts]
+ * @param {{name?: string|null}} [opts]
  * @returns {Promise<string|null>} the new path, or null when nothing was created
  */
 export async function newFile(target, { name = null } = {}) {
@@ -299,7 +306,7 @@ export async function newFolder(target) {
  * the prompt with the text as typed. The open page, or any page under a renamed folder, is
  * saved first and follows its file without being reopened (`ose.fileops.rename`).
  *
- * @param {Target} [target]
+ * @param {Target|null} [target]
  * @returns {Promise<string|null>} the new path, or null when nothing was renamed
  */
 export async function renamePath(target) {
@@ -357,15 +364,17 @@ export async function renamePath(target) {
  */
 export async function movePaths(targets, folder) {
   const list = many(targets).filter((t) => t.path);
-  if (!list.length) return null;
+  const [head] = list;
+  if (!head) return null;
+  /** @type {string | null | undefined} */
   let dest = folder;
   if (dest === undefined || dest === null) {
-    const first = list[0].path;
+    const first = head.path;
     const title = list.length === 1 ? `Move ${baseName(first)} to…` : `Move ${countOf(list)} to…`;
     // A single folder is not offered its own subtree; several are checked one by one.
     dest = await pickFolder({
       title, current: dirName(first), enterLabel: 'move here',
-      hide: list.length === 1 && list[0].kind === 'dir' ? first : null,
+      hide: list.length === 1 && head.kind === 'dir' ? first : null,
     });
     if (dest === null || dest === undefined) return null;
   }
@@ -379,7 +388,7 @@ export async function movePaths(targets, folder) {
   for (const s of res.skipped || []) fail(`${baseName(s.path)} was not moved`, s.error);
   const moved = res.moved || [];
   if (moved.length) {
-    const what = moved.length === 1 ? baseName(moved[0].from || moved[0]) : countOf(moved);
+    const what = moved.length === 1 ? baseName(moved[0]?.from || moved[0]) : countOf(moved);
     done(res.entry, `Moved ${what} to ${dest || 'the vault root'}`, linkTail(res.links));
   }
   linkFailures(res.links);
@@ -433,10 +442,11 @@ export function trashTitle() {
  */
 export async function trashPaths(targets) {
   const list = many(targets).filter((t) => t.path);
-  if (!list.length) return null;
-  const lone = list.length === 1 ? list[0] : null;
+  const [head] = list;
+  if (!head) return null;
+  const lone = list.length === 1 ? head : null;
   if (!lone) {
-    const words = trashWords(await whereFor(list[0].path));
+    const words = trashWords(await whereFor(head.path));
     const ok = await confirm({
       title: `${words.title.replace(/^Move/, `Move ${countOf(list)}`)}?`,
       body: `${list.map((t) => baseName(t.path)).join(', ')}. Nothing is deleted permanently, and Undo brings them back.`,
@@ -467,7 +477,7 @@ export async function trashPaths(targets) {
  * Duplicate: `stem 2.ext` beside the file, byte for byte, whatever its type (N23). The open
  * page is saved first, so the copy holds what is on screen.
  *
- * @param {Target} [target]
+ * @param {Target|null} [target]
  */
 export async function duplicatePath(target) {
   const t = one(target);
@@ -508,9 +518,10 @@ function setClip(next) {
  */
 export function cut(targets) {
   const list = many(targets).filter((t) => t.path);
-  if (!list.length) return;
+  const [head] = list;
+  if (!head) return;
   setClip({ mode: 'cut', paths: list.map((t) => t.path) });
-  toast(`Cut ${list.length === 1 ? baseName(list[0].path) : countOf(list)} · paste where it should go`, 'info', 2200);
+  toast(`Cut ${list.length === 1 ? baseName(head.path) : countOf(list)} · paste where it should go`, 'info', 2200);
 }
 
 /**
@@ -519,9 +530,10 @@ export function cut(targets) {
  */
 export function copy(targets) {
   const list = many(targets).filter((t) => t.path);
-  if (!list.length) return;
+  const [head] = list;
+  if (!head) return;
   setClip({ mode: 'copy', paths: list.map((t) => t.path) });
-  toast(`Copied ${list.length === 1 ? baseName(list[0].path) : countOf(list)}`, 'info', 2200);
+  toast(`Copied ${list.length === 1 ? baseName(head.path) : countOf(list)}`, 'info', 2200);
 }
 
 /**
@@ -550,16 +562,17 @@ export async function paste(folder) {
   } catch (e) { fail(mode === 'cut' ? 'Move failed' : 'Copy failed', e); return null; }
   if (mode === 'cut') setClip(null);
   for (const s of (res && res.skipped) || []) fail(`${baseName(s.path)} was not ${mode === 'cut' ? 'moved' : 'copied'}`, s.error);
-  const landed = mode === 'cut' ? (res && res.moved) || [] : (res && res.copied) || [];
+  const landed = mode === 'cut' ? (res && 'moved' in res && res.moved) || [] : (res && 'copied' in res && res.copied) || [];
+  const links = res && ('links' in res ? res.links : undefined);
   if (landed.length) {
     const first = landed[0];
     const last = landed[landed.length - 1];
-    const what = landed.length === 1 ? baseName(first.from || first) : countOf(landed);
+    const what = landed.length === 1 ? baseName(first?.from || first) : countOf(landed);
     const to = dest || 'the vault root';
-    done(res.entry, mode === 'cut' ? `Moved ${what} to ${to}` : `Copied ${what} to ${to}`, linkTail(res.links));
+    done(res.entry, mode === 'cut' ? `Moved ${what} to ${to}` : `Copied ${what} to ${to}`, linkTail(links));
     if (last && last.to) reveal(last.to, true);
   }
-  linkFailures(res && res.links);
+  linkFailures(links);
   return res;
 }
 
@@ -636,7 +649,10 @@ export async function undo(id) {
 
 /* ------------------------------------------------------------------ files outside the vault */
 
-/** The outside file a command acts on: the one handed in, else the page on screen when it is one. */
+/**
+ * The outside file a command acts on: the one handed in, else the page on screen when it is one.
+ * @returns {Target|null}
+ */
 function outsideTarget(arg) {
   if (isTarget(arg) && isOutside(arg.path)) return { path: arg.path, kind: 'file' };
   if (typeof arg === 'string' && isOutside(arg)) return { path: arg, kind: 'file' };
@@ -706,6 +722,7 @@ export async function copyIntoVault(target) {
 export function initFileOps() {
   // A file outside the vault (X7) is opened and saved, never renamed, moved, copied or trashed
   // from here: those commands are not offered for it at all.
+  /** @param {Target|null|undefined} t @returns {t is Target} */
   const hasPath = (t) => !!t && !!t.path && !isOutside(t.path);
   followClipboard();
   commands.register({

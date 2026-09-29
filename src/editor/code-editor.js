@@ -112,6 +112,7 @@ export function codeEditor(el, opts = {}) {
   // never reaches the host first.
   let rev = 0;
   let hasDraft = false;
+  /** @type {ReturnType<typeof setTimeout> | 0} */
   let draftTimer = 0;
   let draftChain = Promise.resolve();
   const onWire = (t) => (eol === '\n' ? t : t.replace(/\n/g, eol));
@@ -174,6 +175,7 @@ export function codeEditor(el, opts = {}) {
    */
   function leaveEditor() {
     try { view.view.contentDOM.blur(); } catch { /* already gone */ }
+    /** @type {HTMLElement|null} */
     const home = host.closest('.page-col') || host.closest('.view-root') || host.closest('.page-host');
     if (!home) return;
     if (!home.hasAttribute('tabindex')) home.tabIndex = -1;
@@ -245,6 +247,7 @@ export function codeEditor(el, opts = {}) {
     clearTimeout(draftTimer);
     draftTimer = 0;
     if (!path || !dirty || loading || closed || baseline === null) return Promise.resolve();
+    /** @type {import('./host.js').Draft} */
     const draft = { path, text: onWire(getText()), baselineHash: diskHash, mode: 'source', exact: true, rev };
     hasDraft = true;
     return draftOp(async () => {
@@ -279,6 +282,7 @@ export function codeEditor(el, opts = {}) {
    * it is kept as a version instead and the user is told where. Never throws.
    */
   async function recoverDraft(raw) {
+    if (!path) return false;
     let d = null;
     try { d = await pageFiles.drafts.read(path); } catch (e) {
       log(`draft read failed ${path}: ${errCode(e)} ${errText(e)}`, 'warn');
@@ -417,7 +421,9 @@ export function codeEditor(el, opts = {}) {
    * when it wrote or the user took the disk text; false when the text is still only here.
    */
   async function compareAndWrite(text, o = {}) {
+    if (!path) return false;
     let expectedHash = diskHash;
+    /** @type {'save' | 'conflict' | 'none'} */
     let version = 'save';
     for (let round = 0; round < 3; round++) {
       const r = await pageFiles.save(path, onWire(text), { expectedHash, version, ...(/^utf-?8$/i.test(encoding) ? {} : { encoding }) });

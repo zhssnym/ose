@@ -25,7 +25,8 @@ export function createTodoIndex(ose) {
       if (!st || !st.exists) return { path, tasks: [], missing: true };
       const r = await ose.files.readFile(path);
       return { path, tasks: parseTasks(r.text, path), missing: false };
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       console.warn('[planner] todo read', path, e);
       return { path, tasks: [], missing: false, error: String((e && e.message) || e) };
     }

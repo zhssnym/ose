@@ -52,6 +52,7 @@ export function attachSheets(col, getContent) {
   layer.className = 'sheet-breaks';
   layer.setAttribute('aria-hidden', 'true');
   let frame = 0;
+  /** @type {ReturnType<typeof setTimeout> | 0} */
   let timer = 0;
 
   const on = () => root.dataset.layout === 'pages';
@@ -100,7 +101,7 @@ export function attachSheets(col, getContent) {
           const opened = t < start - 0.5;
           let k = fit.length;
           while (k > 0 && lines.length - k < 2) k--;
-          if (k >= (opened ? 1 : 2)) at = fit[k - 1];
+          if (k >= (opened ? 1 : 2)) at = fit[k - 1] ?? null;
         }
         if (at === null) {
           if (t > start + 0.5) {

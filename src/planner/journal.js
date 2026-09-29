@@ -32,7 +32,8 @@ const MODES = ['full', 'compact'];
 function isEntryHeading(line) {
   const m = /^#\s+(.+?)\s*$/.exec(String(line ?? ''));
   if (!m) return false;
-  return /journal\s*$/i.test(m[1]) || /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/.test(m[1]);
+  const title = m[1] ?? '';
+  return /journal\s*$/i.test(title) || /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/.test(title);
 }
 
 /** One file -> the thoughts written that day, split on standalone `---` lines. */
@@ -55,7 +56,7 @@ function plainThought(text) {
     const t = b.trim();
     if (!t) continue;
     const h = /^#{1,6}\s+(.*)$/.exec(t);
-    if (h && !t.includes('\n')) { out.push(`<p class="jr-h">${esc(h[1].trim())}</p>`); continue; }
+    if (h && !t.includes('\n')) { out.push(`<p class="jr-h">${esc((h[1] ?? '').trim())}</p>`); continue; }
     out.push(`<p>${esc(t).replace(/\n/g, '<br>')}</p>`);
   }
   return out.join('');
@@ -85,7 +86,7 @@ function entriesOf(items) {
  * made only with `createFolder`; otherwise a toast says so and offers "Create it".
  * @param {object} ose
  * @param {object} store the planner settings store
- * @param {{createFolder?: boolean, then?: (path: string) => unknown}} [opts] `then` runs after
+ * @param {{createFolder?: boolean, then?: ((path: string) => unknown) | null}} [opts] `then` runs after
  *   "Create it" made the folder and the file
  * @returns {Promise<string>} the path, or '' when there is none (the toast has said why)
  */
@@ -102,7 +103,8 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
   let items = [];
   if (!createFolder) {
     let st = null;
-    try { st = await ose.files.stat(folder); } catch (e) {
+    try { st = await ose.files.stat(folder); } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       toast(`Could not read ${folder}: ${(e && e.message) || e}`, 'err');
       return '';
     }
@@ -118,7 +120,8 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
       });
       return '';
     }
-    try { items = await ose.files.list(folder); } catch (e) {
+    try { items = await ose.files.list(folder); } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       toast(`Could not read ${folder}: ${(e && e.message) || e}`, 'err');
       return '';
     }
@@ -128,7 +131,8 @@ async function ensureToday(ose, store, { createFolder = false, then = null } = {
   if (hit) return `${folder}/${hit.name}`;
   try {
     return (await ose.fileops.create(folder, name, { text: `${journalHeading(now)}\n\n` })).path;
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     if (e && e.code === 'exists') return `${folder}/${name}`;
     toast(`Today's journal could not be created: ${(e && e.message) || e}`, 'err');
     return '';
@@ -203,7 +207,8 @@ export function recoverOldDraft(ose, store) {
   const add = async () => {
     const text = oldDraft();
     if (!text.trim()) return;
-    try { await addToToday(ose, store, text); } catch (e) {
+    try { await addToToday(ose, store, text); } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       console.error('[planner] journal draft', e);
       toast(`The text was not added: ${(e && e.message) || e}. It is kept for next time.`, 'err', 0);
     }
@@ -370,6 +375,10 @@ export function createJournalView(ose, store) {
       if (rest > 0) host.querySelector('[data-act="more"]').textContent = `Show earlier (${rest})`;
     }
 
+    /**
+     * @param {number} target
+     * @param {(() => unknown) | null} [before]
+     */
     async function renderTo(target, before = null) {
       const next = Math.min(days.length, Math.max(0, target));
       if (next <= shown) { if (before) before(); return; }
@@ -405,7 +414,7 @@ export function createJournalView(ose, store) {
         stop = loadingLine($('record'));
         let items = null;
         dirError = '';
-        try { items = await ose.files.list(folder); } catch (e) { dirError = String((e && e.message) || e); }
+        try { items = await ose.files.list(folder); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); dirError = String((e && e.message) || e); }
         if (!alive) return;
         const files = entriesOf(items);
         const nextSig = `${folder}::${files.map((f) => `${f.name}:${f.mtime || ''}:${f.size || ''}`).join('|')}`;
@@ -416,14 +425,16 @@ export function createJournalView(ose, store) {
           const old = keep.get(f.name);
           // a file that changed since it was read is read again
           if (old && old.mtime === f.mtime && old.size === f.size) return old;
-          const date = dateFromName(f.name);
+          // entriesOf kept only the names that carry a date
+          const date = /** @type {Date} */ (dateFromName(f.name));
           return { name: f.name, path: `${folder}/${f.name}`, date, year: date.getFullYear(), mtime: f.mtime, size: f.size };
         });
         const was = shown;
         shown = 0;
         drawHeader();
         if (!days.length) { stop(); drawRecord(); } else await renderTo(Math.max(CHUNK, was), stop);
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] journal', e);
         toast(`Journal: ${(e && e.message) || e}`, 'err');
       } finally {

@@ -139,6 +139,7 @@ class MathView {
     range.selectNodeContents(box);
     range.collapse(false);
     const sel = getSelection();
+    if (!sel) return;
     sel.removeAllRanges();
     sel.addRange(range);
   }
@@ -163,7 +164,8 @@ class MathView {
     if (!sel || !sel.isCollapsed || !this.box) return false;
     const r = sel.getRangeAt(0).cloneRange();
     r.selectNodeContents(this.box);
-    r.setEnd(sel.anchorNode, sel.anchorOffset);
+    // a collapsed selection that `getRangeAt(0)` answered has its anchor
+    r.setEnd(/** @type {Node} */ (sel.anchorNode), sel.anchorOffset);
     return r.toString().length === 0;
   }
 
@@ -172,7 +174,7 @@ class MathView {
     if (!sel || !sel.isCollapsed || !this.box) return false;
     const r = sel.getRangeAt(0).cloneRange();
     r.selectNodeContents(this.box);
-    r.setStart(sel.anchorNode, sel.anchorOffset);
+    r.setStart(/** @type {Node} */ (sel.anchorNode), sel.anchorOffset);
     return r.toString().length === 0;
   }
 
@@ -282,6 +284,10 @@ function mathInputRules(ctx) {
 // ProseMirror walks over an inline atom as if it were one character, so without this an inline
 // formula could only be opened with the mouse.
 
+/**
+ * @param {import('@milkdown/kit/prose/model').Node | null | undefined} node
+ * @returns {node is import('@milkdown/kit/prose/model').Node}
+ */
 const isMath = (node) => !!node && (node.type.name === INLINE || node.type.name === BLOCK);
 
 function selectSide(state, dispatch, dir) {

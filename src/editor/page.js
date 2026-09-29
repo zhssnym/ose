@@ -128,7 +128,7 @@ const activeApi = () => (activeInstance() ? activeInstance().api : null);
 const covers = (path, from) => !!path && !!from && (path === from || path.startsWith(from + '/'));
 /** `path` under `from` moved to `to`. */
 const mapPath = (path, from, to) => (path === from ? to : to + path.slice(from.length));
-const errText = (e) => String((e && e.message) || e || 'unknown error').split('\n')[0];
+const errText = (e) => String((e && e.message) || e || 'unknown error').replace(/\n[\s\S]*/, '');
 const errCode = (e) => (e && e.code) || 'io';
 
 // The three modes (X1): the public words, and the internal ones `p.mode` holds. 'block' is
@@ -174,6 +174,112 @@ function checkOpened(crepe, body) {
 // ---------------------------------------------------------------------------
 // the instance
 
+/**
+ * The document shape of a file that is not markdown (`plainDoc`).
+ * @typedef {{eol: string, eols: null, lines: null, bom: boolean, endsWithNewline: boolean,
+ *   frontmatterRaw: string, frontmatter: null, preTitle: string, titleLine: null, title: string,
+ *   gap: string, body: string, plain: true}} PlainDoc
+ */
+/** @typedef {ReturnType<typeof parseDoc> | PlainDoc} PageDoc */
+/** @typedef {ReturnType<typeof setTimeout> | number} Timer */
+/**
+ * The find bar: `createFind`'s over Crepe, or the same four methods over CodeMirror's panel.
+ * @typedef {{open: (o?: {query?: string | null, replace?: boolean}) => void,
+ *   close: (o?: {toEditor?: boolean}) => void, isOpen: () => boolean, destroy: () => void}} FindBar
+ */
+/**
+ * @typedef {{view: import('./reading/index.js').ReadingView, el: HTMLElement, from: string,
+ *   editorTop: number, startLine: number | null}} Reading
+ */
+/**
+ * @typedef {{status: string, reason: string, message: string, copy?: boolean}} Problem
+ * @typedef {{at: number, text: string, applied: boolean, baselineHash: string | null,
+ *   exact: boolean, mode: string, rev?: number, kept?: boolean}} Recovered
+ * @typedef {{theirs: string | null, hash: string | null, count: number, base: string | null,
+ *   encoding?: string, lossy?: boolean}} Conflict
+ * @typedef {{ours: string, theirs: string, text: string, at: number, rev: number}} Merged
+ * @typedef {{kind: string, from: string, to: string | null, done: (v?: unknown) => void}} Moving
+ */
+/**
+ * One open page (see the comments in `blankPage`).
+ * @typedef {object} PageState
+ * @property {string} path
+ * @property {PageDoc | null} doc
+ * @property {string} title
+ * @property {string} baseline
+ * @property {string | null} baselineHash
+ * @property {HTMLElement | null} el
+ * @property {HTMLElement | null} host
+ * @property {HTMLElement | null} titleEl
+ * @property {HTMLElement | null} metaEl
+ * @property {HTMLElement | null} metaText
+ * @property {HTMLElement | null} modeEl
+ * @property {HTMLElement | null} bannerEl
+ * @property {HTMLElement | null} bodyEl
+ * @property {Awaited<ReturnType<typeof makeCrepe>> | null} crepe
+ * @property {FindBar | null} find
+ * @property {string} mode
+ * @property {boolean} plain
+ * @property {string | null} forced
+ * @property {ReturnType<typeof createSourceView> | null} source
+ * @property {number} words
+ * @property {number} chars
+ * @property {number} mtime
+ * @property {Timer} wordTimer
+ * @property {import('./live/view.js').LiveView | null} live
+ * @property {string} lastEdit
+ * @property {Reading | null} reading
+ * @property {boolean} outside
+ * @property {string} encoding
+ * @property {boolean} lossy
+ * @property {string | null} forcedEncoding
+ * @property {string | null} liveFailed
+ * @property {string[] | null} wikiPages
+ * @property {boolean} titleSelected
+ * @property {boolean} dirty
+ * @property {boolean} ready
+ * @property {number} rev
+ * @property {boolean} frozen
+ * @property {Problem | null} problem
+ * @property {boolean} deleted
+ * @property {boolean} trashed
+ * @property {Moving | null} moving
+ * @property {Promise<unknown> | null} movingDone
+ * @property {boolean} asking
+ * @property {boolean} titleToBody
+ * @property {boolean} readOnly
+ * @property {'written' | 'failed' | null} draft
+ * @property {boolean} hasDraft
+ * @property {number} draftAt
+ * @property {number | null} draftStamp
+ * @property {Timer} draftTimer
+ * @property {Promise<unknown> | null} draftChain
+ * @property {Recovered | null} recovered
+ * @property {string | null} notice
+ * @property {number} uncheckedRev
+ * @property {boolean} reloadPending
+ * @property {string | null} orphan
+ * @property {number} keptCopies
+ * @property {number} failedAt
+ * @property {Timer} saveTimer
+ * @property {Timer} goneTimer
+ * @property {number} retry
+ * @property {string | null} savedAt
+ * @property {number | null} savedAtMs
+ * @property {Promise<void> | null} saving
+ * @property {Promise<unknown> | null} switching
+ * @property {string} lastState
+ * @property {string} lastSave
+ * @property {string} lastBanner
+ * @property {boolean} applying
+ * @property {Conflict | null} conflict
+ * @property {Merged | null} merged
+ * @property {Timer} mergeNote
+ * @property {(() => void) | null} bindParent
+ * @property {Array<() => void>} cleanups
+ */
+
+/** @returns {PageState} */
 const blankPage = () => ({
   path: '', doc: null, title: '',
   // baseline: the text on disk this page was opened from or last wrote; baselineHash: the
@@ -251,7 +357,7 @@ export function markdownPage(el, path, opts = {}) {
 }
 
 function buildPage(el, path, opts) {
-  /** @type {null | ReturnType<typeof blankPage>} */
+  /** @type {null | PageState} */
   let page = null;
   let openToken = 0;
   let opening = Promise.resolve();
@@ -267,8 +373,8 @@ function buildPage(el, path, opts) {
   const listeners = new Map();
   const inst = {
     get el() { return el; },
-    api: null,
-    handle: null,
+    api: /** @type {null | typeof api} */ (null),
+    handle: /** @type {null | typeof handle} */ (null),
     get parked() { return parked; },
     usedAt: Date.now(),
     /** Parked, clean, and nothing standing between the buffer and the disk: may be let go. */
@@ -567,7 +673,8 @@ function buildPage(el, path, opts) {
       p.cleanups.push(() => dom.removeEventListener('blur', onBlur));
       p.ready = true;
     } else {
-      p.crepe = await makeCrepe({
+      // `onChange` and `on` are makeCrepe's too; its JSDoc does not list them yet.
+      const crepeOpts = {
         root: p.bodyEl,
         markdown: p.doc.body,
         resolveImage: (src) => resolveImage(p, src),
@@ -581,7 +688,8 @@ function buildPage(el, path, opts) {
         on: (crepeApi) => {
           crepeApi.blur(() => onEditorBlur(p));
         },
-      });
+      };
+      p.crepe = await makeCrepe(crepeOpts);
       if (token !== undefined && token !== openToken) { await p.crepe.destroy().catch(() => {}); return false; }
       wireDrops(p);
       // The third argument is what a replacement calls: an edit like any other (M5).
@@ -650,6 +758,7 @@ function buildPage(el, path, opts) {
    * missing on a guess).
    */
   function loadWikiPages(p) {
+    /** @type {Timer} */
     let timer = 0;
     const load = () => {
       void vaultFiles().then((list) => {
@@ -676,7 +785,7 @@ function buildPage(el, path, opts) {
    * `exists: false` draws it missing; the path is then where following it would create it.
    */
   function resolveWikilink(p, target) {
-    const t = String(target ?? '').split('#')[0].split('|')[0].trim().replace(/\\/g, '/');
+    const t = String(target ?? '').replace(/[#|][\s\S]*$/, '').trim().replace(/\\/g, '/');
     if (!t) return { path: p.path, exists: true };
     const withExt = /\.[a-z0-9]{1,8}$/i.test(t) ? t : `${t}.md`;
     const beside = p.outside ? null : P.joinPath(P.dirname(p.path), withExt);
@@ -772,6 +881,7 @@ function buildPage(el, path, opts) {
    * The document shape of a file that is not markdown (`.txt`, `.csv`, `.py`, a log). Every
    * field is empty but `body`, so nothing above the body is drawn and `compose` never rewrites
    * a byte: source mode hands the file back exactly as it holds it.
+   * @returns {PlainDoc}
    */
   function plainDoc(text) {
     return {
@@ -824,7 +934,8 @@ function buildPage(el, path, opts) {
     const now = publicMode(p);
     if (want === now && typeof o.text !== 'string') { closeReading(p); return true; }
     if (p.switching) { await p.switching; return setMode(want, o); }
-    let done;
+    /** @type {(v?: unknown) => void} */
+    let done = () => {};
     p.switching = new Promise((r) => { done = r; });
     try {
       return await switchTo(p, want, o);
@@ -1028,6 +1139,7 @@ function buildPage(el, path, opts) {
       if (n === titleLineNo(p.doc)) focusTitle(p);
       return true;
     }
+    if (!p.doc) return false;
     const pos = posForBodyLine(p.crepe, view, p.doc.body, n - start + 1, col);
     caretAt(view, pos, { block: 'start', always: true, focus: true });
     return true;
@@ -1080,8 +1192,8 @@ function buildPage(el, path, opts) {
     const range = document.createRange();
     range.selectNodeContents(p.titleEl);
     range.collapse(true);
-    getSelection().removeAllRanges();
-    getSelection().addRange(range);
+    const sel = getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
   }
 
   /**
@@ -1105,8 +1217,9 @@ function buildPage(el, path, opts) {
    * editable, the banner says why and takes the focus, and the answer is no. Re-entrant: a
    * second call while one is in flight awaits the same answer. `stay()` undoes the freeze of a
    * yes the caller did not use.
+   * @param {string} [_reason] why the page is being left (a caller's word; not used)
    */
-  function canLeave() {
+  function canLeave(_reason) {
     if (leaving) return leaving;
     const p = page;
     if (!p) return Promise.resolve(true);
@@ -1247,7 +1360,8 @@ function buildPage(el, path, opts) {
       try { ok = await flush(); } catch { ok = false; }
       if (!ok || p.dirty) { unfreeze(p); return refuse(); }
     }
-    let done;
+    /** @type {(v?: unknown) => void} */
+    let done = () => {};
     p.movingDone = new Promise((r) => { done = r; });
     p.moving = { kind: change.kind, from: change.from, to: change.to || null, done };
     // A trashed page is left frozen for the caller to navigate away from; a rename or a move
@@ -1377,11 +1491,11 @@ function buildPage(el, path, opts) {
       sw.className = 'ed-mode';
       sw.setAttribute('role', 'group');
       sw.setAttribute('aria-label', 'Editing mode');
-      for (const [mode, label, title] of [
+      for (const [mode, label, title] of /** @type {Array<[string, string, string]>} */ ([
         ['rich', 'Rich', 'Edit as rich text'],
         ['live', 'Live', 'Edit in Live preview: the markdown, drawn off the caret line'],
         ['source', 'Source', 'Edit as source (raw markdown text)'],
-      ]) {
+      ])) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'ed-mode-btn';
@@ -1551,8 +1665,7 @@ function buildPage(el, path, opts) {
     range.selectNodeContents(p.titleEl);
     range.collapse(false);
     const sel = getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
     return true;
   }
 
@@ -1597,8 +1710,8 @@ function buildPage(el, path, opts) {
     h1.focus();
     const range = document.createRange();
     range.selectNodeContents(h1);
-    getSelection().removeAllRanges();
-    getSelection().addRange(range);
+    const sel = getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
   }
 
   /**
@@ -1916,7 +2029,10 @@ function buildPage(el, path, opts) {
     status.set('save', value);
   }
 
-  /** What the banner says, or null when there is nothing to say (§6.5). */
+  /**
+   * What the banner says, or null when there is nothing to say (§6.5).
+   * @returns {{kind: string, alert: boolean, text: string, buttons: Array<[string, string]>} | null}
+   */
   function bannerSpec(p) {
     const st = statusOf(p);
     const name = P.basename(p.path);
@@ -2001,7 +2117,7 @@ function buildPage(el, path, opts) {
       return {
         kind: 'warn', alert: false,
         text: 'Merged changes made on disk by another program.',
-        buttons: [['Show changes', 'page.merge-show'], ...(canUndoMerge(p) ? [['Undo merge', 'page.merge-undo']] : [])],
+        buttons: [['Show changes', 'page.merge-show'], ...(canUndoMerge(p) ? [/** @type {[string, string]} */ (['Undo merge', 'page.merge-undo'])] : [])],
       };
     }
     // X10: the bytes did not decode exactly; a save would change the ones that did not.
@@ -2268,7 +2384,8 @@ function buildPage(el, path, opts) {
     // M5: a buffer that composes back to the baseline is not dirty, whatever changed in it.
     if (text === p.baseline && !recreate && !o.recode) { settleClean(p, rev); return true; }
 
-    let outcome = false;
+    // `writeOut` answers true, false or 'again', from inside the closure below.
+    let outcome = /** @type {boolean | string} */ (false);
     p.saving = (async () => {
       outcome = await writeOut(p, text, rev, { expectedHash: p.deleted ? null : p.baselineHash, ...encodingOpts(p) });
     })();
@@ -2712,6 +2829,7 @@ function buildPage(el, path, opts) {
       });
       return ok && p === page ? keepMine(p, { asked: true }) : false;
     }
+    /** @type {{label: string, value: string, kind?: 'danger' | 'primary'}[]} */
     const actions = [
       { label: 'Keep both', value: 'both', kind: 'primary' },
       ...(exact ? [{ label: 'Keep mine', value: 'mine' }] : []),
@@ -3306,7 +3424,7 @@ function buildPage(el, path, opts) {
   /** The heading picker (C2). The title row scrolls to the top; a body heading takes the caret. */
   async function outlinePage() {
     const p = page;
-    if (!p || !p.crepe) return;
+    if (!p || !p.crepe || !p.doc) return;
     const view = editorView(p.crepe);
     if (!view) return;
     await pickHeading({
@@ -4658,8 +4776,8 @@ async function newPage() {
     titleEl.focus();
     const r = document.createRange();
     r.selectNodeContents(titleEl);
-    getSelection().removeAllRanges();
-    getSelection().addRange(r);
+    const sel = getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(r); }
   };
   setTimeout(selectNewTitle, 40);
   return true;
@@ -4688,7 +4806,7 @@ function exportPdf() {
   try {
     window.print();
   } catch (e) {
-    toast('could not export: ' + (e.message || e), 'err');
+    toast('could not export: ' + ((e && typeof e === 'object' && 'message' in e && e.message) || e), 'err');
   } finally {
     document.title = windowTitle;
   }
@@ -4697,7 +4815,7 @@ function exportPdf() {
 /** `Print`: the print dialog. */
 function printPage() {
   if (!hasPage()) return;
-  try { window.print(); } catch (e) { toast('could not print: ' + (e.message || e), 'err'); }
+  try { window.print(); } catch (e) { toast('could not print: ' + ((e && typeof e === 'object' && 'message' in e && e.message) || e), 'err'); }
 }
 
 /** The page the commands act on, for whoever needs to ask (the compatibility layer). */

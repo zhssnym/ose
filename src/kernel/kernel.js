@@ -258,7 +258,8 @@ function saveArgs(opts) {
 async function saveThrough(path, text, opts) {
   try {
     return await bridge.saveFile(path, text, saveArgs(opts));
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     logLine(`files.save failed ${path}: ${(e && e.code) || 'io'} ${(e && e.message) || e}`, 'error');
     throw e;
   }

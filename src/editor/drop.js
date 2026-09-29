@@ -81,14 +81,15 @@ export async function dropInto(view, payload, pos, o) {
   const from = o.pagePath() || '';
   const items = [];
   for (const path of payload.paths) {
-    try { items.push(await linkFor(from, path)); } catch (e) { toast(`could not link ${path}: ${e.message || e}`, 'err'); }
+    try { items.push(await linkFor(from, path)); } catch (err) { const e = /** @type {{ code?: string, message?: string }} */ (err); toast(`could not link ${path}: ${e.message || e}`, 'err'); }
   }
   for (const file of payload.files) {
     try {
       const target = await o.attach(file);
       const href = P.relativeHref(from, target) || P.basename(target);
       items.push(isImage(file) ? { image: href } : { text: file.name || P.basename(target), href });
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       toast(`could not attach ${file.name || 'the file'}: ${e.message || e}`, 'err');
     }
   }

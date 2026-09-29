@@ -76,6 +76,14 @@ export function createDayView(ose, store) {
 
   function mount(host) {
     const todo = createTodoIndex(ose);
+    /**
+     * @type {{ cursor: Date, events: import('./timetable.js').TimetableEvent[],
+     *   systems: Array<{name: string, days: Set<number>}>,
+     *   log: {done: Map<string, boolean>, first: Map<string, string>, names: string[]},
+     *   planFile: string, planMissing: boolean, calMissing: boolean, logFile: string,
+     *   unknown: Array<{line: number, text: string}>, expanded: Set<string>, busy: boolean,
+     *   seq: number, taskNote: string, shown: Map<string, object> }}
+     */
     const st = {
       cursor: startOfDay(new Date()),
       events: [], systems: [], log: { done: new Map(), first: new Map(), names: [] },
@@ -207,7 +215,8 @@ export function createDayView(ose, store) {
       renderSystems();
       try {
         await ose.files.appendLine(st.logFile, JSON.stringify(checkRecord(st.cursor, name, next)));
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] system write', e);
         if (prev === undefined) st.log.done.delete(k); else st.log.done.set(k, prev);
         if (firstBefore === undefined) st.log.first.delete(name); else st.log.first.set(name, firstBefore);
@@ -281,7 +290,8 @@ export function createDayView(ose, store) {
           input.value = text;
           toast(`Nothing to add to at ${target}`, 'warn');
         }
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         input.value = text;
         console.error('[planner] add task', e);
         toast(`The task was not written: ${(e && e.message) || e}`, 'err');
@@ -300,7 +310,8 @@ export function createDayView(ose, store) {
         const res = await todo.toggle(st.shown.get(id) || null);
         st.taskNote = res === 'changed' ? 'The todo file changed; reloaded.' : '';
         renderTasks();
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] task write', e);
         toast(`The task was not written: ${(e && e.message) || e}`, 'err');
       } finally {
@@ -318,7 +329,7 @@ export function createDayView(ose, store) {
       const links = files.filter(Boolean).map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`);
       if (st.unknown.length) {
         const where = st.unknown.map((u) => u.line).join(', ');
-        links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(s.calendar)}" data-line="${st.unknown[0].line}" title="Calendar lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
+        links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(s.calendar)}" data-line="${st.unknown[0]?.line}" title="Calendar lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
       }
       box.innerHTML = links.join('') || '&nbsp;';
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
@@ -341,6 +352,7 @@ export function createDayView(ose, store) {
       const s = settings();
       st.logFile = s.reports ? logPath(s.reports) : '';
       todo.setPaths(s.todo);
+      /** @type {[() => boolean, () => boolean, () => boolean]} */
       const stops = [
         loadingLine(s.calendar ? $('tl') : null),
         loadingLine(s.reports ? $('sys') : null),
@@ -374,7 +386,8 @@ export function createDayView(ose, store) {
         if (my !== st.seq || !alive) return;
         stops[2]();
         renderTasks();
-      } catch (e) {
+      } catch (err) {
+        const e = /** @type {{ code?: string, message?: string }} */ (err);
         console.error('[planner] day', e);
         toast(`Day: ${(e && e.message) || e}`, 'err');
       } finally {
@@ -426,7 +439,7 @@ export function createDayView(ose, store) {
     const fit = (w) => root.classList.toggle('narrow', w < NARROW);
     fit(host.clientWidth);
     if (typeof ResizeObserver === 'function') {
-      ro = new ResizeObserver((entries) => fit(entries[0].contentRect.width));
+      ro = new ResizeObserver((entries) => fit(/** @type {ResizeObserverEntry} */ (entries[0]).contentRect.width));
       ro.observe(host);
     }
     // Left open past midnight: a view that was on today moves to the new today, so a check lands

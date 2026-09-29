@@ -74,7 +74,7 @@ function calloutDecorations(doc) {
     if (!first || !first.isTextblock) return true;
     const m = CALLOUT.exec(first.textContent);
     if (!m) return true;
-    const word = m[1].toLowerCase();
+    const word = (m[1] ?? '').toLowerCase();
     decos.push(Decoration.node(pos, pos + node.nodeSize, { class: `callout callout-${word}` }));
     decos.push(Decoration.inline(pos + 2, pos + 2 + m[0].length, { class: 'callout-marker' }));
     return true;
@@ -112,6 +112,10 @@ export const strikethroughRule = $inputRule((ctx) =>
 
 export const FIND_KEY = new PluginKey('os-find');
 
+/**
+ * @type {{query: string, hits: Array<{from: number, to: number}>, index: number,
+ *   decos: DecorationSet, caseSensitive: boolean, wholeWord: boolean}}
+ */
 const EMPTY_FIND = { query: '', hits: [], index: -1, decos: DecorationSet.empty, caseSensitive: false, wholeWord: false };
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

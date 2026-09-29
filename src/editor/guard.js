@@ -34,7 +34,7 @@ import { htmlEndsBlock, unmarkBreaks } from './fidelity.js';
 
 /** @typedef {{ok:true} | {ok:false, reason:string, missing:string[]}} OpenCheck */
 
-const msg = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 200);
+const msg = (e) => (String((e && e.message) || e).split('\n')[0] ?? '').slice(0, 200);
 
 // ---------------------------------------------------------------------------
 // canonical text, memoised per engine
@@ -115,6 +115,7 @@ export function checkWrite(engine, doc, original) {
   }
 }
 
+/** @returns {WriteCheck} */
 function decide(engine, doc, original) {
   // Nothing but empty paragraphs: an empty page. A file of blank lines already is one and keeps
   // its bytes; any other becomes empty, which is what reading it back gives, save after save.
@@ -313,7 +314,11 @@ function inline(node, notes, cell = false) {
   // taken together, which is how the file holds them), or a node of its own. Adjacent inline
   // html is one piece too: `<!-- a --><!-- b -->` is two nodes on screen when two html blocks
   // were merged, and one node when read back, and the file holds the same bytes either way.
-  /** @type {Array<{text?: string, marks?: readonly any[], html?: string, node?: any}>} */
+  /**
+   * @type {Array<{text: string, marks: readonly any[], html?: undefined, node?: undefined}
+   *   | {html: string, marks: readonly any[], text?: undefined, node?: undefined}
+   *   | {node: import('@milkdown/kit/prose/model').Node, text?: undefined, html?: undefined, marks?: undefined}>}
+   */
   const pieces = [];
   for (let i = 0; i < end; i++) {
     const child = node.child(i);
@@ -335,7 +340,7 @@ function inline(node, notes, cell = false) {
     pieces.push({ node: child });
   }
 
-  /** @type {Array<{text?: string, marks?: string, shape?: string}>} */
+  /** @type {Array<{text: string, marks: string, shape?: undefined} | {shape: string, text?: undefined, marks?: undefined}>} */
   const items = [];
   const pushText = (text, marks) => {
     if (!text) return;
@@ -359,20 +364,20 @@ function inline(node, notes, cell = false) {
     const marks = markKey(p.marks.filter((m) => !(m.type.name === 'link' && autolinks(p.text, m.attrs.href))));
     const t = p.text;
     if (!marks || p.marks.some((m) => CODE_MARKS.has(m.type.name))) { pushText(t, marks); continue; }
-    const lead = t.startsWith(' ') ? /^\s+/.exec(t)[0] : '';
+    const lead = t.startsWith(' ') ? /^\s+/.exec(t)?.[0] ?? '' : '';
     const rest = t.slice(lead.length);
-    const trail = rest.endsWith(' ') ? /\s+$/.exec(rest)[0] : '';
+    const trail = rest.endsWith(' ') ? /\s+$/.exec(rest)?.[0] ?? '' : '';
     pushText(lead, '');
     pushText(rest.slice(0, rest.length - trail.length), marks);
     pushText(trail, '');
   }
   // A table cell is trimmed by the parser at both ends, the start included.
-  if (cell && items.length && items[0].text !== undefined) {
-    items[0].text = items[0].text.replace(/^[ \t]+/, '');
+  const first = items[0];
+  if (cell && first && first.text !== undefined) {
+    first.text = first.text.replace(/^[ \t]+/, '');
   }
   const runs = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
+  for (const [i, it] of items.entries()) {
     if (it.shape !== undefined) { runs.push(it.shape); continue; }
     const next = items[i + 1];
     const endsLine = !next || next.shape === 'br';

@@ -60,7 +60,7 @@ async function loadPlanner() {
     await m.initPlanner(ose);
   } catch (e) {
     console.error('[shell] planner', e);
-    toast('The planner could not be loaded: ' + (e && e.message ? e.message : e), 'err');
+    toast('The planner could not be loaded: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e), 'err');
   }
 }
 
@@ -107,12 +107,14 @@ export async function boot() {
     // them after would be a visible reflow on every launch.
     ose.settings.apply();
 
+    // `#app` is in index.html.
+    const app = /** @type {HTMLElement} */ (document.getElementById('app'));
     if (!ose.vault.root) {
-      await mountVaultChooser(document.getElementById('app'));
+      await mountVaultChooser(app);
       return;
     }
 
-    const els = mountShell(document.getElementById('app'));
+    const els = mountShell(app);
     // Who draws a page and who draws a folder, before `ose.init`: the router mounts with the
     // shell, and the first thing it may be asked for is either.
     await initPageHost();

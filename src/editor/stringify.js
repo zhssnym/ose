@@ -122,8 +122,8 @@ export function detectLineBreak(text) {
   let slash = 0;
   for (let i = 0; i + 1 < lines.length; i++) {
     if (inCode[i] || inCode[i + 1]) continue;
-    const line = lines[i].replace(/\r$/, '');
-    const next = lines[i + 1].replace(/\r$/, '');
+    const line = (lines[i] ?? '').replace(/\r$/, '');
+    const next = (lines[i + 1] ?? '').replace(/\r$/, '');
     if (!next.trim() || !line.trim()) continue;
     if (/^\s*(?:>[ \t]?)*\s*(?:#{1,6}[ \t]|\|)/.test(line) || isTableRow(line)) continue;
     if (/\S[ \t]*$/.test(line) && / {2,}$/.test(line)) spaces++;
@@ -454,16 +454,16 @@ function verbatimByFence(lines) {
     }
     if (mark) {
       out[i] = true;
-      const close = /^(`{3,}|~{3,})[ \t]*$/.exec(line);
-      if (close && close[1][0] === mark && close[1].length >= size) { mark = ''; size = 0; }
+      const close = /^(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1];
+      if (close && close[0] === mark && close.length >= size) { mark = ''; size = 0; }
       continue;
     }
-    const open = /^(`{3,}|~{3,})(.*)$/.exec(line);
+    const [, run = '', info = ''] = /^(`{3,}|~{3,})(.*)$/.exec(line) || [];
     // A backtick fence's info string cannot hold a backtick, so ```a``` is a code span.
-    if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+    if (run && !(run[0] === '`' && info.includes('`'))) {
       out[i] = true;
-      mark = open[1][0];
-      size = open[1].length;
+      mark = run.charAt(0);
+      size = run.length;
       continue;
     }
     if (!opensDisplay(line)) continue;
@@ -782,18 +782,18 @@ function reconcileLines(out, original, opt = {}) {
 
   let result = '';
   for (let j = 0; j < B.items.length; j++) {
-    const i = map[j];
+    const i = map[j] ?? -1;
     // The original's spacing only describes this boundary when both sides of it survived and
     // were adjacent in the original; anywhere the user inserted something, keep remark's.
     // `map[j - 1]` is -1 for an inserted line, and -1 === i - 1 when i is 0: an insert above
     // the first line would take the first line's leading gap as its own (C11). Both sides survive.
-    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : map[j - 1] >= 0 && map[j - 1] === i - 1);
-    const gap = keepsBoundary ? A.gaps[i] : B.gaps[j];
+    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : (map[j - 1] ?? -1) >= 0 && map[j - 1] === i - 1);
+    const gap = (keepsBoundary ? A.gaps[i] : B.gaps[j]) ?? 0;
     result += '\n'.repeat(j === 0 ? gap : gap + 1);
     result += i >= 0 && restoreLines ? A.items[i] : B.items[j];
   }
   const last = map[B.items.length - 1];
-  const tail = last === A.items.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1];
+  const tail = (last === A.items.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1]) ?? 0;
   return result + '\n'.repeat(tail);
 }
 
@@ -868,30 +868,33 @@ export function blocks(text) {
   const gaps = [];
   const gapLines = [];      // the blank lines themselves, spaces and all (L1)
   let gap = 0;
+  /** @type {string[]} */
   let blank = [];
+  /** @type {{ start: number, end: number, lines: string[], code: boolean } | null} */
   let cur = null;
   let container = false;    // a list item or a footnote is still open above
   const close = () => { if (cur) { container = leavesContainer(cur, container); list.push(cur); cur = null; } };
   /** The next line with text in it after `i` is indented as code. */
   const codeGoesOn = (i) => {
     let k = i + 1;
-    while (k < lines.length && !lines[k].trim()) k++;
+    while (k < lines.length && !lines[k]?.trim()) k++;
     return k < lines.length && indentCols(lines[k]) >= 4;
   };
   for (let i = 0; i < lines.length; i++) {
-    const inFence = fence(lines[i]);
-    if (!inFence && !lines[i].trim()) {
-      if (cur && cur.code && codeGoesOn(i)) { cur.lines.push(lines[i]); cur.end = i; continue; }
-      close(); gap++; blank.push(lines[i]); continue;
+    const line = lines[i] ?? '';
+    const inFence = fence(line);
+    if (!inFence && !line.trim()) {
+      if (cur && cur.code && codeGoesOn(i)) { cur.lines.push(line); cur.end = i; continue; }
+      close(); gap++; blank.push(line); continue;
     }
-    const rule = !inFence && BREAK_LINE.test(lines[i]);
+    const rule = !inFence && BREAK_LINE.test(line);
     if (rule && !isParagraphLine(lines[i - 1])) close();   // a thematic break, not an underline
     if (!cur) {
-      cur = { start: i, end: i, lines: [], code: !inFence && !container && indentCols(lines[i]) >= 4 };
+      cur = { start: i, end: i, lines: [], code: !inFence && !container && indentCols(line) >= 4 };
       gaps.push(gap); gapLines.push(blank); gap = 0; blank = [];
     }
-    if (cur.code && (inFence || indentCols(lines[i]) < 4)) cur.code = false;
-    cur.lines.push(lines[i]);
+    if (cur.code && (inFence || indentCols(line) < 4)) cur.code = false;
+    cur.lines.push(line);
     cur.end = i;
     if (rule) close();                                     // and nothing follows it in its block
   }
@@ -1123,22 +1126,25 @@ function matchBlocks(A, B, canon, bLines, tailsAgree = true) {
     const na = Math.min(A.length - i, RESYNC_SPAN);
     const nb = Math.min(B.length - j, RESYNC_SPAN);
     const L = Array.from({ length: na + 1 }, () => new Int32Array(nb + 1));
-    const after = (a, b, k) => (b + k + 1 <= nb ? L[a + 1][b + k + 1] : 0);
+    /** A cell of the table; every index the walk reads is inside it. */
+    const at = (a, b) => L[a]?.[b] ?? 0;
+    const after = (a, b, k) => (b + k + 1 <= nb ? at(a + 1, b + k + 1) : 0);
     for (let a = na - 1; a >= 0; a--) {
+      const row = /** @type {Int32Array} */ (L[a]);
       for (let b = nb - 1; b >= 0; b--) {
-        let v = Math.max(L[a + 1][b], L[a][b + 1]);
+        let v = Math.max(at(a + 1, b), at(a, b + 1));
         const k = sameAt(i + a, j + b);
         if (k >= 0) v = Math.max(v, 1 + after(a, b, k));
-        L[a][b] = v;
+        row[b] = v;
       }
     }
-    if (!L[0][0]) return null;
+    if (!at(0, 0)) return null;
     let a = 0;
     let b = 0;
     while (a < na && b < nb) {
       const k = sameAt(i + a, j + b);
-      if (k >= 0 && (a || b) && 1 + after(a, b, k) === L[a][b]) return { di: a, dj: b };
-      if (L[a + 1][b] >= L[a][b + 1]) a++;
+      if (k >= 0 && (a || b) && 1 + after(a, b, k) === at(a, b)) return { di: a, dj: b };
+      if (at(a + 1, b) >= at(a, b + 1)) a++;
       else b++;
     }
     return null;
@@ -1235,9 +1241,10 @@ function reconcileBlocks(out, original, rawCanon) {
   let result = '';
   let prev = -1;      // the original block the last piece of output came from
   let first = true;
+  /** @type {{ at: number, text: string, restored: boolean, next: string } | null} */
   let last = null;    // the last piece written: { at, text, restored }
-  for (let j = 0; j < B.list.length; j += span[j] + 1) {
-    const p = from[j];
+  for (let j = 0; j < B.list.length; j += (span[j] ?? 0) + 1) {
+    const p = from[j] ?? -1;
     // The original's blank lines describe this boundary only when both sides of it survived
     // and were adjacent in the original; anywhere the user inserted something, keep remark's.
     // `prev` is -1 after an inserted block, and -1 === p - 1 when p is 0: a paragraph typed
@@ -1245,8 +1252,8 @@ function reconcileBlocks(out, original, rawCanon) {
     // had the whole file rewritten in remark's house style (C11). Both sides have to be the file's.
     const keepsBoundary = p >= 0 && (first ? p === 0 : prev >= 0 && prev === p - 1);
     if (keepsGap(keepsBoundary, A.gaps[p], B.gaps[j], first)) result += spellGap(A.gapLines[p], first, false);
-    else result += '\n'.repeat(first ? B.gaps[j] : B.gaps[j] + 1);
-    const next = bLines.slice(B.list[j].start, B.list[j + span[j]].end + 1).join('\n');
+    else result += '\n'.repeat(first ? (B.gaps[j] ?? 0) : (B.gaps[j] ?? 0) + 1);
+    const next = bLines.slice(B.list[j].start, B.list[j + (span[j] ?? 0)].end + 1).join('\n');
     let restored = p >= 0 && unchanged[j] === 1;
     if (restored && swapped[j]) {
       // This list is the file's own, and mdast gave it the other marker only to keep it apart
@@ -1255,7 +1262,7 @@ function reconcileBlocks(out, original, rawCanon) {
       // When it is not, this block is written the way the serializer wrote it.
       const mine = bulletOf(A.list[p].text);
       const clash = !!last && TOP_BULLET.test(last.text) && bulletOf(last.text) === mine;
-      if (clash && !last.restored) {
+      if (clash && last && !last.restored) {
         const other = mine === '-' ? '*' : '-';
         const moved = rebullet(last.text, other);
         result = result.slice(0, last.at) + moved + result.slice(last.at + last.text.length);
@@ -1290,7 +1297,7 @@ function reconcileBlocks(out, original, rawCanon) {
   const bTail = B.gaps[B.gaps.length - 1];
   return result + (keepsGap(true, aTail, bTail, false)
     ? spellGap(A.gapLines[A.gapLines.length - 1], false, true)
-    : '\n'.repeat(bTail));
+    : '\n'.repeat(bTail ?? 0));
 }
 
 /**
@@ -1419,25 +1426,26 @@ function restoreLinesIn(next, prev) {
   const indentOf = (l) => (/^[ \t]*/.exec(l) || [''])[0];
   const widths = new Map();
   for (let j = 0; j < B.items.length; j++) {
-    if (map[j] < 0) continue;
+    const i = map[j] ?? -1;
+    if (i < 0) continue;
     const w = indentOf(B.items[j]).length;
-    if (!widths.has(w)) widths.set(w, indentOf(A.items[map[j]]));
+    if (!widths.has(w)) widths.set(w, indentOf(A.items[i]));
   }
 
   let result = '';
   for (let j = 0; j < B.items.length; j++) {
-    const i = map[j];
+    const i = map[j] ?? -1;
     // `map[j - 1]` is -1 for an inserted line, and -1 === i - 1 when i is 0: an insert above
     // the first line would take the first line's leading gap as its own (C11). Both sides survive.
     // And the file's spelling of a boundary only stands while it holds the same space
     // (`keepsGap`): an empty paragraph put between a paragraph and the list glued under it is
     // two blank lines the file never had, and taking the file's none for them dropped the
     // paragraph, failed the check and wrote the whole block in remark's spelling.
-    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : map[j - 1] >= 0 && map[j - 1] === i - 1);
-    const gap = keepsGap(keepsBoundary, A.gaps[i], B.gaps[j], j === 0) ? A.gaps[i] : B.gaps[j];
+    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : (map[j - 1] ?? -1) >= 0 && map[j - 1] === i - 1);
+    const gap = (keepsGap(keepsBoundary, A.gaps[i], B.gaps[j], j === 0) ? A.gaps[i] : B.gaps[j]) ?? 0;
     result += '\n'.repeat(j === 0 ? gap : gap + 1);
     if (i >= 0) { result += A.items[i]; continue; }
-    const line = B.items[j];
+    const line = B.items[j] ?? '';
     const ind = indentOf(line);
     const want = widths.get(ind.length);
     result += want !== undefined && want !== ind ? want + line.slice(ind.length) : line;
@@ -1449,7 +1457,7 @@ function restoreLinesIn(next, prev) {
   const aTail = A.gaps[A.gaps.length - 1];
   const bTail = B.gaps[B.gaps.length - 1];
   const tail = keepsGap(last === A.items.length - 1, aTail, bTail, false) ? aTail : bTail;
-  return result + '\n'.repeat(tail);
+  return result + '\n'.repeat(tail ?? 0);
 }
 
 /** Map a function over the lines of a block, leaving fenced code alone. */
@@ -1571,23 +1579,23 @@ export function detectStyle(text) {
   let seenIndent = false;
   let seenQuote = false;
   for (const line of lines) {
-    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     const inFence = fence(line);
-    if (f) { style.fence = f[1][0]; continue; }
+    if (f) { style.fence = f.charAt(0); continue; }
     if (inFence) continue;
     // A frame is `>>` in this vault and `> >` in remark's output (M25). The file decides.
-    const quote = QUOTE_RUN.exec(line);
-    if (quote && !seenQuote && (quote[2].match(/>/g) || []).length > 1) {
-      style.quote = /^>>/.test(quote[2]) ? '>>' : '> >';
+    const quote = QUOTE_RUN.exec(line)?.[2];
+    if (quote && !seenQuote && (quote.match(/>/g) || []).length > 1) {
+      style.quote = /^>>/.test(quote) ? '>>' : '> >';
       seenQuote = true;
     }
-    const rule = /^\s{0,3}((?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.exec(line);
-    if (rule) { style.rule = rule[1].trimEnd(); continue; }
-    const item = /^([ \t]*)([-*+]|\d+[.)])[ \t]/.exec(line);
-    if (!item) continue;
-    if (/[-*+]/.test(item[2]) && !seenBullet) { style.bullet = item[2]; seenBullet = true; }
-    if (/\d/.test(item[2])) style.ordered = item[2].slice(-1);
-    if (item[1] && !seenIndent) { style.indent = item[1].replace(/\t/g, '    ').length; seenIndent = true; }
+    const rule = /^\s{0,3}((?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.exec(line)?.[1];
+    if (rule) { style.rule = rule.trimEnd(); continue; }
+    const [, lead = '', marker = ''] = /^([ \t]*)([-*+]|\d+[.)])[ \t]/.exec(line) || [];
+    if (!marker) continue;
+    if (/[-*+]/.test(marker) && !seenBullet) { style.bullet = marker; seenBullet = true; }
+    if (/\d/.test(marker)) style.ordered = marker.slice(-1);
+    if (lead && !seenIndent) { style.indent = lead.replace(/\t/g, '    ').length; seenIndent = true; }
   }
   return style;
 }
@@ -1736,7 +1744,8 @@ function restoreRows(next, prev) {
   const ak = a.slice(2).map(lineKey);
   const map = align(ak, bk, 200);
   for (let j = 0; j < bk.length; j++) {
-    out[j + 2] = map[j] >= 0 ? a[map[j] + 2]
+    const mj = map[j] ?? -1;
+    out[j + 2] = mj >= 0 ? a[mj + 2]
       : repad(b[j + 2], a[Math.min(j, ak.length - 1) + 2] || a[2]);
   }
   return out.join('\n');
@@ -1754,7 +1763,8 @@ function repad(next, prev) {
   if (nc.length !== pc.length) return next;
   const indent = (/^\s*/.exec(prev) || [''])[0];
   const cells = pc.map((old, k) => {
-    const m = /^([ \t]*)[\s\S]*?([ \t]*)$/.exec(old);
+    // Always matches; the fallback only tells the checker so.
+    const m = /^([ \t]*)[\s\S]*?([ \t]*)$/.exec(old) || ['', '', ''];
     const body = nc[k].trim();
     const left = m[1] || (body ? ' ' : ' ');
     const pad = old.length - left.length - body.length;
@@ -1807,6 +1817,7 @@ function restoreTables(out, original) {
   for (let k = a.blocks.length - 1; k >= 0; k--) {
     const A = a.blocks[k];
     const B = b.blocks[k];
+    if (!A || !B) continue;
     if (tableSignature(a.lines, A.start, A.end) !== tableSignature(b.lines, B.start, B.end)) continue;
     lines.splice(A.start, A.end - A.start + 1, ...b.lines.slice(B.start, B.end + 1));
     changed = true;

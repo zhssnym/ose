@@ -47,17 +47,17 @@ export function headingLine(text, heading) {
   const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
   let fence = null;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i] ?? '';
     const f = /^[ \t]{0,3}(```+|~~~+)/.exec(line);
     if (f) {
-      if (!fence) fence = f[1][0];
+      if (!fence) fence = (f[1] ?? '').charAt(0);
       else if (line.trim().startsWith(fence)) fence = null;
       continue;
     }
     if (fence) continue;
     const h = /^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line);
     if (!h) continue;
-    const title = h[1].replace(/\s+/g, ' ').trim();
+    const title = (h[1] ?? '').replace(/\s+/g, ' ').trim();
     if (headingSlug(title) === slug || title.toLowerCase() === raw) return i + 1;
   }
   return 0;

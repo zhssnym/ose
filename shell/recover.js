@@ -20,6 +20,14 @@ let openOv = null;
 
 const drafts = () => ose.files.drafts;
 
+/**
+ * A caught value as the two fields this file reads from it: an object as it is, anything else
+ * as none.
+ * @param {unknown} e
+ * @returns {{code?: unknown, message?: unknown}}
+ */
+const fieldsOf = (e) => (e && typeof e === 'object' ? e : {});
+
 /** `DraftInfo[]`, newest first, or [] when there are none or the host cannot say. */
 async function listDrafts() {
   const d = drafts();
@@ -40,7 +48,7 @@ function when(at) {
   if (!+d) return '';
   const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const day = new Date(); day.setHours(0, 0, 0, 0);
-  const diff = Math.round((day - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  const diff = Math.round((day.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
   if (diff === 0) return `today ${time}`;
   if (diff === 1) return `yesterday ${time}`;
   return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} ${time}`;
@@ -54,7 +62,7 @@ function when(at) {
 async function saveAs(info) {
   const d = drafts();
   let draft = null;
-  try { draft = await d.read(info.path); } catch (e) { toast(`could not read the recovered text: ${e.message || e}`, 'err', 0); return false; }
+  try { draft = await d.read(info.path); } catch (e) { toast(`could not read the recovered text: ${fieldsOf(e).message || e}`, 'err', 0); return false; }
   if (!draft || typeof draft.text !== 'string') { toast('the recovered text is gone', 'err', 0); return false; }
   // A file that was outside the vault (X7) is saved into the vault root by its own name.
   let value = isOutside(info.path) ? baseName(info.path) : clean(info.path);
@@ -78,8 +86,9 @@ async function saveAs(info) {
       await route.navigate({ type: 'page', path });
       return true;
     } catch (e) {
-      if (e && (e.code === 'exists' || e.code === 'bad_name')) { reason = `${e.message}.`; continue; }
-      toast(`could not save the recovered text: ${e && e.message ? e.message : e}`, 'err', 0);
+      const err = fieldsOf(e);
+      if (err.code === 'exists' || err.code === 'bad_name') { reason = `${err.message}.`; continue; }
+      toast(`could not save the recovered text: ${err.message ? err.message : e}`, 'err', 0);
       return false;
     }
   }
@@ -120,7 +129,7 @@ async function discard(info) {
     const run = commands.run('page.discard-changes');
     if (run !== undefined) {
       try { await run; } catch (e) {
-        toast(`could not discard: ${e && e.message ? e.message : e}`, 'err', 0);
+        toast(`could not discard: ${fieldsOf(e).message || e}`, 'err', 0);
         return false;
       }
       // What decides is whether the draft is gone, not what the page answered: a Cancel on the
@@ -135,7 +144,7 @@ async function discard(info) {
   });
   if (!ok) return false;
   try { await drafts().drop(info.path); return true; } catch (e) {
-    toast(`could not discard: ${e && e.message ? e.message : e}`, 'err', 0);
+    toast(`could not discard: ${fieldsOf(e).message || e}`, 'err', 0);
     return false;
   }
 }
@@ -180,8 +189,9 @@ export async function showRecovered() {
   };
   paint();
 
-  const rows = () => [...ov.box.querySelectorAll('.rec-row')];
-  const focusAt = (i) => { const r = rows(); if (r.length) r[Math.max(0, Math.min(i, r.length - 1))].focus(); };
+  // The rows are the buttons `paint` writes.
+  const rows = () => [.../** @type {NodeListOf<HTMLButtonElement>} */ (ov.box.querySelectorAll('.rec-row'))];
+  const focusAt = (i) => { const r = rows(); const row = r[Math.max(0, Math.min(i, r.length - 1))]; if (row) row.focus(); };
 
   const act = async (i) => {
     const x = items[i];
@@ -197,14 +207,17 @@ export async function showRecovered() {
   };
 
   ov.box.addEventListener('click', (e) => {
-    if (e.target.closest('[data-act="close"]')) { ov.close(); return; }
-    const row = e.target.closest('.rec-row');
-    if (row) void act(+row.dataset.i);
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('[data-act="close"]')) { ov.close(); return; }
+    /** @type {HTMLElement|null} */
+    const row = t.closest('.rec-row');
+    if (row) void act(Number(row.dataset.i));
   });
   ov.box.addEventListener('keydown', async (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const r = rows();
-    const at = r.indexOf(document.activeElement);
+    const at = r.findIndex((b) => b === document.activeElement);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       focusAt(at < 0 ? 0 : (at + (e.key === 'ArrowDown' ? 1 : -1) + r.length) % r.length);

@@ -200,7 +200,8 @@ export function leaveWindow(reason) {
     let problem = 'a handler answered no';
     try {
       ok = await runHandlers(why);
-    } catch (e) {
+    } catch (err) {
+      const e = /** @type {{ code?: string, message?: string }} */ (err);
       ok = false;
       problem = String((e && e.message) || e);
     }

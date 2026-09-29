@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // Round-trip harness: every *.md in the vault is parsed into a ProseMirror document and
 // serialised straight back, with no user edit in between, and compared to the original.
 // A difference here is a difference the editor would write to a real file, so this is the
@@ -30,12 +31,21 @@ import { postProcess } from './stringify.js';
 // tells Vite the full reload it is about to do belongs to some other page (Vite only reloads
 // when the `.html` in the payload is the one on screen). The page therefore keeps running the
 // code it started with: press the browser's reload to pick up an edit.
+// `import.meta.hot` is Vite's (typed by the vite/client reference at the top), and it stays
+// spelt out: Vite finds the self-accept by that text.
 if (import.meta.hot) {
   import.meta.hot.accept(() => {});
   import.meta.hot.on('vite:beforeFullReload', (p) => { p.path = '/__harness_is_running__.html'; });
 }
 
-const $ = (id) => document.getElementById(id);
+/** An element of the harness page: every id asked for is one the page has. */
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
+/** `window`, where the page hangs its console handles (`__runHarness()` and the rest). */
+const win = /** @type {Record<string, unknown>} */ (/** @type {object} */ (window));
+/** A caught error as text: its message, or the thing itself when it has none. */
+const messageOf = (e) => String((e && typeof e === 'object' && 'message' in e && e.message) || e);
+/** A caught error's stack, or nothing. */
+const stackOf = (e) => (e && typeof e === 'object' && 'stack' in e && e.stack) || '';
 const norm = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '') + '\n';
 
 const isTableRow = (l) => /^\s*\|/.test(l);
@@ -489,18 +499,21 @@ function diff(a, b, max = 4) {
   const n = A.length, m = B.length;
   if (n * m > 4_000_000) return ['(file too large for a line diff)'];
   const dp = new Uint32Array((n + 1) * (m + 1));
+  // Every index asked for is inside the table.
+  const at = (i, j) => /** @type {number} */ (dp[i * (m + 1) + j]);
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       dp[i * (m + 1) + j] = A[i] === B[j]
-        ? dp[(i + 1) * (m + 1) + j + 1] + 1
-        : Math.max(dp[(i + 1) * (m + 1) + j], dp[i * (m + 1) + j + 1]);
+        ? at(i + 1, j + 1) + 1
+        : Math.max(at(i + 1, j), at(i, j + 1));
     }
   }
+  /** @type {[string, string | undefined][]} */
   const ops = [];
   let i = 0, j = 0;
   while (i < n && j < m) {
     if (A[i] === B[j]) { ops.push([' ', A[i]]); i++; j++; }
-    else if (dp[(i + 1) * (m + 1) + j] >= dp[i * (m + 1) + j + 1]) { ops.push(['-', A[i++]]); }
+    else if (at(i + 1, j) >= at(i, j + 1)) { ops.push(['-', A[i++]]); }
     else { ops.push(['+', B[j++]]); }
   }
   while (i < n) ops.push(['-', A[i++]]);
@@ -508,14 +521,16 @@ function diff(a, b, max = 4) {
 
   const out = [];
   let hunks = 0;
+  // Every index read below is inside `ops`.
+  const op = (k) => /** @type {[string, string | undefined]} */ (ops[k]);
   for (let k = 0; k < ops.length && hunks < max; k++) {
-    if (ops[k][0] === ' ') continue;
+    if (op(k)[0] === ' ') continue;
     const start = Math.max(0, k - 1);
     let end = k;
-    while (end + 1 < ops.length && (ops[end + 1][0] !== ' ' || (ops[end + 2] && ops[end + 2][0] !== ' '))) end++;
+    while (end + 1 < ops.length && (op(end + 1)[0] !== ' ' || (ops[end + 2] && op(end + 2)[0] !== ' '))) end++;
     end = Math.min(ops.length - 1, end + 1);
     out.push(`@@ line ${start + 1} @@`);
-    for (let x = start; x <= end; x++) out.push(ops[x][0] + ops[x][1]);
+    for (let x = start; x <= end; x++) out.push(op(x)[0] + op(x)[1]);
     hunks++;
     k = end;
   }
@@ -599,8 +614,8 @@ async function ready() {
   if (crepe) return crepe;
   $('state').textContent = 'starting editor…';
   crepe = await makeCrepe({ root: $('stage'), markdown: '', slashCommands: false });
-  window.__crepe = crepe;
-  window.__rt = (md, original) => roundTrip(crepe, md, original);
+  win.__crepe = crepe;
+  win.__rt = (md, original) => roundTrip(crepe, md, original);
   return crepe;
 }
 
@@ -611,14 +626,20 @@ async function files() {
 // ---------------------------------------------------------------------------
 // Run 1: open + save, no edit.
 
+/**
+ * @typedef {{path: string, todo?: boolean, exact?: boolean, lenient?: boolean,
+ *   diff?: string[] | null, bytes?: number, error?: string}} Result
+ */
+
 async function run() {
   await ready();
   const list = await files();
+  /** @type {Result[]} */
   const results = [];
   const t0 = performance.now();
 
   for (const f of FIXTURES) {
-    try { results.push(runFixture(f)); } catch (e) { results.push({ path: f.path, todo: !!f.todo, error: String(e.message || e) + '\n' + (e.stack || '') }); }
+    try { results.push(runFixture(f)); } catch (e) { results.push({ path: f.path, todo: !!f.todo, error: messageOf(e) + '\n' + stackOf(e) }); }
   }
 
   for (let i = 0; i < list.length; i++) {
@@ -626,7 +647,7 @@ async function run() {
     $('state').textContent = `${i}/${list.length} ${path}`;
     await new Promise((r) => setTimeout(r));
     let raw;
-    try { raw = await bridge.readText(path); } catch (e) { results.push({ path, error: String(e.message || e) }); continue; }
+    try { raw = await bridge.readText(path); } catch (e) { results.push({ path, error: messageOf(e) }); continue; }
     try {
       const doc = parseDoc(raw);
       const body = roundTrip(crepe, doc.body);
@@ -635,7 +656,7 @@ async function run() {
       const lenient = norm(raw) === norm(rebuilt);
       results.push({ path, exact, lenient, diff: exact ? null : diff(raw, rebuilt, 200), bytes: raw.length });
     } catch (e) {
-      results.push({ path, error: String(e.message || e) + '\n' + (e.stack || '') });
+      results.push({ path, error: messageOf(e) + '\n' + stackOf(e) });
     }
   }
 
@@ -657,15 +678,15 @@ async function run() {
   $('list').innerHTML = [...err, ...bad, ...todo.filter((r) => !r.exact && !r.error)].map((r) => `
     <details class="file">
       <summary><span class="chip ${r.error ? 'err' : r.todo ? 'info' : 'warn'}">${r.error ? 'ERROR' : r.todo ? 'TODO' : 'DIFF'}</span> ${esc(r.path)}${r.lenient && !r.exact ? ' <span class="ctxln">(lenient: same)</span>' : ''}</summary>
-      <pre>${r.error ? esc(r.error) : renderDiff(r.diff.slice(0, 120))}</pre>
+      <pre>${r.error ? esc(r.error) : renderDiff(/** @type {string[]} */ (r.diff).slice(0, 120))}</pre>
     </details>`).join('');
 
-  window.__results = results;
-  window.__classify = () => {
+  win.__results = results;
+  win.__classify = () => {
     const buckets = new Map();
     for (const r of bad) {
-      for (let k = 0; k < r.diff.length; k++) {
-        const l = r.diff[k];
+      // A file that came back different carries its diff.
+      for (const l of /** @type {string[]} */ (r.diff)) {
         if (l[0] !== '-' && l[0] !== '+') continue;
         const key = classify(l);
         if (!buckets.has(key)) buckets.set(key, { n: 0, ex: [] });
@@ -730,17 +751,17 @@ async function runEdits(opt = {}) {
     const offset = head ? head.split('\n').length - 1 : 0;
     const file = (body) => composeDoc(doc, { title: doc.title, body });
     stats.files++;
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
+    for (const [i, line] of lines.entries()) {
+      if (!line.trim()) continue;
       if (opt.max && stats.edits >= opt.max) break;
       const edited = lines.slice();
       edited[i] = typeInto(edited[i]);
       const expected = file(edited.join('\n'));
       let got;
-      try { got = file(roundTrip(crepe, edited.join('\n'), doc.body, opt)); } catch (e) { got = 'ERROR ' + String(e.message || e); }
+      try { got = file(roundTrip(crepe, edited.join('\n'), doc.body, opt)); } catch (e) { got = 'ERROR ' + messageOf(e); }
       const d = editDelta(expected, got, offset + i);
       stats.edits++;
-      const onTable = isTableRow(lines[i]);
+      const onTable = isTableRow(line);
       if (onTable) stats.tableEdits++;
       if (d.exact) { stats.exact++; continue; }
       stats.dirty++;
@@ -751,12 +772,12 @@ async function runEdits(opt = {}) {
       // One bucket each, decided by the line the user was on, so the three add up to `spread`.
       if (d.collateral > 0) {
         stats.spread++;
-        if (isMarkerLine(lines[i])) stats.spreadMarker++;
+        if (isMarkerLine(line)) stats.spreadMarker++;
         else if (onTable) stats.spreadTable++;
         else stats.spreadOther++;
       }
       if (onTable || d.table) stats.tableDirty++;
-      if (d.collateral > 0 && examples.length < 40) examples.push({ path, line: i + 1, src: lines[i].slice(0, 90), collateral: d.collateral, table: d.table, sample: d.sample });
+      if (d.collateral > 0 && examples.length < 40) examples.push({ path, line: i + 1, src: line.slice(0, 90), collateral: d.collateral, table: d.table, sample: d.sample });
     }
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ next: f + 1, stats, examples })); } catch {}
     if (f % 5 === 0) {
@@ -779,8 +800,8 @@ async function runEdits(opt = {}) {
       <summary><span class="chip warn">${e.collateral}</span> ${esc(e.path)}:${e.line} ${esc(e.src)}</summary>
       <pre>${renderDiff(e.sample)}</pre>
     </details>`).join('');
-  window.__editStats = stats;
-  window.__editExamples = examples;
+  win.__editStats = stats;
+  win.__editExamples = examples;
   console.log('[harness edits]', stats);
   return stats;
 }
@@ -790,14 +811,14 @@ $('runEdits').onclick = () => runEdits();
 $('runLegacy').onclick = () => runEdits({ legacy: true });
 
 /** Fixtures only, for a quick check from the console: `await __runFixtures()`. */
-window.__runFixtures = async () => {
+win.__runFixtures = async () => {
   await ready();
-  return FIXTURES.map((f) => { try { return runFixture(f); } catch (e) { return { path: f.path, todo: !!f.todo, error: String(e.message || e) }; } });
+  return FIXTURES.map((f) => { try { return runFixture(f); } catch (e) { return { path: f.path, todo: !!f.todo, error: messageOf(e) }; } });
 };
 $('theme').onclick = () => {
   const d = document.documentElement.dataset.theme === 'dark';
   document.documentElement.dataset.theme = d ? 'light' : 'dark';
   try { localStorage.setItem('os.theme', document.documentElement.dataset.theme); } catch {}
 };
-window.__runHarness = run;
-window.__runEdits = runEdits;
+win.__runHarness = run;
+win.__runEdits = runEdits;

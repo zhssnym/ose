@@ -142,7 +142,8 @@ export async function undo(id) {
   let failed;
   try {
     failed = await undoSteps(entry.steps.slice().reverse());
-  } catch (e) {
+  } catch (err) {
+    const e = /** @type {{ code?: string, message?: string }} */ (err);
     failed = [{ step: null, error: String((e && e.message) || e) }];
   } finally {
     entry.busy = false;

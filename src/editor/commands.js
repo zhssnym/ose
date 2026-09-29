@@ -315,6 +315,7 @@ const def = (id, title, group, run, when) => routed({ id, title, group, run, whe
 export function registerCommands(editorApi) {
   api = editorApi;
 
+  /** @type {Array<[string, string, import('@milkdown/kit/utils').$Command<unknown>]>} */
   const marks = [
     ['format.bold', 'Bold', toggleStrongCommand],
     ['format.italic', 'Italic', toggleEmphasisCommand],
@@ -589,7 +590,7 @@ function handleTextInput(ctx, v, from, to, text) {
     if (!m) return false;
     const start = sel.$from.pos - before.length;
     v.dispatch(state.tr.delete(start, sel.$from.pos));
-    wrapInto(ctx, listItemSchema.type, { checked: m[1].toLowerCase() === 'x' }, true);
+    wrapInto(ctx, listItemSchema.type, { checked: (m[1] ?? '').toLowerCase() === 'x' }, true);
     return true;
   }
   return false;

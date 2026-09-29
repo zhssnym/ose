@@ -123,7 +123,7 @@ export function rankFiles(hits, terms, mtimeOf = (p) => mtimes.get(p) || 0) {
   }
   const files = [...byPath.values()];
   // A name hit is drawn first in its file, then the lines in the order they come in the file.
-  for (const f of files) f.hits.sort((a, b) => (isNameHit(b) - isNameHit(a)) || ((a.line || 0) - (b.line || 0)));
+  for (const f of files) f.hits.sort((a, b) => (Number(isNameHit(b)) - Number(isNameHit(a))) || ((a.line || 0) - (b.line || 0)));
   files.sort((a, b) => (a.rank - b.rank) || (mtimeOf(b.path) - mtimeOf(a.path)) || a.path.localeCompare(b.path));
   return files;
 }
@@ -168,9 +168,10 @@ function mountSearch(el, start = {}) {
       <div class="sp-list" id="sp-list" role="listbox" aria-label="Results"></div>
     </div>`;
 
-  const input = el.querySelector('.sp-input');
-  const list = el.querySelector('.sp-list');
-  const meta = el.querySelector('.sp-meta');
+  // All three drawn just above.
+  const input = /** @type {HTMLInputElement} */ (el.querySelector('.sp-input'));
+  const list = /** @type {HTMLElement} */ (el.querySelector('.sp-list'));
+  const meta = /** @type {HTMLElement} */ (el.querySelector('.sp-meta'));
 
   let rows = [];          // the hits in drawn order: what ArrowUp/Down walk
   let files = [];
@@ -297,7 +298,7 @@ function mountSearch(el, start = {}) {
     } catch (e) {
       if (my !== seq || unmounted) return;
       rows = []; files = []; note = ''; summary = '';
-      paint('Search failed: ' + (e.message || e));
+      paint('Search failed: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e));
     }
   }, 150);
 
@@ -333,17 +334,17 @@ function mountSearch(el, start = {}) {
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); focusPage(); }
   });
   list.addEventListener('click', (e) => {
-    const row = e.target.closest('.sp-row');
+    const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.sp-row')) : null;
     if (!row) return;
-    sel = +row.dataset.i;
+    sel = Number(row.dataset.i);
     markActive();
     accept({ aside: e.ctrlKey || e.metaKey });
   });
   list.addEventListener('auxclick', (e) => {
-    const row = e.target.closest('.sp-row');
+    const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.sp-row')) : null;
     if (!row || e.button !== 1) return;
     e.preventDefault();
-    sel = +row.dataset.i;
+    sel = Number(row.dataset.i);
     markActive();
     accept({ aside: true });
   });

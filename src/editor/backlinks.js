@@ -41,9 +41,9 @@ function build(path) {
     </button>
     <div class="ed-bl-list" role="list" hidden></div>`;
 
-  const head = box.querySelector('.ed-bl-head');
-  const list = box.querySelector('.ed-bl-list');
-  const nEl = box.querySelector('.ed-bl-n');
+  const head = /** @type {HTMLButtonElement} */ (box.querySelector('.ed-bl-head'));
+  const list = /** @type {HTMLElement} */ (box.querySelector('.ed-bl-list'));
+  const nEl = /** @type {HTMLElement} */ (box.querySelector('.ed-bl-n'));
 
   const setOpen = (open) => {
     head.setAttribute('aria-expanded', String(open));
@@ -54,11 +54,11 @@ function build(path) {
   // buttons, so Enter is the browser's).
   list.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const rows = [...list.querySelectorAll('.ed-bl-row')];
-    const at = rows.indexOf(document.activeElement);
+    const rows = /** @type {HTMLElement[]} */ ([...list.querySelectorAll('.ed-bl-row')]);
+    const at = document.activeElement instanceof HTMLElement ? rows.indexOf(document.activeElement) : -1;
     if (at < 0) return;
     e.preventDefault();
-    rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+    rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
   });
 
   return {
@@ -66,7 +66,7 @@ function build(path) {
     open() {
       if (box.hidden) return false;
       setOpen(true);
-      (list.querySelector('.ed-bl-row') || head).focus();
+      (/** @type {HTMLElement|null} */ (list.querySelector('.ed-bl-row')) || head).focus();
       return true;
     },
     paint(pages) {

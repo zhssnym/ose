@@ -40,6 +40,14 @@ function fail(code, message, extra = {}) {
 }
 
 /**
+ * What a `catch` caught, read as the coded Error the host and this file throw. Anything can be
+ * thrown, so every read of it stays guarded (`e && caught(e).code`); this only names the shape.
+ * @param {unknown} e
+ * @returns {Error & { code?: string }}
+ */
+const caught = (e) => /** @type {Error & { code?: string }} */ (e);
+
+/**
  * A file outside the vault (X7) is opened and saved where it is, and nothing else: it cannot be
  * renamed, moved, trashed or duplicated from here. The refusal says so, `code` and `reason`
  * both `outside`, and touches nothing.
@@ -64,7 +72,7 @@ async function askPage(change) {
   if (!host || typeof host.beforePathChange !== 'function') return { ok: true };
   let g;
   try { g = await host.beforePathChange(change); } catch (e) {
-    return { ok: false, reason: `the page could not be saved first: ${e && e.message ? e.message : e}` };
+    return { ok: false, reason: `the page could not be saved first: ${e && caught(e).message ? caught(e).message : e}` };
   }
   return g && g.ok === false ? g : { ok: true };
 }
@@ -136,7 +144,7 @@ async function rewrite(pairs, own = []) {
     for (const f of r.failed) if (!sum.failed.includes(f)) sum.failed.push(f);
   } catch (e) {
     console.error('[fileops] links', e);
-    sum.error = String((e && e.message) || e);
+    sum.error = String((e && caught(e).message) || e);
   }
   return sum;
 }
@@ -167,7 +175,7 @@ async function rewriteOwn(pairs) {
     Object.assign(out, { files: r.files, links: r.links, failed: r.failed, rewritten: r.rewritten || {} });
   } catch (e) {
     console.error('[fileops] own links', e);
-    out.error = String((e && e.message) || e);
+    out.error = String((e && caught(e).message) || e);
     return out;
   }
   // A file whose write failed still holds the hrefs of where it was: the inbound pass reads it
@@ -210,8 +218,8 @@ export async function create(folder, name, { text, unique = false } = {}) {
       bus.emit('paths:created', { paths: [path] });
       return { path, entry };
     } catch (e) {
-      if (e && e.code === 'exists' && unique) { path = await free(dirName(path), baseName(path)); continue; }
-      logLine(`fileops create failed ${path}: ${e && e.code} ${e && e.message}`, 'warn');
+      if (e && caught(e).code === 'exists' && unique) { path = await free(dirName(path), baseName(path)); continue; }
+      logLine(`fileops create failed ${path}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
       throw e;
     }
   }
@@ -233,7 +241,7 @@ export async function mkdir(folder, name) {
   try {
     await bridge.mkdir(path);
   } catch (e) {
-    logLine(`fileops mkdir failed ${path}: ${e && e.code} ${e && e.message}`, 'warn');
+    logLine(`fileops mkdir failed ${path}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
     throw e;
   }
   logLine(`fileops mkdir ${path}`);
@@ -289,7 +297,7 @@ async function movePath(kind, from, to) {
     await bridge.rename(from, to);
   } catch (e) {
     await tellPage({ kind, from, to, ok: false });
-    logLine(`fileops ${kind} failed ${from} -> ${to}: ${e && e.code} ${e && e.message}`, 'warn');
+    logLine(`fileops ${kind} failed ${from} -> ${to}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
     throw e;
   }
   logLine(`fileops ${kind} ${from} -> ${to}`);
@@ -332,7 +340,7 @@ async function moveQuiet(paths, folder, record) {
       pairs.push(...r.pairs);
       own.push(r.own);
     } catch (e) {
-      skipped.push({ path: from, error: e });
+      skipped.push({ path: from, error: caught(e) });
     }
   }
   if (moved.length) bus.emit('paths:moved', { moves: moved });
@@ -450,7 +458,7 @@ export async function copy(paths, folder) {
         try {
           done = await copyBytes(from, to);
         } catch (e) {
-          if (e && e.code === 'exists') { to = await free(dest, baseName(from), { dir }); continue; }
+          if (e && caught(e).code === 'exists') { to = await free(dest, baseName(from), { dir }); continue; }
           await tellPage({ kind: 'copy', from, to, ok: false });
           throw e;
         }
@@ -466,8 +474,8 @@ export async function copy(paths, folder) {
       copied.push({ from, to });
       steps.push({ op: 'copied', from, to, dir, ...print });
     } catch (e) {
-      logLine(`fileops copy failed ${from}: ${e && e.code} ${e && e.message}`, 'warn');
-      skipped.push({ path: from, error: e });
+      logLine(`fileops copy failed ${from}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
+      skipped.push({ path: from, error: caught(e) });
     }
   }
   const entry = copied.length ? journal({
@@ -519,8 +527,8 @@ async function trashQuiet(paths, record, { asked = false } = {}) {
       r = await bridge.trash(from, { mode: trashMode() });
     } catch (e) {
       await tellPage({ ...change, ok: false });
-      logLine(`fileops trash failed ${from}: ${e && e.code} ${e && e.message}`, 'warn');
-      failed.push({ path: from, error: e });
+      logLine(`fileops trash failed ${from}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
+      failed.push({ path: from, error: caught(e) });
       continue;
     }
     const id = (r && r.id) || null;
@@ -554,7 +562,7 @@ async function restoreQuiet(ids, record) {
   try {
     r = await bridge.trashRestore(list);
   } catch (e) {
-    logLine(`fileops restore failed: ${e && e.code} ${e && e.message}`, 'warn');
+    logLine(`fileops restore failed: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
     return { restored: [], failed: list.map((id) => ({ id, error: e })), entry: null };
   }
   const restored = (r && Array.isArray(r.restored) ? r.restored : []).map((x) => ({ id: x.id, path: clean(x.path) }));
@@ -609,9 +617,9 @@ export async function duplicate(path) {
       bus.emit('paths:copied', { pairs: [{ from, to: done }] });
       return { path: done, entry };
     } catch (e) {
-      if (e && e.code === 'exists') { to = await free(dirName(from), baseName(from)); continue; }
+      if (e && caught(e).code === 'exists') { to = await free(dirName(from), baseName(from)); continue; }
       await tellPage({ kind: 'copy', from, to, ok: false });
-      logLine(`fileops duplicate failed ${from}: ${e && e.code} ${e && e.message}`, 'warn');
+      logLine(`fileops duplicate failed ${from}: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
       throw e;
     }
   }
@@ -799,7 +807,7 @@ async function stillSame(path, step) {
       return st.size === step.size && st.mtime === step.mtime;
     }
   } catch (e) {
-    if (e && e.code === 'not_found') return null;
+    if (e && caught(e).code === 'not_found') return null;
     return false;
   }
   return true;
@@ -859,8 +867,8 @@ export async function undoSteps(steps) {
         }
       }
     } catch (e) {
-      logLine(`fileops undo ${step.op} failed: ${e && e.code} ${e && e.message}`, 'warn');
-      failed.push({ step, error: (e && e.message) || String(e) });
+      logLine(`fileops undo ${step.op} failed: ${e && caught(e).code} ${e && caught(e).message}`, 'warn');
+      failed.push({ step, error: (e && caught(e).message) || String(e) });
     }
   }
   return failed;

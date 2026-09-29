@@ -83,17 +83,20 @@ function mountTrash(host) {
     <div class="tr-note"></div>
   </div>
 </div>`;
-  const root = host.querySelector('.view-root');
-  const listEl = root.querySelector('.tr-list');
-  const sayEl = root.querySelector('.tr-say');
-  const countEl = root.querySelector('.tr-count');
-  const noteEl = root.querySelector('.tr-note');
-  const restoreBtn = root.querySelector('.tr-restore');
+  // Every element below was written just above, so none of them is null.
+  const root = /** @type {HTMLElement} */ (host.querySelector('.view-root'));
+  const listEl = /** @type {HTMLElement} */ (root.querySelector('.tr-list'));
+  const sayEl = /** @type {HTMLElement} */ (root.querySelector('.tr-say'));
+  const countEl = /** @type {HTMLElement} */ (root.querySelector('.tr-count'));
+  const noteEl = /** @type {HTMLElement} */ (root.querySelector('.tr-note'));
+  const restoreBtn = /** @type {HTMLButtonElement} */ (root.querySelector('.tr-restore'));
+  const colsEl = /** @type {HTMLElement} */ (root.querySelector('.tr-cols'));
+  const restoreLabel = /** @type {HTMLElement} */ (restoreBtn.querySelector('span'));
 
   function draw() {
     sayEl.textContent = loaded ? headSentence(items) : 'Reading the trash…';
     countEl.textContent = loaded && items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : '';
-    root.querySelector('.tr-cols').hidden = !items.length;
+    colsEl.hidden = !items.length;
     listEl.hidden = !items.length;
     if (active >= items.length) active = Math.max(0, items.length - 1);
     listEl.innerHTML = items.map((it, i) => {
@@ -112,7 +115,7 @@ function mountTrash(host) {
     else listEl.removeAttribute('aria-activedescendant');
     restoreBtn.disabled = !targets().length;
     const n = targets().length;
-    restoreBtn.querySelector('span').textContent = n > 1 ? `Restore ${n}` : 'Restore';
+    restoreLabel.textContent = n > 1 ? `Restore ${n}` : 'Restore';
     const cur = listEl.querySelector('.tr-row.active');
     if (cur) cur.scrollIntoView({ block: 'nearest' });
   }
@@ -159,8 +162,8 @@ function mountTrash(host) {
       else toast(`${name} was not restored: ${err.message}`, 'err', 0);
     }
     const back = (res && res.restored) || [];
-    if (back.length) {
-      const first = back[0];
+    const first = back[0];
+    if (first) {
       const label = (res.entry && res.entry.label)
         || (back.length === 1 ? `Restored ${baseName(first.path)} to ${dirName(first.path) || vaultName()}` : `Restored ${back.length} items`);
       const actions = [];

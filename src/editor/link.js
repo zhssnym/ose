@@ -31,21 +31,22 @@ export function firstH1(text) {
   let i = 0;
   if (/^---[ \t]*$/.test(lines[0] || '')) {
     i = 1;
-    while (i < lines.length && !/^---[ \t]*$/.test(lines[i])) i++;
+    while (i < lines.length && !/^---[ \t]*$/.test(lines[i] ?? '')) i++;
     i++;
   }
   let fence = null;
   for (; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i] ?? '';
     const f = /^[ \t]{0,3}(```+|~~~+)/.exec(line);
     if (f) {
-      if (!fence) fence = f[1][0];
+      if (!fence) fence = f[1]?.[0] ?? null;
       else if (line.trim().startsWith(fence)) fence = null;
       continue;
     }
     if (fence) continue;
     const h = /^#[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line);
-    if (h && h[1].trim()) return h[1].replace(/\s+/g, ' ').trim();
+    const t = h && h[1];
+    if (t && t.trim()) return t.replace(/\s+/g, ' ').trim();
   }
   return '';
 }
@@ -114,7 +115,7 @@ export function linkAt(state) {
   if (!parent || !parent.isTextblock) return null;
   const offset = $pos.parentOffset;
   const start = $pos.start();
-  let found = null;
+  let found = /** @type {{from: number, to: number, href: string, mark: import('@milkdown/kit/prose/model').Mark}|null} */ (null);
   parent.forEach((child, childOffset) => {
     if (found || !child.isText) return;
     const end = childOffset + child.nodeSize;
@@ -202,7 +203,7 @@ export async function createFreePage(folder, base, text) {
       await pageFiles.createNew(candidate, text);
       return candidate;
     } catch (e) {
-      if (e && e.code === 'exists') continue;
+      if (e && typeof e === 'object' && 'code' in e && e.code === 'exists') continue;
       throw e;
     }
   }
@@ -293,8 +294,8 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
         ${canRemove ? '<button type="button" class="btn ed-link-remove">Remove link</button>' : '<span class="pal-mode">link</span>'}
       </div>`;
 
-    const input = ov.box.querySelector('.pal-input');
-    const list = ov.box.querySelector('.pal-list');
+    const input = /** @type {HTMLInputElement} */ (ov.box.querySelector('.pal-input'));
+    const list = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-list'));
     ov.box.querySelector('.ed-link-remove')?.addEventListener('click', () => finish({ remove: true }));
 
     let items = [];
@@ -348,13 +349,15 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
       else if (e.key === 'Enter') { e.preventDefault(); if (items.length) finish(items[sel]); }
     });
     list.addEventListener('click', (e) => {
-      const row = e.target.closest('.pal-row');
-      if (row) finish(items[+row.dataset.i]);
+      /** @type {HTMLElement|null} */
+      const row = e.target instanceof Element ? e.target.closest('.pal-row') : null;
+      if (row) finish(items[Number(row.dataset.i)]);
     });
     list.addEventListener('mousemove', (e) => {
-      const row = e.target.closest('.pal-row');
-      if (!row || +row.dataset.i === sel) return;
-      sel = +row.dataset.i;
+      /** @type {HTMLElement|null} */
+      const row = e.target instanceof Element ? e.target.closest('.pal-row') : null;
+      if (!row || Number(row.dataset.i) === sel) return;
+      sel = Number(row.dataset.i);
       list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
     });
 
