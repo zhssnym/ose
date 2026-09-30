@@ -1,8 +1,8 @@
 // A reference reading of the write guard (CONTRACT 7.1), for the tests to run against until
-// src/editor/guard.js lands. It is what the contract says, written the plainest way, over the
+// src/editor/guard.ts lands. It is what the contract says, written the plainest way, over the
 // engine's own parse and serialize: nothing here is clever, and nothing here is shipped.
 //
-// tests/support/pipeline.js hands out src/editor/guard.js the moment it exists, and
+// tests/support/pipeline.js hands out src/editor/guard.ts the moment it exists, and
 // tests/serializer/landed.test.js fails until it does, so a green run never rests on this file.
 
 /**

@@ -57,22 +57,22 @@ async function load() {
   let engineLanded = false;
   if (standIn) errors.engine = 'OSE_TEST_STANDIN=1: the stand-ins were used';
   else try {
-    const mod = await optional('engine.js');
+    const mod = await optional('engine.ts');
     if (mod && typeof mod.makeEngine === 'function') { engine = await mod.makeEngine(); engineLanded = true; }
-    else if (mod) errors.engine = 'src/editor/engine.js has no makeEngine export';
+    else if (mod) errors.engine = 'src/editor/engine.ts has no makeEngine export';
   } catch (e) {
-    errors.engine = `src/editor/engine.js failed to load: ${e && e.stack}`;
+    errors.engine = `src/editor/engine.ts failed to load: ${e && e.stack}`;
   }
 
   let guard = reference;
   let guardLanded = false;
   if (standIn) errors.guard = 'OSE_TEST_STANDIN=1: the stand-ins were used';
   else try {
-    const mod = await optional('guard.js');
+    const mod = await optional('guard.ts');
     if (mod && ['checkWrite', 'checkOpen', 'docsEqual'].every((k) => typeof mod[k] === 'function')) { guard = mod; guardLanded = true; }
-    else if (mod) errors.guard = 'src/editor/guard.js lacks checkWrite, checkOpen or docsEqual';
+    else if (mod) errors.guard = 'src/editor/guard.ts lacks checkWrite, checkOpen or docsEqual';
   } catch (e) {
-    errors.guard = `src/editor/guard.js failed to load: ${e && e.stack}`;
+    errors.guard = `src/editor/guard.ts failed to load: ${e && e.stack}`;
   }
 
   // The reference guard reads `mdast` and `canonicalise` off the engine; the landed one is
@@ -82,7 +82,7 @@ async function load() {
     engine,
     audit,
     mdast: audit.mdast,
-    // The stringify module under test: src/editor/stringify.js, or the copy OSE_TEST_EDITOR_DIR names.
+    // The stringify module under test: src/editor/stringify.ts, or the copy OSE_TEST_EDITOR_DIR names.
     S: audit.S,
     checkWrite: (doc, original) => guard.checkWrite(forGuard, doc, original),
     checkOpen: (body, doc) => guard.checkOpen(forGuard, body, doc),

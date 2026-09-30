@@ -48,7 +48,7 @@
 .md-render pre,
 .md-render table { margin: var(--doc-gap) 0; }
 
-/* A line of space the file holds (space.js): an empty paragraph has no line box of its own, so
+/* A line of space the file holds (space.ts): an empty paragraph has no line box of its own, so
    it is given the height of one. In the block editor ProseMirror's own trailing <br> does it. */
 .md-render p.md-space { min-height: calc(var(--lh-body) * 1em); }
 

@@ -1,12 +1,12 @@
-// What Live draws (src/editor/live/inline.js, blocks.js, reveal.js), read off
+// What Live draws (src/editor/live/inline.ts, blocks.js, reveal.js), read off
 // `liveDecorations` with no view: which markup is hidden off the caret, which is shown on it,
 // which classes and widgets a construct gets. Drawing never changes the document.
 import { describe, it, expect } from 'vitest';
-import { liveState, liveDecorations } from '../../../src/editor/live/state.js';
-import { revealedSpans, revealer } from '../../../src/editor/live/reveal.js';
-import { buildInline } from '../../../src/editor/live/inline.js';
-import { frontmatterKeys } from '../../../src/editor/live/blocks.js';
-import { collect } from '../../../src/editor/live/registry.js';
+import { liveState, liveDecorations } from '../../../src/editor/live/state.ts';
+import { revealedSpans, revealer } from '../../../src/editor/live/reveal.ts';
+import { buildInline } from '../../../src/editor/live/inline.ts';
+import { frontmatterKeys } from '../../../src/editor/live/blocks.ts';
+import { collect } from '../../../src/editor/live/registry.ts';
 
 /** Every decoration as [from, to, what]: a class, a widget's name, or `hide`. */
 function list(set, doc) {

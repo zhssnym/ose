@@ -4,7 +4,7 @@
 import './dom-shim.js';
 import { GFM, parser as base } from '@lezer/markdown';
 import { describe, expect, it } from 'vitest';
-import { mathSyntax, math, mathBlock, MathWidget } from '../../../src/editor/live/widgets/math.js';
+import { mathSyntax, math, mathBlock, MathWidget } from '../../../src/editor/live/widgets/math.ts';
 
 const parser = base.configure([GFM, mathSyntax]);
 

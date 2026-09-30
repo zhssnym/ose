@@ -306,6 +306,62 @@ test('8. Delete in the tree moves the file to the vault bin, with its sidecar', 
   await expect(treeRow(page, '.trash')).toHaveCount(0);
 });
 
+test('8b. the tree by keyboard: a range selection, type-ahead, the context menu, Enter opens', async ({ page }) => {
+  const at = (rel) => treeRow(page, rel);
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute('data-path') ?? null);
+  await boot(page);
+  await revealInTree(page, 'notes/tab-a.md');
+
+  // Shift+Down grows the selection from the focused row to the next one (C17).
+  await at('notes/tab-a.md').focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(at('notes/tab-a.md')).toHaveAttribute('aria-selected', 'true');
+  await expect(at('notes/tab-b.md')).toHaveAttribute('aria-selected', 'true');
+  await expect(at('notes/merge.md')).toHaveAttribute('aria-selected', 'false');
+
+  // A plain arrow goes back to one row, and a letter finds the next row that starts with it.
+  await page.keyboard.press('ArrowUp');
+  await expect(at('notes/tab-b.md')).toHaveAttribute('aria-selected', 'false');
+  await page.keyboard.press('o');
+  await expect.poll(focused).toBe('notes/offline.md');
+
+  // Shift+F10 is the context menu of the focused row; Escape closes it and gives the row back.
+  await page.keyboard.press('Shift+F10');
+  await expect(page.locator('[role="menu"]').last()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[role="menu"]')).toHaveCount(0);
+  await expect.poll(focused).toBe('notes/offline.md');
+
+  // Enter opens the file.
+  await page.keyboard.press('Enter');
+  await expect.poll(() => routePath(page)).toBe('notes/offline.md');
+});
+
+test('8c. the folder view by keyboard: Home, type-ahead, a range selection, Enter opens', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => window.__ose.tabs.open({ type: 'folder', path: 'notes' }, { reuse: false }));
+  const list = page.locator('.fv:not(.fv-compact) .fv-list');
+  await expect(list.locator('.fv-row[data-name="type.md"]')).toBeVisible();
+  const focused = () => list.evaluate((el) => {
+    const id = el.getAttribute('aria-activedescendant');
+    return id ? document.getElementById(id)?.getAttribute('data-name') ?? null : null;
+  });
+  const selected = () => list.evaluate((el) => [...el.querySelectorAll('.fv-row[aria-selected="true"]')].map((r) => r.getAttribute('data-name')));
+
+  await list.focus();
+  await page.keyboard.press('Home');
+  await expect.poll(focused).toBe('merge.md');
+  await page.keyboard.press('o');
+  await expect.poll(focused).toBe('offline.md');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect.poll(selected).toEqual(['offline.md', 'rename.md']);
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(focused).toBe('offline.md');
+  await expect.poll(selected).toEqual(['offline.md']);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => routePath(page)).toBe('notes/offline.md');
+});
+
 test('9. a reload restores the tabs and the active page', async ({ page }) => {
   await boot(page);
   await openPage(page, 'notes/tab-a.md');

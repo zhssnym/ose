@@ -1,8 +1,8 @@
 // Vault path helpers. Paths are relative to the root, forward slashes, no leading slash.
 //
-// The shell's own copy of the kernel's `paths.js`: pure string functions with no state, which
+// The shell's own copy of the core's `paths.js`: pure string functions with no state, which
 // the sidebar, the title bar and the palette all need. Keep it in step with
-// `src/kernel/paths.js`. There is no list of hidden names here any more: what is hidden is the
+// `src/core/paths.ts`. There is no list of hidden names here any more: what is hidden is the
 // host's one rule (dotfiles and the OS hidden attribute, `Entry.hidden`), and what is never
 // listed at all (`.ose`, `.git`, the exe) never reaches the shell (docs/HOST.md).
 //
@@ -10,7 +10,7 @@
 // forward slashes (`abs:D:/Notes/todo.md`, `abs:/Users/h/a.md`). `clean` keeps the prefix, and
 // `isOutside` tells the two apart. The few helpers every surface used to keep a copy of
 // (`vaultName`, `errorOf`, `keyOf`) live here too, so there is one of each.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 
 export const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 export const baseName = (p) => { const c = clean(p); const i = c.lastIndexOf('/'); return i < 0 ? c : c.slice(i + 1); };
@@ -39,7 +39,7 @@ export const isOutside = (p) => typeof p === 'string' && p.startsWith(ABS);
 export const outsideLabel = (p) => (isOutside(p) ? p.slice(ABS.length) : p);
 
 /**
- * The vault's name as the chrome says it, or `fallback` while the kernel has none.
+ * The vault's name as the chrome says it, or `fallback` while the core has none.
  * @param {string} [fallback]
  * @returns {string}
  */
@@ -55,12 +55,12 @@ export const vaultName = (fallback = 'Vault') => (ose.vault && ose.vault.name) |
 export function errorOf(e) {
   const text = String((e && typeof e === 'object' && 'message' in e ? e.message : e) ?? '');
   const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
-  const own = e && typeof e === 'object' && e.code ? String(e.code) : null;
-  return { code: own || (m ? m[1] : null), message: m ? m[2] : text };
+  const own = e && typeof e === 'object' && 'code' in e && e.code ? String(e.code) : null;
+  return { code: own || (m ? m[1] ?? null : null), message: m ? m[2] ?? '' : text };
 }
 
 /**
- * One string per place, the way the kernel's router keys a route: `view:<name>` for a view,
+ * One string per place, the way the core's router keys a route: `view:<name>` for a view,
  * `<type>:<path>` for a page or a folder. Two routes to the same place have the same key.
  * @param {{type: string, name?: string, path?: string}|null|undefined} r
  * @returns {string}

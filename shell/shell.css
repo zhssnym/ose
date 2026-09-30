@@ -255,7 +255,7 @@
    the outline under the seg's border and left a 1px sliver of it (R2). */
 .seg-b:focus-visible { outline-offset: -2px; }
 
-/* The keys, read only: the kernel's table component, the chord in its key cap. */
+/* The keys, read only: the core's table component, the chord in its key cap. */
 .set-keys td { font-size: var(--fs-ui); }
 .set-keys .kbd { white-space: nowrap; }
 .set-keys-keys { white-space: nowrap; }
@@ -390,7 +390,7 @@
 
 /* ------------------------------------------------------------------ boot error (M38) */
 
-/* The page a failed boot leaves instead of a blank window. The kernel's stylesheet may be the
+/* The page a failed boot leaves instead of a blank window. The core's stylesheet may be the
    very thing that did not arrive, so every token here has the system colour behind it and the
    page still reads in both themes. */
 .boot-err {

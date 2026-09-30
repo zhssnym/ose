@@ -5,7 +5,7 @@
 // Go to file lists every file in the vault (H17), under its real name with its extension, the
 // same name the tree and the tab show (W8), with its folder under it. What a page's H1 says is
 // not a second name for it: a file has one name, and it is the one on disk.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
 import { allFiles } from './sidebar.js';
 import { newFile } from './fileops.js';
@@ -74,7 +74,7 @@ function fileItems(q) {
   const paths = allFiles();
   const names = new Map(paths.map((p) => [p, display(p)]));
   const items = pageItems(paths, q, { recent: recentFiles(), titles: names });
-  items.sort((a, b) => (b.score - a.score) || (isMd(b.path) - isMd(a.path)) || a.title.localeCompare(b.title));
+  items.sort((a, b) => (b.score - a.score) || (Number(isMd(b.path)) - Number(isMd(a.path))) || a.title.localeCompare(b.title));
   return items.map((it) => ({
     kind: 'file', id: it.path, group: 'files',
     title: it.title, hint: '', sub: dirName(it.path), shortcut: '',
@@ -130,12 +130,13 @@ export function openPalette(mode = 'commands') {
       <span class="pal-mode"></span>
     </div>`;
 
-  const input = ov.box.querySelector('.pal-input');
-  const list = ov.box.querySelector('.pal-list');
-  const modeEl = ov.box.querySelector('.pal-mode');
-  const iconEl = ov.box.querySelector('.pal-icon');
-  const createEl = ov.box.querySelector('.pal-create');
-  const enterEl = ov.box.querySelector('.pal-enter');
+  // All written just above, so none of them is null.
+  const input = /** @type {HTMLInputElement} */ (ov.box.querySelector('.pal-input'));
+  const list = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-list'));
+  const modeEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-mode'));
+  const iconEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-icon'));
+  const createEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-create'));
+  const enterEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-enter'));
 
   let items = [];
   let sel = 0;
@@ -170,7 +171,7 @@ export function openPalette(mode = 'commands') {
       }
       const row = document.createElement('div');
       row.className = 'row pal-row' + (i === sel ? ' active' : '');
-      row.dataset.i = i;
+      row.dataset.i = String(i);
       row.setAttribute('role', 'option');
       // A file row is two lines: its name, and the folder it is in. A file at the vault root
       // has no folder line; a command row is one line, as it always was.
@@ -202,6 +203,13 @@ export function openPalette(mode = 'commands') {
     scrollSel();
   }
 
+  /**
+   * The row an event landed in, if any.
+   * @param {EventTarget|null} t
+   * @returns {HTMLElement|null}
+   */
+  const rowAt = (t) => (t instanceof Element ? t.closest('.pal-row') : null);
+
   function accept() {
     const it = items[sel];
     if (!it) return;
@@ -209,7 +217,7 @@ export function openPalette(mode = 'commands') {
     // A command that throws says so on screen, not only in a console nobody has open (B6).
     // Async failures are the command's own to toast; this catches the synchronous ones.
     Promise.resolve().then(() => {
-      try { it.run(); } catch (e) { console.error('[shell] palette run', e); toast(String(e.message || e), 'err'); }
+      try { it.run(); } catch (e) { console.error('[shell] palette run', e); toast(String((e && typeof e === 'object' && 'message' in e && e.message) || e), 'err'); }
     });
   }
 
@@ -241,15 +249,15 @@ export function openPalette(mode = 'commands') {
     else if (e.key === 'Home' && !input.value) { e.preventDefault(); sel = 0; paint(); }
   });
   list.addEventListener('mousemove', (e) => {
-    const row = e.target.closest('.pal-row');
-    if (!row || +row.dataset.i === sel) return;
-    sel = +row.dataset.i;
+    const row = rowAt(e.target);
+    if (!row || Number(row.dataset.i) === sel) return;
+    sel = Number(row.dataset.i);
     list.querySelectorAll('.pal-row').forEach((n, i) => n.classList.toggle('active', i === sel));
   });
   list.addEventListener('click', (e) => {
-    const row = e.target.closest('.pal-row');
+    const row = rowAt(e.target);
     if (!row) return;
-    sel = +row.dataset.i;
+    sel = Number(row.dataset.i);
     accept();
   });
 

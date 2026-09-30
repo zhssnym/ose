@@ -1,6 +1,6 @@
 # The host: the browser
 
-Ose runs in Chrome: the shell, the kernel, the editor and the planner, over a real folder on this
+Ose runs in Chrome: the shell, the core, the editor and the planner, over a real folder on this
 machine through the File System Access API, installable as an app (a PWA) and working offline
 after the first visit. There is no server. A vault is a `FileSystemDirectoryHandle` the
 person picked with `showDirectoryPicker({ mode: 'readwrite' })`; the handle is kept in IndexedDB so
@@ -14,18 +14,18 @@ of a vault is anywhere else but the machine-local state below. Vercel serves the
 
 ## The seam
 
-`src/kernel/bridge/index.js` is the facade over one adapter (`Adapter` in `src/kernel/types.js`):
+`src/core/bridge/index.ts` is the facade over one adapter (`Adapter` in `src/core/types.ts`):
 `{ invoke(name, args), subscribe(fn), platform?, assetUrl?, win?, close? }`, and the one adapter
-there is is `src/web/adapter.js`, answering every command in the browser. The exact shapes are in
-`src/kernel/bridge/commands.ts`, kept by hand: a change of a command changes it, the facade and the
+there is is `src/host/adapter.ts`, answering every command in the browser. The exact shapes are in
+`src/core/bridge/commands.ts`, kept by hand: a change of a command changes it, the facade and the
 adapter together. Every refusal is a `HostError` with one of the host's codes
-(`src/kernel/bridge/errors.js`), and a name nobody answers is `unknown_command`. `bridge.kind` is
+(`src/core/bridge/errors.ts`), and a name nobody answers is `unknown_command`. `bridge.kind` is
 `'web'` and `ose.host` is `'browser'`.
 
 ## Files
 
 ```
-src/web/
+src/host/
   rules.js         pure, shared: hash, the hide rule, paths and names, sort, encodings, sniff,
                    fromDom (DOMException -> HostError)
   idb.js           the one IndexedDB database `ose-web`, with a memory backend for tests
@@ -44,7 +44,7 @@ web/
 vite.config.js           the dev server and the build
 vercel.json              Vercel's build and headers
 tests/stubs/fsa.js       the in-memory File System Access API
-tests/web/               stub, rules, fs, watch, local and adapter tests
+tests/host/               stub, rules, fs, watch, local and adapter tests
 ```
 
 `npm run build` builds `dist/`: the four bundles in `dist/ose/`, the shell beside them, `sw.js`,
@@ -56,15 +56,16 @@ certificate. `npm run preview` serves `dist/` as a static host would. Hosting `d
 static over HTTPS is the whole deployment; Vercel does it from `vercel.json`, revalidating every
 file (`no-cache`) so a new deploy reaches the worker at once, the hashed chunks cached for good.
 
-`tsconfig.json` covers `src/web/**` (checkJs, the `dom.asynciterable` lib added for folder
-iteration); Biome covers it as `src/**/*.js`. No new npm dependency: IndexedDB is used directly,
-and the tests run on `tests/stubs/fsa.js` and `idb.js`'s memory backend.
+`src/host` is TypeScript but for the service worker, `sw.js`, which is served as written and
+checked by tsc as JavaScript (`tsconfig.json`, with the `dom.asynciterable` lib added for folder
+iteration); Biome lints both. No new npm dependency: IndexedDB is used directly, and the tests
+run on `tests/stubs/fsa.js` and `idb.ts`'s memory backend.
 
 ## Modules and their interfaces
 
 Four modules. What one needs of another is only what is written here.
 
-### fs: `src/web/fs.js`
+### fs: `src/host/fs.ts`
 
 ```js
 export function createFs(root, opts) -> Fs
@@ -96,7 +97,7 @@ text, opts)`), answering exactly what the host answers. Plus the helpers the oth
 Versions belong to fs, not local: they live in the vault, `.ose/history`, and `saveFile` keeps
 one under the same lock as its write (the fs table, `versionKeep`).
 
-### watch: `src/web/watch.js`
+### watch: `src/host/watch.ts`
 
 ```js
 export function startWatch(root, fs, emit, opts?) -> stop()
@@ -110,7 +111,7 @@ export function startWatch(root, fs, emit, opts?) -> stop()
 The adapter starts it when a vault mounts and stops it on `close()` and on a switch of vault;
 after `pickFile`, `outsideOpen` or a launch registers an outside file it calls `stop.refresh()`.
 
-### local: `src/web/local.js`
+### local: `src/host/local.ts`
 
 ```js
 export function createLocal(vaultKey, opts?) -> Local
@@ -127,7 +128,7 @@ export function createLocal(vaultKey, opts?) -> Local
 when it did not keep the bytes, because local deletes the older draft once it resolves. The
 adapter passes `fs.keepVersion`, and a rejection when no vault is open.
 
-### app: `src/web/adapter.js`, `vault-handle.js`, `sw.js`, the manifest, the build
+### app: `src/host/adapter.ts`, `vault-handle.js`, `sw.js`, the manifest, the build
 
 ```js
 export async function create() -> Adapter
@@ -241,13 +242,13 @@ answers null (cancelled).
 - `fs`: `{ changes: [{ path, kind, to?, dir?, hidden? }], rescan?, lost? }` (`FsEvent` in
   commands.ts; see "The watcher" below).
 - `open`: `{ requests: OpenRequest[] }` for a `launchQueue` launch after the first `takeOpens`.
-- `window`: `{ closing: true }` from `win.close()` (the kernel's close path): every handler is
+- `window`: `{ closing: true }` from `win.close()` (the core's close path): every handler is
   awaited, one answering `false` keeps the tab, then `window.close()` (which
   Chrome honours for an installed app's window; where it does not, the tab boots again on what
   was just saved). It is **not** sent on `beforeunload`: the router's `closing` handler always
   answers a promise still running, so "Leave site?" would show on every close, and a person
   answering Stay would come back to a view already taken down. Instead the adapter asks
-  "Leave site?" only while a write is in flight; the kernel's `pagehide` banking and the drafts
+  "Leave site?" only while a write is in flight; the core's `pagehide` banking and the drafts
   cover the rest.
 
 ## The watcher
@@ -289,7 +290,7 @@ same form for Ose Web before the adapter is ready (the tab's vault from sessionS
 build does not take over a running tab: it waits until the old build's tabs are closed, so a
 page never mixes code of two builds in the middle of an edit. The install fetches with
 `cache: 'reload'`, past the HTTP cache: the entry files keep their names from build to build, and
-a host's `max-age` would otherwise give a new build's cache the old build's `kernel.js`. The worker
+a host's `max-age` would otherwise give a new build's cache the old build's `core.js`. The worker
 applies the hide rule (`excludedSegs`, the same answers as rules.js `isExcluded`): `.ose`, `.git`,
 `.trash/.info`, temp files and the app's files at the root are a 404. Every answer says
 `X-Content-Type-Options: nosniff`, and html, htm, xhtml, svg, xml and xsl are served with
@@ -302,7 +303,7 @@ host is named, so the page reaches no network.
 
 ## Commands
 
-Module, arguments and answer (typed in `src/kernel/bridge/commands.ts`), and how the browser
+Module, arguments and answer (typed in `src/core/bridge/commands.ts`), and how the browser
 does it. **A**: also takes an `abs:`
 path. Every mutating command checks `opts.epoch` against the tab's epoch first (`stale_vault`),
 and needs the vault (`no_vault` when the root is gone or permission was withdrawn).
@@ -414,7 +415,7 @@ with a visible `.crswap` and replace on close, `move` that refuses a taken name 
 folders), permissions, fault injection (`fsa.fail(op, path, name)`), outside changes
 (`fsa.write`, `remove`, `rename`, `mkdir`, `touch`, `loseRoot`) and a `FileSystemObserver` twin
 (`fsa.install()` puts it and the pickers on `globalThis`). `idb.js` runs on memory where there is
-no IndexedDB. Each module has its test file in `tests/web/`; `tests/web/rules.test.js` holds the
+no IndexedDB. Each module has its test file in `tests/host/`; `tests/host/rules.test.js` holds the
 hash, the hide rule, the sort and the encodings to the values files and agents already rely on.
 Never a real vault.
 

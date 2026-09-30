@@ -3,10 +3,10 @@
 // would otherwise act on. The window's own frame (its title bar, buttons and resize edges) is
 // the platform's (X9): the host opens a decorated window, at least 480 by 360.
 //
-// This is the shell's own layout. The kernel knows none of it: `ose.init({ page })` is handed
+// This is the shell's own layout. The core knows none of it: `ose.init({ page })` is handed
 // the element this file builds, and from there the router draws into it.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
@@ -29,7 +29,7 @@ const NARROW = 640;
 const P_MIN = 240, P_DEFAULT = 340;
 const P_SHARE = 0.5;
 
-// Per machine, per vault (docs/KERNEL.md `ose.local`, W5): how wide the sidebar is and whether
+// Per machine, per vault (docs/CORE.md `ose.local`, W5): how wide the sidebar is and whether
 // it is open is this screen's business, not something the vault carries to the next machine.
 // `sidebar.js` writes `expanded` into the same slot. Never the vault's `.ose/state.json`: that
 // file is synced, and one screen's layout is not the vault's (W5).
@@ -104,6 +104,11 @@ function fit() {
 // arrows move it. 8px a step, 32px with Shift, Home/End to the limits, Enter back to the default.
 const RS_STEP = 8, RS_BIG = 32;
 
+/**
+ * @param {HTMLElement} handle
+ * @param {{get: () => number, set: (v: number) => void, min: number, max: number | (() => number),
+ *   invert?: boolean, done?: (v: number) => void}} opts
+ */
 function makeResizer(handle, { get, set, min, max, invert, done }) {
   // `max` may be a function: the sidebar's ceiling is a share of the window (L5), so it moves
   // when the window does and is asked for at every step.
@@ -170,7 +175,7 @@ export const sidebarVisible = () => !!store.get('sidebar.open') && !autoHidden;
  * The one way the sidebar is opened or closed on purpose: `app.sidebar`, either chevron,
  * `app.focus-sidebar`, a folder revealed in the tree. It clears the window's own auto-hide
  * before it writes, and it does the work itself rather than leaning on the `sidebar.open`
- * watcher — `store.set` returns early when the value has not changed (src/kernel/registry.js),
+ * watcher — `store.set` returns early when the value has not changed (src/core/registry.ts),
  * and the whole broken state of QA-5 finding 3 was exactly that: preference open, window
  * hiding it, a toggle writing `true` over `true`, no watcher, nothing on screen, nothing said.
  * `fit` and `patchSidebar` are idempotent, so the watcher running as well costs nothing.
@@ -217,7 +222,7 @@ function watchMainWidth(el) {
   measureMain();
   if (typeof ResizeObserver !== 'function') return;
   const ro = new ResizeObserver((entries) => {
-    const e = entries[entries.length - 1];
+    const e = /** @type {ResizeObserverEntry} */ (entries[entries.length - 1]);
     measureMain(e.contentRect ? e.contentRect.width : undefined);
   });
   ro.observe(el);
@@ -338,7 +343,7 @@ function guardContextMenu() {
 /* ------------------------------------------------------------------ reload */
 
 /**
- * Reload window (`app.reload`). `ose.reload()` leaves through the kernel's gate first (C5): the
+ * Reload window (`app.reload`). `ose.reload()` leaves through the core's gate first (C5): the
  * open page is saved and the state flushed, and a page that cannot be saved keeps the window,
  * with the reason on screen. Nothing here saves on its own.
  */
@@ -417,7 +422,7 @@ export const panel = {
   /**
    * Open it with `mount` unless `id` is already open, in which case close it.
    * @param {string} id
-   * @param {Function} mount
+   * @param {(el: HTMLElement) => ({unmount?: Function, focus?: Function}|void)} mount
    * @param {{title?: string}} [opts]
    * @returns {boolean} whether the panel is open now
    */
@@ -500,13 +505,15 @@ export function mountShell(rootEl) {
 
   // The tab strip sits above the page column and outside it: the router clears `.main` on
   // every navigation, so anything that has to survive one lives in the column around it.
+  // all of them are in the markup just written
+  const part = (sel) => /** @type {HTMLElement} */ (shell.querySelector(sel));
   const els = {
-    titlebar: shell.querySelector('.titlebar'),
-    sidebar: shell.querySelector('.sidebar'),
-    tabs: shell.querySelector('.tabs'),
-    main: shell.querySelector('.main'),
-    statusbar: shell.querySelector('.statusbar'),
-    panel: shell.querySelector('.sidepanel'),
+    titlebar: part('.titlebar'),
+    sidebar: part('.sidebar'),
+    tabs: part('.tabs'),
+    main: part('.main'),
+    statusbar: part('.statusbar'),
+    panel: part('.sidepanel'),
   };
   mainEl = els.main;
   buildPanel();
@@ -523,7 +530,7 @@ export function mountShell(rootEl) {
   });
   fit();
 
-  makeResizer(shell.querySelector('.rs-sidebar'), {
+  makeResizer(part('.rs-sidebar'), {
     min: S_MIN, max: sMax,
     get: () => wantS,
     set: (v) => { wantS = v; fit(); },

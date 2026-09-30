@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-// The Live view (src/editor/live/view.js) as page.js drives it: getText is the file's bytes,
+// The Live view (src/editor/live/view.ts) as page.js drives it: getText is the file's bytes,
 // setText and replaceMinimal are not user edits, every command of LIVE_COMMANDS is a text edit
 // of the markdown, and a read-only page takes none of them.
 import { describe, it, expect, afterEach } from 'vitest';
-import { createLiveView } from '../../../src/editor/live/view.js';
-import { LIVE_COMMANDS } from '../../../src/editor/live/commands.js';
+import { createLiveView } from '../../../src/editor/live/view.ts';
+import { LIVE_COMMANDS } from '../../../src/editor/live/commands.ts';
 
 const views = [];
 afterEach(() => { while (views.length) views.pop().destroy(); document.body.innerHTML = ''; });

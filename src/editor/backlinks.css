@@ -1,7 +1,7 @@
 /* Links, as they are drawn (batch 12, package P7).
    Two things live here because they are one subject and one owner: the `linked from` box under
-   the page body (backlinks.js, N6) and the mark a link wears when its target is not in the
-   vault (linkstate.js, L14). Every colour, size and space is a token; nothing here is a bare
+   the page body (backlinks.ts, N6) and the mark a link wears when its target is not in the
+   vault (linkstate.ts, L14). Every colour, size and space is a token; nothing here is a bare
    pixel value (CLAUDE.md, DESIGN.md). */
 
 /* ---------------------------------------------------------------- broken links */

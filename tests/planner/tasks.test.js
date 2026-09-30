@@ -2,11 +2,11 @@
 // keeps its markers, `parseTasks` gives the 0-based index and the exact text `replaceLine`
 // needs, and several todo files are grouped per file.
 //
-// Depends on: planner (src/planner/tasks.js). Skipped until it exists.
+// Depends on: planner (src/planner/tasks.ts). Skipped until it exists.
 
 import { describe, expect, it } from 'vitest';
 
-const t = await import('../../src/planner/tasks.js');
+const t = await import('../../src/planner/tasks.ts');
 
 const DUE = '\u{1F4C5}';
 const DONE = '\u{2705}';

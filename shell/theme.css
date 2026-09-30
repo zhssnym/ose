@@ -1,4 +1,4 @@
-/* The shell's own token overrides. It is empty on purpose: the app's look is the kernel's own
+/* The shell's own token overrides. It is empty on purpose: the app's look is the core's own
    (ui.css), and this file is the one place that changes it.
 
    Override tokens here, never a rule and never a hex value anywhere else:
@@ -6,4 +6,4 @@
      :root { --accent: #6E8B74; }
      :root[data-theme="dark"] { --accent: #8FB398; }
 
-   Everything that can be changed is listed in the kernel's tokens.css (docs/DESIGN.md). */
+   Everything that can be changed is listed in the core's tokens.css (docs/DESIGN.md). */

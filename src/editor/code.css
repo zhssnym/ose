@@ -1,4 +1,4 @@
-/* Code blocks (P4). Two jobs: colour the tokens code.js names, and take away the chrome
+/* Code blocks (P4). Two jobs: colour the tokens code.ts names, and take away the chrome
    `basicSetup` brings that no editor shows inside a note. Every selector here is one class
    longer than the matching one in editor.css, which is the only way to win: Crepe builds the
    CodeMirror extension array itself and the gutters cannot be taken out of it. */
@@ -35,7 +35,7 @@
 .ed .milkdown .milkdown-code-block .cm-editor .cm-line { padding: 0 var(--sp-3); }
 .ed .milkdown .milkdown-code-block .cm-editor .cm-scroller { font-family: inherit; }
 
-/* Crepe's own picker never opens (code.js takes the click before Vue sees it) and its empty
+/* Crepe's own picker never opens (code.ts takes the click before Vue sees it) and its empty
    host would otherwise sit in the tools row. The trigger button stays: it is the label. */
 .ed .milkdown .milkdown-code-block .language-picker { display: none; }
 
@@ -54,7 +54,7 @@
 
 /* ------------------------------------------------------------------ tokens
 
-   Four grounds, one palette. `highlight.js`'s HIGHLIGHT names the classes, and the same names
+   Four grounds, one palette. `highlight.ts`'s HIGHLIGHT names the classes, and the same names
    are written by all four places code is shown:
 
      .ed .milkdown .milkdown-code-block   a fenced block inside the block editor
@@ -71,7 +71,7 @@
    head is CodeMirror's business, not ours. Source mode's own markdown HighlightStyle is
    registered `{ fallback: true }` and therefore stands down entirely while HIGHLIGHT is
    present, so nothing is fighting for the colour of a token, only for the colour of the
-   ground, and `source.js`'s theme paints `.cm-content` by inheritance, which a class on the
+   ground, and `source.ts`'s theme paints `.cm-content` by inheritance, which a class on the
    span outranks whatever its specificity. */
 
 .ed .milkdown .milkdown-code-block .os-t-key,

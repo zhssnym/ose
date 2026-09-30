@@ -5,9 +5,9 @@
 // Every scenario types into a file of its own under `e2e/` (fixtures.js), in a fresh browser
 // context: a first launch of the built app over a new vault (helpers.js boot).
 //
-// Depends on: src/web (the adapter, the OPFS test hook, drafts), kernel (tabs, session),
+// Depends on: src/host (the adapter, the OPFS test hook, drafts), core (tabs, session),
 // editor (instances, merge), shell-tree (the tree's F2 and Ctrl+Z), shell-places (tab marks),
-// shell-surfaces (the recovery sheet), kernel (ose.fileops and its undo journal).
+// shell-surfaces (the recovery sheet), core (ose.fileops and its undo journal).
 
 import { expect, test } from './test.js';
 import { FILES } from './fixtures.js';
@@ -134,7 +134,7 @@ test('5. a reload while typing: the text is in the file, or the recovery sheet p
 
   // Either the save landed, or the draft comes back: by itself when the page reopens, or from
   // the recovery sheet, whose row opens the page and puts the draft back. A recovered draft
-  // nobody has edited yet waits for a deliberate save (src/editor/page.js), which in a browser
+  // nobody has edited yet waits for a deliberate save (src/editor/page.ts), which in a browser
   // is the usual case: the reload beats the autosave. One Ctrl+S then puts it in the file.
   const recovered = page.locator('.ed-banner', { hasText: /were recovered/i });
   await expect.poll(async () => {

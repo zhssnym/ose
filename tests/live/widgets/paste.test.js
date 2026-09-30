@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { copyText, toast } from 'ose:ui';
 import {
   fileFromDataUrl, htmlToMarkdown, linkFor, markdownFromHtml, paste, pendingPastes, storeFiles,
-} from '../../../src/editor/live/widgets/paste.js';
+} from '../../../src/editor/live/widgets/paste.ts';
 
 // The page's clipboard and toast, watched: an orphaned attachment link uses both.
 vi.mock('ose:ui', async (original) => ({

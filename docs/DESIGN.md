@@ -57,10 +57,10 @@ chrome talks about the machinery; it talks about the files.
 
 ## Tokens
 
-All colours, fonts, and sizes come from `src/kernel/styles/tokens.css`, served as part of
+All colours, fonts, and sizes come from `src/core/styles/tokens.css`, served as part of
 `ui.css`. Never write a hex colour in any other stylesheet; the shell's `theme.css` is the one
 place a token is overridden. Light is on `:root`; dark is `:root[data-theme="dark"]`. The theme
-attribute is set by `first-paint.js` before the first frame and by the kernel after it. The
+attribute is set by `first-paint.js` before the first frame and by the core after it. The
 default is **System**: with nothing chosen, the window follows the computer's light or dark
 setting and changes when it does (M26).
 
@@ -155,7 +155,7 @@ Key tokens (see the file for the full list):
 - **The boot error page.** One column, at most 44rem: the title in `--err`, one sentence of how far
   the boot got, the error in a box on `--err-soft` with `--err-ink` text, the log path in mono, the
   stack under a disclosure, and **Copy details** / **Try again**. Every token there has the
-  system colour behind it, because the kernel's stylesheet may be what failed to load.
+  system colour behind it, because the core's stylesheet may be what failed to load.
 - **The folder view.** A folder is a page like any other (`{type:'folder', path}`): a header with
   the folder's name and the item count, a small toolbar (New file…, New folder, Paste, Undo, the
   sort, Show hidden items), and one list with the columns Name, Type, Modified and Size. Rows are
@@ -293,7 +293,7 @@ The page view (Settings › Appearance › Page layout, `Pages`, or `Toggle page
 the same sheet while writing. The page column becomes the A4 sheet on a `--bg-3` desk, with the
 print margin, the print size and the print leading, so a line breaks on screen where it breaks on
 paper; the meta line moves into the top margin, out of the flow, because paper does not carry it.
-`src/editor/sheets.js` walks the blocks with the break rules above and draws a dashed rule, with
+`src/editor/sheets.ts` walks the blocks with the break rules above and draws a dashed rule, with
 the number of the next sheet in the right margin, wherever a sheet ends. Nothing moves in the
 document: the rules are an overlay, so the file and the editing are the same in both layouts.
 The window's zoom scales the sheet as one object.

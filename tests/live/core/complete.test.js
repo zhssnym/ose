@@ -7,11 +7,11 @@ import { describe, it, expect, afterEach } from 'vitest';
 import DOMPurify from 'dompurify';
 import { currentCompletions, startCompletion, acceptCompletion } from '@codemirror/autocomplete';
 import { openSearchPanel, searchPanelOpen } from '@codemirror/search';
-import { createLiveView } from '../../../src/editor/live/view.js';
-import { wikiQueryAt, wikiOptions } from '../../../src/editor/live/complete.js';
-import { makeInlineHtml } from '../../../src/editor/live/cellhtml.js';
-import { liveState } from '../../../src/editor/live/state.js';
-import { revealedSpans } from '../../../src/editor/live/reveal.js';
+import { createLiveView } from '../../../src/editor/live/view.ts';
+import { wikiQueryAt, wikiOptions } from '../../../src/editor/live/complete.ts';
+import { makeInlineHtml } from '../../../src/editor/live/cellhtml.ts';
+import { liveState } from '../../../src/editor/live/state.ts';
+import { revealedSpans } from '../../../src/editor/live/reveal.ts';
 
 const views = [];
 afterEach(() => { while (views.length) views.pop().destroy(); document.body.innerHTML = ''; });

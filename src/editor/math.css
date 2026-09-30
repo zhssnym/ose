@@ -24,7 +24,7 @@ span.ose-math {
    break through the middle of it. */
 /* No `overflow` of any kind: a scroller on one axis makes the other one `auto` too, and the
    rounding of a formula's own height is enough to put a scrollbar down the side of it. A long
-   formula breaks at its binary operators instead (`wrap: tex`, math.js), which is what Word
+   formula breaks at its binary operators instead (`wrap: tex`, math.ts), which is what Word
    does on the teacher's page. */
 .ose-math-display {
   display: block;

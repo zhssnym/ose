@@ -7,8 +7,8 @@
 <script>
   try { document.documentElement.dataset.theme = localStorage.getItem('os.theme') || 'light'; } catch (e) {}
 </script>
-<link rel="stylesheet" href="/src/kernel/styles/tokens.css">
-<link rel="stylesheet" href="/src/kernel/styles/base.css">
+<link rel="stylesheet" href="/src/core/styles/tokens.css">
+<link rel="stylesheet" href="/src/core/styles/base.css">
 <style>
   body { overflow: auto; }
   #bar {
@@ -48,6 +48,6 @@
 </div>
 <div id="out"><div id="summary">press "run all"</div><div id="list"></div></div>
 <div id="stage"></div>
-<script type="module" src="/src/editor/harness.js"></script>
+<script type="module" src="/src/editor/harness.ts"></script>
 </body>
 </html>

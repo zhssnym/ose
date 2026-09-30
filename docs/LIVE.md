@@ -8,7 +8,7 @@ Obsidian's live preview do it.
 
 Live is opt-in (wave 3, X1). The switch in the meta line and the status bar field is Rich, Live
 and Source; the machine setting `editorMode` picks the default for a markdown file never opened
-before, and each file remembers the mode it was last left in (`src/editor/modes.js`). Rich
+before, and each file remembers the mode it was last left in (`src/editor/modes.ts`). Rich
 stays the default until D1 is decided.
 
 ## The one rule: the file text is the only truth
@@ -20,11 +20,11 @@ applyFormat(view.state.doc.toString(), liveFormat)
 ```
 
 and nothing else: the text CodeMirror holds, with the two things it cannot hold put back by the
-tested helpers of `src/editor/source.js`: the byte-order mark and the separator each line had
+tested helpers of `src/editor/source.ts`: the byte-order mark and the separator each line had
 (`\r\n`, `\r`, `\n`). There is no serializer, no model, no conversion. The decorations only
 draw; a widget bug is a display glitch, never a changed byte.
 
-The format field (`liveFormat`, `src/editor/live/state.js`) follows the document. A text put in
+The format field (`liveFormat`, `src/editor/live/state.ts`) follows the document. A text put in
 from outside (`setText`, `replaceMinimal`) brings its own shape. An edit replaces the text of the
 lines it touched, gives the separators *between* them the file's usual ending, and leaves every
 other line with its own text and its own separator. So however many edits came before, a CRLF
@@ -117,8 +117,8 @@ Images, tables, maths and fenced code are the widgets' (below).
   event `input.live.task`); the caret does not move.
 - A click, Enter or Space on the Properties block puts the caret on its first key line, which
   reveals it. The arrow keys reach it too: a caret that enters the block reveals it.
-- The Live keymap binds the body chords of `BODY_KEYS` (kept in `src/kernel/keys.js` for the
-  palette, mirrored for the editor in `src/editor/keymap.js`) for the ids Live implements:
+- The Live keymap binds the body chords of `BODY_KEYS` (kept in `src/core/keys.ts` for the
+  palette, mirrored for the editor in `src/editor/keymap.ts`) for the ids Live implements:
   Ctrl+B `**`, Ctrl+I `_`, Ctrl+Shift+X `~~`, Ctrl+`` ` `` code, Ctrl+1…6 headings, Ctrl+0
   paragraph, Ctrl+Shift+7/8/9 numbered, bullet, task, Ctrl+Shift+. quote, Ctrl+Shift+C code
   block, Ctrl+Enter toggle task, Alt+Up/Down move line, Ctrl+D duplicate, Ctrl+Shift+K delete
@@ -185,7 +185,7 @@ dispatches.
 
 ## Widgets
 
-A widget draws one kind of syntax node. The registry (`src/editor/live/registry.js`) is the
+A widget draws one kind of syntax node. The registry (`src/editor/live/registry.ts`) is the
 whole API:
 
 ```js
@@ -245,7 +245,7 @@ The app's widgets (`widgets/index.js`: `WIDGETS` has six entries, `PASTE` one):
 
 ## Reading
 
-`src/editor/reading/index.js`, `createReadingView`: marked (GFM, `breaks: true`) with the maths
+`src/editor/reading/index.ts`, `createReadingView`: marked (GFM, `breaks: true`) with the maths
 extension and a wikilink and embed extension, then DOMPurify per top-level block (no script,
 style, iframe, object, embed or form; no event handler or style attribute). Every top-level block
 carries `data-line`, its 1-based line in the file, correct across a byte-order mark, CR and CRLF,

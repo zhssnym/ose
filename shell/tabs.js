@@ -1,10 +1,10 @@
 // The tab strip: one tab per open place, above the page column (M23).
 //
-// The kernel owns the tabs (docs/KERNEL.md `ose.tabs`): each tab has its own back and forward
+// The core owns the tabs (docs/CORE.md `ose.tabs`): each tab has its own back and forward
 // history, one tab is in front, and only its current entry is mounted in the column. This file
 // draws what `ose.tabs.on` says and nothing more — it keeps no list of its own — and registers
 // the tab commands. A page in a background tab keeps its editor alive, parked, so switching
-// back is instant and keeps the undo history (docs/KERNEL.md "How a page is left").
+// back is instant and keeps the undo history (docs/CORE.md "How a page is left").
 //
 // The model is the editor's, not the browser's. An **ordinary** open — a click or Enter in the
 // tree, quick open, a link, back, forward — goes into the tab in front, into its history. A tab
@@ -12,7 +12,7 @@
 // Ctrl+Shift+T. One tab is no strip at all: it appears at two and the page column takes the
 // room back. Closing the last tab sends it Home rather than leaving the strip empty.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { HOME } from './dashboard.js';
 import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.js';
@@ -23,7 +23,8 @@ let strip = null;
 // The page column: the strip's `tabpanel`, so a reader can be told which tab names what is on
 // screen. The router owns everything inside it; only the two aria attributes are ours.
 let panelEl = null;
-// The last snapshot the kernel sent: `{ tabs: Tab[], active: id|null }`.
+// The last snapshot the core sent: `{ tabs: Tab[], active: id|null }`.
+/** @type {{tabs: Array<{id: string, route: {type: string, path?: string, name?: string} | null, canBack: boolean, canForward: boolean}>, active: string|null}} */
 let snap = { tabs: [], active: null };
 // Paths whose page has unsaved changes, from the editor's own `doc:dirty` / `doc:state`.
 const dirty = new Set();
@@ -193,7 +194,7 @@ function activate(id) {
 }
 
 /**
- * Close one tab. The kernel asks its page first: a page that cannot be saved refuses (C1, H8),
+ * Close one tab. The core asks its page first: a page that cannot be saved refuses (C1, H8),
  * the answer is false, its banner says why, and nothing on the strip changes.
  * @returns {Promise<boolean>}
  */
@@ -209,7 +210,7 @@ function step(delta) {
   const tabs = snap.tabs || [];
   if (tabs.length < 2) return;
   const at = Math.max(0, tabs.findIndex((t) => t.id === snap.active));
-  activate(tabs[(at + delta + tabs.length) % tabs.length].id);
+  activate(tabs[(at + delta + tabs.length) % tabs.length]?.id);
 }
 
 const activeTab = () => (snap.tabs || []).find((t) => t.id === snap.active) || null;
@@ -270,17 +271,18 @@ export function initTabs(node, panel) {
   if (panelEl) panelEl.setAttribute('role', 'tabpanel');
 
   strip.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
     const el = e.target.closest('.tab');
-    if (!el) return;
+    if (!(el instanceof HTMLElement)) return;
     if (e.target.closest('.tab-x')) { void closeTab(el.dataset.id); return; }
     activate(el.dataset.id);
   });
   // Middle click closes, as it does in every browser and every editor.
-  strip.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.tab')) e.preventDefault(); });
+  strip.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target instanceof Element && e.target.closest('.tab')) e.preventDefault(); });
   strip.addEventListener('auxclick', (e) => {
-    if (e.button !== 1) return;
+    if (e.button !== 1 || !(e.target instanceof Element)) return;
     const el = e.target.closest('.tab');
-    if (!el) return;
+    if (!(el instanceof HTMLElement)) return;
     e.preventDefault();
     void closeTab(el.dataset.id);
   });
@@ -315,7 +317,7 @@ export function initTabs(node, panel) {
     if (d.dirty) dirty.add(p); else dirty.delete(p);
     render();
   });
-  // A rename moves the marks with the page: the tab follows its file (the kernel re-points it).
+  // A rename moves the marks with the page: the tab follows its file (the core re-points it).
   bus.on('paths:moved', (d) => {
     for (const m of (d && d.moves) || []) {
       if (!m || !m.from || !m.to) continue;

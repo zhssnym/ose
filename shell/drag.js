@@ -9,7 +9,7 @@
 // or a file in another encoding lands as it was. A drag of a row is the internal move; a
 // browser tab cannot drag a vault file out to the system, so nothing here does.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
 import { baseName, errorOf } from './paths.js';
 import { undo } from './fileops.js';
@@ -113,7 +113,9 @@ export function takeDropped(dt) {
   }
   if (!items.length && dt && dt.files) loose.push(...dt.files);
   return (async () => {
+    /** @type {DropEntry[]} */
     const entries = [];
+    /** @type {{path: string, error: string}[]} */
     const refused = [];
     for (const entry of roots) await walk(entry, '', entries, refused);
     for (const f of loose) {

@@ -6,7 +6,7 @@
 // A vault can open in a browser tab of its own: Shift+Enter on a row of either list, or the
 // "Open in new tab" button (`ose.windows.open`). There is never a second tab on one vault: the
 // adapter holds one lock per vault, and says so. See docs/HOST.md.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, openOverlay, confirm, toast } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';
 import { errorOf } from './paths.js';
@@ -18,6 +18,12 @@ const FOCUSED = 'That vault is open in another tab';
 
 /** An answer of `ose.vault.open` that did not adopt: the vault is another tab's. */
 const wasFocused = (r) => !!r && (r.focused === true || r.status === 'focused');
+
+/**
+ * What a thrown value says: its `message` when it has one, else the value itself.
+ * @param {unknown} e
+ */
+const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /**
  * Open `root` in a browser tab of its own, or a new tab with no vault when `root` is absent
@@ -64,7 +70,7 @@ let switching = null;
  * lost-vault dialog, a second launch naming another folder:
  *
  * 1. `ose.window.leave('vault-change')`: the open page is saved into the vault it came from,
- *    and a page that cannot be saved keeps the window (the kernel says so, with [Show]).
+ *    and a page that cannot be saved keeps the window (the core says so, with [Show]).
  * 2. `ose.vault.open(root)` adopts the folder. If it cannot, the window is handed back
  *    (`ose.window.stay()`) and the reason is said.
  * 3. The window boots again on it, without asking a second time.
@@ -102,7 +108,7 @@ export function switchVault(root, { anyway = false } = {}) {
       opened = await ose.vault.open(root);
     } catch (e) {
       if (left) ose.window.stay();
-      toast(`could not open ${root}: ${String(e && e.message ? e.message : e)}`, 'err', 0);
+      toast(`could not open ${root}: ${String(messageOf(e))}`, 'err', 0);
       return false;
     }
     // Open in another window already (X6): the host brought that window forward, and this one
@@ -126,7 +132,7 @@ export async function recentVaults() {
     const list = await ose.vault.recent();
     return Array.isArray(list) ? list : [];
   } catch (e) {
-    console.warn('[shell] recent vaults', e && e.message ? e.message : e);
+    console.warn('[shell] recent vaults', messageOf(e));
     return [];
   }
 }
@@ -216,8 +222,8 @@ export async function chooseVault({ adopt = true } = {}) {
     // The row the keyboard last stood on: what "Open in new tab" opens.
     let lastRow = null;
     ov.box.addEventListener('focusin', (e) => {
-      const row = e.target.closest && e.target.closest('.vault-row');
-      if (row) lastRow = row.dataset.path;
+      const row = e.target instanceof Element ? e.target.closest('.vault-row') : null;
+      if (row instanceof HTMLElement) lastRow = row.dataset.path;
     });
     const inWindow = async (path) => {
       let root = path;
@@ -230,6 +236,7 @@ export async function chooseVault({ adopt = true } = {}) {
     };
 
     ov.box.addEventListener('click', async (e) => {
+      if (!(e.target instanceof Element)) return;
       if (e.target.closest('[data-act="cancel"]')) { finish(null); return; }
       if (e.target.closest('[data-act="window"]')) { await inWindow(lastRow); return; }
       if (e.target.closest('[data-act="pick"]')) {
@@ -237,8 +244,8 @@ export async function chooseVault({ adopt = true } = {}) {
         return;
       }
       const row = e.target.closest('.vault-row');
-      if (!row) return;
-      const v = items[+row.dataset.i];
+      if (!(row instanceof HTMLElement)) return;
+      const v = items[+(row.dataset.i ?? '')];
       if (e.shiftKey) { await inWindow(row.dataset.path); return; }
       if (!adopt) {
         // Only chosen: the switch adopts it. A folder this machine says is missing is not
@@ -254,7 +261,7 @@ export async function chooseVault({ adopt = true } = {}) {
       } catch (err) {
         // A folder that has been deleted or unplugged: say so on the row and leave the dialog.
         row.classList.add('gone');
-        row.title = String(err && err.message ? err.message : err);
+        row.title = String(messageOf(err));
       }
     });
 
@@ -265,12 +272,12 @@ export async function chooseVault({ adopt = true } = {}) {
         if (lastRow === path) lastRow = null;
         if (!items.length) { finish(null); return; }
         paint();
-        requestAnimationFrame(() => ov.box.querySelector('.vault-row')?.focus());
+        requestAnimationFrame(() => /** @type {HTMLElement | null} */ (ov.box.querySelector('.vault-row'))?.focus());
       },
       onWindow: (path) => { void inWindow(path); },
     });
 
-    requestAnimationFrame(() => ov.box.querySelector('.vault-row')?.focus());
+    requestAnimationFrame(() => /** @type {HTMLElement | null} */ (ov.box.querySelector('.vault-row'))?.focus());
   });
 }
 
@@ -302,7 +309,8 @@ export function vaultLost(root) {
     </div>`;
   ov.box.setAttribute('aria-labelledby', 'vault-lost-head');
 
-  const retry = ov.box.querySelector('[data-act="retry"]');
+  // Both buttons were drawn just above.
+  const retry = /** @type {HTMLButtonElement} */ (ov.box.querySelector('[data-act="retry"]'));
   retry.addEventListener('click', async () => {
     retry.disabled = true;
     let back = false;
@@ -311,7 +319,7 @@ export function vaultLost(root) {
     retry.disabled = false;
     retry.focus();
   });
-  ov.box.querySelector('[data-act="change"]').addEventListener('click', async () => {
+  /** @type {HTMLButtonElement} */ (ov.box.querySelector('[data-act="change"]')).addEventListener('click', async () => {
     const picked = await chooseVault({ adopt: false }).catch(() => null);
     if (picked && picked.root) await switchVault(picked.root, { anyway: true });
   });
@@ -370,10 +378,11 @@ export async function mountVaultChooser(rootEl) {
   surface.appendChild(body);
   rootEl.appendChild(surface);
 
-  const pick = body.querySelector('.vault-pick');
-  const err = body.querySelector('.vault-err');
-  const recentBox = body.querySelector('.vault-recent');
-  const list = body.querySelector('.vault-list');
+  // All drawn just above.
+  const pick = /** @type {HTMLButtonElement} */ (body.querySelector('.vault-pick'));
+  const err = /** @type {HTMLElement} */ (body.querySelector('.vault-err'));
+  const recentBox = /** @type {HTMLElement} */ (body.querySelector('.vault-recent'));
+  const list = /** @type {HTMLElement} */ (body.querySelector('.vault-list'));
 
   // The vaults this machine has opened before, so the second run is one keystroke (S46).
   let items = await recentVaults();
@@ -405,21 +414,21 @@ export async function mountVaultChooser(rootEl) {
   };
   pick.addEventListener('click', choose);
   // A vault in a window of its own, this one staying on the chooser (X6).
-  body.querySelector('.vault-window').addEventListener('click', async () => {
+  /** @type {HTMLButtonElement} */ (body.querySelector('.vault-window')).addEventListener('click', async () => {
     const picked = await ose.vault.pick({ adopt: false }).catch((e) => { fail(e); return null; });
     if (picked && picked.root) await openInNewWindow(picked.root);
   });
 
   list.addEventListener('click', async (e) => {
-    const row = e.target.closest('.vault-row');
-    if (!row || busy) return;
+    const row = e.target instanceof Element ? e.target.closest('.vault-row') : null;
+    if (!(row instanceof HTMLElement) || busy) return;
     if (e.shiftKey) { await openInNewWindow(row.dataset.path); return; }
     busy = true;
     err.hidden = true;
     try {
       const opened = await ose.vault.open(row.dataset.path);
       if (wasFocused(opened)) { toast(FOCUSED, 'info', 3200); busy = false; return; }
-      if (opened && opened.root) { reloadIntoVault(); return; }
+      if (opened && 'root' in opened && opened.root) { reloadIntoVault(); return; }
     } catch (e2) {
       fail(e2);
     }
@@ -436,7 +445,7 @@ export async function mountVaultChooser(rootEl) {
     try {
       const opened = await ose.vault.open(root);
       if (wasFocused(opened)) { busy = false; return; }
-      if (opened && opened.root) { reloadIntoVault(); return; }
+      if (opened && 'root' in opened && opened.root) { reloadIntoVault(); return; }
     } catch (e) {
       fail(e);
     }
@@ -448,7 +457,7 @@ export async function mountVaultChooser(rootEl) {
       try { await ose.vault.forget(path); } catch (e) { console.warn('[shell] forgetVault', e); }
       items = items.filter((v) => v.path !== path);
       paintRecent();
-      (list.querySelector('.vault-row') || pick).focus();
+      (/** @type {HTMLElement | null} */ (list.querySelector('.vault-row')) || pick).focus();
     },
     onWindow: (path) => { void openInNewWindow(path); },
   });

@@ -1,11 +1,11 @@
 // `npm run test:e2e`: the browser suites. The no-loss suite (CONTRACT §14, H11), the Live
 // scenarios and Ose Web's own (web.spec.js), Playwright against the built app served as plain
-// files, as any static host serves it. Headless Chromium drives the real shell, kernel, editor
+// files, as any static host serves it. Headless Chromium drives the real shell, core, editor
 // and web adapter, and every scenario checks the bytes in the vault, not only the screen.
 //
 // The build is made fresh into a temp folder (tests/e2e/prepare.mjs, env.js), never the
 // repository's `dist/`. The vault is the browser's private file system for the origin, opened
-// through the `?opfs=1` test hook (src/web/adapter.js): every test has a fresh persistent
+// through the `?opfs=1` test hook (src/host/adapter.ts): every test has a fresh persistent
 // profile (tests/e2e/test.js), so a fresh, empty vault that helpers.js boot seeds. One
 // worker: the scenarios share the server.
 //

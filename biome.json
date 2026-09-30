@@ -8,6 +8,7 @@
   "files": {
     "includes": [
       "src/**/*.js",
+      "src/**/*.ts",
       "shell/**/*.js",
       "dev/**/*.mjs",
       "scripts/**/*.mjs",
@@ -24,7 +25,7 @@
   },
   "overrides": [
     {
-      "includes": ["src/editor/blocks.js"],
+      "includes": ["src/editor/blocks.ts"],
       "linter": {
         "rules": {
           "correctness": {

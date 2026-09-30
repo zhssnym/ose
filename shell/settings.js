@@ -2,18 +2,18 @@
 // place in the app, with the sections listed on the left and the rows of one section on the
 // right. `route.arg` names the section to show (`{type:'view', name:'settings', arg:'planner'}`).
 //
-// The values are the kernel's (`ose.settings`, docs/KERNEL.md): it knows which key is kept per
+// The values are the core's (`ose.settings`, docs/CORE.md): it knows which key is kept per
 // machine and which one belongs to the vault, and it validates what it is handed. This file
 // only draws them, and draws the sections other parts of the app register through
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault, openInNewWindow } from './vault.js';
 
 const { bus, commands, store } = ose;
 
 // The steps a person can pick between are the page's, because they are what it draws. The
-// kernel validates against its own copy, so a step it does not know simply gets the default.
+// core validates against its own copy, so a step it does not know simply gets the default.
 const FONT_SIZES = [14, 15, 16, 17];
 const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
@@ -25,6 +25,12 @@ const settings = () => ose.settings.get();
 const save = (partial) => ose.settings.set(partial);
 const zoom = () => ose.settings.zoom();
 const setZoom = (pct) => ose.settings.setZoom(pct);
+
+/**
+ * What a thrown value says: its `message` when it has one, else the value itself.
+ * @param {unknown} e
+ */
+const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /** One step in or out, clamped at the ends rather than wrapping. */
 function stepZoom(dir) {
@@ -87,7 +93,7 @@ function currentValues() {
   };
 }
 
-/** A click on a segment, written through to the kernel. */
+/** A click on a segment, written through to the core. */
 function applySeg(group, v, box) {
   if (group === 'theme') ose.theme.set(v);
   else if (group === 'zoom') setZoom(+v);
@@ -106,7 +112,7 @@ function applySeg(group, v, box) {
   else if (group === 'mdext') save({ hideMdExt: v === 'on' });
 }
 
-/** Every segmented control on the page, lit to match what the kernel now says. */
+/** Every segmented control on the page, lit to match what the core now says. */
 function syncControls(box) {
   if (!box) return;
   const now = currentValues();
@@ -190,7 +196,7 @@ function filesHtml() {
 }
 
 /**
- * The Keys section: every chord the app answers to, read only. The kernel's defaults
+ * The Keys section: every chord the app answers to, read only. The core's defaults
  * (`ose.keys.defaults()`) with the shell's `keys.json` over them, the way the key engine
  * resolves them. A chord used in a page's text belongs to the editor while the caret is there,
  * and says so in the last column.
@@ -216,7 +222,9 @@ async function keysHtml() {
   const title = (id) => { const c = commands.get(id); return (c && c.title) || id; };
   // One row per action and place: Go to file answers to Ctrl+P and Ctrl+O, and says so once.
   const byAct = new Map();
-  for (const [where, list] of [['Everywhere', [...win.values()]], ['In a page', body]]) {
+  /** @type {[string, {combo: string, cmd: string}[]][]} */
+  const groups = [['Everywhere', [...win.values()]], ['In a page', body]];
+  for (const [where, list] of groups) {
     for (const e of list) {
       const key = where + '|' + e.cmd;
       if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, combos: [] });
@@ -240,7 +248,7 @@ function vaultHtml() {
   return `<div class="set-info mono-sm text-select">
       <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
       <div><span>From</span><i class="set-vault-src">—</i></div>
-      <div><span>Version</span><i>${esc(`${ose.version.kernel} · ${ose.platform}`)}</i></div>
+      <div><span>Version</span><i>${esc(`${ose.version.core} · ${ose.platform}`)}</i></div>
       <div><span>Log</span><i class="set-log">—</i></div>
     </div>`;
 }
@@ -320,7 +328,7 @@ async function changeVault() {
   try {
     picked = await chooseVault({ adopt: false });
   } catch (e) {
-    toast(String(e && e.message ? e.message : e), 'err', 0);
+    toast(String(messageOf(e)), 'err', 0);
     return;
   }
   if (!picked || !picked.root) return;
@@ -368,10 +376,13 @@ function mountPage(el, route = {}) {
     </section>
   </div>
 </div>`;
-  const root = el.querySelector('.set-page');
-  const nav = root.querySelector('.set-nav');
-  const titleEl = root.querySelector('#set-title');
-  const body = root.querySelector('.set-body');
+  // All drawn just above.
+  const root = /** @type {HTMLElement} */ (el.querySelector('.set-page'));
+  const nav = /** @type {HTMLElement} */ (root.querySelector('.set-nav'));
+  const titleEl = /** @type {HTMLElement} */ (root.querySelector('#set-title'));
+  const body = /** @type {HTMLElement} */ (root.querySelector('.set-body'));
+  /** The tab that is on, when the list is drawn. */
+  const onTab = () => /** @type {HTMLElement | null} */ (nav.querySelector('.set-tab.on'));
 
   let current = null;
   let sectionHandle = null;
@@ -394,6 +405,7 @@ function mountPage(el, route = {}) {
   async function show(id) {
     const secs = allSections();
     const sec = secs.find((s) => s.id === id) || secs[0];
+    if (!sec) return;
     const my = ++seq;
     dropSection();
     current = sec.id;
@@ -401,7 +413,7 @@ function mountPage(el, route = {}) {
     titleEl.textContent = sec.title;
     body.textContent = '';
     body.dataset.sec = sec.id;
-    if (sec.render) {
+    if ('render' in sec) {
       // A section someone else registered draws into a box of its own. One that throws is one
       // line saying so, never a page that fails to open.
       const box = document.createElement('div');
@@ -413,7 +425,7 @@ function mountPage(el, route = {}) {
         sectionHandle = h && typeof h === 'object' ? h : null;
       } catch (e) {
         console.error('[shell] settings section', sec.id, e);
-        box.innerHTML = `<div class="set-note err">This section could not be drawn: ${esc(String(e.message || e))}</div>`;
+        box.innerHTML = `<div class="set-note err">This section could not be drawn: ${esc(String(messageOf(e)))}</div>`;
       }
       return;
     }
@@ -426,13 +438,13 @@ function mountPage(el, route = {}) {
   }
 
   nav.addEventListener('click', (e) => {
-    const b = e.target.closest('.set-tab');
-    if (b) void show(b.dataset.sec).then(() => nav.querySelector('.set-tab.on')?.focus());
+    const b = e.target instanceof Element ? e.target.closest('.set-tab') : null;
+    if (b instanceof HTMLElement) void show(b.dataset.sec).then(() => onTab()?.focus());
   });
   // A vertical tab list: Up and Down move and show, Home and End go to the ends, Tab leaves
   // for the rows.
   nav.addEventListener('keydown', (e) => {
-    const tabs = [...nav.querySelectorAll('.set-tab')];
+    const tabs = /** @type {HTMLElement[]} */ ([...nav.querySelectorAll('.set-tab')]);
     const at = tabs.findIndex((t) => t.dataset.sec === current);
     let next = -1;
     if (e.key === 'ArrowDown') next = (at + 1) % tabs.length;
@@ -441,16 +453,22 @@ function mountPage(el, route = {}) {
     else if (e.key === 'End') next = tabs.length - 1;
     else return;
     e.preventDefault();
-    void show(tabs[next].dataset.sec).then(() => nav.querySelector('.set-tab.on')?.focus());
+    const tab = tabs[next];
+    if (!tab) return;
+    void show(tab.dataset.sec).then(() => onTab()?.focus());
   });
 
   body.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
     const act = e.target.closest('[data-act]');
-    if (act && act.dataset.act === 'vault') { void commands.run('app.vault-change'); return; }
+    if (act instanceof HTMLElement && act.dataset.act === 'vault') { void commands.run('app.vault-change'); return; }
     const b = e.target.closest('.seg-b');
-    if (!b) return;
-    const group = b.closest('.seg').dataset.seg;
-    b.parentElement.querySelectorAll('.seg-b').forEach((n) => {
+    if (!(b instanceof HTMLElement)) return;
+    const seg = b.closest('.seg');
+    const row = b.parentElement;
+    if (!(seg instanceof HTMLElement) || !row) return;
+    const group = seg.dataset.seg;
+    row.querySelectorAll('.seg-b').forEach((n) => {
       n.classList.toggle('on', n === b);
       n.setAttribute('aria-pressed', String(n === b));
     });
@@ -467,7 +485,7 @@ function mountPage(el, route = {}) {
 
   live = {
     show: (id) => show(id),
-    focus: () => nav.querySelector('.set-tab.on')?.focus(),
+    focus: () => onTab()?.focus(),
   };
   const first = show(route && route.arg);
 
@@ -533,12 +551,12 @@ export function initSettings() {
   // have something to bind to.
   commands.register({
     id: 'app.zoom-in', title: 'Zoom in', group: 'app', hint: 'bigger text and chrome',
-    when: () => zoom() < ZOOM_STEPS[ZOOM_STEPS.length - 1],
+    when: () => zoom() < Math.max(...ZOOM_STEPS),
     run: () => stepZoom(1),
   });
   commands.register({
     id: 'app.zoom-out', title: 'Zoom out', group: 'app', hint: 'smaller text and chrome',
-    when: () => zoom() > ZOOM_STEPS[0],
+    when: () => zoom() > Math.min(...ZOOM_STEPS),
     run: () => stepZoom(-1),
   });
   commands.register({

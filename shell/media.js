@@ -3,14 +3,14 @@
 // `shell/page.js` branches on the extension and hands the first two here; a file whose first
 // bytes are not text (the host's sniff) gets `binaryPage`, a box that says what it is and
 // offers the ways out, because every file in the vault opens in the app (H17). The shape is
-// `markdownPage`'s, because the kernel's page host contract is one shape (docs/KERNEL.md
+// `markdownPage`'s, because the core's page host contract is one shape (docs/CORE.md
 // `ose.setPageHost`): a handle with `ready`, `close()`, `goToLine()` and `selection()`. The
 // last two answer "no" honestly — there is no line and no caret in a picture — and the router
 // falls back to scrolling the column, which is the right thing.
 //
 // Nothing here reads the file's bytes, beyond the first few of a PDF to see that it is one.
 // The browser draws it itself from the vault's URL (`ose.files.assetUrl`, which the service
-// worker answers from the vault, src/web/sw.js): an `<img src>` for a picture, and for a PDF an
+// worker answers from the vault, src/host/sw.js): an `<img src>` for a picture, and for a PDF an
 // `<iframe>` whose document is Chrome's own PDF viewer. That is why the page's CSP allows
 // `frame-src 'self'` as well as `img-src`, and why the worker answers `application/pdf` for
 // `.pdf`. No library, no bytes through the bridge, no temp file.
@@ -27,7 +27,7 @@
 //     checked before the frame is pointed at anything, so the viewer is never asked to draw a
 //     file that is not a PDF.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { icon, toast, esc } from 'ose:ui';
 import { baseName, dirName, extOf, isOutside, outsideLabel } from './paths.js';
 import { typeLabel, sizeLabel, dateLabel } from './folder-model.js';
@@ -59,18 +59,18 @@ function sizeText(bytes) {
 }
 
 /**
- * The kernel's "page not found" box, re-lettered for a file the user cannot write by typing
+ * The core's "page not found" box, re-lettered for a file the user cannot write by typing
  * (QA-5 finding 4). `mediaMissingPage` below fills a `.miss` box with it, so the page keeps
- * the kernel's own shape and place in the column and has no button — a `.pdf` that is not
+ * the core's own shape and place in the column and has no button — a `.pdf` that is not
  * there is not a page to create, and a stub would be a markdown file wearing a media
  * extension.
  */
 export function mediaMiss(box, path) {
   if (!box) return false;
   addStyles();
-  // `.miss-title` and `.miss-path` are the kernel's own, so the box keeps its shape and its
+  // `.miss-title` and `.miss-path` are the core's own, so the box keeps its shape and its
   // place; the third line is ours and quiet, because a missing attachment is a fact to state,
-  // not an error to shout (`.miss-why` is the red the kernel keeps for a bridge fault).
+  // not an error to shout (`.miss-why` is the red the core keeps for a bridge fault).
   box.innerHTML = `
         <div class="miss-title">${isOutside(path) ? 'that file is not there' : 'that file is not in the vault'}</div>
         <div class="miss-path mono">${esc(outsideLabel(path))}</div>
@@ -105,7 +105,7 @@ async function looksLikePdf(url) {
     const bytes = first && first.value ? first.value.subarray(0, 1024) : null;
     if (!bytes || !bytes.length) return false;
     let text = '';
-    for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+    for (const b of bytes) text += String.fromCharCode(b);
     return text.includes('%PDF-');
   } catch (e) {
     console.warn('[media] could not read the head of', url, e);
@@ -385,7 +385,7 @@ export function mediaPage(el, path) {
  * A media route whose file is not there. The page host claims every media path
  * (`claims(path)`, docs/SHELL.md "The page seam"), so the router hands this one over instead
  * of drawing its own "page not found" with a **Create it** that has no business near a `.pdf`;
- * this draws the kernel's own `.miss` box, re-lettered by `mediaMiss`, in the kernel's own
+ * this draws the core's own `.miss` box, re-lettered by `mediaMiss`, in the core's own
  * place in the column. It answers the same handle as a real media page.
  *
  * @param {HTMLElement} el   the router's `.page-host`
@@ -450,7 +450,8 @@ export function binaryPage(el, path) {
       <p class="binary-why">This file is not text, so it is not shown here.</p>
       <div class="binary-actions"></div>
     </div>`;
-  const actions = col.querySelector('.binary-actions');
+  // Drawn just above.
+  const actions = /** @type {HTMLElement} */ (col.querySelector('.binary-actions'));
   const button = (label, iconName, run, primary = false) => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -460,7 +461,7 @@ export function binaryPage(el, path) {
       try {
         const out = run();
         if (out && typeof out.catch === 'function') out.catch((err) => toast(err.message || String(err), 'err', 0));
-      } catch (err) { toast(err.message || String(err), 'err', 0); }
+      } catch (err) { toast(String((err && typeof err === 'object' && 'message' in err && err.message) || err), 'err', 0); }
     });
     actions.appendChild(b);
     return b;

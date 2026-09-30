@@ -14,6 +14,6 @@ export const icon = () => '';
 export const openOverlay = () => ({ close: none, el: null });
 export const pageItems = () => [];
 export const pickPage = async () => null;
-// The planner's settings fragment (src/planner/settings.js) imports the two pickers.
+// The planner's settings fragment (src/planner/settings.ts) imports the two pickers.
 export const pickFile = async () => null;
 export const pickFolder = async () => null;

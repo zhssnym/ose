@@ -2,7 +2,7 @@
 // ends, how to type into it, and the "untouched blocks keep their bytes" reading.
 
 import { Transform } from '@milkdown/kit/prose/transform';
-import { parseDoc } from '../../src/editor/doc.js';
+import { parseDoc } from '../../src/editor/doc.ts';
 
 /** Every top-level block with its offset and index. */
 export function tops(doc) {

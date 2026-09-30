@@ -8,8 +8,8 @@
 // `ose:planner` is the real entry (src/planner): the planner tests import its pure modules by
 // path, and a test that wants the entry wants the real one.
 //
-// The kernel's three library specifiers resolve to small stubs: the editor sources import
-// `ose:kernel` and `ose:ui` at module top level (host.js, deps.js), and the serialiser tests
+// The core's three library specifiers resolve to small stubs: the editor sources import
+// `ose:core` and `ose:ui` at module top level (host.js, deps.js), and the serialiser tests
 // never touch what those stubs stand in for. `@milkdown/crepe` itself, the exact specifier, is
 // a stub too: image.js imports it only for a feature-name constant, and the real package pulls
 // the whole view layer and its stylesheets into a test that has no view. Its theme files
@@ -29,16 +29,16 @@ const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^ose:kernel$/, replacement: here('tests/stubs/kernel.js') },
+      { find: /^ose:core$/, replacement: here('tests/stubs/core.js') },
       { find: /^ose:ui$/, replacement: here('tests/stubs/ui.js') },
-      { find: /^ose:planner$/, replacement: here('src/planner/index.js') },
+      { find: /^ose:planner$/, replacement: here('src/planner/index.ts') },
       { find: /^@milkdown\/crepe$/, replacement: here('tests/stubs/crepe.js') },
       { find: /^.+\.css(\?.*)?$/, replacement: here('tests/stubs/empty.js') },
     ],
   },
   test: {
     environment: 'node',
-    // The repo root, for a test that reads a repository file (tests/kernel/keys.test.js), since
+    // The repo root, for a test that reads a repository file (tests/core/keys.test.js), since
     // import.meta.url is not a file URL under happy-dom.
     env: { OSE_REPO: here('.') },
     include: ['tests/**/*.test.js'],

@@ -3,8 +3,8 @@
 // between the block and the new line, so what is typed next is a paragraph of its own and not
 // a lazy continuation that Reading and Rich would draw inside the last item.
 import { describe, it, expect, afterEach } from 'vitest';
-import { createLiveView } from '../../../src/editor/live/view.js';
-import { liveEnter } from '../../../src/editor/live/commands.js';
+import { createLiveView } from '../../../src/editor/live/view.ts';
+import { liveEnter } from '../../../src/editor/live/commands.ts';
 import { Transaction } from '@codemirror/state';
 import { undo } from '@codemirror/commands';
 

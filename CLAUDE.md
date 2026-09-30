@@ -5,7 +5,7 @@
 Ose (On Site Editor; the French imperative "dare") is a markdown viewer and editor for a personal
 file tree. It parses certain files and builds a graphical view from them, while leaving every file
 ordinary prose. Ose is a web app for Chrome, installable as an app and working offline after the
-first visit: the host (the web adapter over the File System Access API), the kernel, the editor,
+first visit: the host (the web adapter over the File System Access API), the core, the editor,
 the planner (Day, Week, Month, Journal) and the shell (tree, folder view, tabs, palette, settings,
 search, home) are one build, served as plain files by Vercel. There is no server and no database:
 Vercel serves the app's own code, and a vault never leaves the machine. Nothing of the app lives
@@ -46,7 +46,7 @@ place and has no versions, links or attachments.
 README.md           what Ose is, in Hassan's words
 docs/
   FORMATS.md        the planner's files: what each one holds, and exactly what the app writes
-  KERNEL.md         everything on `ose`: files, fileops, routes, tabs, session, the local store
+  CORE.md         everything on `ose`: files, fileops, routes, tabs, session, the local store
   SHELL.md          the interface: layout, boot, places and tabs, the tree, the page seam, settings
   LIVE.md           the Live mode: the text-is-truth rule, the reveal rule, the widgets
   HOST.md           the host, which is the browser: every command, writes, the watcher, drafts,
@@ -55,30 +55,35 @@ docs/
 shell/              the interface, flat: index.html, main.js, the surfaces (tree, folder view,
                     Home, tabs, address bar, search, settings, trash), shell.css, tree.css,
                     places.css, folder.css, theme.css, keys.json, logo.png. Copied verbatim into
-                    dist/ by the build.
-src/
-  kernel/           ose:kernel (registry, bridge, router, tabs, session, local store, links,
+                    dist/ by the build. The tree is sidebar.js and its parts, sidebar-*.js, which
+                    share one `state` (sidebar-state.js); the folder view is folder.js and
+                    folder-sort.js, folder-list.js, folder-view.js.
+src/                TypeScript, built by Vite into the four bundles
+  core/             ose:core (registry, bridge, router, tabs, session, local store, links,
                     fileops and the undo journal, settings core, state, theme, keys, watch),
                     ose:ui (dialogs, pickers, menu, toast, icons; ui.css = tokens + base);
                     bridge/commands.ts types every host command, kept by hand
   editor/           ose:editor: markdownPage in Rich, Live and Source, codeEditor, render
                     (Crepe, CodeMirror, marked), one live instance per open file, the 3-way
                     merge of changes made on disk; live/ is the Live mode, reading/ the Reading
-                    view
+                    view, page/ the parts of page.ts (open, modes, save, merge, drafts, ...), each
+                    adding its functions to one instance's `ctx`; stringify/ the serializer's
+                    parts (write, cleanup, reconcile, blocks, markers, tables)
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
-  web/              the host: the adapter over the File System Access API (fs, watch, local,
-                    vault-handle, rules, idb) and the service worker
+  host/             the host: the adapter over the File System Access API (fs, watch, local,
+                    vault-handle, rules, idb) and the service worker (sw.js, plain JS: it is
+                    served as written)
 web/                the PWA manifest and the icons
 vite.config.js      the dev server (the shell from shell/, ose:* aliased to the sources) and the
                     build (the four bundles into dist/ose/, the shell, the worker, the CSP)
 vercel.json         Vercel's build of dist/ and its cache headers
-tests/              vitest: serializer/ (fast-check properties and named regressions), kernel/,
+tests/              vitest: serializer/ (fast-check properties and named regressions), core/,
                     editor/, live/ (with the property test that Live never changes a byte it
                     was not told to), reading/, planner/, shell/, web/ (over the in-memory File
                     System Access stub in stubs/fsa.js), fixtures/, support/; e2e/: the
                     Playwright suites over the built app
 vitest.config.js, playwright.config.js, biome.json, tsconfig.json   the test runners, the lint
-                    and checkJs
+                    and the type check
 dist/, work/        build output and scratch, gitignored
 ```
 
@@ -89,9 +94,9 @@ npm install
 npm run dev            # http://localhost:5173: the app from its sources, in Chrome
 npm run build          # dist/: the site Vercel serves
 npm run preview        # dist/ served as a static host serves it
-npm test               # vitest: serializer, kernel, editor, Live, reading, planner, shell, web
+npm test               # vitest: serializer, core, editor, Live, reading, planner, shell, web
 npm run test:e2e       # Playwright: no loss, Live and Ose Web, on the built app
-npm run typecheck      # tsc checkJs over the save path, the kernel, Live and src/web: zero errors
+npm run typecheck      # tsc over src/ (TypeScript) and shell/ (checkJs), strict: zero errors
 npm run lint           # Biome, warnings are errors
 ```
 
@@ -117,17 +122,17 @@ app like everything else; what a vault decides is only where its files are (Sett
 
 ## Rules for working in this folder
 
-- Read `docs/FORMATS.md` before touching the planner, `docs/KERNEL.md` before the kernel,
-  `docs/SHELL.md` before the shell, `docs/HOST.md` before `src/web`, and `docs/DESIGN.md` before
+- Read `docs/FORMATS.md` before touching the planner, `docs/CORE.md` before the core,
+  `docs/SHELL.md` before the shell, `docs/HOST.md` before `src/host`, and `docs/DESIGN.md` before
   any UI. A hose is added, never changed in meaning.
   Every document lives in `docs/`; the root `README.md` is one paragraph and stays as it is.
-- The kernel never draws and ships no HTML. Nothing in it knows a view, the planner or a file
+- The core never draws and ships no HTML. Nothing in it knows a view, the planner or a file
   name of the shell.
 - The planner imports only `ose:ui`, `ose:editor`, `date-fns` and its own files, never
-  `ose:kernel`. It never spells a vault path: every path is a setting, found automatically the
+  `ose:core`. It never spells a vault path: every path is a setting, found automatically the
   first time and confirmed by the user. It writes a line, never a whole file.
 - Nothing is hidden by name. The host has the one hide rule (`.ose`, `.git`, the vault bin's
-  bookkeeping, temp files and Chrome's `.crswap`, `src/web/rules.js`); dotfiles wait behind Show
+  bookkeeping, temp files and Chrome's `.crswap`, `src/host/rules.ts`); dotfiles wait behind Show
   hidden items. Names are shown in full, with their extension.
 - Markdown fidelity is non-negotiable. The editor must never rewrite a file it did not edit, and
   a user edit must not reformat the rest of the file. Hassan's conventions: `-` bullets, `_`
@@ -138,8 +143,9 @@ app like everything else; what a vault decides is only where its files are (Sett
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
   Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml, turndown (HTML
   paste), node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
-- checkJs covers the set in `tsconfig.json`; `@ts-ignore` and `@ts-expect-error` are banned in it,
-  and a file comes out of the set rather than hide an error.
+- `src/` is TypeScript; `shell/` and `src/host/sw.js` stay JavaScript, because they are served
+  as written, and tsc checks them (checkJs). `strict` is on for both (`noImplicitAny` still
+  off); `@ts-ignore` and `@ts-expect-error` are banned, and a type error is fixed, not hidden.
 - Colours, fonts and sizes come from the tokens in `ui.css` only. No hex values elsewhere.
   Spacing from the scale; no bare pixel paddings.
 - Both themes, every time. Keyboard reachable, every time: every action has a command, every

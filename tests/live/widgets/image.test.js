@@ -4,7 +4,7 @@
 
 import './dom-shim.js';
 import { describe, expect, it } from 'vitest';
-import { image, imageBlock, ImageWidget, readImage } from '../../../src/editor/live/widgets/image.js';
+import { image, imageBlock, ImageWidget, readImage } from '../../../src/editor/live/widgets/image.ts';
 import { ctxOf, decorations, nodesOf, stateOf } from './support.js';
 
 describe('readImage', () => {

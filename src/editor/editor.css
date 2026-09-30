@@ -317,7 +317,7 @@
   border: var(--doc-frame) solid var(--fg); border-radius: 0;
   font-style: normal; color: var(--fg);
 }
-/* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.js, nothing in the
+/* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.ts, nothing in the
    file changes. A callout carries a title of its own, so it is a frame rather than a bar, and
    it is upright: the italic belongs to the bar. No colour per kind — colour means something
    here, and a note is not a state. */
@@ -551,13 +551,13 @@
   font-size: var(--fs-body);
 }
 
-/* The block handle is configured off in crepe.js; this keeps it off if Crepe ever mounts
+/* The block handle is configured off in crepe.ts; this keeps it off if Crepe ever mounts
    the element anyway. */
 .ed .milkdown .milkdown-block-handle { display: none !important; }
 
 /* ------------------------------------------------- slash menu + toolbar + link */
 
-/* Our own menu (src/editor/slash.js), not Crepe's: a `.surface` of `.row` items with a
+/* Our own menu (src/editor/slash.ts), not Crepe's: a `.surface` of `.row` items with a
    `.section-label` per group. Positioned by floating-ui against `.ed`, which is relative. */
 .ed .os-slash {
   position: absolute; left: 0; top: 0; z-index: 30;
@@ -612,7 +612,7 @@
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg); width: 260px;
 }
 
-/* ------------------------------------------------------- selected blocks (blocks.js) */
+/* ------------------------------------------------------- selected blocks (blocks.ts) */
 
 /* One or more whole blocks selected with Esc / Shift+arrows: DESIGN.md's current-row idiom,
    `--accent-soft` behind the block and a 2px `--accent` bar on its left edge. The bar is an

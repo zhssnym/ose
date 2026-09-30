@@ -4,7 +4,7 @@
 
 import './dom-shim.js';
 import { describe, expect, it } from 'vitest';
-import { liveDecorations, liveState, liveText } from '../../../src/editor/live/index.js';
+import { liveDecorations, liveState, liveText } from '../../../src/editor/live/index.ts';
 
 const DOC = [
   '# Title',

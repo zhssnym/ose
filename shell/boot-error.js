@@ -1,22 +1,22 @@
 // The page a failed boot leaves instead of a blank window (M38).
 //
-// Anything can fail on the way up: a module of the shell that does not load, the kernel not
+// Anything can fail on the way up: a module of the shell that does not load, the core not
 // answering, the editor bundle throwing on an old web view, a surface that throws while it is
 // built. Before this file every one of those was a blank window with the reason in a console
 // nobody has open. Now it is one page that says what happened, where the log is, and offers
 // the two things a person can do about it: copy the details to send to someone, and try again.
 //
 // It imports nothing. `main.js` reaches it when `boot.js` itself could not be loaded, which may
-// be because the kernel could not be, so this file cannot lean on either: the kernel is handed
+// be because the core could not be, so this file cannot lean on either: the core is handed
 // in when there is one and only asked for the log path and the version. Colours are the
-// tokens, with the system colours behind them for the case where the kernel's stylesheet is
+// tokens, with the system colours behind them for the case where the core's stylesheet is
 // what did not arrive.
 
 let shown = false;
 
 /**
  * Draw the error page over `#app`. `stage` is one sentence in the user's words saying how far
- * the boot got; `ose` is the kernel when it loaded, null when it did not. Only the first call
+ * the boot got; `ose` is the core when it loaded, null when it did not. Only the first call
  * draws: a second failure while the page is up is the same failure seen again.
  *
  * @param {unknown} err
@@ -28,7 +28,7 @@ export async function showBootError(err, { stage = 'Ose could not start.', ose =
   shown = true;
 
   const message = describe(err);
-  const stack = err && err.stack ? String(err.stack) : '';
+  const stack = err && typeof err === 'object' && 'stack' in err && err.stack ? String(err.stack) : '';
   const log = await logPath(ose);
   try { if (ose && typeof ose.log === 'function') await Promise.resolve(ose.log(`boot failed: ${stage} ${message}\n${stack}`, 'error')); } catch { /* the log is what failed */ }
 
@@ -91,12 +91,12 @@ export async function showBootError(err, { stage = 'Ose could not start.', ose =
   setTimeout(() => again.focus(), 0);
 }
 
-/** `1.2.0 (a1b2c3d)`, or `unknown` when the kernel did not load. */
+/** `1.2.0 (a1b2c3d)`, or `unknown` when the core did not load. */
 function versionOf(ose) {
   const v = ose && ose.version;
   if (!v) return 'unknown';
   if (typeof v === 'string') return v;
-  return `${v.kernel || 'unknown'}${v.short ? ` (${v.short})` : ''}`;
+  return `${v.core || 'unknown'}${v.short ? ` (${v.short})` : ''}`;
 }
 
 /** One line for the error, whatever was thrown. */
@@ -107,7 +107,7 @@ function describe(err) {
   return code + String(err.message || err);
 }
 
-/** Where the host writes its log (docs/HOST.md "Machine-local state"), when the kernel can say. */
+/** Where the host writes its log (docs/HOST.md "Machine-local state"), when the core can say. */
 async function logPath(ose) {
   if (!ose || !ose.vault || typeof ose.vault.info !== 'function') return '';
   try {

@@ -15,7 +15,7 @@
 // "outside vault" (X7, `ose.files.openOutside`). A page outside the vault reads, at rest, as
 // "Outside the vault", its folder, then its name.
 
-import { ose } from 'ose:kernel';
+import { ose } from 'ose:core';
 import { esc, icon, hasIcon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
 import * as M from './folder-model.js';
@@ -43,6 +43,7 @@ const display = (path) => titleOf(path) || baseName(path);
  * root is one click away from anywhere; a folder segment carries the folder it opens.
  */
 function partsOf(r) {
+  /** @type {{text: string, folder?: string, cur?: boolean, outside?: boolean, path?: string}[]} */
   const parts = [{ text: vaultName(), folder: '' }];
   if (!r) return parts;
   if (r.type === 'view') {
@@ -67,7 +68,7 @@ function partsOf(r) {
     if (last && r.type === 'page') parts.push({ text: display(dir), cur: true, path: dir });
     else parts.push({ text: s, folder: dir, cur: last });
   });
-  if (!segs.length && r.type === 'folder') parts[0].cur = true;
+  if (!segs.length && r.type === 'folder' && parts[0]) parts[0].cur = true;
   return parts;
 }
 
@@ -88,7 +89,7 @@ function renderAddress(r) {
     b.className = 'tb-crumb' + (p.cur ? ' cur' : '') + (p.outside ? ' tb-outside' : '');
     b.textContent = p.text;
     if (p.folder != null) {
-      b.type = 'button';
+      b.setAttribute('type', 'button');
       b.dataset.folder = p.folder;
       b.title = p.folder ? `Open ${p.folder}` : `Open ${vaultName()}`;
       if (p.cur) b.setAttribute('aria-current', 'location');
@@ -137,13 +138,19 @@ function listFolder(folder) {
 const unverbatim = (p) => p.replace(/^\/\/\?\//, '');
 
 /**
+ * What the address field means: vault paths to try, and for an absolute path outside the vault
+ * that path as typed.
+ * @typedef {{paths: string[], outside?: false} | {paths: string[], outside: true, abs: string}} Typed
+ */
+
+/**
  * What the field says, as vault paths to try in order (slashes one way, none leading; a
  * trailing one is kept, it means "inside"). A full path pasted from Explorer or Finder that is
  * in this vault loses the vault's root (either slash, any case on Windows); a leading
  * `vault-name/`, which is how the bar reads at rest, is tried without it after the path as
  * typed. An absolute path anywhere else is `{ outside: true }`. `..` and `.` are not places.
  * @param {string} text
- * @returns {{paths: string[], outside?: boolean}}
+ * @returns {Typed}
  */
 function relOf(text) {
   let t = unverbatim(String(text ?? '').trim().replace(/^"(.*)"$/s, '$1').replace(/\\/g, '/'));
@@ -236,7 +243,7 @@ function setNote(text) {
 /**
  * An absolute path outside the vault (X7): the file opens in a tab marked "outside vault"
  * (`ose.files.openOutside`). A file that is inside another Ose vault, or inside this one after
- * all, is the kernel's to route. The field stays, with the reason, when nothing opened.
+ * all, is the core's to route. The field stays, with the reason, when nothing opened.
  * @param {string} abs the absolute path as typed, forward slashes
  */
 async function goOutside(abs) {
@@ -252,6 +259,7 @@ async function goOutside(abs) {
 
 /** Enter: stat the path and go there. What is not there keeps the field, with the reason. */
 async function go() {
+  /** @type {Typed} */
   const typed = picked && items[pick] ? { paths: [items[pick].path] } : relOf(inputEl ? inputEl.value : '');
   for (const target of [...new Set(typed.paths.map(clean))]) {
     if (!target) { if (typed.outside) break; finishEdit(); await route.navigate({ type: 'folder', path: '' }); return; }
@@ -331,12 +339,13 @@ export function editAddress() {
   // A click on a row keeps the field's focus: take it, then go on typing or press Enter.
   menuEl.addEventListener('mousedown', (e) => e.preventDefault());
   menuEl.addEventListener('click', (e) => {
-    const row = e.target.closest('.tb-addr-item');
+    /** @type {HTMLElement|null} */
+    const row = e.target instanceof Element ? e.target.closest('.tb-addr-item') : null;
     if (!row) return;
-    const it = items[+row.dataset.i];
+    const it = items[Number(row.dataset.i)];
     if (!it) return;
-    if (it.kind === 'dir') accept(+row.dataset.i);
-    else { pick = +row.dataset.i; picked = true; void go(); }
+    if (it.kind === 'dir') accept(Number(row.dataset.i));
+    else { pick = Number(row.dataset.i); picked = true; void go(); }
   });
   document.body.appendChild(menuEl);
 
@@ -397,21 +406,23 @@ export function initTitlebar(node) {
   // The sidebar's one control: the far-left corner of the title bar, at the sidebar's own x,
   // in the same place whether the sidebar is open or folded. Only the glyph turns, and the
   // title says which way it goes. It runs `app.sidebar`, the same command Ctrl+\ runs.
-  foldEl = el.querySelector('.tb-fold');
+  // Every control below was written just above, so none of them is null.
+  foldEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-fold'));
   foldEl.addEventListener('click', () => commands.run('app.sidebar'));
   setSidebarShown(sidebarVisible());
   // The window hides the sidebar on its own under 640px (layout.js `fit`, L25), without
   // touching the preference, so the glyph follows what is on screen and not what is stored.
   bus.on('sidebar', setSidebarShown);
 
-  addrEl = el.querySelector('.tb-addr');
-  dirtyEl = el.querySelector('.tb-dirty');
+  addrEl = /** @type {HTMLElement} */ (el.querySelector('.tb-addr'));
+  dirtyEl = /** @type {HTMLElement} */ (el.querySelector('.tb-dirty'));
 
   // A folder segment opens its folder; a click anywhere else in the bar edits the address,
   // which is what a click on Explorer's address bar does.
   addrEl.addEventListener('click', (e) => {
     if (editing) return;
-    const b = e.target.closest('.tb-crumb[data-folder]');
+    /** @type {HTMLElement|null} */
+    const b = e.target instanceof Element ? e.target.closest('.tb-crumb[data-folder]') : null;
     if (b && !b.classList.contains('cur')) {
       const r = { type: 'folder', path: b.dataset.folder };
       if (e.ctrlKey || e.metaKey) void openInNewTab(r);
@@ -421,7 +432,8 @@ export function initTitlebar(node) {
     editAddress();
   });
   addrEl.addEventListener('auxclick', (e) => {
-    const b = e.target.closest('.tb-crumb[data-folder]');
+    /** @type {HTMLElement|null} */
+    const b = e.target instanceof Element ? e.target.closest('.tb-crumb[data-folder]') : null;
     if (!b || e.button !== 1) return;
     e.preventDefault();
     void openInNewTab({ type: 'folder', path: b.dataset.folder });
@@ -433,7 +445,10 @@ export function initTitlebar(node) {
 
   // Back and forward, where every browser and every file manager puts them (N45, L23): the
   // tab in front's own history (M23). The chord is in the tooltip, not on a label.
-  navEls = { back: el.querySelector('[data-nav="back"]'), forward: el.querySelector('[data-nav="forward"]') };
+  navEls = {
+    back: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="back"]')),
+    forward: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="forward"]')),
+  };
   const titleNav = () => {
     for (const name of ['back', 'forward']) {
       const b = navEls[name];
@@ -443,8 +458,7 @@ export function initTitlebar(node) {
       b.setAttribute('aria-label', label);
     }
   };
-  for (const name of ['back', 'forward']) {
-    const b = navEls[name];
+  for (const [name, b] of Object.entries(navEls)) {
     b.addEventListener('click', () => commands.run('app.' + name));
   }
   titleNav();
@@ -452,7 +466,7 @@ export function initTitlebar(node) {
 
   // New file… (H12): the one toolbar button for it, beside back and forward. It runs the same
   // command Ctrl+Alt+N and the tree's menu run (shell/fileops.js), so there is one New file.
-  const newBtn = el.querySelector('.tb-new');
+  const newBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-new'));
   const titleNew = () => {
     const chord = shortcutFor('file.new');
     newBtn.title = chord ? `New file… (${chord})` : 'New file…';
@@ -466,7 +480,7 @@ export function initTitlebar(node) {
 
   // Focus mode's chip (H18): whenever a folder is in focus the bar says so, whether or not the
   // sidebar is open, and pressing it leaves focus. Nothing enters focus but its own command.
-  focusEl = el.querySelector('.tb-focus');
+  focusEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-focus'));
   focusEl.addEventListener('click', () => commands.run('app.focus-exit'));
   renderFocus();
 

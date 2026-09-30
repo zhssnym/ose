@@ -3,34 +3,38 @@
     "target": "es2022",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "lib": ["es2022", "dom", "dom.iterable", "dom.asynciterable"],
+    "lib": [
+      "es2022",
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable"
+    ],
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
+    "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "strict": false,
-    "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitAny": false,
     "paths": {
-      "ose:kernel": ["./src/kernel/kernel.js"],
-      "ose:ui": ["./src/kernel/ui.js"],
-      "ose:editor": ["./src/editor/lib.js"],
-      "ose:planner": ["./src/planner/index.js"]
+      "ose:core": [
+        "./src/core/core.ts"
+      ],
+      "ose:ui": [
+        "./src/core/ui.ts"
+      ],
+      "ose:editor": [
+        "./src/editor/lib.ts"
+      ],
+      "ose:planner": [
+        "./src/planner/index.ts"
+      ]
     }
   },
   "include": [
-    "src/kernel/**/*.js",
-    "src/kernel/bridge/commands.ts",
-    "src/web/**/*.js",
-    "src/web/**/*.d.ts",
-    "src/editor/live/**/*.js",
-    "src/editor/reading/**/*.js",
-    "src/editor/source.js",
-    "src/editor/instances.js",
-    "src/editor/merge.js",
-    "src/editor/host.js",
-    "src/editor/modes.js"
+    "src/**/*.js",
+    "src/**/*.ts",
+    "shell/**/*.js"
   ]
 }

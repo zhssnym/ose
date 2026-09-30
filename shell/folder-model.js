@@ -38,7 +38,10 @@ function extOf(entry) {
   return i <= 0 ? '' : name.slice(i + 1).toLowerCase();
 }
 
-/** A file's name as two keys, stem then extension, so `notes.md` comes before `notes 2.md`. */
+/**
+ * A file's name as two keys, stem then extension, so `notes.md` comes before `notes 2.md`.
+ * @returns {[string, string]}
+ */
 function nameKeys(e) {
   const name = String(e.name || '');
   const i = isDir(e) ? -1 : name.lastIndexOf('.');
@@ -217,7 +220,7 @@ const CODE_EXTS = new Set([
 ]);
 
 /**
- * The icon a row wears, by name from the kernel's set: `folder`, `fileImage`, `fileText`,
+ * The icon a row wears, by name from the core's set: `folder`, `fileImage`, `fileText`,
  * `fileCode`, else `file`. The tree and the folder view draw the same file the same way.
  * @param {object} entry
  * @returns {string}
