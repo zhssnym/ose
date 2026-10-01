@@ -330,7 +330,7 @@ ose.names.display(path)      -> string                 the name the chrome shows
                              '' for the vault root, where the caller says the vault's name
 ```
 
-A window, a tab and the address bar name a file by its file name, never by its H1 (M13).
+A window, a tab and the path bar name a file by its file name, never by its H1 (M13).
 
 **Unicode form** (M49, X11). macOS hands over a name typed in Finder in form D (`é` as `e` and a
 combining accent). The host sends every name out in form C on macOS (`list`, `tree`, `search`,

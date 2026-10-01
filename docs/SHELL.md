@@ -1,8 +1,8 @@
 # The shell
 
-The shell is the whole interface: the toolbar with its address bar, the tab strip, the
-sidebar's one tree, the folder view, Home, the palette and Go to file, the search panel, the
-status bar, the Settings page, the Trash view and the vault chooser. It is plain ES modules and
+The shell is the whole interface: the toolbar with its path bar, the tab strip, the
+sidebar's one tree, the folder view, the palette and Go to file, the search panel, the
+Settings page, the Trash view and the vault chooser. It is plain ES modules and
 CSS, no bundler, copied verbatim into the build and served beside the core's bundles
 (docs/HOST.md). It is not the core: it draws, and it calls the hoses of `docs/CORE.md` like anything else.
 
@@ -26,15 +26,13 @@ shell/
   main.js           the entry: imports boot.js, and puts boot-error.js up when anything throws
   boot.js           the boot, below
   boot-error.js     the page a failed boot leaves (imports nothing)
-  layout.js         the frame: toolbar, sidebar, page column, side panel, status bar
-  titlebar.js       the toolbar: the sidebar's fold, back, forward, New file, the address bar
+  layout.js         the frame: toolbar, sidebar, page column, side panel
+  titlebar.js       the toolbar: the sidebar's fold, back, forward, New file, the path bar
   tabs.js           the strip, drawn from the core's tabs
   sidebar.js        the one tree
-  folder.js         the folder view (and its compact form on Home)
-  folder-model.js   the folder view's pure model: sort, labels, README, parent
-  dashboard.js      Home
-  start.js          where the app opens: the last session, else Home
-  pins.js           pins, in `.ose/state.json`
+  folder.js         the folder view
+  folder-model.js   the folder view's pure model: the order, labels, README, parent
+  start.js          where the app opens: the last session, else Home (the vault folder)
   trash.js          the Trash view
   fileops.js        New file…, New folder, Rename…, Move to…, Duplicate, trash, cut, copy,
                     paste, undo, Open file…, Copy into the vault…: the one UI for them
@@ -43,16 +41,15 @@ shell/
   palette.js        the command palette and Go to file
   search.js         search, in the side panel
   settings.js       the Settings page
-  statusbar.js      the status bar
   recover.js        the Recovered changes sheet
-  vault.js          the vault chooser, the change-vault dialogs, New window
+  vault.js          the vault chooser, the change-vault dialogs
   host.js           is this a real window, and the one window hose left
   paths.js          path helpers, and the shared vaultName, errorOf and keyOf
   order.js
-  shell.css         the frame, overlays, the vault chooser, the status bar, search, settings,
+  shell.css         the frame, overlays, the vault chooser, search, settings,
                     Go to file, the empty and miss boxes, the boot error page
   tree.css          the tree
-  places.css        the toolbar, the address bar, the tabs, the page column, the resizers
+  places.css        the toolbar, the path bar, the tabs, the page column, the resizers
   folder.css        the folder view
   theme.css         token overrides; empty on purpose
   keys.json         the shell's chords, below
@@ -84,7 +81,7 @@ answers `/ose/*.css`. No file of the shell names an origin.
 
 ```
 ose.ready -> settings.apply -> vault chooser | mountShell
-          -> initPageHost -> initFolder -> initDashboard -> initTabs
+          -> initPageHost -> initFolder -> initHome -> initTabs
           -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
           -> initTrash -> initRecover -> loadKeys
           -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
@@ -139,12 +136,10 @@ binding of the same chord applies everywhere else.
 | `mod+alt+n` | `file.new` |
 | `f2` | `file.rename` |
 | `mod+shift+j` | `journal.today` |
-| `mod+l` | `app.address` |
-| `alt+d` | `app.address` |
 | `alt+arrowup` | `folder.up` |
 | `mod+t` | `tab.new` |
 
-Settings › Keys shows the whole resolved table, read only.
+The palette lists every command with its chord.
 
 Ctrl+R is bound to nothing. The web view's own reload keys (F5, Ctrl+R, Ctrl+Shift+R and the
 keyboard's Back, Forward and Refresh keys) are refused by `layout.js` in the capture phase,
@@ -191,18 +186,13 @@ selection of each place are saved per machine and per vault (`ose.local('session
 shows the router's miss box when it is activated. Settings › Files › Restore tabs at start
 turns it off, and then the app opens on Home.
 
-**Home** (`dashboard.js`, the view `home`, `app.home`) is, top to bottom, with whitespace between
-the groups and no cards: the planner row (one button per view whose `section` is `planner`, in
-`order`, each with its chord), Pins (a missing pin greyed with "missing"), Recent (up to eight
-files, name and folder; a file outside the vault wears the same "outside vault" mark as its
-tab, with its absolute folder), and the vault root listing in compact form with a link to the
-full folder view.
+**Home** (`start.js`, `app.home`) is the vault root's folder view: where a new tab starts and
+where the last closed tab goes. The planner's views are in the palette and on their chords.
 
 **The folder view** (H15, `folder.js`). A folder route draws the folder's name and item count, a
-toolbar (New file…, New folder, Paste, Undo, the sort, Show hidden items; each also a command),
-and one list with Name, Type, Modified and Size. Clicking a column header sorts by it; folders
-always come first; the sort is remembered per folder on this machine (`ose.local('folders')`) and
-the tree uses the same one. The folder's `README.md` (or `index.md`) is rendered read-only below
+toolbar (New file…, New folder, Paste, Undo, Show hidden items; each also a command),
+and one list with Name, Type, Modified and Size. Folders come first, then everything by name
+(natural order), here and in the tree. The folder's `README.md` (or `index.md`) is rendered read-only below
 the list, with an Edit button. Keys in the list: Up, Down, Home, End and type-ahead move; Enter
 opens (a folder as a folder route, a file as a page); Ctrl+Enter opens in a new tab; Backspace
 goes to the parent; F2 renames; Delete trashes; Ctrl+X, C and V cut, copy and paste; Ctrl+Z
@@ -212,24 +202,19 @@ folder with the file selected. With the mouse, a row dragged onto a folder row (
 tree) moves, a drop from Explorer or Finder on a folder row or on the list's background is
 copied in, and Alt+drag takes the rows out as a copy ("Drag in and out", below).
 
-**The address bar** (M21, `titlebar.js`). At rest it is the active place as segments: the vault's
-name, each folder, the file's name, each segment a button to that folder. `app.address` (Ctrl+L,
-Alt+D) turns it into an input holding the vault-relative path, with completion over the typed
-folder's children (Tab accepts, Up and Down move). Enter goes to the folder or opens the file; a
-path that is not there says so under the input and leaves it open. Esc puts the segments back.
-A full path pasted from Explorer or Finder that is inside the vault goes there; one outside the
-vault opens that file in a tab marked "outside vault" (`ose.files.openOutside`), or, for a file
-inside another Ose vault, in that vault's window. A page outside the vault reads, at rest,
-"Outside the vault › its folder › its name", and only the name is a place.
+**The path bar** (M21, `titlebar.js`). The active place as segments: the vault's name, each
+folder, the file's name, each folder a button to that folder (Ctrl+click: a new tab). A page
+outside the vault reads "Outside the vault › its folder › its name", and only the name is a
+place.
 
 ## The sidebar: one tree
 
 At the top of the sidebar is a small tool strip: New file, New folder, Collapse all, and Show
-hidden items as a toggle that shows whether it is on. Then Pinned, then the tree, then Trash.
+hidden items as a toggle that shows whether it is on. Then the tree, then Trash.
 
 `sidebar.js` is one tree whose root row is the vault's name. The root and every folder row open
 the folder view on a click or Enter; the chevron, Left and Right expand and collapse. Folders
-come first, then files, each folder in its own sort (the folder view's). Every row shows the full
+come first, then files, by name. Every row shows the full
 name; the glyph says text, image, code or other. Hidden items (a dot name or the system's hidden
 attribute) appear only while Show hidden items is on, greyed. A link carries a badge whose
 tooltip names what it points at. A folder that could not be read has a "no permission" line.
@@ -237,8 +222,7 @@ tooltip names what it points at. A folder that could not be read has a "no permi
 listed (the host's one hide rule, docs/HOST.md). Nothing is hidden by name: `App`, `dist` and
 `node_modules` are ordinary folders.
 
-The pinned section stays at the top. A pin whose file is gone is greyed, never deleted, and pins
-follow renames. The last row is **Trash**, which opens the Trash view.
+The last row is **Trash**, which opens the Trash view.
 
 The tree is walked once at boot; after that, a batch of file changes, and the app's own
 `paths:*` events, re-list only the parent folders they touch (a save only restats its file). A
@@ -250,12 +234,12 @@ Backspace never does); Ctrl+X, C and V cut, copy and paste; Ctrl+Z undoes the la
 operation; Ctrl+Enter or the middle button opens in a new tab; Shift+F10 or the Menu key opens
 the context menu; Esc clears the selection, then a pending cut, then returns to the page. The context menu runs
 each command with the row under the pointer. Nothing enters focus mode but its own command,
-`app.focus-enter` (Focus folder); while a folder is in focus the status bar carries a chip that
+`app.focus-enter` (Focus folder); while a folder is in focus the toolbar carries a chip that
 leaves it.
 
 The sidebar folds with `app.sidebar` (Ctrl+\) or the chevron in the toolbar's left corner, can
 be widened up to 60 % of the window, and hides itself under 640px of window, so a window at its
-480px minimum is the toolbar, the page and the status bar. Its width and open state are this
+480px minimum is the toolbar and the page. Its width and open state are this
 machine's (`ose.local('sidebar')`). `app.full-width` flips Settings' full width.
 
 A row dragged onto a folder row moves (the selection drags together); a drop from the OS on a
@@ -328,7 +312,7 @@ is not on disk as shown (not saved, changed on disk, deleted, recovered, merged)
 are commands, and the **Rich | Source** switch in the page meta line. A change made on disk by another program is merged into an open page
 when it can be (H7), with a banner that closes by itself; only when the edits overlap does the
 page stop and ask. The shell only
-draws the mode menu in the status bar and the default in Settings.
+draws the default in Settings.
 
 **Media pages.** A PDF is an `<iframe>` on the vault origin, drawn by the web view's own viewer;
 an image is an `<img>` capped to the column, where a click or Enter toggles fit and actual size.
@@ -390,10 +374,9 @@ pasting files, and every one of them ends at `ose.fileops`, the core's one imple
 
 A file anywhere on the machine can be opened in a tab (X7): **Open file…** (`file.open`,
 Chrome's file picker), or the OS once Ose is installed (Open with, a double click; the core's
-`opens.js`). A browser has no paths, so a path typed in the address bar outside the vault is
-refused. A file inside this vault opens as the vault page it is. Any other is an `abs:` page
-(`abs:/web/<id>/todo.md`, docs/HOST.md "Files outside the vault"): its tab, its Home row and its
-address say "outside vault" with its name, it is read, edited, saved in place, kept as a
+`opens.js`). A browser has no paths, so A file inside this vault opens as the vault page it is. Any other is an `abs:` page
+(`abs:/web/<id>/todo.md`, docs/HOST.md "Files outside the vault"): its tab and its
+path bar say "outside vault" with its name, it is read, edited, saved in place, kept as a
 draft and merged like a vault page, and it has no versions, no links or backlinks and no
 attachments. **Copy into the vault…** (`file.copy-into-vault`) asks for a folder and copies it
 there byte for byte under a free name, create-only, with Undo; the copy opens and the outside
@@ -436,8 +419,7 @@ window when it cannot:
 
 ## Tabs per vault
 
-One browser tab per vault, never two on one (X6). **New window** (`app.new-window`, no chord)
-opens a browser tab with no vault, on the chooser. In the Change vault… dialog and on the
+One browser tab per vault, never two on one (X6). In the Change vault… dialog and on the
 first-run chooser, Shift+Enter or Shift+click on a recent vault, or the **Open in new tab**
 button, opens that vault in a tab of its own and leaves this one as it was; with no row chosen
 the button asks for the folder first. A vault already open in another tab is not opened twice,
@@ -462,29 +444,12 @@ directly.
 `app.recovered` brings the sheet back while there are drafts. When a dialog is already up at the
 end of the boot, a sticky toast with **Show** stands in for the sheet.
 
-## The status bar
-
-It says something only when there is something worth saying (M27). Left, joined by `·`: the
-page's editing mode (`mode`), its word count (`doc`), the focus chip, and the save state only
-when it is bad — "Not saved", "Not saved · changed on disk", "Deleted on disk", each a button
-that shows the problem. Right: the zoom while it is not 100 %, as a button back to 100 %. There
-is no path (the address bar has it), no `watch on`, no theme, no host kind and no settings hint.
-Any other field set through `ose.status.set` is drawn on the left, a button when it carries an
-`onClick` and coloured when it carries a `kind`.
-
-**The mode menu.** A field set with `choices` (the editor's `mode`: Rich, Source, with
-`value` and `onChoose`, §4.5) is a button with a small chevron. It opens a menu of the choices,
-the current one checked with a dot and focused: Up and Down walk it, Enter picks, Esc closes, and
-a pick calls `onChoose`. The menu opens above the bar. A plain text file sets `Text` with no
-choices, which is plain text. The same modes are palette commands (`page.mode-rich`,
-`page.mode-source`) and Ctrl+E still toggles Source.
-
 ## Settings
 
 Settings is a page (M26): the view `settings`, opened in a tab by `app.settings` (Ctrl+,), which
 brings the tab forward when it is already open. `route.arg` names a section, so
 `ose.tabs.open({type:'view', name:'settings', arg:'planner'})` opens Settings › Planner
-(`planner.settings` does exactly that). `app.keys` (Keyboard shortcuts) opens Settings › Keys.
+(`planner.settings` does exactly that).
 
 The section list is on the left, a vertical tab list (Up and Down move and show, Tab goes into
 the rows); the section's rows are on the right. Every change applies at once.
@@ -501,8 +466,6 @@ the rows); the section's rows are on the right. Every change applies at once.
 - **Planner**, and any other section registered through `ose.settings.section({id, title,
   order, render})`: each renders into a box of its own, and one that throws is one line saying
   so.
-- **Keys**: every chord the app answers to, read only: the core's defaults with `keys.json`
-  over them, and whether each applies everywhere or in a page's text.
 - **Vault**: the vault's path with **Change vault…**, where the root came from, the version, and
   the log file's path.
 
@@ -525,11 +488,11 @@ frame). The shell never touches `.ose/state.json` or the machine store directly:
 
 ## Two kinds of state
 
-The vault's `.ose/state.json` travels with the vault (it is synced with it): pins, the planner's
+The vault's `.ose/state.json` travels with the vault (it is synced with it): the planner's
 paths, and the vault settings above. Everything about how this machine looks at the vault is kept
 on the machine (`ose.local`, in the browser's storage for the site, docs/HOST.md
 "Machine-local state"): the session, recent
-files, the sidebar's width, open state and expansion, the per-folder sort, the side panel, the
+files, the sidebar's width, open state and expansion, the side panel, the
 reading settings, Show hidden items, the restore switch, one-time notices and the theme.
 
 ## The dev server

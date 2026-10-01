@@ -4,9 +4,9 @@ Read this before writing any UI. The app, the shell, the editor and the planner 
 they were made by one hand.
 
 **Vocabulary.** The **app** is Ose in Chrome, the whole thing. The **shell** is the interface inside
-it: toolbar, address bar, tabs, sidebar, folder view, palette, search, settings, Home. The
+it: toolbar, path bar, tabs, sidebar, folder view, palette, search, settings. The
 **planner** is Day, Week, Month and Journal, built into the app (`src/planner`). A **view** is a
-page of the app's own (Home, Settings, Trash, the planner's four) rather than a file.
+page of the app's own (Settings, Trash, the planner's four) rather than a file.
 
 ## The brief, in one line
 
@@ -32,7 +32,7 @@ chrome talks about the machinery; it talks about the files.
   the command palette, and those use a hard 1px border plus a flat offset shadow
   (`0 8px 24px rgba(0,0,0,.18)`), never a soft blur glow.
 - **Four typefaces, strict roles.**
-  - Chrome (the tree, the status bar, the tabs, the address bar, settings rows, buttons in a
+  - Chrome (the tree, the tabs, the path bar, settings rows, buttons in a
     dialog): `var(--font-ui)` at `--fs-ui`, in sentence case.
   - Things that are literally code or a path (a path in a note, a key cap, a search hit's line,
     a line number, a size in a column): `var(--font-mono)` at `--fs-chrome` or `--fs-chrome-sm`.
@@ -52,7 +52,7 @@ chrome talks about the machinery; it talks about the files.
   file". Nothing is uppercased by CSS and no label is letter-spaced. The chrome never shows an
   internal word: no `READY`, no `watch on`, no `view ›`, no host kind, no route key.
 - **Real names.** A file is shown under its real name, extension and all, the same in the tree,
-  the tab, the address bar, the window title, Go to file and search (W8). Settings' "Hide .md in
+  the tab, the path bar, the window title, Go to file and search (W8). Settings' "Hide .md in
   names" strips `.md` for display only. A page's H1 is not a second name for its file.
 
 ## Tokens
@@ -75,7 +75,7 @@ Key tokens (see the file for the full list):
 --accent-soft tinted accent surface   --sel     text selection
 --ok --warn --err --amber             semantic
 --font-ui --font-mono --font-title --font-doc
---radius (2px)  --titlebar-h (36px)  --statusbar-h (24px)  --sidebar-w (260px)
+--radius (2px)  --titlebar-h (36px)  --sidebar-w (260px)
 --page-w (720px)  --page-pad-top (80px)  --doc-pad-top (48px)
 --fs-doc-title (1.4x body)  --fs-doc-h1 (1.2x)  --fs-doc-h2 (1.1x)
 --doc-gap (.3em)  --doc-gap-head (1.1em)  --doc-gap-label (.7em)  --doc-indent (1.4em)
@@ -105,14 +105,14 @@ Key tokens (see the file for the full list):
   `--bg-3`, current row `--accent-soft` with a 2px `--accent` bar on the left edge. Never a
   rounded highlight.
 - **Section label.** `--fs-chrome-sm`, sentence case, `--fg-3`, 16px top margin. One word or
-  two: "Recent", "Pins", "Files".
+  two: "Files", "Trash".
 - **Divider.** 1px `--border`. Full bleed inside panels.
 - **Panel header.** 32px tall, mono 12px, bottom border, title left, actions right.
 - **Scrollbars.** 12px wide, square thumb `--border-strong`, no buttons, track transparent (`--bg-2` inside panels), in every
   scrollable area (see `base.css`).
 - **Tooltips.** Mono 11px, `--fg` on `--bg-3`, 1px border, no arrow, 300ms delay.
 - **Empty states.** One short sentence in `--fg-3`, sentence case, centred. No illustrations.
-- **Save marks.** Unsaved changes are a 6px `--accent` dot, on the tab and beside the address.
+- **Save marks.** Unsaved changes are a 6px `--accent` dot, on the tab and beside the path.
   A page that could not be written, or changed on disk under unsaved text, gets the error mark
   instead: a 7px square in `--err`, square so it does not depend on telling two colours apart,
   with the editor's own sentence as the tooltip. The active tab's underline turns `--err` with it.
@@ -123,13 +123,9 @@ Key tokens (see the file for the full list):
 - **The Rich | Source switch.** Two buttons side by side in the page meta line,
   `.ed-mode`: a hairline `--border` around them and between them, in the meta line's face,
   `--fg-3`; the pressed one (`aria-pressed="true"`) sits on `--bg-3` in `--fg`. Tab reaches each.
-- **The mode menu.** In the status bar the same choice is one field, `Rich ›`: a pressable
-  field in the bar's face with a small chevron. It opens the context menu above the bar, one
-  row per mode, the current one marked with the `dot` icon in the icon slot (a radio item, so a
-  reader hears "checked"). A plain text file's field is the word `Text`, not a button.
 - **The outside mark.** A file outside the vault is said in words, never in a colour: "outside
-  vault" after its name on its tab and its Home row, `--fs-chrome-sm` in `--fg-3`, and "Outside
-  the vault" as the first segment of the address, in `--fg-3`. Its tooltip is the whole
+  vault" after its name on its tab, `--fs-chrome-sm` in `--fg-3`, and "Outside
+  the vault" as the first segment of the path bar, in `--fg-3`. Its tooltip is the whole
   absolute path.
 - **A drop target.** A folder that will take a drop, in the tree or the folder view, wears the
   current row's form: `--accent-soft` with the 2px `--accent` bar. The folder view's background,
@@ -147,13 +143,12 @@ Key tokens (see the file for the full list):
 - **The folder view.** A folder is a page like any other (`{type:'folder', path}`): a header with
   the folder's name and the item count, a small toolbar (New file…, New folder, Paste, Undo, the
   sort, Show hidden items), and one list with the columns Name, Type, Modified and Size. Rows are
-  list rows; a hidden item is greyed, a link carries a small badge, folders come first whatever
-  the sort. The folder's README (or `index.md`) is rendered read-only under the list, as a
-  document. Home shows the vault root's list in a compact form: the same rows, fewer columns.
-- **The address bar.** In the toolbar, beside back and forward: the vault's name, then each
+  list rows; a hidden item is greyed, a link carries a small badge, folders come first, then
+  everything by name. The folder's README (or `index.md`) is rendered read-only under the list, as a
+  document.
+- **The path bar.** In the toolbar, beside back and forward: the vault's name, then each
   folder, then the file's name, each segment a flat button in `--fg-2` that lights to `--fg` on
-  hover, separated by a `/` in `--fg-3`. Ctrl+L turns it into an input the height of the bar, in
-  `--font-mono`, with a completion list under it on the palette's surface.
+  hover, separated by a `/` in `--fg-3`.
 - **The side panel.** A resizable column to the right of the page, `--bg-2`, with a panel header
   (`--panelhead-h`, the title in sentence case, a close button). Search lives in it: a field with
   its icon, one line of counts in `--fg-3`, hits grouped under a file line (name in `--fg`,
@@ -182,23 +177,16 @@ Key tokens (see the file for the full list):
 │ 260px    │ page, folder or view            │ (search)        │
 │ resizable│                                 │ hidden until    │
 │          │                                 │ opened          │
-├──────────┴─────────────────────────────────┴─────────────────┤
-│ statusbar 24px   Rich › · 412 words                     110% │
-└──────────────────────────────────────────────────────────────┘
+└──────────┴─────────────────────────────────┴─────────────────┘
 ```
 
 The window's frame is the platform's (X9, D11): Windows draws its own title bar and buttons,
 with Snap Layouts on maximise, and macOS its title bar and traffic lights. The app draws no
 window button, no resize edge and no drag region. Under the frame, the toolbar is ours and must
 feel like part of the app: same surface as the sidebar (`--bg-2`), bottom border, the fold, back,
-forward and New file as flat icon buttons, then the address. The window is at least 480 by 360;
-under 640px the sidebar folds away on its own and the toolbar, the page and the status bar fit
+forward and New file as flat icon buttons, then the path. The window is at least 480 by 360;
+under 640px the sidebar folds away on its own and the toolbar and the page fit
 without overflowing, in both themes.
-
-The status bar says something only when there is something to say: the page's editing mode
-(the mode menu), its word count, the focus chip, a save state when it is bad (not saved,
-changed on disk, deleted), and the zoom while it is not 100 %. A page that saved fine says
-nothing there.
 
 ## A page as a document
 
@@ -303,7 +291,7 @@ whatever is selected on `--bg-3`. A page of prose has none of them. In rendered 
 Python transcript keeps its shape: the `>>>` prompt in the comment ink, the code after it
 coloured, the interpreter's answer in the body colour, because output is not code.
 
-## Views (Home, Settings, Trash, Day, Week, Month, Journal)
+## Views (Settings, Trash, Day, Week, Month, Journal)
 
 The same page column as an editor page. A view's title is the document face at `--fs-doc-title`,
 bold and left, with no box around it: the box belongs to a document's own title, and the view is
