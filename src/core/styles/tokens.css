@@ -163,7 +163,6 @@
   /* geometry */
   --radius: 2px;            /* a hairline radius is a hairline at every zoom */
   --titlebar-h: 2.25rem;    /* 36 */
-  --statusbar-h: 1.5rem;    /* 24 */
   --panelhead-h: 2rem;      /* 32 — every bar with a label in it: panel heads, box heads, dialog heads */
   --barhead-h: 2.75rem;     /* 44 — the one taller bar: the palette's input row and a dialog's foot */
   --row-h: 1.75rem;         /* 28 */

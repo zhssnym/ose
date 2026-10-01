@@ -7,7 +7,6 @@ import {
   baseName, clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,
 } from './paths.js';
 import { clipboard } from './fileops.js';
-import * as pins from './pins.js';
 import { iconName, sortEntries, visibleEntries } from './folder-model.js';
 import { sortSpec } from './folder.js';
 import { setSidebarOpen, sidebarVisible } from './layout.js';
@@ -33,7 +32,7 @@ export function findNode(path) {
 /** A folder's children as they are drawn: hidden ones only when asked for, in its sort. */
 function kidsOf(node) {
   const list = visibleEntries((node && node.children) || [], { showHidden: showHidden() });
-  return sortEntries(list, sortSpec(node ? node.path || '' : ''));
+  return sortEntries(list, sortSpec());
 }
 
 const MD_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd']);
@@ -44,7 +43,7 @@ function walkFiles(keep) {
   const out = [];
   const walk = (n) => {
     if (!n || !n.children) return;
-    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec(n.path || ''))) {
+    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec())) {
       if (c.kind === 'dir') { if (!c.link) walk(c); } else if (keep(c)) out.push(c.path);
     }
   };
@@ -100,11 +99,11 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
-  const inTree = data.path !== undefined && data.pin !== '1' && data.root !== '1';
+  const inTree = data.path !== undefined && data.root !== '1';
   if (inTree && state.selected.has(data.path)) b.classList.add('selected');
   b.style.setProperty('--d', String(depth));
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
-  if (inTree || data.pin === '1') b.draggable = true; // moves within the vault; see drag and drop
+  if (inTree) b.draggable = true; // moves within the vault; see drag and drop
   // A tree to a screen reader, not a list of unrelated buttons (S39): the level is 1-based,
   // `aria-selected` is on every selectable row so the reader can say "not selected" too, and
   // only a folder that unfolds claims to expand.
@@ -121,14 +120,6 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
     (tail ? `<span class="par">${esc(tail)}</span>` : '') +
     (hint ? `<span class="hint">${esc(hint)}</span>` : '');
   return b;
-}
-
-function label(text, dropPath) {
-  const d = document.createElement('div');
-  d.className = 'section-label';
-  d.textContent = text;
-  if (dropPath !== undefined && dropPath !== null) d.dataset.drop = dropPath;
-  return d;
 }
 
 function emptyLine(text, depth) {
@@ -155,32 +146,6 @@ function treeBox(frag, name, multi = false) {
 }
 
 const cutPaths = () => { const c = clipboard(); return c && c.mode === 'cut' ? new Set(c.paths) : null; };
-
-/** Pinned files and folders, in pin order; a missing one greyed and kept. Nothing while none. */
-function renderPinned(frag, cur) {
-  const list = pins.list();
-  if (!list.length) return;
-  const names = new Map();
-  for (const p of list) names.set(baseName(p.path), (names.get(baseName(p.path)) || 0) + 1);
-  frag.appendChild(label('Pinned'));
-  const box = treeBox(frag, 'Pinned');
-  for (const p of list) {
-    const dir = p.kind === 'dir';
-    const ambiguous = (names.get(baseName(p.path)) || 0) > 1;
-    const parent = dirName(p.path);
-    const current = dir ? cur.folder === p.path : cur.page === p.path;
-    box.appendChild(rowEl({
-      cls: 'sb-pin ' + (dir ? 'dir' : 'file') + (current ? ' current' : '') + (p.missing ? ' missing' : ''),
-      depth: 0,
-      glyphHtml: dir ? icon('folder') : glyphFor({ name: baseName(p.path), kind: 'file' }),
-      text: dir ? baseName(p.path) : titleOf(p.path),
-      tail: ambiguous ? (parent ? baseName(parent) : '/') : '',
-      hint: p.missing ? 'missing' : '',
-      title: p.missing ? `${p.path} is not there any more. The pin stays until you unpin it.` : '',
-      data: { path: p.path, kind: dir ? 'dir' : 'file', pin: '1' },
-    }));
-  }
-}
 
 function renderNode(node, depth, box, cur, cuts) {
   const hidden = !!node.hidden;
@@ -252,8 +217,6 @@ function renderTree() {
   const cur = currentOf();
   const focus = getFocus();
   const cuts = cutPaths();
-
-  if (!focus) renderPinned(frag, cur);
 
   if (focus) frag.appendChild(focusLabel(focus));
   const box = treeBox(frag, focus ? `Focus: ${baseName(focus)}` : 'Files', true);
@@ -329,23 +292,23 @@ export function render() {
 }
 
 export function rowFor(path) {
-  return state.scrollEl ? state.scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]:not(.sb-pin)`) : null;
+  return state.scrollEl ? state.scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]`) : null;
 }
 
 /* ------------------------------------------------------------ keyboard tree */
 
-// Everything a key can land on, top to bottom: pins, the tree, Trash. It is read out of the
+// Everything a key can land on, top to bottom: the tree, Trash. It is read out of the
 // DOM, so it is the drawing order by construction and the Up/Down walk can never disagree with
 // what is on screen. Folded folders draw no children, so this is exactly the visible rows.
 export function treeRows() {
   return state.scrollEl ? [...state.scrollEl.querySelectorAll('.sb-row')] : [];
 }
 
-/** A stable identity for a row across renders: the path (pins apart from tree rows) or the view. */
+/** A stable identity for a row across renders: the path or the view. */
 export function rowKey(row) {
   if (!row || !row.dataset) return null;
   if (row.dataset.view) return 'view:' + row.dataset.view;
-  if (row.dataset.path !== undefined) return (row.dataset.pin === '1' ? 'pin:' : 'path:') + row.dataset.path;
+  if (row.dataset.path !== undefined) return 'path:' + row.dataset.path;
   return null;
 }
 

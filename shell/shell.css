@@ -10,10 +10,10 @@
 .shell {
   height: 100%;
   display: grid;
-  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr);
   /* The one column, and it may be narrower than what is in it. An implicit `auto` column is
-     never smaller than its widest row's min-content, so a long path in the status bar made the
-     bar — and with it the title bar and the body — wider than the window, and the page column
+     never smaller than its widest row's min-content, so a long row made the title bar and the
+     body wider than the window, and the page column
      ran off the right edge (P's inbox 002). The rows clip their own overflow already; this is
      what lets them. */
   grid-template-columns: minmax(0, 1fr);
@@ -104,25 +104,6 @@
 .vault-row .pal-hint.gone { color: var(--err); }
 .vault-pick .dlg-body { padding-bottom: var(--sp-2); }
 .vault-pick .vault-list { margin: 0 calc(-1 * var(--sp-3)); }
-
-/* ------------------------------------------------------------------ statusbar */
-
-.statusbar {
-  height: var(--statusbar-h);
-  display: flex; align-items: center; gap: var(--sp-3);
-  padding: 0 var(--sp-3);
-  background: var(--bg-2);
-  border-top: 1px solid var(--border);
-  font-size: var(--fs-chrome-sm);
-  color: var(--fg-3);
-}
-.st-left { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-right { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
-.st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
-/* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
-   bar's own colour and only warms up under the pointer (S4) */
-.st-zoom { color: var(--fg-2); }
-.st-zoom:hover { color: var(--fg); }
 
 /* ------------------------------------------------------------------ search panel (M25) */
 
@@ -255,11 +236,6 @@
    the outline under the seg's border and left a 1px sliver of it (R2). */
 .seg-b:focus-visible { outline-offset: -2px; }
 
-/* The keys, read only: the core's table component, the chord in its key cap. */
-.set-keys td { font-size: var(--fs-ui); }
-.set-keys .kbd { white-space: nowrap; }
-.set-keys-keys { white-space: nowrap; }
-.set-keys-where { color: var(--fg-3); white-space: nowrap; }
 
 .set-info {
   padding: var(--sp-2) var(--sp-3);
@@ -327,19 +303,6 @@
 }
 .v-link:hover { color: var(--accent-ink); }
 .v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
-
-/* ------------------------------------------------------------------ statusbar fields */
-
-/* A status field that carries an `onClick` is a button; one that carries a `kind` says so in
-   the one colour that kind owns. The separator between fields is the same dot the start
-   surface uses for its chord list. */
-.st-left .st-item { color: inherit; }
-.st-left .st-click:hover { color: var(--fg); text-decoration: underline; }
-.st-left .st-item.err { color: var(--err); }
-.st-left .st-item.warn { color: var(--warn); }
-.st-left .st-item.ok { color: var(--ok); }
-.st-left .st-item.accent { color: var(--accent); }
-.st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
 
 /* ------------------------------------------------------------------ save state (H8) */
 
@@ -412,16 +375,6 @@
 .boot-err-summary { cursor: default; color: var(--fg-3, GrayText); }
 .boot-err-actions { display: flex; gap: var(--sp-2, 0.5rem); margin-top: var(--sp-2, 0.5rem); }
 .boot-err-copy { position: fixed; left: -100vw; top: 0; opacity: 0; }
-
-/* ------------------------------------------------------------------ status field with choices */
-
-/* A field that offers choices (the editing mode, §4.5): a button like any pressable field,
-   with a small chevron that says a menu opens. The menu itself is the context menu, and the
-   current choice wears the dot in its icon slot. */
-.st-left .st-choose { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.st-left .st-choose svg { width: 0.5rem; height: 0.5rem; stroke: currentColor; fill: none; stroke-width: 1.75; transform: rotate(90deg); }
-.menu-row[role="menuitemradio"] .st-mark { width: 0.875rem; flex: none; display: grid; place-items: center; }
-.menu-row[role="menuitemradio"] .st-mark svg { width: 0.875rem; height: 0.875rem; }
 
 /* The first-run column's two buttons: choose a folder here, or open one in a window of its own. */
 .vault-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); }

@@ -4,14 +4,25 @@
 // same one in front, scrolled where it was (`ose.session`, docs/CORE.md "Session restore").
 // That is on by default and one machine setting turns it off (`restoreSession`, Settings ›
 // Files). With nothing to restore — the first launch, the setting off, a session none of whose
-// tabs could be rebuilt — the window opens on Home (shell/dashboard.js).
+// tabs could be rebuilt — the window opens on Home, which is the vault's root folder.
 //
 // A tab whose file has gone since is still restored: it shows the router's miss box when it
 // is brought to the front, which is honest and costs nothing at boot. Only the tab in front is
 // mounted; the others are drawn when they are picked.
 
 import { ose } from 'ose:core';
-import { HOME } from './dashboard.js';
+
+/** Home: the vault root's folder view. A new tab starts here and the last closed tab falls back here. */
+export const HOME = { type: 'folder', path: '' };
+
+/** The core's home route and `app.home`. Before `ose.init`, so it is there for the first navigation. */
+export function initHome() {
+  ose.route.setHome(HOME);
+  ose.commands.register({
+    id: 'app.home', title: 'Home', group: 'navigate', hint: 'the vault folder',
+    run: () => ose.route.navigate(HOME),
+  });
+}
 
 /**
  * Where the boot ends. The router was mounted with `start: false`, so the column is blank until

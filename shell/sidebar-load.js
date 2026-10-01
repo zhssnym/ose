@@ -6,7 +6,7 @@ import { vaultLost } from './vault.js';
 import { baseName, clean, dirName, errorOf, join, segments } from './paths.js';
 import { setSidebarOpen } from './layout.js';
 import {
-  debounce, files, findInbound, messageOf, pinsRefresh, rewriteInboundMany, showHidden, state,
+  debounce, files, findInbound, messageOf, rewriteInboundMany, showHidden, state,
 } from './sidebar-state.js';
 import { expandAncestors, findNode, persistExpanded, render, rowFor } from './sidebar-tree.js';
 import { scrollToCurrent } from './sidebar-select.js';
@@ -51,7 +51,6 @@ export async function refreshTree() {
       return;
     }
     if (state.tree) { state.tree.path = ''; if (!state.tree.children) state.tree.children = []; }
-    pinsRefresh();
     render();
     scrollToCurrent();
   })();
@@ -126,7 +125,6 @@ async function flushPatch() {
         if (fresh) queue.push(...fresh);
       }
     }
-    pinsRefresh();
     render();
   })();
   try { await patching; } finally { patching = null; }
@@ -255,7 +253,7 @@ export function onMoved(d) {
   schedulePatch(dirs);
 }
 
-/** `paths:trashed`: what went takes its expansion and its place in the selection. Pins stay (L22). */
+/** `paths:trashed`: what went takes its expansion and its place in the selection. */
 export function onTrashed(d) {
   const paths = ((d && d.paths) || []).map(clean).filter(Boolean);
   if (!paths.length) return;

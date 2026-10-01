@@ -1,4 +1,4 @@
-/* The folder view (shell/folder.js, H15), and the same list compact on Home. Tokens only; the
+/* The folder view (shell/folder.js, H15). Tokens only; the
    few rem numbers are the columns' widths and the icon sizes, which are geometry.
 
    A folder is a place and reads like Explorer's details view: one row per entry at the app's
@@ -29,7 +29,6 @@
 /* ------------------------------------------------------------------ the list */
 
 .fv { --fv-cols: minmax(0, 1fr) 8rem 9.5rem 5.5rem; }
-.fv-compact { --fv-cols: minmax(0, 1fr) auto; }
 
 .fv-cols, .fv-row {
   display: grid; grid-template-columns: var(--fv-cols); gap: var(--sp-3); align-items: center;
@@ -44,12 +43,8 @@
   height: 100%; min-width: 0;
   display: flex; align-items: center; gap: var(--sp-1);
   font: inherit; color: inherit; text-align: left; white-space: nowrap;
-  transition: color var(--t-fast);
 }
-.fv-col:hover { color: var(--fg); }
-.fv-col.on { color: var(--fg-2); }
 .fv-col-size { justify-content: flex-end; }
-.fv-col svg { width: 0.75rem; height: 0.75rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The list is the tab stop; the row the keyboard is on carries the accent bar the tree's
    current row carries, and the ring only when the keyboard put it there. */
@@ -105,12 +100,12 @@
 
 /* A narrow column drops Type first, then Size: the name and the date are what is read. */
 @container (max-width: 36rem) {
-  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 9.5rem 5rem; }
-  .fv:not(.fv-compact) .fv-type, .fv:not(.fv-compact) .fv-col-type { display: none; }
+  .fv { --fv-cols: minmax(0, 1fr) 9.5rem 5rem; }
+  .fv .fv-type, .fv .fv-col-type { display: none; }
 }
 @container (max-width: 24rem) {
-  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 7rem; }
-  .fv:not(.fv-compact) .fv-size, .fv:not(.fv-compact) .fv-col-size { display: none; }
+  .fv { --fv-cols: minmax(0, 1fr) 7rem; }
+  .fv .fv-size, .fv .fv-col-size { display: none; }
 }
 
 /* ------------------------------------------------------------------ the README */

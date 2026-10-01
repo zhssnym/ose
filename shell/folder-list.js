@@ -6,13 +6,12 @@ import { contextMenu, esc, toast } from 'ose:ui';
 import * as M from './folder-model.js';
 import * as fops from './fileops.js';
 import { openInNewTab } from './tabs.js';
-import * as pins from './pins.js';
 import { baseName, clean, dirName, errorOf } from './paths.js';
 import {
   DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,
 } from './drag.js';
 import {
-  bus, COLUMNS, display, folderName, folderRoute, iconSvg, route, setSortSpec, showHidden,
+  bus, COLUMNS, display, folderName, folderRoute, iconSvg, route, showHidden,
   SORT_WORDS, sortSpec,
 } from './folder-sort.js';
 import { canUndo, commandItem, hasClipboard, isCut, missHtml, wireMiss } from './folder-view.js';
@@ -24,26 +23,24 @@ import { canUndo, commandItem, hasClipboard, isCut, missHtml, wireMiss } from '.
 let uidSeq = 0;
 
 /**
- * One folder's list, drawn into `el`. The folder view uses it whole; Home uses it compact
- * (fewer columns, no header, a single click opens).
+ * One folder's list, drawn into `el`: the folder view's.
  * @param {*} el
  * @param {string} path
- * @param {{compact?: boolean, onChange?: ((me: object) => void)|null, onLoad?: ((me: object) => void)|null,
+ * @param {{onChange?: ((me: object) => void)|null, onLoad?: ((me: object) => void)|null,
  *   select?: string|null}} [opts]
  * @returns the list's handle
  */
-export function createList(el, path, { compact = false, onChange = null, onLoad = null, select = null } = {}) {
+export function createList(el, path, { onChange = null, onLoad = null, select = null } = {}) {
   /**
-   * @type {{path: string, compact: boolean, entries: Row[], rows: Row[], spec: {key: string, dir: 'asc'|'desc'},
+   * @type {{path: string, entries: Row[], rows: Row[], spec: {key: string, dir: 'asc'|'desc'},
    *   selected: Set<string>, anchor: string|null, focus: string|null, error: {code: string|null, message: string}|null,
    *   sig: string, alive: boolean, loaded: boolean}}
    */
   const me = {
     path: clean(path),
-    compact,
     entries: [],          // what the host answered, every entry
     rows: [],             // what is drawn, in order
-    spec: sortSpec(path),
+    spec: sortSpec(),
     selected: new Set(),  // names
     anchor: null,         // name the Shift range starts at
     focus: select || null,
@@ -55,11 +52,10 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
   const uid = `fv${++uidSeq}`;
 
   el.classList.add('fv');
-  if (compact) el.classList.add('fv-compact');
   el.innerHTML = `
-    ${compact ? '' : `<div class="fv-cols mono-sm" role="presentation">
-      ${COLUMNS.map((k) => `<button type="button" class="fv-col fv-col-${k}" data-sort="${k}" tabindex="-1"></button>`).join('')}
-    </div>`}
+    <div class="fv-cols mono-sm" role="presentation">
+      ${COLUMNS.map((k) => `<span class="fv-col fv-col-${k}">${SORT_WORDS[k]}</span>`).join('')}
+    </div>
     <div class="fv-list" role="listbox" aria-multiselectable="true" tabindex="0" aria-describedby="${uid}-sort"></div>
     <span class="fv-sr" id="${uid}-sort"></span>
     <div class="fv-note"></div>`;
@@ -69,8 +65,8 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
   const sortEl = el.querySelector('.fv-sr');
   listEl.setAttribute('aria-label', `${folderName(path)}: contents`);
   // The folder view's list is where the keyboard lands after a navigation (the router focuses
-  // the column's `.view-root`); Home's compact list is one group among several and does not.
-  if (!compact) listEl.classList.add('view-root');
+  // the column's `.view-root`).
+  listEl.classList.add('view-root');
 
   const byName = (name) => me.rows.find((e) => e.name === name) || null;
   const indexOf = (name) => me.rows.findIndex((e) => e.name === name);
@@ -92,16 +88,7 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
 
   function drawCols() {
     // Said once for a screen reader, on the list itself: the column headers are pointer chrome.
-    sortEl.textContent = `Sorted by ${SORT_WORDS[me.spec.key].toLowerCase()}, ${me.spec.dir === 'asc' ? 'ascending' : 'descending'}`;
-    if (!colsEl) return;
-    for (const b of colsEl.querySelectorAll('.fv-col')) {
-      const k = b.dataset.sort;
-      const on = me.spec.key === k;
-      b.classList.toggle('on', on);
-      b.innerHTML = `<span>${SORT_WORDS[k]}</span>${on ? iconSvg(me.spec.dir === 'asc' ? 'sortAsc' : 'sortDesc', 'chevron') : ''}`;
-      b.title = `Sort by ${SORT_WORDS[k].toLowerCase()}`;
-      b.setAttribute('aria-label', b.title + (on ? (me.spec.dir === 'asc' ? ', ascending' : ', descending') : ''));
-    }
+    sortEl.textContent = 'Sorted by name, folders first';
   }
 
   function rowHtml(e, i) {
@@ -124,7 +111,7 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     // What the greying and the dimming say, in words: the option's name carries them.
     const states = [e.hidden ? 'hidden' : '', cut ? 'cut' : ''].filter(Boolean);
     const sr = states.length ? `<span class="fv-sr">, ${states.join(', ')}</span>` : '';
-    const hint = compact ? `<span class="fv-date mono-sm">${esc(date)}</span>` : `
+    const hint = `
       <span class="fv-type">${esc(type)}</span>
       <span class="fv-date">${esc(date)}</span>
       <span class="fv-size">${esc(size)}</span>`;
@@ -244,7 +231,7 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     if (sig === me.sig && !me.error) { selectArrivals(); return; }
     me.sig = sig;
     me.entries = list;
-    me.spec = sortSpec(me.path);
+    me.spec = sortSpec();
     resort();
     if (select && byName(select)) { selectOnly(select); select = null; }
     else if (standAt >= 0 && me.rows.length && !me.focus && !me.selected.size) {
@@ -374,15 +361,12 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     const one = list.length === 1 ? list[0] : null;
     const t = one ? targetOf(one) : null;
     const all = list.map(targetOf);
-    const paths = all.map((x) => x.path);
     const items = [];
     if (one) {
       items.push({ label: 'Open', shortcut: ose.keys.label('enter'), run: () => open(one) });
       items.push(commandItem('tree.open-tab', t, { chord: 'mod+enter', run: () => open(one, { aside: true }) }));
       items.push({ sep: true });
     }
-    if (paths.some((p) => !pins.has(p))) items.push(commandItem('tree.pin', all, { run: () => pins.add(paths) }));
-    if (paths.some((p) => pins.has(p))) items.push(commandItem('tree.unpin', all, { run: () => pins.remove(paths) }));
     if (one) items.push(commandItem('file.rename', t));
     items.push(commandItem('file.move', all));
     if (one && one.kind !== 'dir') items.push(commandItem('file.duplicate', t));
@@ -443,12 +427,10 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     else if (e.ctrlKey || e.metaKey) toggle(name);
     else {
       selectOnly(name);
-      if (compact) open(byName(name));
     }
   });
 
   listEl.addEventListener('dblclick', (e) => {
-    if (compact) return;
     const row = e.target.closest('.fv-row');
     if (row) open(byName(row.dataset.name));
   });
@@ -588,19 +570,6 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     if (draggingHere) { draggingHere = false; setDragged(null); }
   }, onHost);
 
-  if (colsEl) {
-    colsEl.addEventListener('click', (e) => {
-      const b = e.target.closest('.fv-col');
-      if (!b) return;
-      setSort(M.nextSortSpec(me.spec, b.dataset.sort));
-    });
-  }
-
-  function setSort(spec) {
-    me.spec = { key: spec.key, dir: spec.dir };
-    setSortSpec(me.path, me.spec);
-    resort();
-  }
 
   const offs = [];
   // While the list has the keyboard it is "here" for every file command, whichever way the
@@ -614,10 +583,7 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     folder: () => me.path,
   }));
   offs.push(fops.onClipboard(() => { syncCut(); onChange && onChange(me); }));
-  offs.push(bus.on('folders:sort', (d) => {
-    if (!d || clean(d.path) !== me.path) return;
-    if (d.spec && (d.spec.key !== me.spec.key || d.spec.dir !== me.spec.dir)) { me.spec = { ...d.spec }; resort(); }
-  }));
+
   // The selection follows a rename or a move inside this folder, so F2 then Enter opens what
   // was renamed and not the row that now stands where it stood.
   offs.push(bus.on('paths:moved', (d) => {
@@ -657,7 +623,6 @@ export function createList(el, path, { compact = false, onChange = null, onLoad 
     focus() { listEl.focus({ preventScroll: true }); },
     selection: () => me.focus || (me.selected.size ? [...me.selected][0] : null),
     select(name) { if (byName(name)) selectOnly(name); },
-    setSort,
     chosen: () => chosen().map(targetOf),
     entries: () => me.entries.slice(),
     goUp,

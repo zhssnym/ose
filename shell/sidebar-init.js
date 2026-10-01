@@ -1,13 +1,11 @@
 // Part of the sidebar (./sidebar.js). Putting the sidebar up.
 
 import { contextMenu } from 'ose:ui';
-import { baseName, dirName } from './paths.js';
 import { onClipboard, setContext } from './fileops.js';
-import * as pins from './pins.js';
 import { toggleSidebar } from './layout.js';
 import { bus, commands, debounce, ic, showHidden, slot, state } from './sidebar-state.js';
 import {
-  currentOf, expandAncestors, findNode, focusRow, focusTree, render, rowByKey, rowKey, setRoving,
+  currentOf, expandAncestors, focusRow, focusTree, render, rowByKey, rowKey, setRoving,
 } from './sidebar-tree.js';
 import {
   activateRow, batchFor, clearSelection, isSelectable, onTreeKey, openRowAside, scrollToCurrent,
@@ -40,18 +38,6 @@ export function initSidebar(node) {
   if (Array.isArray(saved.expanded)) state.expanded = new Set(saved.expanded.filter((p) => typeof p === 'string' && p));
   if (saved.root === false) state.rootOpen = false;
 
-  // A pin is a file or a folder, there or not, as the tree says; until the tree is read, it
-  // is not called missing on a guess (`undefined`).
-  pins.setLookup((path) => {
-    if (!state.tree) return undefined;
-    const n = findNode(path);
-    if (n) return n;
-    const parent = findNode(dirName(path));
-    if (!parent || !parent.children) return undefined;
-    if (baseName(path).startsWith('.') && !showHidden()) return undefined;
-    return null;
-  });
-  pins.on(() => { if (!state.quietPins) render(); });
   onClipboard(() => render());
 
   // A click and Enter do the same thing (activateRow); the clicked row also becomes the tab
@@ -70,8 +56,6 @@ export function initSidebar(node) {
       toggleDir(row);
       return;
     }
-    // A pinned row is not selectable, so Ctrl+click is free on it: open in a tab of its own.
-    if (row.dataset.pin === '1' && (e.ctrlKey || e.metaKey) && openRowAside(row)) return;
     if (isSelectable(row) && (e.ctrlKey || e.metaKey)) {
       toggleSelected(row);
       state.anchor = rowKey(row);
@@ -100,7 +84,7 @@ export function initSidebar(node) {
     toggleDir(row);
   });
 
-  // The middle button opens a row in a tab of its own, in the tree and in the pins alike.
+  // The middle button opens a row in a tab of its own, in the tree.
   state.scrollEl.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
     if (!(e.target instanceof Element)) return;
@@ -158,7 +142,6 @@ export function initSidebar(node) {
   bus.on('paths:copied', (d) => onArrived(((d && d.pairs) || []).map((p) => p && p.to).filter(Boolean)));
   bus.on('paths:restored', (d) => onArrived(((d && d.items) || []).map((it) => it && it.path).filter(Boolean)));
   bus.on('tree:reveal', onReveal);
-  bus.on('folders:sort', () => render());
 
   const askLater = debounce(() => void askAboutRenames(), 600);
   bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFsTree(payload); });
