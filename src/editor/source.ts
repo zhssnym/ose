@@ -553,7 +553,7 @@ export function registerCommands(a) {
   api = a;
   // The words a person types into the palette looking for this are "source", "raw" and
   // "markdown", so the title carries all three (H14). The three modes have commands of their
-  // own (page.ts: `page.mode-rich`, `page.mode-live`, `page.mode-source`); this chord goes
+  // own (page.ts: `page.mode-rich`, `page.mode-source`); this chord goes
   // between Source and the mode the page was in before it (wave 3, §4.5).
   commands.register({
     id: 'page.source-toggle',

@@ -114,9 +114,8 @@ export function installLeave(ctx: PageCtx) {
   function setEditable(p, on) {
     try { if (p.crepe) p.crepe.setReadonly(!on); } catch (e) { console.error('[editor] readonly', e); }
     try { if (p.source) p.source.setReadOnly(!on); } catch (e) { console.error('[editor] readonly', e); }
-    try { if (p.live) p.live.setReadOnly(!on); } catch (e) { console.error('[editor] readonly', e); }
     // In source mode the title strip stays a label: the text below is where the title is edited.
-    if (p.titleEl && p.titleEl.tagName === 'H1') p.titleEl.contentEditable = on && !p.source && !p.live ? 'plaintext-only' : 'false';
+    if (p.titleEl && p.titleEl.tagName === 'H1') p.titleEl.contentEditable = on && !p.source ? 'plaintext-only' : 'false';
     for (const v of (p.el ? p.el.querySelectorAll('.ed-prop-val.editable') : [])) v.contentEditable = on ? 'plaintext-only' : 'false';
     if (p.el) p.el.classList.toggle('ed-frozen', !on);
   }

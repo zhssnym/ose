@@ -32,7 +32,7 @@ const VAULT_HOST_KEYS = ['window'];
 const LEVELS = ['error', 'warn', 'info', 'debug'];
 const utf8 = new TextEncoder();
 
-export type Draft = { path: string, text: string, baselineHash: string | null, mode: 'rich' | 'live' | 'source',
+export type Draft = { path: string, text: string, baselineHash: string | null, mode: 'rich' | 'source',
   exact: boolean, rev: number, at: number };
 export type DraftInfo = Omit<Draft, 'text'> & { bytes: number };
 export type StoredDraft = { v: 1, vault: string, path: string, text: string, baselineHash: string | null,
@@ -124,7 +124,7 @@ export function createLocal(vaultKey: string | null, opts: LocalOpts = {}) {
     path: o.path ?? null,
     text: typeof o.text === 'string' ? o.text : '',
     baselineHash: o.baselineHash ?? null,
-    mode: o.mode === 'source' || o.mode === 'live' ? o.mode : 'rich',
+    mode: o.mode === 'source' ? 'source' : 'rich',
     exact: o.exact ?? true,
     rev: o.rev ?? 0,
     at: o.at ?? 0,
@@ -144,7 +144,7 @@ export function createLocal(vaultKey: string | null, opts: LocalOpts = {}) {
       path: s.path,
       text: draft.text,
       baselineHash: typeof draft.baselineHash === 'string' ? draft.baselineHash : null,
-      mode: draft.mode === 'source' || draft.mode === 'live' ? draft.mode : 'rich',
+      mode: draft.mode === 'source' ? 'source' : 'rich',
       exact: typeof draft.exact === 'boolean' ? draft.exact : true,
       rev: typeof draft.rev === 'number' && Number.isFinite(draft.rev) ? draft.rev : 0,
       at,

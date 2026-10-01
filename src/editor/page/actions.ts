@@ -265,7 +265,7 @@ export function installActions(ctx: PageCtx) {
     r.applied = true;
     const ok = await ctx.setMode(mode, { text: r.text, quiet: true });
     if (p !== ctx.page) return false;
-    if (!ok && !p.source && !p.live) { r.applied = false; ctx.publishState(p); return false; }
+    if (!ok && !p.source) { r.applied = false; ctx.publishState(p); return false; }
     p.rev = nextRev();
     ctx.setDirty(p, true);
     // The draft was typed over an older text than the disk holds, and that text is gone: there
@@ -278,9 +278,7 @@ export function installActions(ctx: PageCtx) {
   function focusPage() {
     const p = ctx.page;
     if (!p) return;
-    if (p.reading) { p.reading.view.el.focus({ preventScroll: true }); return; }
     if (p.source) { p.source.focus(); return; }
-    if (p.live) { p.live.focus(); return; }
     if (p.crepe) { const view = editorView(p.crepe); if (view) { view.focus(); return; } }
     if (p.titleEl) p.titleEl.focus();
   }

@@ -537,8 +537,8 @@ ose.status.set(field, text | { text, kind, onClick, title, choices, value, onCho
     `choices` [{ value, label }] makes the field a choice: the shell draws it as a button whose
     menu lists them, the current `value` checked, and a pick calls `onChoose(value)`. `title`
     names the field for the tooltip and a screen reader. The editing mode is one:
-      ose.status.set('mode', { text: 'Live', title: 'Editing mode', value: 'live',
-        choices: [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' },
+      ose.status.set('mode', { text: 'Rich', title: 'Editing mode', value: 'rich',
+        choices: [{ value: 'rich', label: 'Rich' },
                   { value: 'source', label: 'Source' }], onChoose })
     A plain text file sets `{ text: 'Text' }` and no choices.
 ose.status.all()             -> [{ key, text, kind, onClick, title?, choices?, value?, onChoose? }]
@@ -592,7 +592,7 @@ ose.settings.onRepaint(fn)   -> unsubscribe   a settings page open while a chord
     showHidden                                  machine   false
     restoreSession                              machine   true
     hideMdExt                                   machine   false
-    editorMode                                  machine   'rich'     ('live', 'source'): how a
+    editorMode                                  machine   'rich'     ('source'): how a
                                                                      markdown file with no
                                                                      remembered mode opens (X1)
     trash                                       vault     'system'   ('vault' = `.trash`)
@@ -801,7 +801,7 @@ import { markdownPage, releasePage, parkedPaths, rewriteLinksIn, codeEditor, ren
 markdownPage(el, path, opts)  -> { close(), park(), save(o), canLeave(reason), stay(), path, dirty,
                                    mode, state, focus(), find(query), on(event, fn) }
     the editor for any text file the page host hands over (H17): `.md`, `.markdown`, `.mdown`
-    and `.mkd` get the Rich | Live | Source switch (below); every other text file,
+    and `.mkd` get the Rich | Source switch (below); every other text file,
     extensionless ones included, opens as plain Source with its line endings and BOM kept. Title strip, properties, autosave, the 3-way merge of changes made on disk, versions,
     find and replace, drop, links, backlinks, every command.
     opts: { line, col, heading, selection, readOnly }
@@ -819,7 +819,7 @@ markdownPage(el, path, opts)  -> { close(), park(), save(o), canLeave(reason), s
     false. canLeave(reason) -> Promise<boolean> freezes the page and saves it if dirty; false
     leaves it editable, shows the banner and writes the draft. stay() undoes the freeze of a
     true canLeave. close() -> Promise<boolean> runs canLeave first; false keeps the page and
-    tears nothing down. mode is 'rich' | 'live' | 'source'. state is the DocState below.
+    tears nothing down. mode is 'rich' | 'source'. state is the DocState below.
     on() takes 'state', 'mode', 'recovered', 'guard', 'saved', 'dirty', 'conflict', 'title'
     and 'closed'.
 releasePage(path) -> Promise<boolean>
@@ -849,13 +849,13 @@ saveAll({ explicit, closing }) -> Promise<boolean>
     Bus events, for every mounted page: 'doc:state' DocState = { path, status: 'clean' |
     'dirty' | 'saving' | 'not-saved' | 'conflict' | 'deleted', dirty, reason, message, draft,
     mode, savedAt }; 'doc:dirty' { path, dirty } and 'doc:saved' { path } as before;
-    'doc:mode' { path, mode: 'rich' | 'live' | 'source', forced: null | 'plain' | 'unsafe' |
+    'doc:mode' { path, mode: 'rich' | 'source', forced: null | 'plain' | 'unsafe' |
     'lossy-open' };
     'doc:recovered' { path, at, applied } when a draft was found at open.
     Commands: page.save and page.close answer their promise (page.close is `ose.route.close()`:
     it closes the tab); page.save-as, page.discard-changes, page.show-problem,
-    page.recovered-compare, page.recovered-restore, page.mode-rich, page.mode-live,
-    page.mode-source, page.mode-next, page.reading-toggle (see "Modes" below; page.view-rich
+    page.recovered-compare, page.recovered-restore, page.mode-rich,
+    page.mode-source (see "Modes" below; page.view-rich
     and page.view-source are gone), page.merge-resolve ("Resolve changes made on disk") and
     page.merge-undo ("Undo merge"); page.source-toggle is 'Switch between source (raw
     markdown) and the editing view'. The shell's
@@ -949,51 +949,34 @@ render(markdown, { basePath, onLink, codeLanguage })  -> HTMLElement
 
 The stylesheet is `ose/editor.css`. Tokens come from `ui.css`.
 
-### Modes: Rich, Live, Source, and Reading
+### Modes: Rich and Source
 
-A markdown page has three editing modes (X1), in the meta line's segmented switch and in the
+A markdown page has two editing modes (X1), in the meta line's segmented switch and in the
 status bar's `mode` field (a menu, `ose.status.set` with `choices`):
 
-- **Rich** is the block editor (Crepe), with the fidelity layer below ("Writing"). It stays the
+- **Rich** is the block editor (Crepe), with the fidelity layer below ("Writing"). It is the
   default.
-- **Live** is CodeMirror over the whole file, frontmatter and H1 included, with the markup drawn
-  off the caret line (docs/LIVE.md): headings sized, emphasis and links styled, bullets and task
-  checkboxes as widgets, quotes and callouts boxed, images through the vault origin, tables
-  rendered off the cursor and raw on it, maths with Temml, fenced code highlighted, the
-  frontmatter folded into a "Properties" block. In Live the file text is the only truth: a save
-  writes `view.state.doc.toString()` with the byte-order mark and the line separators put back
-  (`src/editor/source.ts`), never a serializer, so a widget bug is a display glitch and never a
-  changed byte. A checkbox click is one transaction that changes one character. The title strip
-  and the properties strip are hidden: the text holds both. A Live view that fails to mount
-  falls back to Source.
-- **Source** is the same CodeMirror with nothing drawn.
+- **Source** is CodeMirror over the whole file with nothing drawn. A save writes the view's text
+  with the byte-order mark and the line separators put back (`src/editor/source.ts`).
 
 A plain text file has one mode, Source; a page the rich view cannot hold (`forced`) is Source
 too. Which mode a markdown file opens in: the mode it was last left in, per machine and per
 vault (`ose.local('pageModes')`, at most 300, `src/editor/modes.ts`), else the machine setting
 `editorMode` (Settings › Editor, "Open markdown files in"), else Rich. A forced mode and a file
-outside the vault are never remembered. The wave-2 `sourcePages` list in the state file is read
-once to migrate and never written again.
+outside the vault are never remembered. A mode stored as 'live' (the Live mode was removed)
+reads as nothing remembered. The wave-2 `sourcePages` list in the state file is read once to
+migrate and never written again.
 
-Commands (no new chords): `page.mode-rich` "Edit as rich text", `page.mode-live` "Edit in Live
-preview", `page.mode-source` "Edit as source", `page.mode-next` "Next editing mode" (the status
-field's click), `page.source-toggle` (Ctrl+E, unchanged: Source and back to the page's last
-other mode), `page.reading-toggle` "Reading view", `page.save-utf8` "Save as UTF-8" and
-`page.reopen-encoding` "Reopen with encoding…". In Live the format, block and follow-link
-commands go to the Live view; one it does not implement toasts "Not available in Live".
+Commands (no new chords): `page.mode-rich` "Edit as rich text", `page.mode-source` "Edit as
+source", `page.source-toggle` (Ctrl+E: Source and back to Rich), `page.save-utf8` "Save as
+UTF-8" and `page.reopen-encoding` "Reopen with encoding…". The status field's click switches to
+the other mode.
 
-Every mode keeps the same guarantees: drafts, the leave gate and its freeze, the conditional
+Both modes keep the same guarantees: drafts, the leave gate and its freeze, the conditional
 save, the three-way merge of changes made on disk, link rewrites as an undoable edit, parking
 with the buffer and undo history alive (one live instance per file), find, go to line, word
-count and the caret remembered per route. Switching modes passes the text through: Rich to Live
-works like Rich to Source, and Live to Rich runs the same open check that may refuse and stay.
-
-**Reading** is a view, not a fourth mode (X3): `page.reading-toggle`, or "Read" in the meta line,
-shows the buffer rendered read-only (marked with `breaks: true`, then DOMPurify: no script, no
-event handler, no iframe) in place of the editor, which stays mounted underneath. Links follow,
-images go through the vault origin, task boxes are disabled, the top line is kept both ways,
-and it re-renders when a change from disk is applied. Toggling back returns to the mode it came
-from, with a dirty buffer untouched.
+count and the caret remembered per route. Source to Rich runs the open check, which may refuse
+and stay in Source.
 
 **Encodings** (X10). The page keeps the `encoding` `readFile` answered and saves with it. A file
 whose decoding would not write the same bytes back (`lossy`) opens read-only with a banner that

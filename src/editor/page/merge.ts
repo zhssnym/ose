@@ -123,13 +123,10 @@ export function installMerge(ctx: PageCtx) {
    * it), which keeps the text but not the undo history.
    */
   async function applyText(p, text) {
-    // The Reading view shows the buffer: it follows a text put in from outside (X3).
-    if (p.reading) { try { p.reading.view.setText(text); } catch (e) { console.error('[editor] reading', e); } }
-    if (p.source || p.live) {
+    if (p.source) {
       p.applying = true;
       try {
-        if (p.source) p.source.replaceText(text);
-        else if (p.live) p.live.replaceMinimal(text);
+        p.source.replaceText(text);
       } finally { p.applying = false; }
       p.doc = p.plain ? ctx.plainDoc(text) : parseDoc(text);
       if (p.doc.titleLine !== null) p.title = p.doc.title;

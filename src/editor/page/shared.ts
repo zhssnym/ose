@@ -33,9 +33,6 @@ export const UNTITLED = /^Untitled( \d+)?$/i;
  */
 let revClock = Date.now();
 
-/** What a body command says while the Reading view is up. */
-export const READING_REFUSAL = 'Leave the Reading view to edit · Esc';
-
 /**
  * The next edit's revision: after every one before it, and never behind the wall clock. Two
  * windows each have a clock of their own, and the draft of a file outside the vault is shared
@@ -60,22 +57,22 @@ export const mapPath = (path, from, to) => (path === from ? to : to + path.slice
 export const errText = (e) => String((e && e.message) || e || 'unknown error').replace(/\n[\s\S]*/, '');
 export const errCode = (e) => (e && e.code) || 'io';
 
-// The three modes (X1): the public words, and the internal ones `p.mode` holds. 'block' is
-// Crepe; the word predates Live and stays internal.
-export const INTERNAL = { rich: 'block', live: 'live', source: 'source' };
-export const PUBLIC = { block: 'rich', live: 'live', source: 'source' };
-export const MODE_LABEL = { rich: 'Rich', live: 'Live', source: 'Source' };
-export const MODE_CHOICES = [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' }, { value: 'source', label: 'Source' }];
+// The two modes (X1): the public words, and the internal ones `p.mode` holds. 'block' is
+// Crepe, and stays internal.
+export const INTERNAL = { rich: 'block', source: 'source' };
+export const PUBLIC = { block: 'rich', source: 'source' };
+export const MODE_LABEL = { rich: 'Rich', source: 'Source' };
+export const MODE_CHOICES = [{ value: 'rich', label: 'Rich' }, { value: 'source', label: 'Source' }];
 /** A file's encoding is UTF-8 unless the host said otherwise (X10). */
 export const isUtf8 = (enc) => !enc || /^utf-?8$/i.test(String(enc));
 export const ATTACH_OUTSIDE = 'Attachments need a file inside the vault';
-/** The page has an editor mounted, whichever of the three. */
-export const hasEditor = (p) => !!(p && (p.crepe || p.source || p.live));
+/** The page has an editor mounted, whichever of the two. */
+export const hasEditor = (p) => !!(p && (p.crepe || p.source));
 
 /** The mode a recovered draft reopens in (L5): its own, unless it is not exactly a save's text. */
 export function recoveredModeOf(p, r) {
   if (p.plain || !r.exact) return 'source';
-  return r.mode === 'live' ? 'live' : r.mode === 'rich' ? 'block' : 'source';
+  return r.mode === 'rich' ? 'block' : 'source';
 }
 
 // ---------------------------------------------------------------------------
@@ -110,8 +107,6 @@ export type Timer = ReturnType<typeof setTimeout> | number;
 /** The find bar: `createFind`'s over Crepe, or the same four methods over CodeMirror's panel. */
 export type FindBar = {open: (o?: {query?: string | null, replace?: boolean}) => void,
   close: (o?: {toEditor?: boolean}) => void, isOpen: () => boolean, destroy: () => void};
-export type Reading = {view: import('../reading/index.ts').ReadingView, el: HTMLElement, from: string,
-  editorTop: number, startLine: number | null};
 export type Problem = {status: string, reason: string, message: string, copy?: boolean};
 export type Recovered = {at: number, text: string, applied: boolean, baselineHash: string | null,
   exact: boolean, mode: string, rev?: number, kept?: boolean};
@@ -144,15 +139,10 @@ export interface PageState {
   chars: number;
   mtime: number;
   wordTimer: Timer;
-  live: import('../live/view.ts').LiveView | null;
-  lastEdit: string;
-  reading: Reading | null;
   outside: boolean;
   encoding: string;
   lossy: boolean;
   forcedEncoding: string | null;
-  liveFailed: string | null;
-  wikiPages: string[] | null;
   titleSelected: boolean;
   dirty: boolean;
   ready: boolean;
@@ -211,15 +201,12 @@ export const blankPage = (): PageState => ({
   // remembered. words/wordTimer: the meta line's count, taken from the ProseMirror document and
   // debounced with the save rather than serialised per key.
   mode: 'block', plain: false, forced: null, source: null, words: 0, chars: 0, mtime: 0, wordTimer: 0,
-  // Wave 3. live: the Live view (X2), when `mode` is 'live'. lastEdit: the page's last mode that
-  // is not Source, where Ctrl+E goes back to. reading: the Reading view over the editor (X3),
-  // `{view, el, from}`, or null. outside: the path is `abs:` (X7). encoding: the host's label
+  // Wave 3. outside: the path is `abs:` (X7). encoding: the host's label
   // for the file's encoding (X10); lossy: its bytes do not decode exactly, so the page is
   // read-only; forcedEncoding: the one `page.reopen-encoding` chose, used for every read of the
-  // file. liveFailed: why Live could not be built at the last mount (it fell back to Source).
-  // wikiPages: the vault's markdown pages, for `[[wikilink]]` resolution in Live.
-  live: null, lastEdit: 'rich', reading: null, outside: false,
-  encoding: 'UTF-8', lossy: false, forcedEncoding: null, liveFailed: null, wikiPages: null,
+  // file.
+  outside: false,
+  encoding: 'UTF-8', lossy: false, forcedEncoding: null,
   titleSelected: false, dirty: false, ready: false,
   // rev: the edit clock at the last edit, so a write can tell whether the document moved on
   // under it. frozen: every input path is read-only while a leave, a mode switch or a path
@@ -277,7 +264,7 @@ export interface DocState {
   /** one sentence, for the tab tooltip and the banner */
   message: string|null;
   draft: null|'written'|'failed';
-  mode: 'rich'|'live'|'source';
+  mode: 'rich'|'source';
   savedAt: number|null;
 }
 

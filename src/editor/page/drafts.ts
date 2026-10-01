@@ -23,7 +23,6 @@ export function installDrafts(ctx: PageCtx) {
     // Text the user has not checked yet stays marked as such, whichever editor holds it.
     const exact = !ctx.unchecked(p);
     if (p.source) return { text: p.source.getText(), exact };
-    if (p.live) return { text: p.live.getText(), exact };
     if (!p.crepe) return { text: typeof p.orphan === 'string' ? p.orphan : null, exact: false };
     const r = ctx.composeChecked(p);
     if (r.status !== 'unsafe' && typeof r.text === 'string') return { text: r.text, exact };
@@ -195,10 +194,9 @@ export function installDrafts(ctx: PageCtx) {
    */
   function pageText(p) {
     try {
-      // Source and Live hold the whole file: the count is of what Rich would show of it, so a
+      // Source holds the whole file: the count is of what Rich would show of it, so a
       // mode switch never changes the size of the note. A plain file counts as it is.
       if (p.source) return p.plain ? p.source.viewText() : shownText(p.source.viewText());
-      if (p.live) return shownText(p.live.viewText());
       const view = p.crepe ? editorView(p.crepe) : null;
       if (view) {
         const doc = view.state.doc;

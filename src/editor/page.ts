@@ -5,11 +5,9 @@
 //   properties strip   only when the file has YAML frontmatter; raw text preserved, simple
 //                      `key: value` lines editable in place, everything else read-only
 //   title              the file's first H1, editable; the file name when there is no H1
-//   meta               word count, last save, the Rich | Live | Source switch (H14, X1) and
-//                      the Read toggle (X3)
-//   body               Crepe (Milkdown) over everything after the title, or in Live and in
-//                      Source, CodeMirror over the whole file (the title and properties strips
-//                      are hidden in Live: the text holds both)
+//   meta               word count, last save, the Rich | Source switch (H14, X1)
+//   body               Crepe (Milkdown) over everything after the title, or in Source,
+//                      CodeMirror over the whole file
 //
 // Markdown is the source of truth. Nothing is written on open; a save happens only when the
 // composed text differs from what is on disk (M5: that difference is what "dirty" means).
@@ -37,10 +35,7 @@
 // included (instances.ts is the register). A change made on disk while a page is dirty is
 // merged into it line by line (H7, merge.ts), and only lines both sides touched are a question.
 //
-// Wave 3 (X1, X2, X3, X7, X10). Live is a third mode: CodeMirror over the whole file with the
-// markup drawn off the caret line (live/). Its text is the file's text, so a save writes
-// `live.getText()` and nothing composes it, exactly as in Source. The Reading view shows the
-// buffer rendered, read-only, over the editor, which stays mounted underneath. A file outside
+// Wave 3 (X1, X7, X10). A file outside
 // the vault (`abs:`) opens here too, with no versions, links or attachments; a file that is not
 // UTF-8 keeps its own encoding, and one that cannot be decoded exactly opens read-only.
 //
@@ -65,7 +60,6 @@ import { installMerge } from './page/merge.ts';
 import { installDrafts } from './page/drafts.ts';
 import { installWatch } from './page/watch.ts';
 import { installActions } from './page/actions.ts';
-import { installReading } from './page/reading.ts';
 import { installPark } from './page/park.ts';
 import { installLinks } from './page/links.ts';
 import type { PageCtx } from './page/ctx.ts';
@@ -75,7 +69,7 @@ import './editor.css';
 import './print.css';
 import './sheets.css';
 
-export type { PlainDoc, PageDoc, Timer, FindBar, Reading, Problem, Recovered, Conflict, Merged, Moving, PageState, PageInstance, DocState } from './page/shared.ts';
+export type { PlainDoc, PageDoc, Timer, FindBar, Problem, Recovered, Conflict, Merged, Moving, PageState, PageInstance, DocState } from './page/shared.ts';
 export { saveAll, beforePathChange, afterPathChange, releasePage, parkedPaths, problemPages, rewriteLinksIn } from './page/globals.ts';
 export { acquireCommands, releaseCommands, activePage } from './page/commands.ts';
 
@@ -86,7 +80,7 @@ export { acquireCommands, releaseCommands, activePage } from './page/commands.ts
  *
  * `opts.line` (1-based, a line of the file as the search overlay counts them) puts the caret in
  * the block that holds that line once the editor is up (C7); `opts.selection` is a `{from,to}`
- * a router remembered (in Live, the view's snapshot, `mode: 'live'`); `opts.query` seeds the
+ * a router remembered; `opts.query` seeds the
  * find bar; `opts.encoding` reads the file in that encoding (X10, `page.reopen-encoding`).
  *
  * Wave 2 (M12, M24): when an instance of `path` is parked (`handle.park()`, a tab gone to the
@@ -115,7 +109,6 @@ function buildPage(el, path, opts) {
     installDrafts(ctx),
     installWatch(ctx),
     installActions(ctx),
-    installReading(ctx),
     installPark(ctx),
     installLinks(ctx),
   );
@@ -170,10 +163,8 @@ function buildPage(el, path, opts) {
   ctx.api = {
     hasPage: () => !!ctx.page,
     getPage: () => ctx.page,
-    // No editable view while the Reading view is up (X3): the editor is hidden under it, and a
-    // command that reached it would change bytes the user cannot see.
-    getView: () => (ctx.page && ctx.page.crepe && !ctx.page.reading ? editorView(ctx.page.crepe) : null),
-    getCrepe: () => (ctx.page && !ctx.page.reading ? ctx.page.crepe : null),
+    getView: () => (ctx.page && ctx.page.crepe ? editorView(ctx.page.crepe) : null),
+    getCrepe: () => (ctx.page ? ctx.page.crepe : null),
     getPath: () => (ctx.page ? ctx.page.path : null),
     getDoc: () => (ctx.page ? ctx.page.doc : null),
     focusTitle: () => { if (ctx.page) ctx.focusTitle(ctx.page); },
@@ -191,22 +182,13 @@ function buildPage(el, path, opts) {
     attachFile: (file) => (ctx.page ? ctx.attachFile(ctx.page, file) : Promise.reject(new Error('no page'))),
     // The find bar of the open page, whichever kind it is.
     openFind: (o) => { if (ctx.page && ctx.page.find) ctx.page.find.open(o || {}); },
-    // Batch 12 (P5), H14 and X1: the three modes.
+    // Batch 12 (P5), H14 and X1: the two modes.
     isSource: () => !!(ctx.page && ctx.page.source),
-    isLive: () => !!(ctx.page && ctx.page.live),
     isMarkdown: () => !!(ctx.page && !ctx.page.plain),
     toggleSource: () => ctx.toggleSource(),
     setMode: (mode) => ctx.setMode(mode),
     nextMode: () => ctx.nextMode(),
     mode: () => (ctx.page ? ctx.publicMode(ctx.page) : null),
-    /**
-     * A body command in Live (§3.3): the Live view runs the ids of LIVE_COMMANDS; any other
-     * says it is not available there. Answers what the view answered.
-     */
-    liveRun: (id) => ctx.liveRun(id),
-    // X3: the Reading view.
-    isReading: () => !!(ctx.page && ctx.page.reading),
-    toggleReading: () => ctx.toggleReading(),
     // X7, X10: outside the vault, and the file's encoding.
     isOutside: () => !!(ctx.page && ctx.page.outside),
     encoding: () => (ctx.page ? ctx.page.encoding : null),
@@ -253,7 +235,7 @@ function buildPage(el, path, opts) {
     get el() { return ctx.el; },
     get path() { return ctx.page ? ctx.page.path : null; },
     get dirty() { return !!(ctx.page && ctx.page.dirty); },
-    /** 'rich' | 'live' | 'source': the public words; the internal 'block' stays internal. */
+    /** 'rich' | 'source': the public words; the internal 'block' stays internal. */
     get mode() { return ctx.publicMode(ctx.page); },
     get state() { return ctx.page ? ctx.stateOf(ctx.page) : null; },
     get readOnly() { return !!(ctx.page && ctx.page.readOnly); },

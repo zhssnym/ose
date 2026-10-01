@@ -107,8 +107,6 @@ export function installSave(ctx: PageCtx) {
    */
   function composeChecked(p): { status: 'ok' | 'fellBack' | 'unsafe'; text: string | null; reason?: string; } {
     if (p.source) return { status: 'ok', text: p.source.getText() };
-    // Live holds the file itself (X2): its text is the save, with no serializer and no guard.
-    if (p.live) return { status: 'ok', text: p.live.getText() };
     // No editor could be built (`mountFallback`): the text that was to go in is all there is.
     // Nothing saves it over the file (`saveDoc` needs an editor); Save as and Copy text may.
     if (!p.crepe) {
@@ -131,7 +129,6 @@ export function installSave(ctx: PageCtx) {
    */
   function bestEffort(p) {
     if (p.source) return p.source.getText();
-    if (p.live) return p.live.getText();
     if (!p.crepe && typeof p.orphan === 'string') return p.orphan;
     let body: any = null;
     try { body = p.crepe ? p.crepe.getMarkdown() : null; } catch { /* next */ }

@@ -1,7 +1,8 @@
 // Which mode a page opens in (wave 3, X1, contract §4.5).
 //
-// Three modes edit a markdown file: Rich (Crepe), Live (CodeMirror with the markup drawn) and
-// Source (CodeMirror, plain). A file that is not markdown has one, Source. Two things decide
+// Two modes edit a markdown file: Rich (Crepe) and Source (CodeMirror, plain). A file that is
+// not markdown has one, Source. A mode stored as 'live' (Live was removed) reads as nothing
+// remembered, so the file opens in the default. Two things decide
 // which one a markdown file opens in:
 //
 //   - the file's own memory: the mode it was last left in, per machine and per vault, in
@@ -19,17 +20,17 @@ import { editorModeSetting, localSlot } from './host.ts';
 import { readState } from './deps.ts';
 import { isOutside } from '../core/paths.ts';
 
-export type PageMode = 'rich' | 'live' | 'source';
+export type PageMode = 'rich' | 'source';
 
 /** The public words, in the order the switch shows them. */
-export const MODES = (['rich', 'live', 'source'] as const);
+export const MODES = (['rich', 'source'] as const);
 
 /** How many files remember a mode. Past it the least recently left go first. */
 export const MAX = 300;
 
 const KEY = 'pageModes';
 
-export const isMode = (m: unknown): m is PageMode => m === 'rich' || m === 'live' || m === 'source';
+export const isMode = (m: unknown): m is PageMode => m === 'rich' || m === 'source';
 
 /** The machine's default for a markdown file that remembers nothing (`editorMode`). */
 export function defaultMode() {

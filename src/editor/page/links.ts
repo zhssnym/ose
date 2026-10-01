@@ -34,8 +34,8 @@ export function installLinks(ctx: PageCtx) {
     // file outside the vault is not part of the vault's links (X7).
     if (!list.length || p.plain || p.outside) return { handled: true, changed: 0 };
     try {
-      // Source and Live hold the file's text: the core's plan applies to it as one change.
-      const textView = () => (p.source ? p.source : p.live);
+      // Source holds the file's text: the core's plan applies to it as one change.
+      const textView = () => p.source;
       if (textView()) {
         for (let round = 0; round < 2; round++) {
           const tv = textView();
@@ -49,8 +49,7 @@ export function installLinks(ctx: PageCtx) {
           if (!splices.length) return { handled: true, changed: 0 };
           let out = text;
           for (const sp of [...splices].sort((a, b) => b.from - a.from)) out = out.slice(0, sp.from) + sp.insert + out.slice(sp.to);
-          if (p.source) p.source.replaceText(out, { edit: true });
-          else if (p.live) p.live.replaceMinimal(out, { edit: true });
+          tv.replaceText(out, { edit: true });
           log(`links rewritten in the open page ${target}: ${splices.length}`, 'info');
           return { handled: true, changed: splices.length };
         }

@@ -29,7 +29,7 @@ for (const name of [
   'hasPage', 'getPage', 'getView', 'getCrepe', 'getPath', 'getDoc', 'focusTitle', 'focusBody',
   'markDirty', 'touch', 'saveNow', 'getSelection', 'updateMeta', 'reopenInPlace', 'attachFile',
   'openFind', 'isSource', 'isMarkdown', 'toggleSource', 'setMode', 'hasCrepe', 'isReadOnly', 'folder',
-  'isLive', 'nextMode', 'mode', 'liveRun', 'isReading', 'toggleReading', 'isOutside', 'encoding',
+  'nextMode', 'mode', 'isOutside', 'encoding',
   'saveUtf8', 'reopenEncoding', 'isReadOnlyFile',
   'copyMarkdown', 'link', 'outline', 'find', 'reveal', 'status', 'isDirty', 'hasRecovered',
   'recoveredApplied', 'saveAs', 'discardChanges', 'showProblem', 'recoveredCompare', 'recoveredRestore',
@@ -41,8 +41,8 @@ for (const name of [
     if (!a) {
       if (name === 'saveNow') return Promise.resolve(true);
       return ['hasPage', 'isSource', 'isMarkdown', 'hasCrepe', 'isDirty', 'hasRecovered', 'recoveredApplied',
-        'hasConflict', 'conflictIsText', 'conflictCanTake', 'hasMerge', 'canUndoMerge', 'isLive', 'isReading', 'isOutside',
-        'isReadOnlyFile', 'liveRun'].includes(name)
+        'hasConflict', 'conflictIsText', 'conflictCanTake', 'hasMerge', 'canUndoMerge', 'isOutside',
+        'isReadOnlyFile'].includes(name)
         ? false : undefined;
     }
     return a[name](...args);
@@ -124,25 +124,16 @@ function registerCommands() {
     when: () => hasPage() && editorApi.hasMerge(),
     run: () => editorApi.mergeShow(),
   });
-  // X1, §4.5: the three modes, one command each, and the status field's click. No chords:
+  // X1, §4.5: the two modes, one command each, and the status field's click. No chords:
   // Ctrl+E (source.ts) is the one the editor has, Source and back.
   const markdownPage = () => hasPage() && editorApi.isMarkdown();
-  for (const [mode, title] of [['rich', 'Edit as rich text'], ['live', 'Edit in Live preview'], ['source', 'Edit as source']]) {
+  for (const [mode, title] of [['rich', 'Edit as rich text'], ['source', 'Edit as source']]) {
     commands.register({
       id: `page.mode-${mode}`, title, group: 'page',
       when: () => markdownPage() && editorApi.mode() !== mode,
       run: () => editorApi.setMode(mode),
     });
   }
-  commands.register({
-    id: 'page.mode-next', title: 'Next editing mode', group: 'page',
-    when: markdownPage, run: () => editorApi.nextMode(),
-  });
-  // X3: the buffer rendered, read-only; the same command comes back.
-  commands.register({
-    id: 'page.reading-toggle', title: 'Reading view', group: 'page',
-    when: markdownPage, run: () => editorApi.toggleReading(),
-  });
   // X10: a file that is not UTF-8.
   commands.register({
     id: 'page.save-utf8', title: 'Save as UTF-8', group: 'page',

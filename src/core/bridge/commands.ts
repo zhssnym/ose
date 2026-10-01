@@ -295,7 +295,7 @@ export type Dropped = {
 	dropped: boolean,
 };
 
-export type EditorMode = "rich" | "live" | "source";
+export type EditorMode = "rich" | "source";
 
 /**
  *  One entry of a listing or of the tree (docs/HOST.md "Commands"). `kind` is what a link points

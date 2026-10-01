@@ -5,7 +5,6 @@
 // others through it: `ctx.page` is the file on screen, `ctx.saveDoc(p)` a save.
 
 import type { Draft_Serialize, ReadFile } from '../../core/bridge/commands.ts';
-import type { LiveSnapshot } from '../live/view.ts';
 import type { PlainDoc, PageState, PageInstance, DocState } from './shared.ts';
 
 /** The instance's state. */
@@ -38,10 +37,6 @@ export interface PageFns {
   open: (nextPath: any, options?: any) => Promise<void>;
   readDraft: (path: any) => Promise<Draft_Serialize | null>;
   mountBody: (p: any, text: any, token?: any, o?: any) => any;
-  mountLive: (p: any, text: any, restore: any) => void;
-  loadWikiPages: (p: any) => void;
-  resolveWikilink: (p: any, target: any) => { path: any; exists: boolean; };
-  openLinkFrom: (p: any, href: any, o?: any) => Promise<void>;
   unmountBody: (p: any) => Promise<void>;
   closePage: ({ keepAlive }?: { keepAlive?: boolean | undefined; }) => Promise<boolean>;
   plainDoc: (text: any) => PlainDoc;
@@ -60,7 +55,7 @@ export interface PageFns {
   scrollToLine: (line: any, col: any) => boolean;
   openFindWith: (p: any, query: any) => void;
   restoreSelection: (p: any, sel: any) => void;
-  currentSelection: () => LiveSnapshot | { from: any; to: any; } | null;
+  currentSelection: () => { from: any; to: any; } | null;
   focusTitle: (p: any) => void;
   saveNow: (o?: any) => any;
   // leave.ts
@@ -96,7 +91,6 @@ export interface PageFns {
   resolveImage: (p: any, src: any) => string;
   attachFile: (p: any, file: any) => Promise<string>;
   uploadImage: (p: any, file: any) => Promise<string>;
-  saveAttachment: (p: any, file: any) => Promise<string | null>;
   wireDrops: (p: any) => void;
   // status.ts
   publishTitle: (p: any) => void;
@@ -174,15 +168,6 @@ export interface PageFns {
   focusPage: () => void;
   saveUtf8: () => Promise<any>;
   reopenEncoding: () => Promise<boolean>;
-  // reading.ts
-  readingText: (p: any) => any;
-  topLineOf: (p: any) => any;
-  toggleReading: () => boolean;
-  openReading: (p: any) => boolean;
-  closeReading: (p: any, o?: any) => void;
-  scrollLineToTop: (p: any, line: any) => void;
-  livePastePlain: (p: any) => Promise<void>;
-  liveRun: (id: any) => boolean;
   // park.ts
   repaint: () => void;
   take: () => void;

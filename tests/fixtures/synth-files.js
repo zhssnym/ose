@@ -1,4 +1,4 @@
-// Synthetic whole files for the Live property tests (tests/live/properties.test.js): markdown
+// Synthetic whole files for the Source property tests (tests/editor/source-format.test.js): markdown
 // made of the constructs Live draws differently off the caret (frontmatter, headings, emphasis,
 // links and wikilinks, lists and tasks, quotes and callouts, tables, maths, fences, images, HTML,
 // rules), written with every line ending a file can have (LF, CRLF, CR and a mix of them), with

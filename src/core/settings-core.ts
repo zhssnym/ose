@@ -25,7 +25,7 @@ export const PAGE_FACES = ['document', 'plain'];
 // it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.ts).
 export const LAYOUTS = ['scroll', 'pages'];
 /** How a markdown file opens when it remembers no mode of its own (X1). */
-export const EDITOR_MODES = ['rich', 'live', 'source'];
+export const EDITOR_MODES = ['rich', 'source'];
 /** Zoom steps, per cent (S4). 100 is the app as designed; the rest scale every rem token. */
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
@@ -43,7 +43,7 @@ export const DEFAULTS = {
   attachments: 'beside',
   trash: 'system',
   titleSync: false,
-  // How a markdown file opens the first time (X1): 'rich', 'live' or 'source'. A file the user
+  // How a markdown file opens the first time (X1): 'rich' or 'source'. A file the user
   // left in another mode remembers it (`src/editor/modes.ts`); a plain text file is Source.
   editorMode: 'rich',
 };
@@ -183,7 +183,7 @@ export function layout() {
   return LAYOUTS.includes(l) ? l : DEFAULTS.layout;
 }
 
-/** `rich`, `live` or `source`: the mode a markdown file with no remembered mode opens in. */
+/** `rich` or `source`: the mode a markdown file with no remembered mode opens in. */
 export function editorMode() {
   const m = settings().editorMode;
   return EDITOR_MODES.includes(m) ? m : DEFAULTS.editorMode;

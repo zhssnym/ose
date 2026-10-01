@@ -167,24 +167,6 @@ export function logText(page) {
 }
 
 /**
- * Put the page on screen in `mode` ('rich', 'live' or 'source') with the meta line's switch, as
- * a person would, and wait until it is.
- * @param {Page} page
- * @param {'rich'|'live'|'source'} mode
- */
-export async function setMode(page, mode) {
-  const btn = page.locator(`.ed-mode-btn[data-mode="${mode}"]:visible`).first();
-  await btn.click();
-  await expect(btn).toHaveAttribute('aria-pressed', 'true');
-  if (mode === 'live') await expect(liveEditor(page)).toBeVisible();
-}
-
-/** The Live editor's content on screen. */
-export function liveEditor(page) {
-  return page.locator('.cm-live .cm-content:visible').first();
-}
-
-/**
  * A first launch over a vault holding `files`: a document of the origin seeds the vault first
  * (the manifest, so no app code runs), then the app loads with the test hook. A reload keeps
  * the hook, since it keeps the query.

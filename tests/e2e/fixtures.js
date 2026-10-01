@@ -12,39 +12,6 @@ const long = (title) => page(title, [
   'Line five stays.', 'Line six stays.', 'Line seven stays.', 'Line eight stays.', 'Line nine at the end.',
 ]);
 
-/** Everything Live draws differently off the caret, in one file (live.spec.js L1). */
-const WALK = [
-  '---',
-  'title: Walk',
-  'tags: [a, b]',
-  '---',
-  '# Live walk',
-  '',
-  'Some _emphasis_, **strong**, `code`, a [link](https://example.com) and [[other|a wikilink]].',
-  '',
-  '| a | b |',
-  '| --- | --- |',
-  '| 1 | 2 |',
-  '| 3 | 4 |',
-  '',
-  '$$',
-  'x^2 + y^2',
-  '$$',
-  '',
-  '> [!note] A callout',
-  '> with a body',
-  '',
-  '- [ ] open task',
-  '- [x] done task',
-  '',
-  '```js',
-  'const a = 1;',
-  '```',
-  '',
-  'The last line.',
-  '',
-].join('\n');
-
 export const FILES = {
   'e2e/close.md': page('Close', ['The first paragraph.']),
   'e2e/fail.md': page('Fail', ['The first paragraph.']),
@@ -62,20 +29,4 @@ export const FILES = {
   'e2e/race.md': page('Race', ['The first paragraph.']),
   'e2e/race-fail.md': page('Race fail', ['The first paragraph.']),
   'e2e/folder/inside.md': page('Inside', ['A page in a folder.']),
-
-  // Live (live.spec.js), one file per scenario.
-  'e2e/live-walk.md': WALK,
-  'e2e/live-heading.md': page('Live heading', ['A paragraph under it.']),
-  'e2e/live-task.md': page('Live task', ['- [ ] the first task\n- [ ] the second task']),
-  'e2e/live-crlf.md': '﻿# Live CRLF\r\n\r\nThe first line.\r\n\r\n- a bullet\r\n',
-  'e2e/live-fail.md': page('Live fail', ['The first paragraph.']),
-  'e2e/live-switch.md': page('Live switch', ['Rich line.', 'Live line.', 'Source line.']),
-  'e2e/live-tab-a.md': page('Live tab A', ['The first paragraph.']),
-  'e2e/live-tab-b.md': page('Live tab B', ['The other page.']),
-  'e2e/live-merge.md': long('Live merge'),
-  'e2e/live-paste.md': page('Live paste', ['Paste below.', 'The end.']),
-  'e2e/live-table.md': page('Live table', ['Before the table.', '| a | b |\n| --- | --- |\n| 1 | 2 |', 'After the table.']),
-  'e2e/live-default.md': page('Live default', ['Never opened before.']),
-  'e2e/live-remembered.md': page('Live remembered', ['Left in source.']),
-  'e2e/live-read.md': page('Live read', ['A [link to other](other.md) and more.', 'The typed line.']),
 };
