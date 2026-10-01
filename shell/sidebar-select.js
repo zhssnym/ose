@@ -16,9 +16,9 @@ import { openMenuAt } from './sidebar-commands.js';
 
 /* -------------------------------------------------------------- selection (C17) */
 
-export const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.pin !== '1' && row.dataset.root !== '1';
+export const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.root !== '1';
 
-/** The rows that can be part of a selection: tree rows with a path, so no pins, no root, no views. */
+/** The rows that can be part of a selection: tree rows with a path, so no root, no views. */
 function selectableRows() { return treeRows().filter(isSelectable); }
 
 function paintSelection() {
@@ -68,10 +68,9 @@ export function batchFor(t) {
   return selectableRows().filter((r) => state.selected.has(r.dataset.path)).map((r) => ({ path: r.dataset.path, kind: r.dataset.kind }));
 }
 
-/** Fold or unfold a tree folder row. A pinned folder has nothing to unfold: it goes there. */
+/** Fold or unfold a tree folder row. */
 export function toggleDir(row) {
   const path = row.dataset.path;
-  if (row.dataset.pin === '1') { void navigate({ type: 'folder', path }); return; }
   if (row.getAttribute('aria-expanded') === null) return;
   if (path === '') state.rootOpen = !state.rootOpen;
   else if (state.expanded.has(path)) state.expanded.delete(path);
@@ -149,7 +148,7 @@ function onTreeChord(e, row) {
   if (!mod || e.altKey) return false;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const t = targetOf(row);
-  const batch = t ? batchFor(t) || (isSelectable(row) || row.dataset.pin === '1' ? [t] : []) : [];
+  const batch = t ? batchFor(t) || (isSelectable(row) ? [t] : []) : [];
   if (k === 'Enter' && !e.shiftKey) return !!row && openRowAside(row);
   if (e.shiftKey) return false;
   if (k === 'x') { if (batch.length) cut(batch); return true; }
@@ -233,7 +232,7 @@ export function onTreeKey(e) {
   if (!next) return;
   // Shift + a vertical move extends the range from the anchor to where focus lands; a move
   // without it is a single row again. Only tree rows can be selected, so a range that runs
-  // into the pins or the root simply skips them.
+  // into the root simply skips it.
   if (e.shiftKey && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End') && (isSelectable(row) || isSelectable(next))) {
     if (!state.anchor || !rowByKey(state.anchor)) state.anchor = rowKey(row);
     if (isSelectable(next)) selectRange(next);

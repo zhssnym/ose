@@ -277,18 +277,6 @@ function sortMenu(anchor) {
 /** Show hidden items: the tree's command, so there is one toggle and it says one thing. */
 const toggleHidden = () => commands.run('view.toggle-hidden');
 
-/**
- * The folder list alone, for a surface that shows a folder without being its view: Home's
- * vault root (H19). `compact` draws the name and the date only, and a click opens.
- * @param {HTMLElement} el
- * @param {string} path
- * @param {{compact?: boolean}} [opts]
- * @returns {{refresh: Function, unmount: Function, focus: Function, selection: Function, ready: Promise}}
- */
-export function mountFolderList(el, path, { compact = true } = {}) {
-  return createList(el, path, { compact });
-}
-
 /* ------------------------------------------------------------------ where "up" is */
 
 /** The route one step up from `r`: a folder's parent, a page's folder; null otherwise. */

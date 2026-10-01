@@ -13,7 +13,6 @@ import {
   canMoveInto, clipboard, copy, cut, duplicatePath, movePaths, newFile, newFolder, paste,
   renamePath, trashPaths,
 } from './fileops.js';
-import * as pins from './pins.js';
 import { nextSortSpec, SORT_KEYS, visibleEntries } from './folder-model.js';
 import { setSortSpec, sortSpec } from './folder.js';
 import {
@@ -71,7 +70,7 @@ export function bindDnd(host) {
     if (!row || row.dataset.root === '1') { e.preventDefault(); return; }
     // A row inside a selection of several drags the whole selection; any other row, itself.
     const batch = batchFor({ path: row.dataset.path, kind: row.dataset.kind });
-    const paths = batch && row.dataset.pin !== '1' ? batch.map((it) => it.path) : [row.dataset.path];
+    const paths = batch ? batch.map((it) => it.path) : [row.dataset.path];
     dragPaths = paths;
     setDragged(paths);
     e.dataTransfer.effectAllowed = 'move';
@@ -229,12 +228,6 @@ const TREE_COMMANDS = [
     applies: () => true, run: (t) => void newFolder(folderOf(t)) },
   { id: 'tree.open-tab', title: 'Open in new tab', icon: 'plus', group: 'tree',
     applies: (t) => t.path !== undefined, run: (t) => void openInNewTab(t.kind === 'dir' ? { type: 'folder', path: t.path } : { type: 'page', path: t.path }) },
-  { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => !pins.has(it.path)),
-    run: (t) => pins.add((batchFor(t) || [t]).map((it) => it.path)) },
-  { id: 'tree.unpin', title: 'Unpin', icon: 'pin', group: 'tree',
-    applies: (t) => !!t.path && (batchFor(t) || [t]).some((it) => pins.has(it.path)),
-    run: (t) => pins.remove((batchFor(t) || [t]).map((it) => it.path)) },
   { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
     applies: (t) => !!t.path && t.kind === 'dir' && getFocus() !== t.path, run: (t) => setFocus(t.path) },
   { id: 'file.rename', title: 'Rename…', icon: 'rename', group: 'file', own: false,
@@ -290,7 +283,7 @@ const MENU = [
   'file.new', 'tree.new-folder',
   null,
   'tree.open-tab',
-  'tree.pin', 'tree.unpin', 'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
+  'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
   'file.rename', 'file.move', 'file.duplicate',
   null,
   'file.cut', 'file.copy', 'file.paste',
@@ -347,7 +340,7 @@ function menuFor(path, kind) {
 
 // The menu for a row inside a selection of several (C17): only what makes sense for many.
 // Labels carry the count so the user knows the menu is for the selection.
-const MULTI_MENU = ['tree.pin', 'tree.unpin', null, 'file.cut', 'file.copy', 'file.move', null, 'file.trash'];
+const MULTI_MENU = ['file.cut', 'file.copy', 'file.move', null, 'file.trash'];
 
 function multiMenu(batch) {
   const target = batch[0];

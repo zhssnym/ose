@@ -106,9 +106,6 @@
 /* The link badge after the name: the tooltip names the kind (docs/HOST.md `Entry.link`). */
 .sb-link { display: grid; place-items: center; color: var(--fg-3); }
 .sb-link svg { width: 0.6875rem; height: 0.6875rem; }
-/* A pin whose file is gone (L22): kept, greyed, and it says so. */
-.sb-row.missing .gl, .sb-row.missing .grow { color: var(--fg-3); }
-.sb-row.missing .grow { text-decoration: line-through; text-decoration-color: var(--border-strong); }
 .sb-row .hint {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   white-space: nowrap;

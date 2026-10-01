@@ -6,8 +6,7 @@
 // The core draws nothing (docs/CORE.md "Folders"). `initFolder()` registers this file as
 // the folder host (`ose.setFolderHost`) before `ose.init`, and the router calls `open` with the
 // page column's scroller and the folder's path, then `refresh` on a file change and `unmount`
-// on the way out. The same list, compact, is what Home shows for the vault root
-// (`mountFolderList`), so there is one list and it behaves one way.
+// on the way out. Home is this view of the vault root.
 //
 // The order is `folder-model.js`'s: folders first, then the folder's own sort, which is kept
 // per folder and per machine in `ose.local('folders')` and read by the tree as well. What is
@@ -28,4 +27,4 @@
 // folder-view.js. This file says what the folder view exports.
 
 export { folderRoute, folderName, sortSpec, setSortSpec } from './folder-sort.js';
-export { mountFolderList, upFrom, initFolder } from './folder-view.js';
+export { upFrom, initFolder } from './folder-view.js';

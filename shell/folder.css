@@ -1,4 +1,4 @@
-/* The folder view (shell/folder.js, H15), and the same list compact on Home. Tokens only; the
+/* The folder view (shell/folder.js, H15). Tokens only; the
    few rem numbers are the columns' widths and the icon sizes, which are geometry.
 
    A folder is a place and reads like Explorer's details view: one row per entry at the app's
@@ -29,7 +29,6 @@
 /* ------------------------------------------------------------------ the list */
 
 .fv { --fv-cols: minmax(0, 1fr) 8rem 9.5rem 5.5rem; }
-.fv-compact { --fv-cols: minmax(0, 1fr) auto; }
 
 .fv-cols, .fv-row {
   display: grid; grid-template-columns: var(--fv-cols); gap: var(--sp-3); align-items: center;
@@ -105,12 +104,12 @@
 
 /* A narrow column drops Type first, then Size: the name and the date are what is read. */
 @container (max-width: 36rem) {
-  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 9.5rem 5rem; }
-  .fv:not(.fv-compact) .fv-type, .fv:not(.fv-compact) .fv-col-type { display: none; }
+  .fv { --fv-cols: minmax(0, 1fr) 9.5rem 5rem; }
+  .fv .fv-type, .fv .fv-col-type { display: none; }
 }
 @container (max-width: 24rem) {
-  .fv:not(.fv-compact) { --fv-cols: minmax(0, 1fr) 7rem; }
-  .fv:not(.fv-compact) .fv-size, .fv:not(.fv-compact) .fv-col-size { display: none; }
+  .fv { --fv-cols: minmax(0, 1fr) 7rem; }
+  .fv .fv-size, .fv .fv-col-size { display: none; }
 }
 
 /* ------------------------------------------------------------------ the README */

@@ -190,30 +190,6 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
 .tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
 .tab-x:hover { background: var(--bg-4); color: var(--fg); }
 
-/* ------------------------------------------------------------------ home */
-
-/* Home (shell/dashboard.js, H19): the planner row, pins, recent files and the vault root, one
-   under the other in the page column. Whitespace groups them; there is no card and no rule.
-   The rows are pulled left by their own bar and padding (base.css .row: --sp-3 all told) so
-   their text starts under the label above them. */
-.home-planner { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.home-planner[hidden], .home-sec[hidden] { display: none; }
-.home-plan { gap: var(--sp-2); color: var(--fg); }
-.home-plan svg { color: var(--fg-3); }
-.home-plan .kbd { margin-left: var(--sp-1); }
-.home-sec { margin-top: var(--sp-2); }
-.home-row, .home .fv-compact .fv-row {
-  width: calc(100% + var(--sp-3)); margin-left: calc(-1 * var(--sp-3));
-  text-align: left; cursor: default;
-}
-.home-row .hint { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
-.home-row:focus-visible { outline-offset: -2px; }
-/* A pin whose file is gone stays where it was, greyed, and says so (L22). */
-.home-row.missing, .home-row.missing svg { color: var(--fg-3); }
-.home-root-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
-.home-root-head .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-open-root { flex: none; color: var(--fg-3); }
-
 /* ------------------------------------------------------------------ resizers */
 
 /* A 7px grab zone centred on the 1px border it drags: 3px either side. Geometry, not spacing. */
@@ -265,8 +241,7 @@ body.resizing * { cursor: col-resize !important; }
 
 /* ------------------------------------------------------------------ outside the vault */
 
-/* A tab, or a row of Home's Recent, whose file is outside the vault (X7): one quiet word after
+/* A tab whose file is outside the vault (X7): one quiet word after
    the name, in the chrome's small mono face. Not a colour: it has to read the same in both
    themes and to anyone who does not tell colours apart. */
-.tab-out, .home-out { flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }
-.home-out { margin-right: var(--sp-2); }
+.tab-out { flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }

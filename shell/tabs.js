@@ -14,7 +14,7 @@
 
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
-import { HOME } from './dashboard.js';
+import { HOME } from './start.js';
 import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands } = ose;

@@ -1,7 +1,7 @@
 // Boot. The only file that decides an order.
 //
 //   ose.ready -> settings.apply -> vault chooser | mountShell
-//             -> initPageHost -> initFolder -> initDashboard -> initTabs
+//             -> initPageHost -> initFolder -> initHome -> initTabs
 //             -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
 //             -> initTrash -> initRecover -> loadKeys
 //             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
@@ -26,8 +26,7 @@ import { initFolder } from './folder.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
-import { startSurface } from './start.js';
-import { initDashboard } from './dashboard.js';
+import { initHome, startSurface } from './start.js';
 import { initTabs } from './tabs.js';
 import { initFileOps } from './fileops.js';
 import { initTrash } from './trash.js';
@@ -122,7 +121,7 @@ export async function boot() {
     // Home, and the strip that holds the tabs. Both before `ose.init`: Home has to be a
     // registered view (and the router's fallback) before anything navigates to it, and the
     // strip has to be listening before the first route event.
-    initDashboard();
+    initHome();
     initTabs(els.tabs, els.main);
     // The one call that starts the core in the shell: the theme, the key engine, and the
     // router mounted into the shell's own page column. `start: false` because the shell

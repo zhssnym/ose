@@ -1,4 +1,4 @@
-// Sidebar: the pins, then one tree of the whole vault rooted at its name, then Trash. One
+// Sidebar: one tree of the whole vault rooted at its name, then Trash. One
 // scrolling column under a small tool strip. The vault is shown as it is on disk, the way a
 // file manager shows it (H16, H20, M20, L8): every file with its real name and extension,
 // folders first, nothing hidden by name. Dotfiles and files the OS marks hidden appear only
@@ -16,13 +16,12 @@
 // Show hidden items flipping, reads the whole tree again. An autosave of a page already in
 // the tree touches that one node and draws nothing.
 //
-// Several rows can be selected at once (C17) and cut, copied, moved, trashed, pinned or dragged
+// Several rows can be selected at once (C17) and cut, copied, moved, trashed or dragged
 // together. Create, rename, move, copy, duplicate and trash are not done here: every gesture
 // of the tree ends in shell/fileops.js and from there in `ose.fileops`, which saves the open
 // page first and refuses when it cannot (C6), and journals what it did so Ctrl+Z in the tree
 // takes it back (M17). This file only follows what happened: expansion, the selection and the
-// focused row. Pins are shell/pins.js's; a pin whose file is gone is greyed, never dropped
-// (L22).
+// focused row.
 //
 // The sidebar is in parts: sidebar-state.js (what they share), sidebar-tree.js, sidebar-select.js,
 // sidebar-load.js, sidebar-commands.js and sidebar-init.js. This file says what the sidebar
