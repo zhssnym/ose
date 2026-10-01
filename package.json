@@ -30,7 +30,6 @@
     "@lezer/markdown": "^1.7.2",
     "@milkdown/crepe": "^7.22.1",
     "@milkdown/kit": "^7.22.1",
-    "@vercel/analytics": "^2.0.1",
     "date-fns": "^4.4.0",
     "dompurify": "^3.4.14",
     "marked": "^18.0.11",

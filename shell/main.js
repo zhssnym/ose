@@ -7,10 +7,6 @@
 // nothing, for the same reason.
 
 import { showBootError } from './boot-error.js';
-import { inject } from '@vercel/analytics';
-
-// Initialize Vercel Web Analytics
-inject();
 
 import('./boot.js')
   .then((m) => m.boot())
