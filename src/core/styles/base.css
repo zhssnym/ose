@@ -363,7 +363,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 
 /* toasts */
 .toasts {
-  position: fixed; right: var(--sp-3); bottom: calc(var(--statusbar-h) + var(--sp-3)); z-index: 200;
+  position: fixed; right: var(--sp-3); bottom: var(--sp-3); z-index: 200;
   display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2);
   pointer-events: none;
 }
