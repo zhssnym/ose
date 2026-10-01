@@ -44,11 +44,11 @@ beforeEach(() => { idb.useMemory(); idb.resetMemory(); });
 describe('drafts', () => {
   it('writes, reads and stores the draft as drafts.rs does', async () => {
     const { local } = make();
-    const r = await local.draftWrite('/notes\\a.md/', { text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'live', exact: false, rev: 7 });
+    const r = await local.draftWrite('/notes\\a.md/', { text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'source', exact: false, rev: 7 });
     expect(r).toEqual({ at: 1000 });
-    expect(await local.draftRead('notes/a.md')).toEqual({ path: 'notes/a.md', text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'live', exact: false, rev: 7, at: 1000 });
+    expect(await local.draftRead('notes/a.md')).toEqual({ path: 'notes/a.md', text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'source', exact: false, rev: 7, at: 1000 });
     const stored = await idb.get('drafts', `${VAULT}/${hash('notes/a.md')}`);
-    expect(stored).toEqual({ v: 1, vault: VAULT, path: 'notes/a.md', text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'live', exact: false, rev: 7, at: 1000 });
+    expect(stored).toEqual({ v: 1, vault: VAULT, path: 'notes/a.md', text: 'héllo', baselineHash: 'af63dc4c8601ec8c', mode: 'source', exact: false, rev: 7, at: 1000 });
   });
 
   it('defaults mode, exact, rev and the baseline', async () => {

@@ -283,33 +283,7 @@ async function pastePlain() {
 // ---------------------------------------------------------------------------
 // the commands
 
-/**
- * In Live (wave 3, §3.3) the body is CodeMirror, not ProseMirror: every format.* and block.*
- * command goes to the Live view (`api.liveRun`), which runs the ones it has and says "Not
- * available in Live" for the rest. So a chord or a palette row does the same thing in every
- * mode, and none of them reaches for a ProseMirror view that is not there.
- */
-const inLive = () => { try { return !!(api && api.isLive && api.isLive()); } catch { return false; } };
-const reading = () => { try { return !!(api && api.isReading && api.isReading()); } catch { return false; } };
-
-/**
- * A command of the body, routed to Live when the page is in Live. While the Reading view is
- * up it is not offered, and a chord that still reaches it says why instead of editing the
- * hidden buffer (X3).
- */
-export function routed(cmd) {
-  const { run, when } = cmd;
-  return {
-    ...cmd,
-    when: () => (reading() ? false : inLive() ? true : (when ? when() : true)),
-    run: (...args) => {
-      if (reading()) { toast('Leave the Reading view to edit · Esc', 'info', 2000); return false; }
-      return inLive() ? api.liveRun(cmd.id) : run(...args);
-    },
-  };
-}
-
-const def = (id, title, group, run, when?) => routed({ id, title, group, run, when: when || hasBody });
+const def = (id, title, group, run, when?) => ({ id, title, group, run, when: when || hasBody });
 
 export function registerCommands(editorApi) {
   api = editorApi;

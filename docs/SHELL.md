@@ -305,7 +305,7 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
 - a PDF or an image goes to `media.js` (below);
 - anything else is asked about first, `ose.files.stat(path, { sniff: true })`: a file whose first
   8 KB are text (no NUL, valid UTF-8, or an encoding the host recognises) goes to the editor,
-  which gives `.md`, `.markdown`, `.mdown` and `.mkd` the Rich / Live / Source switch and opens
+  which gives `.md`, `.markdown`, `.mdown` and `.mkd` the Rich / Source switch and opens
   every other text file, extensionless ones included, as plain source, keeping its line endings
   and BOM;
 - a file that is not text gets a box with its name, size and type, and **Open in a browser
@@ -325,10 +325,9 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
 
 The editor draws two things of its own in the page column: a banner at the top whenever the page
 is not on disk as shown (not saved, changed on disk, deleted, recovered, merged), whose buttons
-are commands, and the **Rich | Live | Source** switch in the page meta line, with its **Read**
-toggle (the Reading view). A change made on disk by another program is merged into an open page
+are commands, and the **Rich | Source** switch in the page meta line. A change made on disk by another program is merged into an open page
 when it can be (H7), with a banner that closes by itself; only when the edits overlap does the
-page stop and ask. Live and the Reading view are the editor's (docs/LIVE.md); the shell only
+page stop and ask. The shell only
 draws the mode menu in the status bar and the default in Settings.
 
 **Media pages.** A PDF is an `<iframe>` on the vault origin, drawn by the web view's own viewer;
@@ -412,8 +411,7 @@ tab stays.
   a free one for its whole subtree, and the drop is one undo step ("Copied 3 items into
   Notes", with Undo). Above 20 items a toast says the copy has started. A file over 64 MB is
   refused: "too large to copy by drop; copy it in Explorer" (Finder on a Mac). What did not come
-  in is listed in one sticky toast. A drop on the editor is the editor's (Rich: its image drop;
-  Live: its paste handler), and any other drop is ignored.
+  in is listed in one sticky toast. A drop on the editor is the editor's (Rich: its image drop), and any other drop is ignored.
 - **Out.** A browser tab cannot drag a vault file out to the system, so nothing does.
 - **Within.** A plain drag of a row onto a folder row, in either list, is a move through Move
   to…'s rules (never into itself, never where it already is), with its Undo.
@@ -474,12 +472,12 @@ is no path (the address bar has it), no `watch on`, no theme, no host kind and n
 Any other field set through `ose.status.set` is drawn on the left, a button when it carries an
 `onClick` and coloured when it carries a `kind`.
 
-**The mode menu.** A field set with `choices` (the editor's `mode`: Rich, Live, Source, with
+**The mode menu.** A field set with `choices` (the editor's `mode`: Rich, Source, with
 `value` and `onChoose`, §4.5) is a button with a small chevron. It opens a menu of the choices,
 the current one checked with a dot and focused: Up and Down walk it, Enter picks, Esc closes, and
 a pick calls `onChoose`. The menu opens above the bar. A plain text file sets `Text` with no
 choices, which is plain text. The same modes are palette commands (`page.mode-rich`,
-`page.mode-live`, `page.mode-source`, `page.mode-next`) and Ctrl+E still toggles Source.
+`page.mode-source`) and Ctrl+E still toggles Source.
 
 ## Settings
 
@@ -493,7 +491,7 @@ the rows); the section's rows are on the right. Every change applies at once.
 
 - **Appearance**: theme (System, Light, Dark; System is the default and follows the computer),
   zoom, text size, line height, page face, page layout, full width.
-- **Editor**: "Open markdown files in" Rich, Live or Source (`editorMode`, Rich by default: the
+- **Editor**: "Open markdown files in" Rich or Source (`editorMode`, Rich by default: the
   mode a markdown file opens in the first time; a file you switch keeps its own mode, and a plain
   text file is always Source), spellcheck, and "Name new pages after their heading" (`titleSync`,
   off by default: a file keeps the name it was given).

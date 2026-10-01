@@ -4,20 +4,18 @@
 // One page instance is one `ctx` (./ctx.ts): its state, and the functions of every part. This part
 // adds its own with `installOpen(ctx)`, and reaches the rest through `ctx`.
 
-import { bus, log, openInNewTab, pageFiles, spellcheckOn, vaultFiles } from '../host.ts';
+import { bus, log, pageFiles } from '../host.ts';
 import { patchState } from '../deps.ts';
 import { createFind } from '../find.ts';
-import { followHref } from '../linkstate.ts';
 import { createSourceView } from '../source.ts';
-import { defaultMode, modeFor } from '../modes.ts';
-import { createLiveView } from '../live/index.ts';
+import { modeFor } from '../modes.ts';
 import { describe, indentFor, loadLanguage } from '../highlight.ts';
 import { parseDoc } from '../doc.ts';
 import * as P from '../paths.ts';
 import { attachSheets } from '../sheets.ts';
 import {
   afterLayout, blankPage, checkOpened, editorView, errCode, errText, hasEditor, INTERNAL,
-  makeCrepe, nextRev, PlainDoc, recoveredModeOf, seenRev, Timer,
+  makeCrepe, nextRev, PlainDoc, recoveredModeOf, seenRev,
 } from './shared.ts';
 import type { PageCtx } from './ctx.ts';
 
@@ -107,7 +105,7 @@ export function installOpen(ctx: PageCtx) {
         p.recovered = {
           at: Number(draft.at) || Date.now(), text: draft.text, applied,
           baselineHash: draft.baselineHash ?? null, exact: draft.exact !== false,
-          mode: draft.mode === 'source' || draft.mode === 'live' ? draft.mode : 'rich',
+          mode: draft.mode === 'source' ? 'source' : 'rich',
         };
         seenRev(Number(draft.rev));
         if (applied) {
@@ -137,16 +135,11 @@ export function installOpen(ctx: PageCtx) {
     p.mode = recoveredMode || INTERNAL[await modeFor(nextPath, { plain: p.plain, outside: p.outside })] || 'block';
     p.forced = p.plain ? 'plain' : null;
     if (token !== ctx.openToken) return;
-    const dflt = defaultMode();
-    p.lastEdit = p.mode === 'live' ? 'live' : p.mode === 'block' ? 'rich' : (dflt === 'source' ? 'rich' : dflt);
 
     ctx.buildDom(p, ctx.el);
     ctx.updateMeta(p, true);
 
-    // A caret the router remembered from Live goes back in with the view (§4.2); a Rich or a
-    // Source one is put back after the layout, below.
-    const restore = p.mode === 'live' && options.selection && options.selection.mode === 'live' ? options.selection : undefined;
-    if (!await mountBody(p, bodyText, token, { restore })) return;
+    if (!await mountBody(p, bodyText, token)) return;
     // C10: what the parser could not hold is not in the rich view, and the next save would
     // delete it from the file. Such a page opens as text instead, and says why.
     if (p.crepe) {
@@ -202,34 +195,13 @@ export function installOpen(ctx: PageCtx) {
   }
 
   /**
-   * Put the body in: Crepe in block mode, CodeMirror over the whole file in Source and in Live.
+   * Put the body in: Crepe in block mode, CodeMirror over the whole file in Source.
    * `text` is the whole file. Answers false when the open was superseded while the editor was
-   * building. `o.restore` is a Live caret the router kept (§4.2).
-   *
-   * A Live view that cannot be built is not a page that cannot be opened (F6): the text goes
-   * into Source instead, which parses nothing, `p.liveFailed` says why, and the caller that
-   * asked for Live (an open, a switch) sees that the mode is not the one it asked for.
+   * building.
    */
-  async function mountBody(p, text, token?, o: any = {}) {
+  async function mountBody(p, text, token?) {
     p.ready = false;
-    p.liveFailed = null;
-    if (p.mode === 'live') {
-      try {
-        mountLive(p, text, o.restore);
-      } catch (e) {
-        console.error('[editor] live', e);
-        const reason = errText(e);
-        log(`live view failed ${p.path}: ${reason}`, 'error');
-        if (p.live) { try { p.live.destroy(); } catch { /* half built */ } }
-        p.live = null;
-        p.mode = 'source';
-        ctx.buildDom(p, p.el && p.el.parentNode ? p.el.parentNode : ctx.el);
-        const ok = await mountBody(p, text, token);
-        p.liveFailed = reason;
-        p.notice = `Opened as source: the Live view could not be built (${reason}).`;
-        return ok;
-      }
-    } else if (p.mode === 'source') {
+    if (p.mode === 'source') {
       p.bodyEl.classList.add('ed-source');
       p.el.classList.add('ed-source-on');
       // The title line is inside the text now; a strip that could also edit it would be a second
@@ -313,125 +285,15 @@ export function installOpen(ctx: PageCtx) {
     return true;
   }
 
-  /**
-   * Live (X2): CodeMirror over the whole file, the markup drawn off the caret line. The text it
-   * holds is the file; `getText()` puts back the byte-order mark and the line endings it cannot
-   * hold, and that is what a save writes. Throws when the view cannot be built (see mountBody).
-   */
-  function mountLive(p, text, restore) {
-    p.bodyEl.classList.add('ed-live');
-    p.el.classList.add('ed-live-on');
-    loadWikiPages(p);
-    p.live = createLiveView({
-      host: p.bodyEl,
-      text,
-      path: p.path,
-      readOnly: p.frozen || p.readOnly,
-      spellcheck: spellcheckOn(),
-      restore,
-      resolveAsset: (src) => ctx.resolveImage(p, src),
-      resolveWikilink: (target) => resolveWikilink(p, target),
-      // `[[` completion (live/complete.js): the list loadWikiPages keeps, or a read when it is not
-      // in yet. Outside the vault there is no page list to offer.
-      pages: p.outside ? undefined : () => p.wikiPages || vaultFiles(),
-      onOpenLink: (href, o) => { void openLinkFrom(p, href, o); },
-      saveAttachment: (file) => ctx.saveAttachment(p, file),
-      linkTo: (vaultPath) => P.relativeHref(p.path, vaultPath),
-      onChange: () => ctx.markDirty(p),
-      onFocus: () => ctx.take(),
-      onBlur: () => ctx.onEditorBlur(p),
-      onEscape: () => { try { if (p.live) p.live.view.contentDOM.blur(); } catch { /* nothing to blur */ } },
-    });
-    // The find bar is CodeMirror's own panel, as in Source.
-    p.find = {
-      open: (fo) => { if (p.live) p.live.openFind(fo || {}); },
-      close: () => { if (p.live) p.live.closeFind(); },
-      isOpen: () => !!(p.live && p.live.findOpen()),
-      destroy: () => {},
-    };
-    // Every text in Live is the user's gesture or ours, never the editor settling: it is ready
-    // at once, unlike Crepe, which adds its trailing paragraph on the first frames.
-    p.ready = true;
-  }
-
-  /**
-   * The vault's markdown pages, for `[[target]]` in Live: read once per mount, and again on a
-   * change in the tree. Until the list is in, every wikilink counts as found (nothing is drawn
-   * missing on a guess).
-   */
-  function loadWikiPages(p) {
-    let timer: Timer = 0;
-    const load = () => {
-      void vaultFiles().then((list) => {
-        if (p !== ctx.page) return;
-        p.wikiPages = Array.isArray(list) ? list : null;
-        // Wikilinks drawn before the list was in, or before a page appeared or went: draw them again.
-        if (p.live) { try { p.live.refresh(); } catch { /* destroyed meanwhile */ } }
-      }, () => {});
-    };
-    load();
-    // A burst of changes (a folder copied in) reads the tree once.
-    const off = bus.on('fs', (payload) => {
-      const changes = payload && Array.isArray(payload.changes) ? payload.changes : [];
-      if (!changes.some((c) => c && c.kind !== 'modify')) return;
-      clearTimeout(timer);
-      timer = setTimeout(load, 150);
-    });
-    p.cleanups.push(() => { clearTimeout(timer); try { off(); } catch { /* gone */ } });
-  }
-
-  /**
-   * `[[target#heading|alias]]` → the vault path it names, Obsidian's way: a path from the vault
-   * root or beside the page, else the page whose name is `target`, the shortest path first.
-   * `exists: false` draws it missing; the path is then where following it would create it.
-   */
-  function resolveWikilink(p, target) {
-    const t = String(target ?? '').replace(/[#|][\s\S]*$/, '').trim().replace(/\\/g, '/');
-    if (!t) return { path: p.path, exists: true };
-    const withExt = /\.[a-z0-9]{1,8}$/i.test(t) ? t : `${t}.md`;
-    const beside = p.outside ? null : P.joinPath(P.dirname(p.path), withExt);
-    // Outside the vault a wikilink is followed as written, beside the file.
-    if (p.outside) return { path: null, exists: true };
-    const list = p.wikiPages;
-    if (!list) return { path: beside || withExt, exists: true };
-    const want = withExt.toLowerCase();
-    const exact = list.find((x) => x.toLowerCase() === want);
-    if (exact) return { path: exact, exists: true };
-    const near = beside ? list.find((x) => x.toLowerCase() === beside.toLowerCase()) : null;
-    if (near) return { path: near, exists: true };
-    const byName = list.filter((x) => (x.split('/').pop() || '').toLowerCase() === (want.split('/').pop() || ''))
-      .sort((a, b) => a.length - b.length);
-    if (byName[0]) return { path: byName[0], exists: true };
-    return { path: beside || withExt, exists: false };
-  }
-
-  /**
-   * A link followed in Live or in the Reading view (§4.2): a click, or `page.follow-link`.
-   * `href` is an href from this page (Live turns a wikilink into one through
-   * `resolveWikilink` and `linkTo`). Mod+click opens it in a new tab.
-   */
-  async function openLinkFrom(p, href, o: any = {}) {
-    const target = String(href ?? '').trim();
-    if (!target || p !== ctx.page) return;
-    if (o && o.newTab && !P.isExternal(target)) {
-      const t = P.linkTarget(p.path, target);
-      if (t && t.path) { void openInNewTab({ type: 'page', path: t.path }); return; }
-    }
-    await followHref(target, p.path);
-  }
-
   /** Tear the body down, whichever kind it is, and forget everything wired around it. */
   async function unmountBody(p) {
     clearTimeout(p.wordTimer);
-    ctx.closeReading(p, { focus: false });
     for (const fn of p.cleanups) { try { fn(); } catch (e) { console.error(e); } }
     p.cleanups.length = 0;
     if (p.crepe) { try { await p.crepe.destroy(); } catch (e) { console.error('[editor] destroy', e); } }
     if (p.source) p.source.destroy();
-    if (p.live) { try { p.live.destroy(); } catch (e) { console.error('[editor] live destroy', e); } }
     p.crepe = null;
     p.source = null;
-    p.live = null;
   }
 
   /**
@@ -506,10 +368,6 @@ export function installOpen(ctx: PageCtx) {
     open,
     readDraft,
     mountBody,
-    mountLive,
-    loadWikiPages,
-    resolveWikilink,
-    openLinkFrom,
     unmountBody,
     closePage,
     plainDoc,

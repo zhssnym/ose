@@ -4,7 +4,7 @@
 // One page instance is one `ctx` (./ctx.ts): its state, and the functions of every part. This part
 // adds its own with `installDom(ctx)`, and reaches the rest through `ctx`.
 
-import { attachmentFolder, bridge, icon, log, pageFiles, spellcheckOn } from '../host.ts';
+import { attachmentFolder, bridge, icon, pageFiles, spellcheckOn } from '../host.ts';
 import { toast } from '../deps.ts';
 import { DRAG_TYPE, dropInto, payloadOf } from '../drop.ts';
 import { followHref } from '../linkstate.ts';
@@ -12,7 +12,7 @@ import { TextSelection } from '@milkdown/kit/prose/state';
 import { composeDoc, frontmatterEditable, setFrontmatterValue } from '../doc.ts';
 import * as P from '../paths.ts';
 import {
-  anchorAt, ATTACH_OUTSIDE, checkedBody, editorView, errCode, errText, inTooltip, readAsBase64,
+  anchorAt, ATTACH_OUTSIDE, checkedBody, editorView, errCode, inTooltip, readAsBase64,
 } from './shared.ts';
 import type { PageCtx } from './ctx.ts';
 
@@ -37,14 +37,11 @@ export function installDom(ctx: PageCtx) {
     p.lastBanner = '';
     col.append(banner);
 
-    // Live holds the frontmatter and the H1 in its text (X2): a strip above it that could edit
-    // the same bytes would be a second source of truth, so neither is drawn.
-    const live = p.mode === 'live';
-    if (p.doc.frontmatterRaw && !live) col.append(propertiesStrip(p));
+    if (p.doc.frontmatterRaw) col.append(propertiesStrip(p));
 
     // A file that is not markdown has no title of any kind: the meta line names it.
     p.titleEl = null;
-    if (p.plain || live) {
+    if (p.plain) {
       // nothing above the body
     } else if (p.doc.titleLine !== null) {
       col.append(makeTitleEl(p, p.doc.title));
@@ -70,9 +67,8 @@ export function installDom(ctx: PageCtx) {
     p.metaEl = meta;
     p.metaText = metaText;
     p.modeEl = null;
-    // H14, X1: which mode this is, on screen. Three buttons, one pressed, and the Read toggle
-    // (X3); Tab reaches them and they run the same commands the palette lists
-    // (`page.mode-rich`, `page.mode-live`, `page.mode-source`, `page.reading-toggle`).
+    // H14, X1: which mode this is, on screen. Two buttons, one pressed; Tab reaches them and
+    // they run the same commands the palette lists (`page.mode-rich`, `page.mode-source`).
     if (!p.plain) {
       const sw = document.createElement('span');
       sw.className = 'ed-mode';
@@ -80,7 +76,6 @@ export function installDom(ctx: PageCtx) {
       sw.setAttribute('aria-label', 'Editing mode');
       for (const [mode, label, title] of ([
         ['rich', 'Rich', 'Edit as rich text'],
-        ['live', 'Live', 'Edit in Live preview: the markdown, drawn off the caret line'],
         ['source', 'Source', 'Edit as source (raw markdown text)'],
       ] as Array<[string, string, string]>)) {
         const b = document.createElement('button');
@@ -93,15 +88,6 @@ export function installDom(ctx: PageCtx) {
         b.addEventListener('click', () => { void ctx.setMode(mode); });
         sw.append(b);
       }
-      const read = document.createElement('button');
-      read.type = 'button';
-      read.className = 'ed-mode-btn ed-read-btn';
-      read.dataset.read = '1';
-      read.textContent = 'Read';
-      read.title = 'Reading view: the page rendered, read-only';
-      read.setAttribute('aria-pressed', String(!!p.reading));
-      read.addEventListener('click', () => { ctx.toggleReading(); });
-      sw.append(read);
       meta.append(sw);
       p.modeEl = sw;
     }
@@ -234,7 +220,6 @@ export function installDom(ctx: PageCtx) {
     const p = ctx.page;
     if (!p) return;
     if (p.source) { p.source.focus(); return; }
-    if (p.live) { p.live.focus(); return; }
     const view = p.crepe ? editorView(p.crepe) : null;
     if (!view) return;
     view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)).scrollIntoView());
@@ -311,8 +296,7 @@ export function installDom(ctx: PageCtx) {
     const lang = navigator.language || 'en';
     p.el.setAttribute('lang', lang);
     const view = p.crepe ? editorView(p.crepe) : null;
-    if (p.live) { try { p.live.setSpellcheck(on_); } catch (e) { console.error('[editor] spellcheck', e); } }
-    for (const dom of [view && view.dom, p.source && p.source.view.contentDOM, p.live && p.live.view.contentDOM]) {
+    for (const dom of [view && view.dom, p.source && p.source.view.contentDOM]) {
       if (!dom) continue;
       dom.setAttribute('spellcheck', String(on_));
       dom.setAttribute('lang', lang);
@@ -366,13 +350,6 @@ export function installDom(ctx: PageCtx) {
     const onBlankClick = (e) => {
       if (e.button !== 0 || ctx.parked) return;
       if (e.target !== host && e.target !== scroller && e.target !== p.bodyEl) return;
-      if (p.live) {
-        e.preventDefault();
-        const end = p.live.view.state.doc.length;
-        p.live.setSelection({ from: end, to: end });
-        p.live.focus();
-        return;
-      }
       const view = p.crepe ? editorView(p.crepe) : null;
       if (!view) return;
       e.preventDefault();
@@ -405,8 +382,7 @@ export function installDom(ctx: PageCtx) {
    * event arrives its target is the paragraph and the anchor is gone.
    */
   function onLinkPointerDown(e) {
-    // Live follows its own links (onOpenLink): mod+click there is a new tab, not this.
-    if (!ctx.page || ctx.page.live || e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
+    if (!ctx.page || e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
     const a = anchorAt(e);
     if (!a || inTooltip(a)) return;
     const href = (a.getAttribute('href') || '').trim();
@@ -422,7 +398,7 @@ export function installDom(ctx: PageCtx) {
    * alone: it must still place the caret.
    */
   function onLinkClick(e) {
-    if (!ctx.page || ctx.page.live) return;
+    if (!ctx.page) return;
     const a = anchorAt(e);
     if (!a) return;
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); return; }
@@ -491,22 +467,6 @@ export function installDom(ctx: PageCtx) {
   }
 
   /**
-   * Live's attachment path (M11, `PasteContext.saveAttachment`): the vault path of the copy, or
-   * null when there is none, and then the page has said why. Never throws.
-   */
-  async function saveAttachment(p, file) {
-    if (p.outside) { toast(ATTACH_OUTSIDE, 'warn'); return null; }
-    if (p.frozen || p.readOnly) return null;
-    try {
-      return await attachFile(p, file);
-    } catch (e) {
-      log(`attachment not saved ${p.path}: ${errCode(e)} ${errText(e)}`, 'warn');
-      toast(`could not save ${file && file.name ? file.name : 'the file'}: ${errText(e)}`, 'err');
-      return null;
-    }
-  }
-
-  /**
    * The drops the body's own handler (drop.ts) never sees. On the title or the meta line the
    * browser would put the payload's text into the title, or the shell's window guard would
    * refuse the drop; both are the page, so the links go at the top of the body (position 0).
@@ -565,7 +525,6 @@ export function installDom(ctx: PageCtx) {
     resolveImage,
     attachFile,
     uploadImage,
-    saveAttachment,
     wireDrops,
   };
 }

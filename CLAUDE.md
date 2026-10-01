@@ -29,12 +29,10 @@ and no loader. An agent (Claude Code, run on the vault from outside) reads and e
 files with no adapter, keeping to the formats in `docs/FORMATS.md`, and Ose picks up its changes
 as they happen.
 
-A markdown page has three editing modes. **Rich** is Crepe, the page drawn as a document; **Live**
-is CodeMirror over the whole file with the markup hidden off the caret's line, where the file text
-is the only truth and a save is that text; **Source** is the raw file. **Reading** shows the page
-rendered, read-only, over whichever mode it came from. Rich stays the default until Hassan decides
-(D1): Settings › Editor picks the default, and each file remembers the mode it was left in. Any
-other text file opens in Source, in its own encoding.
+A markdown page has two editing modes. **Rich** is Crepe, the page drawn as a document, the Word
+way of writing; **Source** is the raw file in CodeMirror, the code editor's way. There is nothing
+in between. Rich is the default: Settings › Editor picks it, and each file remembers the mode it
+was left in. Any other text file opens in Source, in its own encoding.
 
 Each vault gets its own browser tab, never two on one vault. A file from outside the vault (Open
 file…, or the OS once Ose is installed) opens in a tab marked "outside vault", which saves in
@@ -48,7 +46,6 @@ docs/
   FORMATS.md        the planner's files: what each one holds, and exactly what the app writes
   CORE.md         everything on `ose`: files, fileops, routes, tabs, session, the local store
   SHELL.md          the interface: layout, boot, places and tabs, the tree, the page seam, settings
-  LIVE.md           the Live mode: the text-is-truth rule, the reveal rule, the widgets
   HOST.md           the host, which is the browser: every command, writes, the watcher, drafts,
                     versions, the trash, the service worker and the `vault/` origin, the tests
   DESIGN.md         the visual system: tokens, components, the look
@@ -63,10 +60,9 @@ src/                TypeScript, built by Vite into the four bundles
                     fileops and the undo journal, settings core, state, theme, keys, watch),
                     ose:ui (dialogs, pickers, menu, toast, icons; ui.css = tokens + base);
                     bridge/commands.ts types every host command, kept by hand
-  editor/           ose:editor: markdownPage in Rich, Live and Source, codeEditor, render
+  editor/           ose:editor: markdownPage in Rich and Source, codeEditor, render
                     (Crepe, CodeMirror, marked), one live instance per open file, the 3-way
-                    merge of changes made on disk; live/ is the Live mode, reading/ the Reading
-                    view, page/ the parts of page.ts (open, modes, save, merge, drafts, ...), each
+                    merge of changes made on disk, page/ the parts of page.ts (open, modes, save, merge, drafts, ...), each
                     adding its functions to one instance's `ctx`; stringify/ the serializer's
                     parts (write, cleanup, reconcile, blocks, markers, tables)
   planner/          ose:planner: Day, Week, Month, Journal and Settings › Planner (date-fns)
@@ -78,8 +74,8 @@ vite.config.js      the dev server (the shell from shell/, ose:* aliased to the 
                     build (the four bundles into dist/ose/, the shell, the worker, the CSP)
 vercel.json         Vercel's build of dist/ and its cache headers
 tests/              vitest: serializer/ (fast-check properties and named regressions), core/,
-                    editor/, live/ (with the property test that Live never changes a byte it
-                    was not told to), reading/, planner/, shell/, web/ (over the in-memory File
+                    editor/ (with the property test that Source never changes a byte it was
+                    not told to), planner/, shell/, web/ (over the in-memory File
                     System Access stub in stubs/fsa.js), fixtures/, support/; e2e/: the
                     Playwright suites over the built app
 vitest.config.js, playwright.config.js, biome.json, tsconfig.json   the test runners, the lint
@@ -94,8 +90,8 @@ npm install
 npm run dev            # http://localhost:5173: the app from its sources, in Chrome
 npm run build          # dist/: the site Vercel serves
 npm run preview        # dist/ served as a static host serves it
-npm test               # vitest: serializer, core, editor, Live, reading, planner, shell, web
-npm run test:e2e       # Playwright: no loss, Live and Ose Web, on the built app
+npm test               # vitest: serializer, core, editor, planner, shell, web
+npm run test:e2e       # Playwright: no loss and Ose Web, on the built app
 npm run typecheck      # tsc over src/ (TypeScript) and shell/ (checkJs), strict: zero errors
 npm run lint           # Biome, warnings are errors
 ```
@@ -141,8 +137,8 @@ app like everything else; what a vault decides is only where its files are (Sett
   lines, which is what the editor shows and what Enter twice leaves.
 - Never write to a real vault file while testing. Use a throwaway copy and clean up.
 - No new dependency without a reason written in the commit message. The bundles carry Milkdown
-  Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml, turndown (HTML
-  paste), node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
+  Crepe and kit, CodeMirror 6 and lezer's markdown, marked, DOMPurify, Temml,
+  node-diff3 and date-fns. The host uses the browser's own APIs and adds nothing.
 - `src/` is TypeScript; `shell/` and `src/host/sw.js` stay JavaScript, because they are served
   as written, and tsc checks them (checkJs). `strict` is on for both (`noImplicitAny` still
   off); `@ts-ignore` and `@ts-expect-error` are banned, and a type error is fixed, not hidden.

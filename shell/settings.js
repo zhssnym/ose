@@ -19,7 +19,7 @@ const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 const ON_OFF = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
 // The editing modes a markdown file can open in (X1), in the switch's own order and words.
-const MODES = [{ value: 'rich', label: 'Rich' }, { value: 'live', label: 'Live' }, { value: 'source', label: 'Source' }];
+const MODES = [{ value: 'rich', label: 'Rich' }, { value: 'source', label: 'Source' }];
 
 const settings = () => ose.settings.get();
 const save = (partial) => ose.settings.set(partial);
@@ -160,8 +160,8 @@ function editorHtml() {
   const v = currentValues();
   return row('Open markdown files in',
     seg('mode', MODES, v.mode),
-    'The mode a markdown file opens in the first time. Rich edits the page as a document, Live shows '
-    + 'the markdown with its marks hidden away from the caret, Source is the plain text. A file you '
+    'The mode a markdown file opens in the first time. Rich edits the page as a document, Source is '
+    + 'the plain text. A file you '
     + 'switch keeps its mode; plain text files always open as source.')
     + row('Spellcheck',
     seg('spell', ON_OFF, v.spell),

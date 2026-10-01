@@ -391,8 +391,8 @@ export function initKeys() {
     // A chord the body keymap owns (Ctrl+0 = paragraph) falls through inside the body, and so
     // does any window binding of a chord the body binds itself: body keys win while the editor
     // has focus (Alt+Up moves the block there and is `folder.up` everywhere else).
-    if (entry.inBody && inside(e, '.ProseMirror, .cm-live')) return;
-    if (bodyCombos().has(normalizeCombo(combo)) && inside(e, '.ProseMirror, .cm-live')) return;
+    if (entry.inBody && inside(e, '.ProseMirror')) return;
+    if (bodyCombos().has(normalizeCombo(combo)) && inside(e, '.ProseMirror')) return;
 
     // A chord typed into a dialog's input that is not overlay-safe belongs to the input
     // (Ctrl+A, Ctrl+Z...): leave it entirely alone, no preventDefault, or it dies in silence.

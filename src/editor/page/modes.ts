@@ -1,4 +1,4 @@
-// Part of the markdown page (../page.ts). Rich, Live and Source: the mode a page is edited in, and
+// Part of the markdown page (../page.ts). Rich and Source: the mode a page is edited in, and
 // moving from one to another.
 //
 // One page instance is one `ctx` (./ctx.ts): its state, and the functions of every part. This part
@@ -19,32 +19,28 @@ import type { PageCtx } from './ctx.ts';
 export function installModes(ctx: PageCtx) {
 
   // -------------------------------------------------------------------------
-  // rich, live and source (H14, X1)
+  // rich and source (H14, X1)
 
-  /** Ctrl+E: Source, or back from it to the mode the page was in before (§4.5). */
+  /** Ctrl+E: Source, or back from it to Rich (§4.5). */
   function toggleSource() {
     const p = ctx.page;
     if (!p || !hasEditor(p)) return Promise.resolve(false);
-    return setMode(p.source ? (p.lastEdit || 'rich') : 'source');
+    return setMode(p.source ? 'rich' : 'source');
   }
 
-  /** `page.mode-next`: Rich, Live, Source, and round again. */
+  /** The status field's click: the other mode. */
   function nextMode() {
-    const p = ctx.page;
-    if (!p || !hasEditor(p)) return Promise.resolve(false);
-    const order = ['rich', 'live', 'source'];
-    return setMode(order[(order.indexOf(publicMode(p)) + 1) % order.length] || 'rich');
+    return toggleSource();
   }
 
   /**
-   * Show the page in `want` ('rich', 'live' or 'source'). The buffer, not the file, crosses
+   * Show the page in `want` ('rich' or 'source'). The buffer, not the file, crosses
    * over, and nothing is written: the dirty flag and the baseline are untouched.
    *
-   * Rich → Source and Rich → Live never refuse (H14). A clean page shows the disk text itself;
-   * a dirty one the text a save would write, or when the guard says that text is not safe, its
-   * best effort — the page stays dirty and the user checks it there. Live ↔ Source hands the
-   * text over as it is: both hold the file. Source → Rich and Live → Rich parse the text and
-   * ask the open check; when the rich view cannot hold all of it, the page stays where it was
+   * Rich → Source never refuses (H14). A clean page shows the disk text itself; a dirty one the
+   * text a save would write, or when the guard says that text is not safe, its best effort —
+   * the page stays dirty and the user checks it there. Source → Rich parses the text and asks
+   * the open check; when the rich view cannot hold all of it, the page stays where it was
    * and the banner says why. The undo history of the editor being left does not survive.
    *
    * `o.text` puts that text in instead of the buffer's (a recovered draft); `o.forced` is the
@@ -59,7 +55,7 @@ export function installModes(ctx: PageCtx) {
       return false;
     }
     const now = publicMode(p);
-    if (want === now && typeof o.text !== 'string') { ctx.closeReading(p); return true; }
+    if (want === now && typeof o.text !== 'string') return true;
     if (p.switching) { await p.switching; return setMode(want, o); }
     let done: (v?: unknown) => void = (): void => {};
     p.switching = new Promise<any>((r) => { done = r; });
@@ -82,7 +78,6 @@ export function installModes(ctx: PageCtx) {
     let exact = true;
     if (typeof o.text === 'string') text = o.text;
     else if (p.source) text = p.source.getText();
-    else if (p.live) text = p.live.getText();
     else if (!p.dirty) text = p.baseline;
     else {
       const r = ctx.composeChecked(p);
@@ -100,8 +95,6 @@ export function installModes(ctx: PageCtx) {
     if (p !== ctx.page) return false;
 
     let refused: string | null = null;
-    // Where a refusal leaves the page: the text editor it came from (Live stays Live), else Source.
-    const back = from === 'live' ? 'live' : 'source';
     try {
       await remount(p, INTERNAL[want], text);
       if (p !== ctx.page) return false;
@@ -109,11 +102,9 @@ export function installModes(ctx: PageCtx) {
         const check = checkOpened(p.crepe, p.doc.body);
         if (!check.ok) {
           refused = check.reason;
-          await remount(p, INTERNAL[back], text);
+          await remount(p, 'source', text);
           if (p !== ctx.page) return false;
         }
-      } else if (want === 'live' && p.liveFailed) {
-        refused = `the Live view could not be built: ${p.liveFailed}`;
       }
     } catch (e) {
       if (p !== ctx.page) return false;
@@ -130,10 +121,9 @@ export function installModes(ctx: PageCtx) {
     if (!wasFrozen) ctx.unfreeze(p);
 
     if (refused) {
-      const where = publicMode(p) === 'live' ? 'Live' : 'source';
       p.notice = want === 'rich'
-        ? `Staying in ${where}: the rich view cannot show part of this page (${refused}).`
-        : `Staying in ${where}: ${refused}.`;
+        ? `Staying in source: the rich view cannot show part of this page (${refused}).`
+        : `Staying in source: ${refused}.`;
       log(`${from} to ${want} refused ${p.path}: ${refused}`, 'warn');
       ctx.publishState(p);
       publishMode(p);
@@ -175,8 +165,6 @@ export function installModes(ctx: PageCtx) {
     if (p !== ctx.page) return false;
     p.orphan = null;
     p.mode = mode;
-    if (mode === 'live') p.lastEdit = 'live';
-    else if (mode === 'block') p.lastEdit = 'rich';
     p.doc = p.plain ? ctx.plainDoc(text) : parseDoc(text);
     p.title = p.doc.title;
     ctx.publishTitle(p);
@@ -204,7 +192,7 @@ export function installModes(ctx: PageCtx) {
     publishMode(p);
   }
 
-  /** The words the status bar and the handle use for the mode: 'rich', 'live' or 'source'. */
+  /** The words the status bar and the handle use for the mode: 'rich' or 'source'. */
   const publicMode = (p) => (p && PUBLIC[p.mode]) || 'rich';
 
   /** The mode, to the bus, the handle, the status bar and the switch in the meta line. */
@@ -218,7 +206,7 @@ export function installModes(ctx: PageCtx) {
   }
 
   /**
-   * The status bar's mode field (§4.5): a menu of the three modes, the current one checked, or
+   * The status bar's mode field (§4.5): a menu of the two modes, the current one checked, or
    * the one word `Text` for a file that is not markdown. The meta line's switch follows.
    */
   function paintMode(p) {
@@ -237,8 +225,6 @@ export function installModes(ctx: PageCtx) {
     }
     if (p.modeEl) {
       for (const b of p.modeEl.querySelectorAll('button[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
-      const read = p.modeEl.querySelector('button[data-read]');
-      if (read) read.setAttribute('aria-pressed', String(!!p.reading));
     }
   }
 
@@ -251,10 +237,8 @@ export function installModes(ctx: PageCtx) {
     const p = ctx.page;
     const n = Math.floor(Number(line) || 0);
     if (!p || !p.el || n < 1) return false;
-    // Source and Live count the same lines the search overlay counts: the file's own.
-    if (p.reading) ctx.closeReading(p, { focus: false });
+    // Source counts the same lines the search overlay counts: the file's own.
     if (p.source) { p.source.goToLine(n, col); return true; }
-    if (p.live) { p.live.goToLine(n, col); return true; }
     if (!p.crepe) return false;
     const view = editorView(p.crepe);
     if (!view) return false;
@@ -287,9 +271,6 @@ export function installModes(ctx: PageCtx) {
    */
   function restoreSelection(p, sel) {
     if (!p || !sel) return;
-    // A Live caret is a CodeMirror offset, a Rich one a ProseMirror position: each only goes
-    // back into its own kind of editor. Live takes its own at mount (`restore`).
-    if (sel.mode === 'live') return;
     const view = p.crepe ? editorView(p.crepe) : null;
     if (!view) return;
     const size = view.state.doc.content.size;
@@ -298,13 +279,9 @@ export function installModes(ctx: PageCtx) {
   }
 
   /**
-   * Where the caret is, for the router to hand back at the next open (N44, P7). In Live it is
-   * the view's snapshot, tagged `mode: 'live'` (§4.2).
+   * Where the caret is, for the router to hand back at the next open (N44, P7).
    */
   function currentSelection() {
-    if (ctx.page && ctx.page.live) {
-      try { return ctx.page.live.snapshot(); } catch { return null; }
-    }
     const view = ctx.page && ctx.page.crepe ? editorView(ctx.page.crepe) : null;
     return view ? { from: view.state.selection.from, to: view.state.selection.to } : null;
   }

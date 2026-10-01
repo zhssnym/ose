@@ -106,7 +106,6 @@ export function installPark(ctx: PageCtx) {
       p.lastBanner = '';
       ctx.publishState(p);
       if (p.source) { try { p.source.view.requestMeasure(); } catch { /* not laid out yet */ } }
-      if (p.live) { try { p.live.refresh(); } catch { /* not laid out yet */ } }
     }
     const scroll = ctx.parkScroll;
     const focus = ctx.parkFocus;

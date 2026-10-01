@@ -40,7 +40,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # vitest: the serializer, the core, the editor, Live, reading, the planner, the shell and
+      # vitest: the serializer, the core, the editor, the planner, the shell and
       # src/host over the in-memory File System Access stub. A failing test publishes nothing.
       - name: Unit tests
         run: npm test

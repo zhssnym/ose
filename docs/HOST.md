@@ -352,7 +352,7 @@ and needs the vault (`no_vault` when the root is gone or permission was withdraw
 
 | Command | Semantics | Web |
 |---|---|---|
-| `draftWrite` **A** `(path, draft, opts?)` | `bad_arg` without an object with a string `text`; stored `{v:1, vault, path, text, baselineHash, mode ('rich'\|'live'\|'source', else 'rich'), exact (default true), rev (default 0), at}`; `{at}` | IndexedDB `drafts`, one draft command at a time |
+| `draftWrite` **A** `(path, draft, opts?)` | `bad_arg` without an object with a string `text`; stored `{v:1, vault, path, text, baselineHash, mode ('rich'\|'source', else 'rich'), exact (default true), rev (default 0), at}`; `{at}` | IndexedDB `drafts`, one draft command at a time |
 | `draftList()` | this vault's drafts and every outside file's, without text, `bytes` the UTF-8 length, newest first | |
 | `draftRead` **A** `(path)` | the draft or null | |
 | `draftDrop` **A** `(path, opts?: {ifRev?, epoch?})` | `{dropped:false}` when none or its `rev` is newer than `ifRev`; else removed, `{dropped:true}` | |
@@ -425,8 +425,8 @@ hand) and drives it in Chromium over the origin's private file system as the vau
 per test. Each test runs in a fresh persistent browser profile (`tests/e2e/test.js`), not in
 Playwright's default private context: in Chrome 153's headless shell the whole browser exits
 about a second after Ose opens a vault inside a private context, and a persistent profile is
-what a person's Chrome is anyway. The suites are `no-loss.spec.js` (the ways typed text has been lost or could be),
-`live.spec.js` (Live never changes a byte it was not told to) and `web.spec.js`. `helpers.js` reads
+what a person's Chrome is anyway. The suites are `no-loss.spec.js` (the ways typed text has been lost or could be)
+and `web.spec.js`. `helpers.js` reads
 and writes the vault from inside the page, as another program would, and arms a fault switch that
 fails `createWritable` for one file with the DOMException a full or held disk gives. `web.spec.js`'s
 scenarios: the first visit's chooser and

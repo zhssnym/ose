@@ -120,25 +120,13 @@ Key tokens (see the file for the full list):
   sentence and its actions as `.btn`s, reachable with Tab. `--err-soft` ground, `--err` border and
   `--err-ink` text for a page that is not saved, with `role="alert"`; `--warn-soft`, `--warn` and
   `--warn-ink` for a notice (recovered changes, a page opened as text). Never more than one.
-- **The Rich | Live | Source switch.** Three buttons side by side in the page meta line,
+- **The Rich | Source switch.** Two buttons side by side in the page meta line,
   `.ed-mode`: a hairline `--border` around them and between them, in the meta line's face,
   `--fg-3`; the pressed one (`aria-pressed="true"`) sits on `--bg-3` in `--fg`. Tab reaches each.
-  The **Read** toggle beside it has the same shape.
-- **The mode menu.** In the status bar the same choice is one field, `Live ›`: a pressable
+- **The mode menu.** In the status bar the same choice is one field, `Rich ›`: a pressable
   field in the bar's face with a small chevron. It opens the context menu above the bar, one
   row per mode, the current one marked with the `dot` icon in the icon slot (a radio item, so a
   reader hears "checked"). A plain text file's field is the word `Text`, not a button.
-- **Live.** Live is the file's text in the document face, with the marks drawn away wherever
-  the caret is not: the same headings, bars, frames, rules, square task boxes and tables as the
-  rich view, from the same `--doc-*` tokens (`src/editor/live/live.css`, `widgets/widgets.css`).
-  On the caret's lines the marks come back in `--fg-3`, upright and plain, so the source is
-  there but quiet. Code blocks keep the code ground and `--code-*` colours, fences dimmed. A
-  missing image is the rich view's box naming the file. Nothing in Live gets a colour or a size
-  the rich view does not already have.
-- **The Reading view.** The buffer as a document, read-only, through `render()`'s look
-  (`render.css`, `src/editor/reading/reading.css`): the frontmatter as a small key and value box
-  in the chrome face above the text, a missing wikilink dimmer and dashed, task boxes that are a
-  picture and not a control. No handle, no caret, no affordance to edit.
 - **The outside mark.** A file outside the vault is said in words, never in a colour: "outside
   vault" after its name on its tab and its Home row, `--fs-chrome-sm` in `--fg-3`, and "Outside
   the vault" as the first segment of the address, in `--fg-3`. Its tooltip is the whole
@@ -195,7 +183,7 @@ Key tokens (see the file for the full list):
 │ resizable│                                 │ hidden until    │
 │          │                                 │ opened          │
 ├──────────┴─────────────────────────────────┴─────────────────┤
-│ statusbar 24px   Live › · 412 words                     110% │
+│ statusbar 24px   Rich › · 412 words                     110% │
 └──────────────────────────────────────────────────────────────┘
 ```
 

@@ -62,12 +62,10 @@
 
 .ed .page-meta { user-select: none; align-items: baseline; }
 
-/* ---------------------------------------------------------------- Rich | Live | Source (H14, X1)
+/* ---------------------------------------------------------------- Rich | Source (H14, X1)
 
-   Which mode the page is in, on screen: three small buttons at the end of the meta line, one
-   pressed, and the Read toggle after them, set apart by a thicker rule. They are the palette's
-   `page.mode-rich` / `page.mode-live` / `page.mode-source` and `page.reading-toggle`,
-   reachable with Tab. */
+   Which mode the page is in, on screen: two small buttons at the end of the meta line, one
+   pressed. They are the palette's `page.mode-rich` / `page.mode-source`, reachable with Tab. */
 .ed-mode {
   display: inline-flex; flex: none;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -80,20 +78,6 @@
 .ed-mode-btn:hover { color: var(--fg); background: var(--bg-3); }
 .ed-mode-btn[aria-pressed="true"] { color: var(--fg); background: var(--bg-3); }
 .ed-mode-btn:focus-visible { outline: none; box-shadow: var(--focus); }
-.ed-mode-btn.ed-read-btn { border-left-width: 2px; }
-
-/* ---------------------------------------------------------------- the Reading view (X3)
-
-   The buffer rendered, read-only, in the editor's place; the editor stays mounted and hidden
-   underneath (the title and properties strips with it: the render draws both). The look of
-   the render is reading.css's. */
-.ed.ed-reading-on > .page-title,
-.ed.ed-reading-on > .ed-props,
-.ed.ed-reading-on > .ed-body,
-.ed.ed-reading-on > .ed-bl { display: none; }
-.ed-reading { margin: 0 0 var(--sp-6); }
-.ed-reading:focus { outline: none; }
-.ed-reading:focus-visible { box-shadow: var(--focus); border-radius: var(--radius); }
 
 /* ---------------------------------------------------------------- the banner (H8)
 
