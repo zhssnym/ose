@@ -48,7 +48,7 @@ export const messageOf = (e) => (e && typeof e === 'object' && 'message' in e &&
 export const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
 
 // Per-machine UI state (`ose.local`, W5): the tree's open folders beside the layout's open
-// switch and width. Every folder's sort is shell/folder.js's (`sortSpec`, `setSortSpec`).
+// switch and width. Every folder is sorted by name (shell/folder.js `sortSpec`).
 // Every write is read-modify-write of the whole slot, so the layout's writes to `sidebar.open`
 // and this file's to `sidebar.expanded` never clobber each other. Never the vault's
 // `.ose/state.json`: UI state is per machine and never lands in a synced file.

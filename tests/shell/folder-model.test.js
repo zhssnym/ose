@@ -102,21 +102,6 @@ describe('folder-model', () => {
     expect(m.dateLabel(new Date(2026, 8, 12, 9, 10).getTime(), now)).toBe('12 Sept 2026');
   });
 
-  it('reads and writes the per-folder sort, the default taking no room', () => {
-    expect(m.sortSpecFor({}, 'notes')).toEqual(m.DEFAULT_SORT);
-    expect(m.sortSpecFor(undefined, 'notes')).toEqual(m.DEFAULT_SORT);
-    const spec = { key: 'modified', dir: 'desc' };
-    const next = m.withSortSpec({}, 'notes', spec);
-    expect(next).toEqual({ notes: spec });
-    expect(m.sortSpecFor(next, 'notes')).toEqual(spec);
-    expect(m.sortSpecFor(next, 'other')).toEqual(m.DEFAULT_SORT);
-    // The root folder is '' and is a folder like any other.
-    expect(m.sortSpecFor(m.withSortSpec(next, '', spec), '')).toEqual(spec);
-    const back = m.withSortSpec(next, 'notes', { ...m.DEFAULT_SORT });
-    expect(back).toEqual({});
-    expect(next).toEqual({ notes: spec });
-  });
-
   it('finds the README, readme or index to render below', () => {
     expect(m.readmeOf([file('a.md'), file('README.md')])?.name).toBe('README.md');
     expect(m.readmeOf([file('readme.md')])?.name).toBe('readme.md');

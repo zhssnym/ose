@@ -11,7 +11,7 @@ import {
   DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,
 } from './drag.js';
 import {
-  bus, COLUMNS, display, folderName, folderRoute, iconSvg, route, setSortSpec, showHidden,
+  bus, COLUMNS, display, folderName, folderRoute, iconSvg, route, showHidden,
   SORT_WORDS, sortSpec,
 } from './folder-sort.js';
 import { canUndo, commandItem, hasClipboard, isCut, missHtml, wireMiss } from './folder-view.js';
@@ -40,7 +40,7 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
     path: clean(path),
     entries: [],          // what the host answered, every entry
     rows: [],             // what is drawn, in order
-    spec: sortSpec(path),
+    spec: sortSpec(),
     selected: new Set(),  // names
     anchor: null,         // name the Shift range starts at
     focus: select || null,
@@ -54,7 +54,7 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
   el.classList.add('fv');
   el.innerHTML = `
     <div class="fv-cols mono-sm" role="presentation">
-      ${COLUMNS.map((k) => `<button type="button" class="fv-col fv-col-${k}" data-sort="${k}" tabindex="-1"></button>`).join('')}
+      ${COLUMNS.map((k) => `<span class="fv-col fv-col-${k}">${SORT_WORDS[k]}</span>`).join('')}
     </div>
     <div class="fv-list" role="listbox" aria-multiselectable="true" tabindex="0" aria-describedby="${uid}-sort"></div>
     <span class="fv-sr" id="${uid}-sort"></span>
@@ -88,16 +88,7 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
 
   function drawCols() {
     // Said once for a screen reader, on the list itself: the column headers are pointer chrome.
-    sortEl.textContent = `Sorted by ${SORT_WORDS[me.spec.key].toLowerCase()}, ${me.spec.dir === 'asc' ? 'ascending' : 'descending'}`;
-    if (!colsEl) return;
-    for (const b of colsEl.querySelectorAll('.fv-col')) {
-      const k = b.dataset.sort;
-      const on = me.spec.key === k;
-      b.classList.toggle('on', on);
-      b.innerHTML = `<span>${SORT_WORDS[k]}</span>${on ? iconSvg(me.spec.dir === 'asc' ? 'sortAsc' : 'sortDesc', 'chevron') : ''}`;
-      b.title = `Sort by ${SORT_WORDS[k].toLowerCase()}`;
-      b.setAttribute('aria-label', b.title + (on ? (me.spec.dir === 'asc' ? ', ascending' : ', descending') : ''));
-    }
+    sortEl.textContent = 'Sorted by name, folders first';
   }
 
   function rowHtml(e, i) {
@@ -240,7 +231,7 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
     if (sig === me.sig && !me.error) { selectArrivals(); return; }
     me.sig = sig;
     me.entries = list;
-    me.spec = sortSpec(me.path);
+    me.spec = sortSpec();
     resort();
     if (select && byName(select)) { selectOnly(select); select = null; }
     else if (standAt >= 0 && me.rows.length && !me.focus && !me.selected.size) {
@@ -579,19 +570,6 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
     if (draggingHere) { draggingHere = false; setDragged(null); }
   }, onHost);
 
-  if (colsEl) {
-    colsEl.addEventListener('click', (e) => {
-      const b = e.target.closest('.fv-col');
-      if (!b) return;
-      setSort(M.nextSortSpec(me.spec, b.dataset.sort));
-    });
-  }
-
-  function setSort(spec) {
-    me.spec = { key: spec.key, dir: spec.dir };
-    setSortSpec(me.path, me.spec);
-    resort();
-  }
 
   const offs = [];
   // While the list has the keyboard it is "here" for every file command, whichever way the
@@ -605,10 +583,7 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
     folder: () => me.path,
   }));
   offs.push(fops.onClipboard(() => { syncCut(); onChange && onChange(me); }));
-  offs.push(bus.on('folders:sort', (d) => {
-    if (!d || clean(d.path) !== me.path) return;
-    if (d.spec && (d.spec.key !== me.spec.key || d.spec.dir !== me.spec.dir)) { me.spec = { ...d.spec }; resort(); }
-  }));
+
   // The selection follows a rename or a move inside this folder, so F2 then Enter opens what
   // was renamed and not the row that now stands where it stood.
   offs.push(bus.on('paths:moved', (d) => {
@@ -648,7 +623,6 @@ export function createList(el, path, { onChange = null, onLoad = null, select = 
     focus() { listEl.focus({ preventScroll: true }); },
     selection: () => me.focus || (me.selected.size ? [...me.selected][0] : null),
     select(name) { if (byName(name)) selectOnly(name); },
-    setSort,
     chosen: () => chosen().map(targetOf),
     entries: () => me.entries.slice(),
     goUp,

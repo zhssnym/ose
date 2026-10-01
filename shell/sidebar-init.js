@@ -142,7 +142,6 @@ export function initSidebar(node) {
   bus.on('paths:copied', (d) => onArrived(((d && d.pairs) || []).map((p) => p && p.to).filter(Boolean)));
   bus.on('paths:restored', (d) => onArrived(((d && d.items) || []).map((it) => it && it.path).filter(Boolean)));
   bus.on('tree:reveal', onReveal);
-  bus.on('folders:sort', () => render());
 
   const askLater = debounce(() => void askAboutRenames(), 600);
   bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFsTree(payload); });

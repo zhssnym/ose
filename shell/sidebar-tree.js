@@ -32,7 +32,7 @@ export function findNode(path) {
 /** A folder's children as they are drawn: hidden ones only when asked for, in its sort. */
 function kidsOf(node) {
   const list = visibleEntries((node && node.children) || [], { showHidden: showHidden() });
-  return sortEntries(list, sortSpec(node ? node.path || '' : ''));
+  return sortEntries(list, sortSpec());
 }
 
 const MD_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd']);
@@ -43,7 +43,7 @@ function walkFiles(keep) {
   const out = [];
   const walk = (n) => {
     if (!n || !n.children) return;
-    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec(n.path || ''))) {
+    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec())) {
       if (c.kind === 'dir') { if (!c.link) walk(c); } else if (keep(c)) out.push(c.path);
     }
   };

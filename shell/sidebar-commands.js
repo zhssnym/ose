@@ -13,13 +13,12 @@ import {
   canMoveInto, clipboard, copy, cut, duplicatePath, movePaths, newFile, newFolder, paste,
   renamePath, trashPaths,
 } from './fileops.js';
-import { nextSortSpec, SORT_KEYS, visibleEntries } from './folder-model.js';
-import { setSortSpec, sortSpec } from './folder.js';
+import { visibleEntries } from './folder-model.js';
 import {
   commands, currentRoute, getFocus, ic, messageOf, relativeHref, setFocus, shortcutFor,
   showHidden, state,
 } from './sidebar-state.js';
-import { findNode, persistExpanded, render, rowFor, vaultName } from './sidebar-tree.js';
+import { findNode, persistExpanded, render, vaultName } from './sidebar-tree.js';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, targetOf,
 } from './sidebar-select.js';
@@ -186,31 +185,6 @@ export function toggleHidden() {
   Promise.resolve(ose.settings.set({ showHidden: next })).catch((e) => toast(String(e.message || e), 'err', 0));
 }
 
-// The folder view's words for its columns, so the tree's menu and the view's say the same thing.
-const SORT_WORDS = { name: 'Name', modified: 'Modified', size: 'Size', type: 'Type' };
-
-/**
- * Sort a folder by… (M22): the folder view's menu, row for row — the four columns, then the two
- * directions, the current choice wearing the dot — writing through `setSortSpec`, the one writer
- * of the per-folder sort, which announces `folders:sort` so the tree and the view both redraw.
- */
-function sortMenu(t, at) {
-  const path = folderOf(t);
-  const spec = sortSpec(path);
-  const mark = (on) => (on ? icon('dot') : '');
-  /** @type {{label?: string, iconSvg?: string, run?: () => void, sep?: boolean}[]} */
-  const items = SORT_KEYS.map((k) => ({
-    label: SORT_WORDS[k], iconSvg: mark(spec.key === k),
-    run: () => setSortSpec(path, { key: k, dir: spec.key === k ? spec.dir : nextSortSpec(spec, k).dir }),
-  }));
-  items.push({ sep: true });
-  items.push({ label: 'Ascending', iconSvg: mark(spec.dir === 'asc'), run: () => setSortSpec(path, { key: spec.key, dir: 'asc' }) });
-  items.push({ label: 'Descending', iconSvg: mark(spec.dir === 'desc'), run: () => setSortSpec(path, { key: spec.key, dir: 'desc' }) });
-  const row = at || rowFor(path) || state.scrollEl;
-  const r = row ? row.getBoundingClientRect() : { left: 0, bottom: 0 };
-  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), items);
-}
-
 // One table for the palette and the context menu, so the two cannot drift: the menu is built
 // from these entries (label, icon, shortcut all come from the registered command) and each
 // entry's `applies(target)` decides both the palette's `when` and the menu's rows. The
@@ -254,8 +228,6 @@ const TREE_COMMANDS = [
   // Search, already narrowed to the folder (N38).
   { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',
     applies: (t) => t.kind === 'dir', run: (t) => openSearch({ folder: t.path }) },
-  { id: 'tree.sort', title: 'Sort folder by…', icon: ic('sortAsc', 'view'), group: 'tree',
-    applies: (t) => t.path !== undefined, run: (t) => sortMenu(t, rowFor(folderOf(t))) },
   { id: 'tree.collapse-all', title: 'Collapse all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(false) },
   { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
@@ -290,7 +262,7 @@ const MENU = [
   null,
   'tree.copy-path', 'tree.copy-link',
   null,
-  'tree.sort', 'tree.search-here', 'tree.open-external',
+  'tree.search-here', 'tree.open-external',
   null,
   'file.trash',
 ];

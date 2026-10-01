@@ -23,8 +23,8 @@
 // on the list's background is copied in; and Alt+drag takes the rows out of the app, as a
 // copy.
 //
-// The folder view is in parts: folder-sort.js (what they share, and the sort), folder-list.js and
+// The folder view is in parts: folder-sort.js (what they share), folder-list.js and
 // folder-view.js. This file says what the folder view exports.
 
-export { folderRoute, folderName, sortSpec, setSortSpec } from './folder-sort.js';
+export { folderRoute, folderName, sortSpec } from './folder-sort.js';
 export { upFrom, initFolder } from './folder-view.js';

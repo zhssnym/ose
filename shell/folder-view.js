@@ -2,12 +2,12 @@
 // and its registration.
 
 import { ose } from 'ose:core';
-import { contextMenu, esc, icon, toast } from 'ose:ui';
+import { esc, icon, toast } from 'ose:ui';
 import * as M from './folder-model.js';
 import * as fops from './fileops.js';
 import { baseName, clean, dirName, vaultName } from './paths.js';
 import {
-  bus, commands, folderName, folderRoute, iconSvg, route, showHidden, SORT_WORDS,
+  bus, commands, folderName, folderRoute, iconSvg, route, showHidden,
 } from './folder-sort.js';
 import { createList } from './folder-list.js';
 
@@ -81,7 +81,7 @@ export function wireMiss(box, path) {
 
 /* ------------------------------------------------------------------ the view */
 
-// The one folder view on screen, if any: what the toolbar commands and `folder.sort` act on.
+// The one folder view on screen, if any: what the toolbar commands act on.
 let current = null;
 
 function toolButton(cls, iconName, fallback, label, title) {
@@ -111,7 +111,6 @@ async function openFolder(el, path, opts = {}) {
       ${toolButton('fv-paste', 'clipboard', 'copy', 'Paste')}
       ${toolButton('fv-undo', 'undo', 'back', 'Undo')}
       <span class="fv-tools-gap"></span>
-      ${toolButton('fv-sort', 'sortAsc', 'chevron', 'Name', 'Sort by…')}
       ${toolButton('fv-hidden', 'eye', 'view', 'Show hidden items')}
     </div>
     <div class="fv-body"></div>
@@ -129,7 +128,7 @@ async function openFolder(el, path, opts = {}) {
 
   const btn = (c) => /** @type {HTMLElement} */ (root.querySelector('.' + c));
   const tools = {
-    paste: btn('fv-paste'), undo: btn('fv-undo'), sort: btn('fv-sort'), hidden: btn('fv-hidden'),
+    paste: btn('fv-paste'), undo: btn('fv-undo'), hidden: btn('fv-hidden'),
   };
   // The chords are said in the tooltips, never on the buttons: the bar is chrome.
   const chordTitle = (b, label, id) => {
@@ -142,7 +141,6 @@ async function openFolder(el, path, opts = {}) {
   btn('fv-mkdir').addEventListener('click', () => newFolderHere(p));
   tools.paste.addEventListener('click', () => void fops.paste(p));
   tools.undo.addEventListener('click', () => void fops.undo());
-  tools.sort.addEventListener('click', () => sortMenu(tools.sort));
   tools.hidden.addEventListener('click', () => toggleHidden());
 
   let readmeFor = null;
@@ -153,9 +151,6 @@ async function openFolder(el, path, opts = {}) {
     countEl.textContent = list && !list.error ? `${n} item${n === 1 ? '' : 's'}` : '';
     tools.paste.hidden = !hasClipboard();
     tools.undo.hidden = !canUndo();
-    const spec = list ? list.spec : M.DEFAULT_SORT;
-    tools.sort.innerHTML = `${iconSvg(spec.dir === 'asc' ? 'sortAsc' : 'sortDesc', 'chevron')}<span>${esc(SORT_WORDS[spec.key])}</span>`;
-    tools.sort.title = `Sort by ${SORT_WORDS[spec.key].toLowerCase()}, ${spec.dir === 'asc' ? 'ascending' : 'descending'}. Choose another…`;
     const on = showHidden();
     tools.hidden.setAttribute('aria-pressed', on ? 'true' : 'false');
     tools.hidden.classList.toggle('on', on);
@@ -214,7 +209,6 @@ async function openFolder(el, path, opts = {}) {
   const me = {
     path: p,
     list,
-    sortMenu: () => sortMenu(tools.sort),
     toggleHidden,
   };
   current = me;
@@ -255,25 +249,6 @@ async function followLink(target, heading) {
   else void route.navigate(heading ? { type: 'page', path: target, heading } : { type: 'page', path: target });
 }
 
-/** The sort control's menu: the four columns, then the two directions. */
-function sortMenu(anchor) {
-  const v = current;
-  if (!v) return;
-  const spec = v.list.spec;
-  const r = anchor ? anchor.getBoundingClientRect() : { left: 80, bottom: 80 };
-  // The current choice wears the dot, the one mark the app has for "this one".
-  const mark = (on) => (on ? icon('dot') : '');
-  /** @type {{label?: string, iconSvg?: string, run?: () => void, sep?: boolean}[]} */
-  const items = M.SORT_KEYS.map((k) => ({
-    label: SORT_WORDS[k], iconSvg: mark(spec.key === k),
-    run: () => v.list.setSort({ key: k, dir: spec.key === k ? spec.dir : M.nextSortSpec(spec, k).dir }),
-  }));
-  items.push({ sep: true });
-  items.push({ label: 'Ascending', iconSvg: mark(spec.dir === 'asc'), run: () => v.list.setSort({ key: spec.key, dir: 'asc' }) });
-  items.push({ label: 'Descending', iconSvg: mark(spec.dir === 'desc'), run: () => v.list.setSort({ key: spec.key, dir: 'desc' }) });
-  contextMenu(Math.round(r.left), Math.round(r.bottom), items);
-}
-
 /** Show hidden items: the tree's command, so there is one toggle and it says one thing. */
 const toggleHidden = () => commands.run('view.toggle-hidden');
 
@@ -311,12 +286,7 @@ export function initFolder() {
     when: () => { const r = route.current(); return !!r && r.type === 'page'; },
     run: () => { const r = upFrom(route.current()); if (r) return route.navigate(r); return undefined; },
   });
-  commands.register({
-    id: 'folder.sort', title: 'Sort folder by…', group: 'navigate',
-    hint: 'name, modified, size or type, for this folder',
-    when: () => !!current,
-    run: () => { if (current) current.sortMenu(); },
-  });
+
   commands.register({
     id: 'folder.open-root', title: 'Open vault folder', group: 'navigate',
     hint: 'the vault root as a folder',

@@ -4,10 +4,6 @@
 //
 // An entry is the host's `Entry` (docs/HOST.md `list`): `{ name, path, kind, ext, mtime, size,
 // hidden, link?, readable? }`. `ext` is lower case without the dot, `mtime` is milliseconds.
-//
-// The per-folder sort lives in `ose.local('folders')` as `{ [path]: { key, dir } }`, one entry
-// per folder that is not sorted the default way; `sortSpecFor` reads it and `withSortSpec`
-// answers the next object to store. The vault root is the key `''`.
 
 /** The columns a folder can be sorted by. */
 export const SORT_KEYS = ['name', 'modified', 'size', 'type'];
@@ -167,49 +163,6 @@ export function dateLabel(ms, now = Date.now()) {
   if (diff === 0) return `Today ${hm}`;
   if (diff === 1) return `Yesterday ${hm}`;
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-/**
- * The sort a folder is drawn with.
- * @param {object|null|undefined} folders  `ose.local('folders').get()`
- * @param {string} path  the folder, `''` for the vault root
- * @returns {{key: string, dir: 'asc'|'desc'}}
- */
-export function sortSpecFor(folders, path) {
-  const spec = folders && typeof folders === 'object' ? folders[clean(path)] : null;
-  return normSpec(spec);
-}
-
-/**
- * The object to store once a folder is sorted `spec`: a new object, with the folder's key
- * removed when `spec` is the default, so the store holds only what someone chose.
- * @param {object|null|undefined} folders
- * @param {string} path
- * @param {{key: string, dir: 'asc'|'desc'}} spec
- * @returns {object}
- */
-export function withSortSpec(folders, path, spec) {
-  const next = { ...(folders && typeof folders === 'object' ? folders : {}) };
-  const key = clean(path);
-  const s = normSpec(spec);
-  if (s.key === DEFAULT_SORT.key && s.dir === DEFAULT_SORT.dir) delete next[key];
-  else next[key] = s;
-  return next;
-}
-
-/**
- * What a click on a column header asks for: the same column flips direction, another column
- * starts ascending for words (name, type) and descending for numbers (newest, largest first),
- * the way Explorer does.
- * @param {{key: string, dir: 'asc'|'desc'}} spec
- * @param {string} key
- * @returns {{key: string, dir: 'asc'|'desc'}}
- */
-export function nextSortSpec(spec, key) {
-  const s = normSpec(spec);
-  if (!SORT_KEYS.includes(key)) return s;
-  if (s.key === key) return { key, dir: s.dir === 'asc' ? 'desc' : 'asc' };
-  return { key, dir: key === 'modified' || key === 'size' ? 'desc' : 'asc' };
 }
 
 const TEXT_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd', 'txt', 'text', 'log', 'csv', 'tsv', 'rst', 'adoc', 'org', 'tex', 'bib']);

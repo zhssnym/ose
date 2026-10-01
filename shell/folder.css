@@ -43,12 +43,8 @@
   height: 100%; min-width: 0;
   display: flex; align-items: center; gap: var(--sp-1);
   font: inherit; color: inherit; text-align: left; white-space: nowrap;
-  transition: color var(--t-fast);
 }
-.fv-col:hover { color: var(--fg); }
-.fv-col.on { color: var(--fg-2); }
 .fv-col-size { justify-content: flex-end; }
-.fv-col svg { width: 0.75rem; height: 0.75rem; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The list is the tab stop; the row the keyboard is on carries the accent bar the tree's
    current row carries, and the ring only when the keyboard put it there. */
