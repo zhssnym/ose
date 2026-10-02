@@ -4,8 +4,10 @@
 
 /* ------------------------------------------------------------------ toolbar */
 
-/* The row under the platform's own title bar (X9): a plain toolbar, no window buttons, not a
-   drag handle. The class keeps its old name so every sheet that styles it still does. */
+/* The window's title bar. Installed, the app asks for Window Controls Overlay (the manifest's
+   `display_override`): Chrome's own bar goes, this row takes its place, and the system's
+   window buttons float over its corner. Its empty parts move the window (a double click
+   maximises); everything that can be pressed stays pressable. */
 .titlebar {
   height: var(--titlebar-h);
   display: flex;
@@ -15,6 +17,20 @@
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+.titlebar button, .titlebar input, .titlebar a, .titlebar [role="button"] {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+/* In the overlay the row starts after the traffic lights (macOS) and ends before the window
+   buttons (Windows), at the height the system gives them, so the two line up. */
+@media (display-mode: window-controls-overlay) {
+  .titlebar {
+    padding-left: max(var(--sp-3), env(titlebar-area-x, 0px));
+    padding-right: max(var(--sp-3), calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  }
 }
 
 /* The logo (logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
