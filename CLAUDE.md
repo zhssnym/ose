@@ -107,7 +107,7 @@ app like everything else; what a vault decides is only where its files are (Sett
 - Read `docs/FORMATS.md` before touching the planner, `docs/CORE.md` before the core,
   `docs/SHELL.md` before the shell, `docs/HOST.md` before `src-tauri`, and `docs/DESIGN.md` before
   any UI. A hose is added, never changed in meaning.
-  Every document lives in `docs/`; the root `README.md` is one paragraph and stays as it is.
+  Every document lives in `docs/`; the root `README.md` is what Ose is and how to install it.
 - The core never draws and ships no HTML. Nothing in it knows a view, the planner or a file
   name of the shell.
 - The planner imports only `ose:ui`, `ose:editor`, `date-fns` and its own files, never
