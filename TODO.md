@@ -6,7 +6,18 @@ and he has seen it in the installed app. When nothing is left under **UI polish*
 
 ## UI polish
 
-- [ ] (add what you notice here)
+Wave 2 (2026-10-02):
+
+- [ ] Focus mode not shown anywhere: no chip at the top, no "Focus:" label in the sidebar.
+- [ ] Title bar like VS Code: only back/forward and a centred box with the current place
+      (click it: Go to file). No sidebar chevron, no logo, no "+".
+- [ ] A better way to collapse the sidebar (toggle at the right of the title bar, drag the
+      edge closed, Ctrl+\).
+- [ ] Drag-select: press beside the blocks and drag a rectangle to select blocks, images,
+      attachments.
+- [ ] Click an image to see it enlarged.
+- [ ] Settings › Help: how to use Ose, and every shortcut.
+- [ ] No browser leftovers ("Open in a browser tab" and the like).
 
 ## Before launch: decisions
 
