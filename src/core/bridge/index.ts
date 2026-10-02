@@ -136,8 +136,8 @@ const withEpoch = (opts?: unknown): Record<string, any> => {
   return o;
 };
 
-// Window control is the adapter's own (a browser tab has its title and little else). None of it
-// is a host command: what the adapter does not have does nothing and answers null.
+// Window control is the adapter's own (Tauri's window API, ./tauri.ts). None of it is a host
+// command: what the adapter does not have does nothing and answers null.
 const winCall = async (name: keyof AdapterWindow, ...args: unknown[]): Promise<unknown> => {
   const a = await ready;
   const own = a.win && a.win[name];
@@ -327,14 +327,17 @@ export const bridge = {
     onResized: (fn: () => void) => winCall('onResized', fn),
   },
 
-  // The tab's title (S13): "<page> — <vault>". Called by the router on every route change;
+  // The window's title (S13): "<page> — <vault>". Called by the router on every route change;
   // never rejects the caller's flow.
   setTitle: (text: string) => winCall('setTitle', String(text ?? '')),
 
   openExternal: (url: string): Promise<null> => as(call('openExternal', url)),
-  // A vault file in a browser tab, for the types a browser shows (batch 12, N10/N24).
-  // Vault-relative, or a registered `abs:` path; never a program.
+  // A file in the system's default app for its type (batch 12, N10/N24); a folder opens in the
+  // file manager. Vault-relative, or a registered `abs:` path; an executable is revealed
+  // instead of run, so this never starts a program.
   openPath: (path: string): Promise<null> => as(call('openPath', path)),
+  // The file or folder shown selected in Explorer, Finder or the file manager.
+  reveal: (path: string): Promise<null> => as(call('reveal', path)),
   getState: (): Promise<unknown> => call('getState'),
   // The whole state object, with the epoch: a write armed in the vault this window left (a
   // debounced save, the pagehide of the reload after an adopt) is refused, never landed in the

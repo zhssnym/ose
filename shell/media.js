@@ -9,11 +9,12 @@
 // falls back to scrolling the column, which is the right thing.
 //
 // Nothing here reads the file's bytes, beyond the first few of a PDF to see that it is one.
-// The browser draws it itself from the vault's URL (`ose.files.assetUrl`, which the service
-// worker answers from the vault, src/host/sw.js): an `<img src>` for a picture, and for a PDF an
-// `<iframe>` whose document is Chrome's own PDF viewer. That is why the page's CSP allows
-// `frame-src 'self'` as well as `img-src`, and why the worker answers `application/pdf` for
-// `.pdf`. No library, no bytes through the bridge, no temp file.
+// The web view draws it itself from the vault's URL (`ose.files.assetUrl`, which the host's
+// `vault` protocol answers from the vault, src-tauri/src/protocol.rs): an `<img src>` for a
+// picture, and for a PDF an `<iframe>` whose document is the web view's own PDF viewer. That is
+// why the page's CSP allows the vault origin in `frame-src` as well as `img-src`, and why the
+// protocol answers `application/pdf` for `.pdf`. No library, no bytes through the bridge, no
+// temp file.
 //
 // The frame is the one thing in the app the app cannot see into: it is another document, in
 // another process, on another origin. Two rules follow, and both are here rather than in a
@@ -87,8 +88,8 @@ export function mediaMiss(box, path) {
  * moment it answers: `%PDF-` must be in the first kilobyte, which is where the format says it
  * is and where every viewer looks for it.
  *
- * `connect-src` already names the vault origin in the host's CSP, and in the browser dev the
- * vault is the dev server's own origin, so this costs one request and no permission anywhere.
+ * `connect-src` already names the vault origin in the host's CSP, so this costs one request
+ * and no permission anywhere.
  * On anything unexpected it answers `true`: the frame is still the better guess than our own
  * error line, and a viewer that disagrees will say so.
  */
@@ -171,12 +172,21 @@ export function mediaPage(el, path) {
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
   openBtn.className = 'btn sm';
-  openBtn.innerHTML = `${icon('reveal')}<span>open externally</span>`;
+  openBtn.innerHTML = `${icon('reveal')}<span>open with default app</span>`;
   // N10: a host that refuses (an executable, a path outside the vault) says so out loud.
   openBtn.addEventListener('click', () => {
     ose.files.open(path).catch((err) => toast(err.message || String(err), 'err'));
   });
   head.appendChild(openBtn);
+  // The file selected in Explorer, Finder or the file manager.
+  const revealBtn = document.createElement('button');
+  revealBtn.type = 'button';
+  revealBtn.className = 'btn sm';
+  revealBtn.innerHTML = `${icon('folder')}<span>show in ${esc(ose.files.fileManager())}</span>`;
+  revealBtn.addEventListener('click', () => {
+    ose.files.reveal(path).catch((err) => toast(err.message || String(err), 'err'));
+  });
+  head.appendChild(revealBtn);
   // A click on the header — the name, the gap, anywhere that is not one of the buttons — is
   // also a way back out of the frame, because it is the nearest thing to "click off it".
   head.addEventListener('mousedown', (e) => {
@@ -322,7 +332,7 @@ export function mediaPage(el, path) {
   function failed(what, why) {
     if (closed) return;
     missing.hidden = false;
-    missing.textContent = `${name} could not be drawn here · try open externally`;
+    missing.textContent = `${name} could not be drawn here · try open with default app`;
     if (what) what.classList.add('media-dead');
     if (leaveBtn) leaveBtn.hidden = true;
     const said = [kind, docTail, why].filter(Boolean).join(' · ');
@@ -466,10 +476,11 @@ export function binaryPage(el, path) {
     actions.appendChild(b);
     return b;
   };
-  const first = button('Open in a browser tab', 'reveal', () => ose.files.open(path), true);
+  const first = button('Open with default app', 'reveal', () => ose.files.open(path), true);
   // A file outside the vault (X7) has no folder in the app: the copy into it is the way in.
   if (isOutside(path)) button('Copy into the vault…', 'copy', () => ose.commands.run('file.copy-into-vault', path));
   else button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
+  button(`Show in ${ose.files.fileManager()}`, 'folder', () => ose.files.reveal(path));
 
   el.appendChild(col);
 

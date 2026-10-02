@@ -1,6 +1,6 @@
 // Part of the markdown page (../page.ts). The page commands, and paper.
 
-import { collectCommands, commands, defaultNewFolder, fileops, navigate } from '../host.ts';
+import { collectCommands, commands, defaultNewFolder, fileops, navigate, revealTitle } from '../host.ts';
 import { toast } from '../deps.ts';
 import { activeInstance } from '../instances.ts';
 import { registerExtensionCommands } from '../extensions.ts';
@@ -145,7 +145,7 @@ function registerCommands() {
     when: hasPage, run: () => editorApi.reopenEncoding(),
   });
   commands.register({
-    id: 'page.reveal', title: 'Reveal in Explorer', group: 'page',
+    id: 'page.reveal', title: revealTitle(), group: 'page',
     when: hasPage, run: () => editorApi.reveal(),
   });
   commands.register({
@@ -217,10 +217,10 @@ async function newPage() {
 // ---------------------------------------------------------------------------
 // paper
 //
-// Two commands, and both are Chrome's print dialog: `Print`, and `Export to PDF` (Ctrl+Shift+P),
-// which is the same dialog with the page's own title as the document's, so the file Chrome's
-// Save as PDF suggests is named after the page, never after the window ("Family · lifeos": the
-// vault's name is nobody's business but his).
+// Two commands, and both are the web view's print dialog: `Print`, and `Export to PDF`
+// (Ctrl+Shift+P), which is the same dialog with the page's own title as the document's, so the
+// file its Save as PDF suggests is named after the page, never after the window
+// ("Family · lifeos": the vault's name is nobody's business but his).
 //
 // Neither touches the theme. The sheet is black on white from either theme because print.css
 // says so under `@media print`. `window.print()` returns when the dialog closes.

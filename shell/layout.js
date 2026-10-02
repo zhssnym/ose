@@ -322,13 +322,16 @@ function watchVault() {
   onVaultChangeRequested(vaultRequested);
 }
 
-/* --------------------------------------------------- the browser underneath */
+/* -------------------------------------------------- the web view underneath */
 
-// S27. Ose runs in Chrome, and the browser's own accelerators are live in it: F5 and Ctrl+R
-// reload the app — which throws away an unsaved buffer and every scrap of state the page
-// holds — Ctrl+U shows the source, F7 turns on caret browsing. The page refuses them itself;
-// Chromium lets a page do that for all of these (they are not reserved shortcuts). A reload
-// that gets past this (the toolbar button) still leaves through `beforeunload` and the drafts.
+// S27. Ose runs in a web view (WebView2 on Windows, WKWebView on macOS), and its own
+// accelerators are live in it: F5 and Ctrl+R reload the app — which throws away an unsaved
+// buffer and every scrap of state the page holds — Ctrl+U shows the source, F7 turns on caret
+// browsing. The page refuses them itself;
+// Chromium lets a page do that for all of these (they are not reserved shortcuts), and the host
+// also switches WebView2's accelerator keys off (src-tauri/src/platform.rs); this is the belt,
+// and all a Mac has. A reload that gets past both still leaves through `beforeunload` and the
+// drafts.
 //
 // Ctrl+O is deliberately not here: it is quick open, which already takes the event in the
 // capture phase, so the web view's Open-file dialog never gets a chance either way. A key this
@@ -358,9 +361,9 @@ function guardBrowserKeys() {
 
 // The web view's own context menu carries Reload and Back, either of which loses the buffer
 // (S11/S27). Anything that has its own menu — the tree, the editor — has called preventDefault
-// by the time this runs; what is left is the browser's, and it does not belong in the app.
+// by the time this runs; what is left is the web view's, and it does not belong in the app.
 //
-// Shift+right-click is the one way through, and it is deliberate: no browser tells a page
+// Shift+right-click is the one way through, and it is deliberate: no web view tells a page
 // which word is underlined, so the web view's own menu is the only place a spelling suggestion
 // can come from. It is the same escape hatch Chromium itself uses for a page that overrides
 // the menu.

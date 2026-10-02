@@ -113,6 +113,11 @@ export function openWith(path) {
   files.open(path).catch((err) => toast(err.message || err, 'err'));
 }
 
+/** `ose.files.reveal`: the row selected in Explorer, Finder or the file manager, a refusal said. */
+export function revealIn(path) {
+  files.reveal(path).catch((err) => toast(err.message || err, 'err'));
+}
+
 // Type-ahead: letters typed within 700ms of each other form one prefix, searched from the row
 // after the focused one, wrapping. A single letter pressed again therefore walks the matches.
 let typeBuf = '';

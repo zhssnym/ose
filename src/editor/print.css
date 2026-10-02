@@ -6,8 +6,8 @@
    The sheet is A4 with a 2cm margin on every side, which is what the owner's teacher hands out
    and what Word gives a new document in France; the text block is therefore 17cm wide, and
    11.5pt of --font-doc at 1.2 fits about 52 lines on it. The margin is written here, in the
-   CSS, and nowhere else: one place decides the geometry, so `Export to PDF`, `Print` and the
-   browser's own Ctrl+P give the same sheet (choose Margins: Default in Chrome's dialog).
+   CSS, and nowhere else: one place decides the geometry, so `Export to PDF` and `Print` give
+   the same sheet (choose Margins: Default in the print dialog).
 
    Why `!important` on the layout rules. The shell links `ui.css` and `editor.css` (which this
    file is part of) before its own `shell.css`, so `.shell { display: grid }`,
@@ -170,7 +170,7 @@
   .ed .milkdown .milkdown-code-block .cm-activeLineGutter { background: transparent; }
   .ed .milkdown a, .md-render a { color: var(--fg); }
 
-  /* A done task. Chrome prints without backgrounds unless asked, and with them a sheet taken
+  /* A done task. The web view prints without backgrounds unless asked, and with them a sheet taken
      from the dark theme could come out grey. So the black fill of a done box is not there,
      and a white check mark on white paper would read as an empty box: the box keeps its
      outline and the check is drawn in ink. Struck-through text says the same thing again. */

@@ -53,7 +53,7 @@ state file and the per-machine store are loaded. Every function that touches the
 ose.version                  { core, sha, short, date }   the build stamp
 ose.platform                 'windows' | 'macos' | 'linux'
 ose.ready                    Promise<void>
-ose.host                     'browser'             the one host there is
+ose.host                     'tauri'               the one host there is: the Rust host
 ```
 
 ### The vault
@@ -110,9 +110,14 @@ ose.files.trash(path)        -> { id, where }          the user's setting decide
 ose.files.trashWhere(path)   -> { where: 'system' | 'vault' }   where `trash` would put it now
 ose.files.trashList()        -> TrashItem[]            what can be restored, newest first
 ose.files.copyPath(from, to) -> { path, files }        a file or a whole folder, bytes, create-only
-ose.files.open(path)         -> null                   the file in a browser tab, for the types a
-                                                       browser shows: only ever an explicit
-                                                       command, never how a file opens
+ose.files.open(path)         -> null                   the file in the system's default app (a
+                                                       folder in the file manager; an executable
+                                                       is revealed, never run): only ever an
+                                                       explicit command, never how a file opens
+ose.files.reveal(path)       -> null                   the file or folder selected in Explorer,
+                                                       Finder or the file manager
+ose.files.fileManager()      -> string                 'Explorer', 'Finder' or 'the file manager':
+                                                       `Show in <it>` titles the reveal
 ose.files.assetUrl(path)     -> string                 `./vault/<id>/…` URL for an <img>; for an
                                                        `abs:` path, its `./vault/~abs/` URL
 
@@ -1097,10 +1102,10 @@ but loading its own files.
 method names are the command names and never change with the transport. Underneath it an adapter
 answers `invoke(name, args)`:
 
-- `src/host/adapter.ts`, the one adapter, answers every command in the browser over the folder
-  the person picked (docs/HOST.md). `bridge.kind` is `'web'`. The command types are kept by hand
-  in `bridge/commands.ts`; a name the adapter does not have is `unknown_command`, a hard error,
-  never a null.
+- `bridge/tauri.ts`, the one adapter, calls the Rust host in src-tauri through the functions
+  tauri-specta generated into `bridge/bindings.ts` (docs/HOST.md). `bridge.kind` is `'tauri'`.
+  The command types are kept by hand in `bridge/commands.ts`; a name the host does not have is
+  `unknown_command`, a hard error, never a null.
 
 Each facade method names its answer from `commands.ts` (`RootInfo`, `Stat`, `Entry`, `Kept`, …);
 the untyped `call` answers `unknown`, so a field the host does not send is a type error. The

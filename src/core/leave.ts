@@ -58,7 +58,7 @@ export function onLeave(fn: (e: { reason: LeaveReason | 'abandon'; }) => boolean
 /* -------------------------------------------------------------- the "still saving" notice */
 
 // One sticky toast however many waits want it: the leave gate's own and the adapter's close
-// fan-out's (src/host/adapter.ts) are the same notice, not two.
+// fan-out's (src/core/bridge/tauri.ts) are the same notice, not two.
 let holders = 0;
 let stillKill: (() => void) | null = null;
 

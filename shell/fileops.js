@@ -671,7 +671,7 @@ export async function openOutsideFile() {
   let picked = null;
   try { picked = await ose.files.pick({ title: 'Open file' }); } catch (e) {
     const err = errorOf(e);
-    if (err.code === 'unsupported') { toast('Open file… needs the app: the browser cannot name a file on this computer', 'info', 3200); return false; }
+    if (err.code === 'unsupported') { toast('Open file… is not available in this build: it has no file dialog', 'info', 3200); return false; }
     fail('Could not open the file dialog', e);
     return false;
   }
