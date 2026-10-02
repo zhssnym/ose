@@ -6,6 +6,11 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay"
+  ],
+  "theme_color": "#F3F1EA",
+  "background_color": "#FAF9F5",
   "icons": [
     {
       "src": "icons/icon-256.png",
