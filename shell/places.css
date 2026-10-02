@@ -13,16 +13,9 @@
   gap: 0;
   padding: 0 0 0 var(--sp-3);
   background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
   overflow: hidden;
-  position: relative;
 }
-/* The bar's bottom rule starts where the sidebar ends: the corner above the sidebar is the
-   sidebar's own. Folded, it runs the whole width. */
-.titlebar::after {
-  content: ''; position: absolute; left: var(--sidebar-w); right: 0; bottom: 0;
-  height: 1px; background: var(--border); pointer-events: none;
-}
-.shell.no-sidebar .titlebar::after { left: 0; }
 /* macOS: the system's traffic lights sit over the row's left end. */
 :root[data-os="mac"] .titlebar { padding-left: 5rem; padding-right: var(--sp-3); }
 .tb-space { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
@@ -48,70 +41,57 @@
 .tb-mark { color: var(--fg); }
 .tb-mark svg { display: block; }
 
-/* The app's own title bar (titlebar.js `tb-main`): three parts, VS Code's way. The lead and
-   the trail share what the centre leaves, so back, forward and the command centre sit in the
-   middle of the window; when the trail's buttons need more than half of what is left, the
-   centre gives way to the left rather than overlapping them. */
-.tb-main, :root[data-os="mac"] .tb-main { padding: 0; }
-/* The corner over the sidebar is the sidebar's: as wide, on the same ground, its right border
-   carried up and the bar's bottom border stopped under it, so the sidebar runs from the top of
-   the window to the bottom. The mark, the vault's name, and the fold, which shows only while
-   the pointer is over the sidebar or this corner. Folded, the corner shrinks to the mark, and
-   the fold (») shows on hover of the corner. */
-.tb-brand {
-  flex: none; align-self: stretch; box-sizing: border-box;
-  width: var(--sidebar-w); margin-left: calc(-1 * var(--sp-3));
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: 0 var(--sp-1) 0 var(--sp-3);
-  background: var(--bg-2); border-right: 1px solid var(--border);
+/* The path bar (M21): the place on screen as segments, each folder a button. It
+   takes the room after the buttons, up to a readable measure; what is left of the row moves
+   the window. */
+.tb-addr {
+  flex: 1 1 auto; min-width: 6rem; max-width: 48rem;
+  height: 1.5rem; margin-left: var(--sp-3);
+  display: flex; align-items: center;
+  border: 1px solid transparent; border-radius: var(--radius);
+  transition: border-color var(--t-fast);
 }
-.shell.no-sidebar .tb-brand { width: auto; border-right: 0; padding-right: var(--sp-1); }
-:root[data-os="mac"] .tb-brand { margin-left: -5rem; padding-left: 5rem; }
-.tb-brand .tb-mark { flex: none; }
-.tb-vault {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: var(--fs-ui); font-weight: 600; color: var(--fg);
-}
-.shell.no-sidebar .tb-vault { display: none; }
-.tb-fold { flex: none; opacity: 0; transition: opacity var(--t-fast); }
-.tb-fold svg { stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.shell.no-sidebar .tb-fold svg { transform: rotate(180deg); }
-.shell:has(.sidebar:hover) .tb-fold, .tb-brand:hover .tb-fold, .tb-fold:focus-visible { opacity: 1; }
-.tb-lead { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
-.tb-center {
-  flex: 0 1 auto; min-width: 0; align-self: stretch;
+.tb-crumbs {
+  flex: 1; min-width: 0;
   display: flex; align-items: center; gap: var(--sp-1);
-}
-.tb-trail {
-  flex: 1 1 0; align-self: stretch;
-  display: flex; align-items: stretch; justify-content: flex-end;
-}
-:root[data-os="mac"] .tb-trail { padding-right: var(--sp-2); }
-
-/* The command centre: one quiet box with the place in it, a search glyph before it. Pressing
-   it is Go to file. The place gives way from the left (`dir="rtl"` around an ltr run), so the
-   file's name is what stays in view. */
-.tb-cmd {
-  flex: 0 1 36rem; min-width: 8rem; height: 1.5rem;
-  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-1);
   font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-2);
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
-  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  white-space: nowrap; overflow: hidden;
 }
-.tb-cmd:hover { background: var(--bg-3); border-color: var(--border-strong); color: var(--fg); }
-.tb-cmd:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.tb-cmd-icon { flex: none; display: grid; place-items: center; color: var(--fg-3); }
-.tb-cmd-icon svg {
+.tb-crumb {
+  height: 1.25rem; padding: 0 var(--sp-1); line-height: 1.25rem;
+  flex: 0 1 auto; min-width: 0; max-width: 20rem;
+  display: inline-block; overflow: hidden; text-overflow: ellipsis;
+  color: inherit; border-radius: var(--radius);
+  font: inherit; white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
+button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* The last segment is what is on screen: it keeps its whole name and the folders above it
+   give way first. */
+.tb-crumb.cur { color: var(--fg); flex: 0 0 auto; max-width: 28rem; }
+/* A page outside the vault (X7): the first segment says so, in the faint voice of a note. */
+.tb-crumb.tb-outside { color: var(--fg-3); flex: none; }
+.tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
+
+/* The sidebar's one control, in the title bar's left corner and in the same spot whether the
+   sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
+   inside the padding the bar already had, where the sidebar begins. Only the glyph turns —
+   pointing left at an open sidebar, right at a folded one. */
+.tb-fold {
+  width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-fold:hover { background: var(--bg-3); color: var(--fg); }
+.tb-fold svg {
   width: 0.75rem; height: 0.75rem;
   stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+  transform: rotate(180deg); transition: transform var(--t-fast);
 }
-.tb-cmd-place {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.tb-cmd-sep { color: var(--fg-3); padding: 0 var(--sp-1); }
-.tb-cmd-part:last-child { color: var(--fg); }
-
+.shell.no-sidebar .tb-fold svg { transform: none; }
 
 .tb-dirty {
   width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
@@ -120,13 +100,14 @@
 
 /* ------------------------------------------------------- title bar: back, forward */
 
-/* Two icon buttons immediately left of the command centre, the height of the bar so they
+/* Two icon buttons between the app mark and the breadcrumb, the height of the bar so they
    read as part of the chrome and not as a floating toolbar (N45, L23). Same hover as every
    chrome button, same 120ms, same square corners. */
 .tb-nav {
   display: flex;
   align-self: stretch;
   flex: none;
+  margin-left: var(--sp-3);
 }
 
 /* No cursor of its own: one policy for every control in the app, the arrow the body sets (R20). */
