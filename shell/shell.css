@@ -382,29 +382,6 @@
 .tab.err .tab-name { color: var(--err-ink); }
 .tab.err.on { box-shadow: inset 0 -2px 0 var(--err); }
 
-/* New file… (H12): one more of the title bar's own buttons, beside back and forward. */
-.tb-new { flex: none; margin-left: var(--sp-1); align-self: stretch; }
-
-/* Focus mode's chip (H18): whenever a folder is in focus, in the bar, whether or not the
-   sidebar is open. The same words the sidebar's focus label says; pressing it leaves focus. */
-.tb-focus {
-  flex: none; align-self: center; max-width: 14rem;
-  display: flex; align-items: center; gap: var(--sp-1);
-  margin-left: var(--sp-2); padding: var(--sp-half) var(--sp-2);
-  font-size: var(--fs-chrome-sm); color: var(--fg-2);
-  background: var(--accent-soft); border: 1px solid var(--border); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tb-focus[hidden] { display: none; }
-.tb-focus:hover { color: var(--fg); background: var(--bg-3); }
-.tb-focus:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.tb-focus-key { color: var(--accent-ink); }
-.tb-focus-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-focus svg {
-  width: 0.5625rem; height: 0.5625rem; flex: none;
-  stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round;
-}
-
 /* ------------------------------------------------------------------ recovered changes (C4) */
 
 /* The sheet of drafts: the vault chooser's row, name, folder and time. A draft whose file is

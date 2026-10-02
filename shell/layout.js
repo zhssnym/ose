@@ -82,7 +82,7 @@ function fit() {
 
   const sOpen = wanted && !autoHidden;
   shell.classList.toggle('no-sidebar', !sOpen);
-  // The title bar's fold button says which way it goes, and the window hides the sidebar on
+  // The title bar's sidebar toggle shows whether it is on screen, and the window hides the sidebar on
   // its own without touching the preference, so what is on screen is announced rather than
   // read off `sidebar.open` (shell/titlebar.js).
   if (sOpen !== shown) { shown = sOpen; bus.emit('sidebar', sOpen); }
@@ -105,11 +105,16 @@ function fit() {
 const RS_STEP = 8, RS_BIG = 32;
 
 /**
+ * `fold` makes the column foldable by dragging, VS Code's way: dragged under `fold.at` it folds
+ * (its width stays what it was when the drag began, for when it opens again), dragged back out
+ * past it it opens and follows the pointer. A folded column's handle stays on screen as an edge,
+ * so the same drag, the arrows, Enter or a double click bring it back.
  * @param {HTMLElement} handle
  * @param {{get: () => number, set: (v: number) => void, min: number, max: number | (() => number),
- *   invert?: boolean, done?: (v: number) => void}} opts
+ *   invert?: boolean, done?: (v: number) => void,
+ *   fold?: {at: number, isOpen: () => boolean, setOpen: (open: boolean) => void}}} opts
  */
-function makeResizer(handle, { get, set, min, max, invert, done }) {
+function makeResizer(handle, { get, set, min, max, invert, done, fold }) {
   // `max` may be a function: the sidebar's ceiling is a share of the window (L5), so it moves
   // when the window does and is asked for at every step.
   const hi = () => (typeof max === 'function' ? max() : max);
@@ -126,8 +131,18 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
   };
   apply(get());
 
+  const folded = () => !!fold && !fold.isOpen();
+
   handle.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
+    // Folded, the edge has one thing to do: open the column at the width it had.
+    if (folded()) {
+      const out = invert ? 'ArrowLeft' : 'ArrowRight';
+      if (e.key !== out && e.key !== 'Enter' && e.key !== 'End') return;
+      e.preventDefault();
+      if (fold) fold.setOpen(true);
+      return;
+    }
     const step = e.shiftKey ? RS_BIG : RS_STEP;
     // `invert` means the handle sits on the panel's left edge, where Right shrinks it.
     const sign = invert ? -1 : 1;
@@ -148,7 +163,19 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
     handle.classList.add('on');
     document.body.classList.add('resizing');
     const x0 = e.clientX, w0 = get();
-    const move = (ev) => apply(w0 + (invert ? x0 - ev.clientX : ev.clientX - x0));
+    // A folded column is dragged out from nothing: its edge is where its width starts.
+    const from = folded() ? 0 : w0;
+    const move = (ev) => {
+      const v = from + (invert ? x0 - ev.clientX : ev.clientX - x0);
+      if (fold) {
+        if (v < fold.at) {
+          if (fold.isOpen()) { set(w0); fold.setOpen(false); }
+          return;
+        }
+        if (!fold.isOpen()) fold.setOpen(true);
+      }
+      apply(v);
+    };
     const up = () => {
       handle.removeEventListener('pointermove', move);
       handle.classList.remove('on');
@@ -160,20 +187,24 @@ function makeResizer(handle, { get, set, min, max, invert, done }) {
     handle.addEventListener('pointerup', up, { once: true });
     handle.addEventListener('pointercancel', up, { once: true });
   });
-  handle.addEventListener('dblclick', () => { apply(handle.dataset.reset ? +handle.dataset.reset : get()); done && done(get()); });
+  handle.addEventListener('dblclick', () => {
+    if (folded()) { if (fold) fold.setOpen(true); return; }
+    apply(handle.dataset.reset ? +handle.dataset.reset : get());
+    done && done(get());
+  });
 }
 
 /**
  * Whether the sidebar is actually on screen: the user's preference *and* the window being wide
  * enough (L25). The toggle command asks here rather than flipping the preference blind, so the
- * chevron in the title bar opens a sidebar the narrow window had hidden with one press instead
+ * toggle in the title bar opens a sidebar the narrow window had hidden with one press instead
  * of two — the preference itself is still only ever written by the toggle.
  */
 export const sidebarVisible = () => !!store.get('sidebar.open') && !autoHidden;
 
 /**
- * The one way the sidebar is opened or closed on purpose: `app.sidebar`, either chevron,
- * `app.focus-sidebar`, a folder revealed in the tree. It clears the window's own auto-hide
+ * The one way the sidebar is opened or closed on purpose: `app.sidebar`, the title bar's
+ * toggle, the resizer's fold, `app.focus-sidebar`, a folder revealed in the tree. It clears the window's own auto-hide
  * before it writes, and it does the work itself rather than leaning on the `sidebar.open`
  * watcher — `store.set` returns early when the value has not changed (src/core/registry.ts),
  * and the whole broken state of QA-5 finding 3 was exactly that: preference open, window
@@ -530,11 +561,14 @@ export function mountShell(rootEl) {
   });
   fit();
 
+  // The sidebar's edge folds it when dragged under half its least width, and a folded
+  // sidebar's edge stays at the window's left, where dragging it out opens it again.
   makeResizer(part('.rs-sidebar'), {
     min: S_MIN, max: sMax,
     get: () => wantS,
     set: (v) => { wantS = v; fit(); },
     done: (v) => patchSidebar({ width: v }),
+    fold: { at: S_MIN / 2, isOpen: () => sidebarVisible(), setOpen: (open) => setSidebarOpen(open) },
   });
 
   initTitlebar(els.titlebar);
