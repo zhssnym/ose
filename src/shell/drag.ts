@@ -9,8 +9,8 @@
 // or a file in another encoding lands as it was. A drag of a row is the internal move; nothing
 // here drags a vault file out to the system.
 
-import { ose } from 'ose:core';
-import { toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { toast } from '../ui/index.ts';
 import { baseName, errorOf } from './paths.ts';
 import { undo } from './fileops.ts';
 

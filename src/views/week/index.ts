@@ -7,7 +7,7 @@
 // a negative length. Lines under a weekday that cannot be read are counted, and the meta line
 // says "N lines not understood", with their numbers in the tooltip and a click to the first.
 
-import { esc, loadingLine, toast } from 'ose:ui';
+import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays,
 } from '../shared/dates.ts';

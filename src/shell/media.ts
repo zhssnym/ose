@@ -28,8 +28,8 @@
 //     checked before the frame is pointed at anything, so the viewer is never asked to draw a
 //     file that is not a PDF.
 
-import { ose } from 'ose:core';
-import { icon, toast, esc } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { icon, toast, esc } from '../ui/index.ts';
 import { baseName, extOf, isOutside, outsideLabel } from './paths.ts';
 import { typeLabel, sizeLabel, dateLabel } from './folder-model.ts';
 

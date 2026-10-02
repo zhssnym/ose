@@ -10,7 +10,7 @@
 // forward slashes (`abs:D:/Notes/todo.md`, `abs:/Users/h/a.md`). `clean` keeps the prefix, and
 // `isOutside` tells the two apart. The few helpers every surface used to keep a copy of
 // (`vaultName`, `errorOf`, `keyOf`) live here too, so there is one of each.
-import { ose } from 'ose:core';
+import { ose } from '../core/core.ts';
 
 export const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 export const baseName = (p) => { const c = clean(p); const i = c.lastIndexOf('/'); return i < 0 ? c : c.slice(i + 1); };

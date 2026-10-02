@@ -16,8 +16,8 @@
 //   4. only part of a word matches;
 //
 // and, inside a class, the file changed most recently first.
-import { ose } from 'ose:core';
-import { esc, icon } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, icon } from '../ui/index.ts';
 import { panel, focusPage } from './layout.ts';
 import { dirName, titleOf } from './paths.ts';
 

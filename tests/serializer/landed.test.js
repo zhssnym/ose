@@ -36,18 +36,18 @@ describe('the engine and the guard have landed', () => {
     expect(P.checkWrite(P.engine.parse(md), md)).toEqual({ status: 'ok', text: md });
   });
 
-  // CONTRACT 7.4: these import without a DOM, without CSS and without `ose:*` at module top
-  // level. The tests alias `ose:*` to stubs anyway, so the rule is read from the source.
+  // CONTRACT 7.4: these import without a DOM, without CSS and without the app (the core, the
+  // kit, the editor's host) at module top level, so the rule is read from the source.
   // The serializer is stringify.ts and the parts in stringify/, so the rule holds for each.
   const serializer = readdirSync(join(EDITOR, 'stringify')).map((f) => `stringify/${f}`);
   it.each(['engine.ts', 'guard.ts', 'stringify.ts', ...serializer, 'space.ts', 'fidelity.ts', 'doc.ts'])(
-    '%s imports no ose:* module and no stylesheet at top level',
+    '%s imports nothing of the app and no stylesheet at top level',
     (name) => {
       const text = src(name);
       const imports = [...text.matchAll(/^(?:import|export)\s[^;]*?from\s+['"]([^'"]+)['"]/gms)].map((m) => m[1]);
       const bare = [...text.matchAll(/^import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1]);
       for (const spec of [...imports, ...bare]) {
-        expect(spec.startsWith('ose:'), `${name} imports ${spec}`).toBe(false);
+        expect(/(^ose:|\/core\/|\/ui\/|host\.ts$)/.test(spec), `${name} imports ${spec}`).toBe(false);
         expect(/\.css($|\?)/.test(spec), `${name} imports ${spec}`).toBe(false);
       }
     },

@@ -4,7 +4,7 @@
 //
 // One file knows; everybody else calls it.
 
-import { ose } from 'ose:core';
+import { ose } from '../core/core.ts';
 
 /**
  * A second launch named another folder (docs/HOST.md "Identity: vaults, roots, epochs, tabs"). The host does not

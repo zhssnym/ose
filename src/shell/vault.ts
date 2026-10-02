@@ -8,8 +8,8 @@
 // vault: the host brings the one that has it forward instead. See docs/HOST.md.
 import { LOGO } from './logo.ts';
 import { windowButtons, wireWindowButtons } from './titlebar.ts';
-import { ose } from 'ose:core';
-import { esc, openOverlay, confirm, toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, openOverlay, confirm, toast } from '../ui/index.ts';
 import { onVaultChangeRequested } from './host.ts';
 import { errorOf } from './paths.ts';
 

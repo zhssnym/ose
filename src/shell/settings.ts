@@ -6,8 +6,9 @@
 // machine and which one belongs to the vault, and it validates what it is handed. This file
 // only draws them, and draws the sections other parts of the app register through
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
-import { ose } from 'ose:core';
-import { esc, pickFolder, toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, toast } from '../ui/index.ts';
+import { pickFolder } from '../core/core.ts';
 import { chooseVault, switchVault } from './vault.ts';
 import KEYS from './keys.json';
 

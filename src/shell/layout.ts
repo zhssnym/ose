@@ -6,8 +6,8 @@
 // This is the shell's own layout. The core knows none of it: `ose.init({ page })` is handed
 // the element this file builds, and from there the router draws into it.
 
-import { ose } from 'ose:core';
-import { icon } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { icon } from '../ui/index.ts';
 import { onVaultChangeRequested } from './host.ts';
 import { initTitlebar } from './titlebar.ts';
 import { initStatusbar } from './statusbar.ts';

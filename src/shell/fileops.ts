@@ -22,8 +22,9 @@
 // selection). Without one, a command acts on what the context says: the focused tree row, else
 // the page on screen (`setContext`, which the sidebar fills in).
 
-import { ose } from 'ose:core';
-import { prompt, confirm, pickFolder, toast, focusOrigin } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { prompt, confirm, toast, focusOrigin } from '../ui/index.ts';
+import { pickFolder } from '../core/core.ts';
 import { clean, join, baseName, dirName, errorOf, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, commands, route } = ose;

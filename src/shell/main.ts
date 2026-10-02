@@ -21,7 +21,7 @@ import('./boot.ts')
   .catch(async (e) => {
     // The core may have loaded even though the shell did not; ask for it, so the page can
     // name the log. A core that failed fails again here, at once, and the page does without.
-    let ose: typeof import('ose:core')['ose'] | null = null;
-    try { ({ ose } = await import('ose:core')); } catch { ose = null; }
+    let ose: typeof import('../core/core.ts')['ose'] | null = null;
+    try { ({ ose } = await import('../core/core.ts')); } catch { ose = null; }
     showBootError(e, { stage: 'The interface could not be loaded.', ose });
   });

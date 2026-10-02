@@ -15,7 +15,7 @@
 // The fragment Settings › Planner draws is `renderSettings`. Every control in it is a button or
 // a segmented control, so it is reachable from the keyboard like the rest of the settings.
 
-import { esc, pickFile, pickFolder, toast } from 'ose:ui';
+import { esc, toast } from '../../ui/index.ts';
 import { detectPaths } from './detect.ts';
 import { anchorFromParity, isQ1Week, parseYmd, q1AnchorFor, ymd } from './dates.ts';
 
@@ -97,7 +97,7 @@ function follow(p, from, to) {
 /**
  * The store. One per `initPlanner`.
  */
-export function createStore(ose: any): { ready: Promise<void>; get: () => PlannerSettings; set: (partial: Partial<PlannerSettings>) => void; on: (fn: Function) => () => void; detect: (opts?: { replace?: boolean; }) => Promise<PlannerSettings>; dispose: () => void; } {
+export function createStore(ose: any): { ready: Promise<void>; get: () => PlannerSettings; set: (partial: Partial<PlannerSettings>) => void; on: (fn: Function) => () => void; detect: (opts?: { replace?: boolean; }) => Promise<PlannerSettings>; pick: { folder: (opts: object) => Promise<string | null>; file: (opts: object) => Promise<string | null>; }; dispose: () => void; } {
   const subs = new Set<any>();
   let cur = normalize(ose.state(KEY).get());
   const emit = () => { for (const fn of [...subs]) { try { fn(cur); } catch (e) { console.error('[planner] settings listener', e); } } };
@@ -163,6 +163,8 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
     set: (partial) => write({ ...cur, ...partial }),
     on(fn) { subs.add(fn); return () => subs.delete(fn); },
     detect,
+    // The vault pickers, from the `ose` this store was handed: a view never imports the core.
+    pick: { folder: (opts) => ose.pickers.folder(opts), file: (opts) => ose.pickers.file(opts) },
     dispose() {
       subs.clear();
       if (typeof offMoved === 'function') offMoved();
@@ -291,14 +293,14 @@ export function renderSettings(el: HTMLElement, store: ReturnType<typeof createS
         const row = ROWS.find((r) => r.key === key);
         if (!row) break;
         const picked = row.kind === 'folder'
-          ? await pickFolder({ title: TITLES[key], current: s[key], enterLabel: 'choose' })
-          : await pickFile({ title: TITLES[key], ext: 'md', current: s[key] });
+          ? await store.pick.folder({ title: TITLES[key], current: s[key], enterLabel: 'choose' })
+          : await store.pick.file({ title: TITLES[key], ext: 'md', current: s[key] });
         if (picked !== null && picked !== undefined && alive) store.set({ [key]: picked || null });
         break;
       }
       case 'clear': store.set({ [key]: null }); break;
       case 'add-todo': {
-        const picked = await pickFile({ title: 'Add a todo file…', ext: 'md' });
+        const picked = await store.pick.file({ title: 'Add a todo file…', ext: 'md' });
         if (picked && alive) store.set({ todo: [...store.get().todo, picked] });
         break;
       }

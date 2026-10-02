@@ -1,8 +1,8 @@
 // Part of the sidebar (./sidebar.js). Drag and drop, the tree commands and their menu, and the
 // tool strip.
 
-import { ose } from 'ose:core';
-import { contextMenu, copyText, focusOrigin, icon, toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { contextMenu, copyText, focusOrigin, icon, toast } from '../ui/index.ts';
 import { baseName, clean } from './paths.ts';
 import {
   DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,

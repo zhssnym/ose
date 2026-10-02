@@ -1,7 +1,7 @@
 // Part of the sidebar (./sidebar.js). Reading the tree, and keeping it current with what the app
 // and the disk did.
 
-import { confirm, toast } from 'ose:ui';
+import { confirm, toast } from '../ui/index.ts';
 import { vaultLost } from './vault.ts';
 import { baseName, clean, dirName, errorOf, join, segments } from './paths.ts';
 import { setSidebarOpen } from './layout.ts';

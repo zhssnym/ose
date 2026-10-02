@@ -1,7 +1,7 @@
 // Where the app opens: Home, an empty page, every time. Nothing of the last session
 // comes back.
 
-import { ose } from 'ose:core';
+import { ose } from '../core/core.ts';
 
 /**
  * Home: an empty page, so the window is calm until something is opened from the sidebar. The

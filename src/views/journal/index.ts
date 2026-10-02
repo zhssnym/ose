@@ -15,7 +15,7 @@
 // drawn with `ose:editor`'s `render` when it is there, so maths and links read as on the page,
 // and a link in an entry opens what it points at, with the mouse or with Enter.
 
-import { esc, loadingLine, toast } from 'ose:ui';
+import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   clock, dateFromName, daysBetween, journalFileName, journalHeading, shortDate, weekdayName, ymd,
 } from '../shared/dates.ts';
@@ -201,7 +201,7 @@ async function addToToday(ose, store, text): Promise<string> {
 export function createJournalView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
   let renderMd: ((markdown: string, opts?: any) => HTMLElement | null) | null = null;       // `ose:editor` render, once loaded
-  const editorReady = import('ose:editor').then((m) => { renderMd = m.render; }).catch(() => { /* the plain renderer */ });
+  const editorReady = import('../../editor/lib.ts').then((m) => { renderMd = m.render; }).catch(() => { /* the plain renderer */ });
 
   function mount(host) {
     let alive = true, days: any[] = [], sig = '', shown = 0, dirError = '', loading = false, again = false;

@@ -5,8 +5,8 @@
 // maximises), and the window buttons are drawn here on Windows and Linux. On macOS the system's
 // traffic lights sit over the row's left end, which leaves them room.
 
-import { ose } from 'ose:core';
-import { icon } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { icon } from '../ui/index.ts';
 import { sidebarVisible } from './layout.ts';
 import { LOGO } from './logo.ts';
 

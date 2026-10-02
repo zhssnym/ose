@@ -4,8 +4,8 @@
 // `ose.status.all()` answers, joined by ' · ': the editing mode (a menu of the modes), the
 // counts, when the file was changed and when it was saved, and the save state when it is bad.
 // Right: the zoom while it is not 100 %.
-import { ose } from 'ose:core';
-import { esc, copyText, toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, copyText, toast } from '../ui/index.ts';
 import { zoomLabel } from './settings.ts';
 import { clean, isOutside, outsideLabel } from './paths.ts';
 

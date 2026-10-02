@@ -16,8 +16,8 @@
 // `main.js` imports this file and calls `boot()`. Whatever throws in here ends on the boot
 // error page (`boot-error.js`, M38), never on a blank window.
 
-import { ose } from 'ose:core';
-import { toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { toast } from '../ui/index.ts';
 import { mountShell } from './layout.ts';
 import { mountVaultChooser } from './vault.ts';
 import { initPageHost, loadEditor } from './page.ts';
@@ -46,7 +46,7 @@ function loadKeys() {
  */
 async function loadPlanner() {
   try {
-    const m = await import('ose:views');
+    const m = await import('../views/index.ts');
     await m.initViews(ose);
   } catch (e) {
     console.error('[shell] planner', e);

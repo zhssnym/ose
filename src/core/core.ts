@@ -33,14 +33,16 @@ import { local, loadLocal, flushLocal, migrateLocal } from './local.ts';
 import * as journal from './journal.ts';
 import * as focusLib from './focus.ts';
 import { toast } from '../ui/toast.ts';
+import { pickPage, pickFolder, pickFile } from './pickers.ts';
 import { confirm } from '../ui/overlay.ts';
 import { initOpens } from './opens.ts';
 import { appVersion, checkForUpdate, updateReady } from './update.ts';
 import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.ts';
 
-// `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
-// there is one overlay stack, one toast queue and one icon set in a running Ose.
-export * from './ui-surface.ts';
+// The vault pickers and the page rows, for the shell and the editor's host, which import them
+// beside `ose`. The kit's own bricks are src/ui.
+export { pickPage, pickFolder, pickFile, pageTitle } from './pickers.ts';
+export { pageItems } from './page-items.ts';
 
 /* ------------------------------------------------------------------------------- the stamp */
 
@@ -269,6 +271,9 @@ export const ose = {
 
   /** The one host there is: the Rust host in src-tauri, reached through src/core/bridge/tauri.ts. */
   host: 'tauri',
+
+  /** The vault pickers (./pickers.ts), for code that is handed `ose` rather than importing the core. */
+  pickers: { page: pickPage, folder: pickFolder, file: pickFile },
 
   vault: {
     get root() { return vaultInfo.root; },

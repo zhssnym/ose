@@ -12,11 +12,9 @@
 // `ose.files` under the shape the editor was written against, and nothing else in the folder
 // knows there is an `ose` at all.
 
-import { ose } from 'ose:core';
-import {
-  confirm, contextMenu, copyText, esc, fuzzy, highlight, icon, openOverlay, pageItems,
-  pickPage, prompt, toast,
-} from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { confirm, contextMenu, copyText, esc, fuzzy, highlight, icon, openOverlay, prompt, toast } from '../ui/index.ts';
+import { pageItems, pickPage } from '../core/core.ts';
 
 export {
   confirm, contextMenu, copyText, esc, fuzzy, highlight, icon, openOverlay, pageItems,

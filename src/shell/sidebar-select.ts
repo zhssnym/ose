@@ -1,6 +1,6 @@
 // Part of the sidebar (./sidebar.js). The selection: the rows the tree commands act on.
 
-import { toast } from 'ose:ui';
+import { toast } from '../ui/index.ts';
 import { dirName } from './paths.ts';
 import { openInNewTab } from './tabs.ts';
 import {

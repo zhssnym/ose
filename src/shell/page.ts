@@ -20,13 +20,13 @@
 // some web view must cost the pages, not the whole window (M38). Without it the router shows a
 // page as plain text, the tree and every view still work, and a toast says why.
 
-import { ose } from 'ose:core';
-import { toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { toast } from '../ui/index.ts';
 import { allPages } from './sidebar.ts';
 import { clean } from './paths.ts';
 import { isMediaFile, mediaMissingPage, binaryPage, type MediaPage } from './media.ts';
 
-type Editor = typeof import('ose:editor');
+type Editor = typeof import('../editor/lib.ts');
 
 /**
  * The handle `markdownPage` answers, as far as this file calls it: the editor types it loosely,
@@ -62,7 +62,7 @@ const pathOf = (h: MediaPage) => clean(h.path());
  */
 export function loadEditor() {
   if (!editorLoad) {
-    editorLoad = import('ose:editor').then(
+    editorLoad = import('../editor/lib.ts').then(
       (m) => { editor = m; return m; },
       (e) => { console.error('[shell] editor', e); return { failed: e }; },
     );

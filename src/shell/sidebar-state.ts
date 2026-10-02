@@ -1,8 +1,8 @@
 // Part of the sidebar (./sidebar.js). What every part of the sidebar shares: the core's hoses it
 // leans on, and its state.
 
-import { ose } from 'ose:core';
-import { hasIcon } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { hasIcon } from '../ui/index.ts';
 
 /**
  * A node of the tree as the host lists it (`ose.files.tree`, `ose.files.list`), with its path

@@ -2,7 +2,7 @@
 // line a view draws when a path is not chosen, and the clicks on a path or on "Choose…".
 // DOM and listeners only; nothing here reads or writes the vault.
 
-import { esc } from 'ose:ui';
+import { esc } from '../../ui/index.ts';
 
 /**
  * The period navigation, laid out by `.v-nav`: the key hint in mono, then the three buttons.
@@ -90,7 +90,7 @@ export function detectedHtml(): string {
 /**
  * Open Settings › Planner, in a tab of its own (a tab already on Settings is reused).
  */
-export function openPlannerSettings(ose: typeof import('ose:core').ose): Promise<unknown> {
+export function openPlannerSettings(ose: typeof import('../../core/core.ts').ose): Promise<unknown> {
   return ose.tabs.open({ type: 'view', name: 'settings', arg: 'planner' });
 }
 
@@ -126,6 +126,6 @@ export function bindLinks(root: HTMLElement, ose: any): () => void {
  * The display name of a vault path (`ose.names.display`: the real name, `.md` hidden only with
  * the setting).
  */
-export function displayName(ose: typeof import('ose:core').ose, path: string): string {
+export function displayName(ose: typeof import('../../core/core.ts').ose, path: string): string {
   return ose.names.display(path);
 }

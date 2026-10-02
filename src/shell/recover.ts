@@ -8,8 +8,8 @@
 // The sheet comes up once, after the boot, and only when there is something in it. The command
 // `app.recovered` brings it back while there is.
 
-import { ose } from 'ose:core';
-import { esc, openOverlay, overlayCount, prompt, confirm, toast } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, openOverlay, overlayCount, prompt, confirm, toast } from '../ui/index.ts';
 import { clean, baseName, dirName, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, commands, route } = ose;

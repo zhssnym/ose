@@ -5,10 +5,9 @@
 //                     `tauri dev` opens in the app window.
 //   npm run build     `vite build`: the page in `dist/`, which `tauri build` bundles into the app.
 //
-// One app build: index.html loads src/shell/main.js, and everything else is reached from there.
+// One app build: index.html loads src/shell/main.ts, and everything else is reached from there.
 // The editor and the views load by dynamic import, so they are chunks of their own and the
-// first paint does not wait for Milkdown or CodeMirror. The `ose:*` specifiers are plain
-// aliases to the sources.
+// first paint does not wait for Milkdown or CodeMirror.
 //
 // The tests (vitest.config.js) stand alone and do not load this file.
 
@@ -20,10 +19,6 @@ import { defineConfig } from 'vite';
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 
 const ALIAS = {
-  'ose:core': here('src/core/core.ts'),
-  'ose:ui': here('src/ui/index.ts'),
-  'ose:editor': here('src/editor/lib.ts'),
-  'ose:views': here('src/views/index.ts'),
   // See src/editor/katex-absent.ts: Crepe's unused Latex feature would drag KaTeX in.
   katex: here('src/editor/katex-absent.ts'),
 };

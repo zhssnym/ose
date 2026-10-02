@@ -1,4 +1,4 @@
-// `ose:core` for the headless tests (vitest.config.js).
+// The core (src/core/core.ts) for the headless tests (vitest.config.js).
 //
 // The editor sources read `ose` at module top level (host.js: `ose.bus`, `ose.ready`, …) and
 // only call into it from a view, a command or a save, none of which a serialiser test reaches.
@@ -13,4 +13,7 @@ const deep = () => new Proxy(function stub() {}, {
 });
 
 export const ose = deep();
+// The two pickers' names the editor's host imports beside `ose`.
+export const pageItems = () => [];
+export const pickPage = async () => null;
 export default ose;

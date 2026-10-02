@@ -5,15 +5,12 @@
 // Node host, the vault resolution and the shell root with it; none of that belongs in a test,
 // and no test ever reads a vault (tests/fixtures holds the corpus).
 //
-// `ose:views` is the real entry (src/views): the views tests import its pure modules by
-// path, and a test that wants the entry wants the real one.
-//
-// The core's three library specifiers resolve to small stubs: the editor sources import
-// `ose:core` and `ose:ui` at module top level (host.js, deps.js), and the serialiser tests
-// never touch what those stubs stand in for. `@milkdown/crepe` itself, the exact specifier, is
-// a stub too: image.js imports it only for a feature-name constant, and the real package pulls
-// the whole view layer and its stylesheets into a test that has no view. Its theme files
-// (`@milkdown/crepe/theme/...css`) fall under the stylesheet rule with every other `.css`.
+// The core is a stub for the editor (tests/stubs/core.js): the editor sources import it at
+// module top level (host.ts), and the serialiser tests never touch what it stands in for.
+// `@milkdown/crepe` itself, the exact specifier, is a stub too: image.js imports it only for a
+// feature-name constant, and the real package pulls the whole view layer and its stylesheets
+// into a test that has no view. Its theme files (`@milkdown/crepe/theme/...css`) fall under the
+// stylesheet rule with every other `.css`.
 //
 // Switches, all environment variables: OSE_FUZZ_RUNS (property runs, default 150),
 // OSE_FUZZ_SEED (a number, default 20260925, or `random`), OSE_TEST_STANDIN=1 (the serializer
@@ -29,9 +26,10 @@ const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^ose:core$/, replacement: here('tests/stubs/core.js') },
-      { find: /^ose:ui$/, replacement: here('tests/stubs/ui.js') },
-      { find: /^ose:views$/, replacement: here('src/views/index.ts') },
+      // The editor reaches the app through one file, src/editor/host.ts, which imports the core
+      // as `../core/core.ts`: that one specifier is the stub (the core's own tests import it by
+      // its full path, which this does not match).
+      { find: /^\.\.\/core\/core\.ts$/, replacement: here('tests/stubs/core.js') },
       { find: /^@milkdown\/crepe$/, replacement: here('tests/stubs/crepe.js') },
       { find: /^.+\.css(\?.*)?$/, replacement: here('tests/stubs/empty.js') },
     ],
@@ -42,8 +40,7 @@ export default defineConfig({
     // import.meta.url is not a file URL under happy-dom.
     env: { OSE_REPO: here('.') },
     include: ['tests/**/*.test.js'],
-    // tests/e2e is Playwright's (`npm run test:e2e`, playwright.config.js), not vitest's.
-    exclude: ['tests/e2e/**', '**/node_modules/**'],
+        exclude: ['tests/e2e/**', '**/node_modules/**'],
     // The property tests parse and serialise a few thousand documents; the first file in a
     // worker also pays for loading Milkdown.
     testTimeout: 60_000,

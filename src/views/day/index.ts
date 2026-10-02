@@ -10,7 +10,7 @@
 // `appendLine` (M30); a task toggle replaces its one line with `replaceLine`, only if the line
 // still reads what was shown (M31); a new task is appended to the first todo file.
 
-import { esc, loadingLine, toast } from 'ose:ui';
+import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, startOfDay, ymd,
 } from '../shared/dates.ts';

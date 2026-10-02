@@ -12,8 +12,8 @@
 // Ctrl+Shift+T. One tab is no strip at all: it appears at two and the page column takes the
 // room back. Closing the last tab sends it Home rather than leaving the strip empty.
 
-import { ose } from 'ose:core';
-import { icon } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { icon } from '../ui/index.ts';
 import { HOME } from './start.ts';
 import { DRAG_TYPE, dragged, isInternal } from './drag.ts';
 import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.ts';

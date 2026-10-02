@@ -1,8 +1,8 @@
 // Part of the sidebar (./sidebar.js). The tree: its data, which folders are open, how its rows are
 // drawn, and the keys that walk it.
 
-import { ose } from 'ose:core';
-import { esc, focusOrigin, hasIcon, icon, overlayCount, retargetFocusOrigin } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, focusOrigin, hasIcon, icon, overlayCount, retargetFocusOrigin } from '../ui/index.ts';
 import { byViewOrder } from './order.ts';
 import {
   baseName, clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,

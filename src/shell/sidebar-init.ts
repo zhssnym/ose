@@ -1,6 +1,6 @@
 // Part of the sidebar (./sidebar.js). Putting the sidebar up.
 
-import { contextMenu } from 'ose:ui';
+import { contextMenu } from '../ui/index.ts';
 import { onClipboard, setContext } from './fileops.ts';
 import { toggleSidebar } from './layout.ts';
 import { bus, commands, debounce, ic, showHidden, slot, state } from './sidebar-state.ts';

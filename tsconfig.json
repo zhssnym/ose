@@ -17,21 +17,7 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitAny": false,
-    "paths": {
-      "ose:core": [
-        "./src/core/core.ts"
-      ],
-      "ose:ui": [
-        "./src/ui/index.ts"
-      ],
-      "ose:editor": [
-        "./src/editor/lib.ts"
-      ],
-      "ose:views": [
-        "./src/views/index.ts"
-      ]
-    }
+    "noImplicitAny": false
   },
   "include": [
     "src/**/*.js",

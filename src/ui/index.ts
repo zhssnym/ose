@@ -1,24 +1,15 @@
-// `ose:ui` (docs/CORE.md). The entry of the `ui.ts` bundle, and nothing but a list of names.
-//
-// The code is in `ose:core`, which is external to this bundle: the core's own router, key
-// engine and file operations raise the same dialogs and the same toasts, and there must be one
-// overlay stack in a running Ose, not two. So `ose:ui` is a facade over `ose:core`, the
-// emitted `ui.ts` is twenty lines, and `import { toast } from 'ose:ui'` and the toast the
-// core raises are the same queue.
-//
-// The stylesheet that goes with it is `ui.css` on the same origin.
+// The kit (src/ui): the bricks every part of the page draws with, and nothing that knows a
+// vault. The stylesheet is ui.css beside it (tokens.css + base.css), imported by the shell.
 
 export {
   openOverlay, closeTopOverlay, overlayCount, overlayHasInputFocus,
   focusOrigin, retargetFocusOrigin, focusField,
   prompt, confirm, choose,
-  pickPage, pickFolder, pickFile,
   contextMenu,
-  toast, dismissToast,
-  copyText,
-  pageTitle,
-  icon, hasIcon, glyph,
-  fuzzy, highlight, pageItems,
-  loadingLine, loadingOverlay, LOADING_DELAY,
-  esc,
-} from 'ose:core';
+} from './overlay.ts';
+export { toast, dismissToast } from './toast.ts';
+export { copyText } from './clipboard.ts';
+export { icon, hasIcon, glyph } from './icons.ts';
+export { fuzzy, highlight } from './fuzzy.ts';
+export { loadingLine, loadingOverlay, LOADING_DELAY } from './loading.ts';
+export { esc } from './html.ts';

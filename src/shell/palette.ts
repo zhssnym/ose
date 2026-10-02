@@ -5,8 +5,9 @@
 // Go to file lists every file in the vault (H17), under its real name with its extension, the
 // same name the tree and the tab show (W8), with its folder under it. What a page's H1 says is
 // not a second name for it: a file has one name, and it is the one on disk.
-import { ose } from 'ose:core';
-import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
+import { ose } from '../core/core.ts';
+import { esc, icon, openOverlay, toast, fuzzy, highlight, focusField } from '../ui/index.ts';
+import { pageItems } from '../core/core.ts';
 import { allFiles } from './sidebar.ts';
 import { newFile } from './fileops.ts';
 import { dirName, extOf, titleOf } from './paths.ts';

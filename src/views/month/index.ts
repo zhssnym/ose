@@ -8,7 +8,7 @@
 // loss, and a system nobody has checked yet has lost nothing (L16): the verdict is `dayVerdict`
 // in plans.ts, the same one the tests read.
 
-import { esc, loadingLine, toast } from 'ose:ui';
+import { esc, loadingLine, toast } from '../../ui/index.ts';
 import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from '../shared/dates.ts';
 import {
   dayVerdict, isGapLine, logPath, parseMonthlyPlan, parseSystemsLog, percentages, resolvePlanPath, systemsFor,
