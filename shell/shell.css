@@ -236,6 +236,10 @@
    the outline under the seg's border and left a 1px sliver of it (R2). */
 .seg-b:focus-visible { outline-offset: -2px; }
 
+/* Updates: the button and what the check found, on one line. */
+.set-update { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.set-update-note { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--fg-2); }
+
 /* The keys, read only: the core's table component, the chord in its key cap. */
 .set-keys td { font-size: var(--fs-ui); }
 .set-keys .kbd { white-space: nowrap; }

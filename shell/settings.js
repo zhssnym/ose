@@ -176,6 +176,46 @@ function filesHtml() {
       'On, the .md at the end of a page\'s name is left out in the tree, the tabs and the title bar. The file keeps its name.');
 }
 
+/** Updates: the version running, and a button that checks now (the app also checks at start). */
+function updatesHtml() {
+  return `<div class="set-info mono-sm text-select">
+      <div><span>Version</span><i class="set-app-version">—</i></div>
+    </div>
+    <div class="set-update">
+      <button type="button" class="btn sm" data-act="update">Check for updates</button>
+      <span class="set-update-note mono-sm" role="status"></span>
+    </div>`;
+}
+
+/** The running version, once Tauri has said. */
+async function paintUpdates(box) {
+  const el = box.querySelector('.set-app-version');
+  if (!el) return;
+  const v = await ose.window.appVersion();
+  if (el.isConnected) el.textContent = v || ose.version.core;
+}
+
+/** Check now: none, one ready to install (with Restart), or why it could not. */
+async function checkNow(button) {
+  const box = button.closest('.set-update');
+  const note = box && box.querySelector('.set-update-note');
+  if (!(note instanceof HTMLElement)) return;
+  button.disabled = true;
+  note.textContent = 'Checking…';
+  const r = await ose.window.checkForUpdate();
+  button.disabled = false;
+  if (!note.isConnected) return;
+  if (r.status === 'none') { note.textContent = 'Ose is up to date.'; return; }
+  if (r.status === 'error') { note.textContent = `Could not check: ${r.message}`; return; }
+  note.textContent = `Ose ${r.version} is ready. `;
+  const restart = document.createElement('button');
+  restart.type = 'button';
+  restart.className = 'btn sm primary';
+  restart.textContent = 'Restart to update';
+  restart.addEventListener('click', () => { void r.restart(); });
+  note.append(restart);
+}
+
 function vaultHtml() {
   const root = store.get('root') || {};
   return `<div class="set-info mono-sm text-select">
@@ -304,6 +344,7 @@ const HEAD = [
   { id: 'files', title: 'Files', html: filesHtml },
 ];
 const TAIL = [
+  { id: 'updates', title: 'Updates', html: updatesHtml },
   { id: 'keys', title: 'Keys', html: keysHtml },
   { id: 'vault', title: 'Vault', html: vaultHtml },
 ];
@@ -394,6 +435,7 @@ function mountPage(el, route = {}) {
     body.innerHTML = html;
     syncControls(body);
     if (sec.id === 'vault') paintVaultInfo(body);
+    if (sec.id === 'updates') void paintUpdates(body);
   }
 
   nav.addEventListener('click', (e) => {
@@ -421,6 +463,7 @@ function mountPage(el, route = {}) {
     if (!(e.target instanceof Element)) return;
     const act = e.target.closest('[data-act]');
     if (act instanceof HTMLElement && act.dataset.act === 'vault') { void commands.run('app.vault-change'); return; }
+    if (act instanceof HTMLButtonElement && act.dataset.act === 'update') { void checkNow(act); return; }
     const b = e.target.closest('.seg-b');
     if (!(b instanceof HTMLElement)) return;
     const seg = b.closest('.seg');
@@ -473,7 +516,7 @@ const view = {
 
 /**
  * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named.
- * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'keys', 'vault', or a registered one
+ * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'updates', 'keys', 'vault', or a registered one
  * @returns {Promise<void>}
  */
 export async function openSettings(arg) {
@@ -489,6 +532,7 @@ export function initSettings() {
   ose.settings.apply();
   ose.views.register('settings', view);
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: () => openSettings() });
+  commands.register({ id: 'app.update', title: 'Check for updates', group: 'app', hint: 'Settings, Updates', run: () => openSettings('updates') });
   commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Keys', run: () => openSettings('keys') });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
