@@ -361,19 +361,16 @@
 .st-left .st-item.ok { color: var(--ok); }
 .st-left .st-item.accent { color: var(--accent); }
 .st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
+/* The editing mode as a small two-way toggle: the current one lit, the other a click away. */
+.st-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; vertical-align: middle; }
+.st-seg-b { padding: 0 var(--sp-2); line-height: 1.125rem; color: var(--fg-3); background: transparent; font: inherit; }
+.st-seg-b + .st-seg-b { border-left: 1px solid var(--border); }
+.st-seg-b:hover { color: var(--fg); }
+.st-seg-b.on { color: var(--fg); background: var(--bg-3); }
 
 /* ------------------------------------------------------------------ status field with choices */
 
-/* A field that offers choices (the editing mode, §4.5): a button like any pressable field,
-   with a small chevron that says a menu opens. The menu itself is the context menu, and the
-   current choice wears the dot in its icon slot. */
-.st-left .st-choose { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.st-left .st-choose svg { width: 0.5rem; height: 0.5rem; stroke: currentColor; fill: none; stroke-width: 1.75; transform: rotate(90deg); }
-.menu-row[role="menuitemradio"] .st-mark { width: 0.875rem; flex: none; display: grid; place-items: center; }
-.menu-row[role="menuitemradio"] .st-mark svg { width: 0.875rem; height: 0.875rem; }
 
-/* The save dot at the start of the bar. */
-.statusbar .tb-dirty { flex: none; }
 
 /* ------------------------------------------------------------------ save state (H8) */
 
@@ -381,7 +378,7 @@
    the error mark, a square in --err, in the same place in the reading order. A square and not
    a red dot, so it does not depend on telling two colours apart. The tooltip carries the
    editor's own sentence. */
-.tab-err, .tb-dirty.err {
+.tab-err {
   width: 0.4375rem; height: 0.4375rem; flex: none;
   border-radius: 0; background: var(--err);
 }

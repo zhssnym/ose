@@ -8,15 +8,11 @@
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
-import { clean } from './paths.js';
 import { LOGO } from './logo.js';
 
-const { bus, commands, route } = ose;
-const currentRoute = () => route.current();
+const { bus, commands } = ose;
 
 let el = null;
-/** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
-const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let foldEl = null;
 
 /* ------------------------------------------------------------------ build */
@@ -28,7 +24,7 @@ const SIDE_GLYPH = '<svg viewBox="0 0 16 16" aria-hidden="true">'
 
 /**
  * Build the title bar into `node`: every control, the address bar and its command, and the
- * listeners that keep them in step with the route, the tabs and the page's save state.
+ * listeners that keep them in step with the sidebar.
  * @param {HTMLElement} node
  */
 export function initTitlebar(node) {
@@ -62,31 +58,6 @@ export function initTitlebar(node) {
   addEl.addEventListener('click', () => commands.run('tab.new'));
 
 
-  bus.on('route', () => { setState(null); });
-  // The mark follows the page in front only: the tabs carry every other page's (H8).
-  const mine = (d) => {
-    const r = currentRoute();
-    return !!d && !!r && r.type === 'page' && clean(d.path) === clean(r.path);
-  };
-  bus.on('doc:dirty', (d) => { if (mine(d)) setDirty(d.dirty); });
-  bus.on('doc:saved', (d) => { if (!d || mine(d)) setDirty(false); });
-  bus.on('doc:state', (d) => { if (mine(d)) setState(d); });
-}
-
-/**
- * The page's save state beside the address (H8): the dot while it is dirty, the error mark when
- * it could not be written or changed on disk under it, with the editor's sentence as the
- * tooltip. `null` is a page just opened, which is clean until the editor says otherwise.
- */
-function setState(d) {
-  const dirtyEl = dot();
-  if (!dirtyEl) return;
-  const bad = !!d && (d.status === 'not-saved' || d.status === 'conflict' || (d.status === 'deleted' && d.dirty));
-  dirtyEl.classList.toggle('err', bad);
-  const what = bad ? (d.status === 'deleted' ? 'deleted on disk, not saved' : 'not saved') : 'unsaved changes';
-  dirtyEl.title = bad && d.message ? `${what}: ${d.message}` : what;
-  dirtyEl.setAttribute('aria-label', what);
-  dirtyEl.hidden = !(bad || (d && d.dirty));
 }
 
 /** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
@@ -97,16 +68,6 @@ function setSidebarShown(shown) {
   foldEl.title = what;
   foldEl.setAttribute('aria-label', what);
   foldEl.setAttribute('aria-expanded', shown ? 'true' : 'false');
-}
-
-/**
- * The unsaved dot, on or off, unless the error mark holds the place.
- * @param {boolean} v
- */
-export function setDirty(v) {
-  const dirtyEl = dot();
-  if (!dirtyEl || dirtyEl.classList.contains('err')) return;
-  dirtyEl.hidden = !v;
 }
 
 /* ------------------------------------------------------------------ the window buttons */

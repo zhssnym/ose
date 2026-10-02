@@ -111,7 +111,8 @@ function render() {
     // mark only while it holds text that exists nowhere else.
     const err = !!bad && (bad.status !== 'deleted' || isDirty);
     const tip = bad && bad.message ? `${tipOf(r)}: ${bad.message}` : tipOf(r);
-    const mark = err ? 'err' : isDirty ? 'dot' : '';
+    // Unsaved is said in words in the status bar; only a failure wears a mark here.
+    const mark = err ? 'err' : '';
     const out = outsideOf(r);
     let el = have.get(t.id);
     if (!el) {
@@ -141,13 +142,13 @@ function render() {
       o.textContent = 'outside vault';
       name.after(o);
     } else if (!out && hadOut) hadOut.remove();
-    const had = el.querySelector('.tab-err, .tab-dot');
-    const hadMark = had ? (had.classList.contains('tab-err') ? 'err' : 'dot') : '';
+    const had = el.querySelector('.tab-err');
+    const hadMark = had ? 'err' : '';
     if (hadMark !== mark) {
       if (had) had.remove();
       if (mark) {
         const m = document.createElement('span');
-        m.className = mark === 'err' ? 'tab-err' : 'tab-dot';
+        m.className = 'tab-err';
         m.setAttribute('role', 'img');
         m.setAttribute('aria-label', mark === 'err' ? 'not saved' : 'unsaved changes');
         el.insertBefore(m, name);
