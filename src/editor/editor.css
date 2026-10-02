@@ -612,6 +612,13 @@
 /* While blocks are selected the native text highlight underneath would double the colour. */
 .ed .milkdown .ProseMirror.os-blocksel ::selection,
 .ed .milkdown .ProseMirror.os-blocksel::selection { background: transparent; }
+/* The rubber band (marquee.ts), drawn over the page while a drag from the air selects blocks.
+   Fixed to the window, clipped to the scroller by the script, and never in the pointer's way. */
+.os-marquee {
+  position: fixed; z-index: 40; pointer-events: none;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  border: 1px solid var(--accent); border-radius: var(--radius);
+}
 
 /* ---------------------------------------------------------------- page picker (fallback) */
 
