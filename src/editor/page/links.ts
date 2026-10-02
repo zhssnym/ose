@@ -68,7 +68,7 @@ export function installLinks(ctx: PageCtx) {
 
   /**
    * The rich half of `rewriteLinks`, the same decisions the core's disk path makes
-   * (links.js `rewriteInboundMany`): a href is resolved against where the page was written
+   * (src/core/links.ts `rewriteInboundMany`): a href is resolved against where the page was written
    * (its old path when the page itself moved), and rewritten relative to where it is now when
    * its target moved, or when the page moved and the href would otherwise stop resolving. A
    * vault-root href (`/…`) is left as the disk path leaves it. Answers how many links

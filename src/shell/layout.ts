@@ -31,8 +31,8 @@ const P_SHARE = 0.5;
 
 // Per machine, per vault (docs/CORE.md `ose.local`, W5): how wide the sidebar is and whether
 // it is open is this screen's business, not something the vault carries to the next machine.
-// `sidebar.js` writes `expanded` into the same slot. Never the vault's `.ose/state.json`: that
-// file is synced, and one screen's layout is not the vault's (W5).
+// `sidebar.ts` writes `expanded` into the same slot. Never the vault's state (`ose.state`):
+// one screen's layout is not the vault's.
 let sidebarState: ReturnType<typeof ose.local> | null = null;
 let panelState: ReturnType<typeof ose.local> | null = null;
 
@@ -84,7 +84,7 @@ function fit() {
   shell.classList.toggle('no-sidebar', !sOpen);
   // The title bar's sidebar toggle shows whether it is on screen, and the window hides the sidebar on
   // its own without touching the preference, so what is on screen is announced rather than
-  // read off `sidebar.open` (shell/titlebar.js).
+  // read off `sidebar.open` (src/shell/titlebar.ts).
   if (sOpen !== shown) { shown = sOpen; bus.emit('sidebar', sOpen); }
 
   // The side panel takes its share first and gives way the same way: never under P_MIN, and
@@ -284,7 +284,7 @@ export function focusPage() {
 
 // A file dropped anywhere but a real target would otherwise navigate the whole window to it,
 // which in the host means the app is gone. Anything already handled (the tree's folder rows,
-// the folder view, the editor's own drop) has called preventDefault by the time this runs;
+// the editor's own drop) has called preventDefault by the time this runs;
 // what is left is ignored (docs/SHELL.md "Drag in and out").
 const EDITABLE = '[contenteditable="true"], .ProseMirror, .milkdown, input, textarea';
 
@@ -311,7 +311,7 @@ function guardWindowDrops() {
  * unmounted, deleted. The watcher says so once — a `lost` notice — instead of failing every
  * call with a toast of its own, and says so again when it comes back. The other half is a
  * second launch naming a different folder: the host only asks now, and the switch is the same
- * one Change vault… makes, after the open page has been saved (C5, shell/vault.js).
+ * one Change vault… makes, after the open page has been saved (C5, src/shell/vault.ts).
  */
 function watchVault() {
   ose.watch((d) => {
@@ -499,7 +499,7 @@ function buildPanel() {
 /* ------------------------------------------------------------------ build */
 
 /**
- * Build the shell into `rootEl` and answer its parts. Nothing is navigated to yet: `boot.js`
+ * Build the shell into `rootEl` and answer its parts. Nothing is navigated to yet: `boot.ts`
  * calls this, then hands `els.main` to `ose.init`.
  */
 export function mountShell(rootEl: HTMLElement): { titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, statusbar: HTMLElement, panel: HTMLElement } {
@@ -570,7 +570,7 @@ export function mountShell(rootEl: HTMLElement): { titlebar: HTMLElement, sideba
 
   initTitlebar(els.titlebar);
   // The tabs live in the title bar, between the path and the window buttons: no row of their
-  // own. The strip is the same element tabs.js draws into, moved, so nothing else changes.
+  // own. The strip is the same element tabs.ts draws into, moved, so nothing else changes.
   const slot = els.titlebar.querySelector('.tb-tabs-slot');
   if (slot) slot.replaceWith(els.tabs);
   initSidebar(els.sidebar);
@@ -582,7 +582,7 @@ export function mountShell(rootEl: HTMLElement): { titlebar: HTMLElement, sideba
 
   commands.register({ id: 'app.back', title: 'Back', group: 'navigate', when: () => ose.route.canBack(), run: () => ose.route.back() });
   commands.register({ id: 'app.forward', title: 'Forward', group: 'navigate', when: () => ose.route.canForward(), run: () => ose.route.forward() });
-  // The other half of `app.focus-sidebar` (sidebar.js, Ctrl+Shift+E). No chord: Esc from the
+  // The other half of `app.focus-sidebar` (sidebar.ts, Ctrl+Shift+E). No chord: Esc from the
   // tree does it, and the palette has it for everywhere else (D2).
   commands.register({ id: 'app.focus-page', title: 'Focus page', group: 'app', hint: 'the editor, or the view', run: () => { focusPage(); } });
   // The window again, once the open page has been saved. No chord: Ctrl+R is gone (D8), so a

@@ -1,5 +1,5 @@
 // The one window hose left: a vault another launch asked this window to switch to. Moving and
-// resizing the window are the platform's and the title bar's (titlebar.js): nothing here
+// resizing the window are the platform's and the title bar's (titlebar.ts): nothing here
 // draws or drives them.
 //
 // One file knows; everybody else calls it.

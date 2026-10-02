@@ -14,14 +14,14 @@
 // once the route has been shown, so two routes to one page are the same page.
 //
 // The router owns the mount cycle of the page column and every change of what is on it: the
-// tabs and their histories (the model is ./tabs.js), navigate, back and forward, opening,
+// tabs and their histories (the model is ./tabs.ts), navigate, back and forward, opening,
 // activating and closing a tab, the 'route' and 'tabs' events, the window title and the recent
 // files. The page on screen is asked before it is left (C1); a page left because another tab
 // comes forward is parked instead, buffer and undo kept (M12, M24).
 import { bus, store, views, commands, debounce, esc } from './registry.ts';
 import { bridge } from './bridge/index.ts';
-// The editor is a separate bundle (`ose:editor`); the core does not import it. The shell
-// registers it through ./pagehost.js.
+// The editor (src/editor) is loaded on its own; the core does not import it. The shell
+// registers it through ./pagehost.ts.
 import { pageHost, headingLineIn } from './pagehost.ts';
 import { flushState } from './state.ts';
 import { local } from './local.ts';
@@ -31,7 +31,7 @@ import { toast } from '../ui/toast.ts';
 import { loadingOverlay } from '../ui/loading.ts';
 import * as T from './tabs.ts';
 // "Create it" is a file operation like any other (H12, M4): exclusive, any extension, never a
-// markdown heading written into a `.json`. Circular with ./fileops.js, which re-points the
+// markdown heading written into a `.json`. Circular with ./fileops.ts, which re-points the
 // history through `repoint` below; both only call each other at run time.
 import { create as createFile } from './fileops.ts';
 
@@ -125,7 +125,7 @@ function spend(route) {
   else if (route.type === 'view') delete route.arg;
 }
 
-/** `ose.route.on(fn)`: after every change of the route on screen (null on the empty surface). */
+/** `ose.route.on(fn)`: after every change of the route on screen (null on an empty column). */
 export function onRoute(fn) { return bus.on('route', fn); }
 
 /**
@@ -163,9 +163,8 @@ function pushRecent(path) {
 /**
  * `ose.route.init(el, { start })` — the shell mounts the router into its page column, once.
  *
- * `start: false` skips the empty surface the mount otherwise draws, for a shell that opens on
- * a surface of its own (Home, or the restored session): the column is left blank until the
- * shell navigates, instead of flashing the core's surface away under it.
+ * `start: false` skips the first show, for a shell that opens on a surface of its own (Home):
+ * the column is left blank until the shell navigates.
  */
 export function initRouter(el, { start = true } = {}) {
   mainEl = el;
@@ -336,7 +335,7 @@ async function teardown(mode) {
 /**
  * The window is going away (a close request, a reload, a change of vault): the view or folder
  * on screen is unmounted exactly as it would be on a navigation. The editor is left alone — it
- * answers the leave gate (`ose.window.onLeave`, ./leave.js), saving and possibly vetoing.
+ * answers the leave gate (`ose.window.onLeave`, ./leave.ts), saving and possibly vetoing.
  */
 export async function unmountOnUnload() {
   if (!current || current.type === 'page') return;
@@ -374,7 +373,7 @@ async function mountPage(scroll, route, my) {
   // The caret the page was left with, when the caller has not asked for a line instead (N44).
   const selection = route.selection || (line ? null : caretMemory.get(routeKey(route)) || null);
   // A file outside the vault (X7) is registered with the host before anything reads it, every
-  // time it mounts: so a restored session, Recent and back or forward all work, and a path the
+  // time it mounts: so a tab, Recent and back or forward all work, and a path the
   // host finds inside this vault after all is shown as the vault file it is.
   if (isOutside(path)) {
     let reg: import('./bridge/commands.ts').OutsideFile | null = null;
@@ -523,7 +522,7 @@ async function renderView(scroll, route, my) {
 }
 
 /**
- * The window title (S13, W8): `<file name> · <vault>`, `<view title> · <vault>`, or the vault's name alone on the empty surface.
+ * The window title (S13, W8): `<file name> · <vault>`, `<view title> · <vault>`, or the vault's name alone on an empty column.
  * A page is named by its file, never by its H1 (M13).
  */
 function setWindowTitle(route) {
@@ -623,7 +622,7 @@ function overtake(c) {
 }
 
 /**
- * Put the active tab's current entry on the column (or the empty surface when there is none).
+ * Put the active tab's current entry on the column (or leave it empty when there is none).
  * The model has already been changed under a snapshot (`T.beginChange`). Answers false, and
  * changes nothing that anybody can see, when the page on screen refuses to be left or a newer
  * show took over; true once the new route is up.
@@ -842,7 +841,7 @@ export function forward() {
 export function canBack() { const rec = T.activeRecord(); return !!rec && rec.index > 0; }
 export function canForward() { const rec = T.activeRecord(); return !!rec && rec.index >= 0 && rec.index < rec.stack.length - 1; }
 
-/** `ose.route.setHome(route)`: the route the last tab falls back to instead of the empty surface. */
+/** `ose.route.setHome(route)`: the route the last tab falls back to instead of an empty column. */
 export function setHome(route) { T.setHome(normalize(route)); }
 
 /**
@@ -918,7 +917,7 @@ export function activateTab(id: string, { focus }: { focus?: boolean; } = {}): P
 /**
  * `ose.tabs.close(id)` -> Promise<boolean>. The active tab: its page is asked (or parked when
  * another tab shows the same file) and the tab used before it comes forward; the last tab goes
- * to Home instead of disappearing, or to the empty surface when there is no Home. A background
+ * to Home instead of disappearing, or to an empty column when there is no Home. A background
  * tab whose page no other tab shows: that page is released (saved and destroyed) first, and a
  * page that cannot be saved keeps its tab. False: nothing changed.
  */

@@ -1,6 +1,6 @@
-//! The per-machine store (docs/HOST.md "Local state", W5, M26): what belongs to this machine
-//! and not to the vault, so it is never synced with it. The session, the recent files, the
-//! sidebar, the per-folder sort, the reading settings, the window bounds and the theme mirror.
+//! The per-machine store (docs/HOST.md "Local state"): what belongs to this machine and not to
+//! the vault. The recent files, the sidebar, the reading settings, the window bounds and the
+//! theme mirror.
 //!
 //! Two JSON objects under the app's config folder:
 //!

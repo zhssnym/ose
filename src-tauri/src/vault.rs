@@ -703,7 +703,7 @@ pub fn write_atomic(full: &Path, bytes: &[u8]) -> Result<(), WriteFailure> {
     write_atomic_with(full, bytes, RENAME_BUDGET_MS, Aside::Visible, &|_| Ok(()))
 }
 
-/// `write_atomic` for a file the app owns (a draft, a version, `.ose/state.json`): the bytes are
+/// `write_atomic` for a file the app owns (a draft, a version, a vault's state): the bytes are
 /// still in memory and the file is the app's bookkeeping, so a rename that never goes through
 /// removes the temp file instead of setting a copy aside, after `budget_ms` of retries.
 pub fn write_atomic_owned(full: &Path, bytes: &[u8], budget_ms: u64) -> Result<(), WriteFailure> {

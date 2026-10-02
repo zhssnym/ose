@@ -1,8 +1,8 @@
-// `render(markdown, opts)` (docs/CORE.md `ose:editor`): markdown as read-only DOM.
+// `render(markdown, opts)` (docs/CORE.md, the editor): markdown as read-only DOM.
 //
-// A view that wants to *show* a note rather than edit it (the folder view's README, the
-// planner) should not have to boot Milkdown: this is marked with GFM on, through DOMPurify,
-// into one detached element.
+// A view that wants to *show* a note rather than edit it (the planner's journal) should not
+// have to boot Milkdown: this is marked with GFM on, through DOMPurify, into one detached
+// element.
 // Nothing here is editable, no plugin runs, no command is registered and no file is read.
 //
 // The three things the caller cannot do for itself are the three the editor knows: a link in a

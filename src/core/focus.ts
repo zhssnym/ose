@@ -5,7 +5,7 @@
 // leave it, and nothing outside the sidebar said the app was narrowed, so quick open answered
 // "no matches" for a page that was right there. Now:
 // - it is entered only on purpose (the command, or the tree's own gesture), and it lasts for
-//   the session: it is never restored at boot, and a focus left in `.ose/state.json` by an
+//   the session: it is never restored at boot, and a focus left in the vault's state by an
 //   older build is dropped;
 // - it is said in one place only, the sidebar's heading (`Focus <folder> ×`), and left there
 //   with its ×, or with `app.focus-exit` from the tree's menu or the palette. No key leaves it.

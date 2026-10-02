@@ -1307,7 +1307,7 @@ pub async fn draft_drop(window: WebviewWindow, host: State<'_, Host>, path: Stri
 
 // ---- versions ------------------------------------------------------------------
 
-/// The versions are the vault's (`.ose/history`): an outside file has none.
+/// The versions are the vault's (kept in the app's data folder): an outside file has none.
 fn no_versions(path: &str) -> HostResult<()> {
     if outside::is_abs(path) {
         return Err(HostError::Unsupported(format!("an outside file keeps no versions: {path}")));
@@ -1378,7 +1378,7 @@ pub async fn version_restore(window: WebviewWindow, host: State<'_, Host>, path:
 
 // ---- state ---------------------------------------------------------------------
 
-/// `getState()`: the vault's `.ose/state.json`.
+/// `getState()`: the vault's state, kept on this machine outside the vault.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_state(window: WebviewWindow, host: State<'_, Host>) -> HostResult<Json> {

@@ -1,5 +1,5 @@
 // The monthly plan and the systems check log. Day and Month both read them. Pure: text in,
-// data out; no DOM, no `ose:*` (docs/FORMATS.md "Monthly plan" and "systems.jsonl").
+// data out; no DOM, no `ose` (docs/FORMATS.md "Monthly plan" and "systems.jsonl").
 //
 //   <reports>/<year>/<YYYY-MM>*.md   the plan: title section (goals), `# Systems`, `# Monthly Review`
 //   <reports>/systems.jsonl          one JSON record per check, appended, never rewritten

@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). Reading the tree, and keeping it current with what the app
+// Part of the sidebar (./sidebar.ts). Reading the tree, and keeping it current with what the app
 // and the disk did.
 
 import { confirm, toast } from '../ui/index.ts';
@@ -209,7 +209,7 @@ let movedFocus: string | null = null;
 const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null);
 
 /**
- * `paths:moving` (shell/fileops.js, before the host call): the watcher will report these a
+ * `paths:moving` (src/shell/fileops.ts, before the host call): the watcher will report these a
  * moment later, and the links are about to be rewritten by `ose.fileops` itself, so the N19
  * question must not offer to fix them.
  */
@@ -275,7 +275,7 @@ export function onArrived(paths) {
   schedulePatch(list.map(dirName));
 }
 
-/** `tree:reveal` (shell/fileops.js): show a path the person just made, and with `focus` put the keyboard on it. */
+/** `tree:reveal` (./fileops.ts): show a path the person just made, and with `focus` put the keyboard on it. */
 export function onReveal(d) {
   const p = clean(d && d.path);
   if (!p) return;

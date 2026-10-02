@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). Putting the sidebar up.
+// Part of the sidebar (./sidebar.ts). Putting the sidebar up.
 
 import { contextMenu } from '../ui/index.ts';
 import { onClipboard, setContext } from './fileops.ts';
@@ -128,7 +128,7 @@ export function initSidebar(node: HTMLElement) {
 
   bindDnd(scrollEl);
 
-  // What "here" is for the file commands run from the palette or a chord (shell/fileops.js):
+  // What "here" is for the file commands run from the palette or a chord (src/shell/fileops.ts):
   // the focused row, else the route on screen; and the selection that row is part of.
   setContext({
     target: () => treeTarget(),
@@ -162,7 +162,7 @@ export function initSidebar(node: HTMLElement) {
 
   commands.register({
     id: 'app.sidebar', title: 'Toggle sidebar', group: 'app',
-    // What is on screen, flipped — layout.js owns the window's own auto-hide.
+    // What is on screen, flipped — layout.ts owns the window's own auto-hide.
     run: () => toggleSidebar(),
   });
   commands.register({

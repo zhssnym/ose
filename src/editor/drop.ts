@@ -2,7 +2,7 @@
 //
 //   files from outside     every file that is not an image is copied to the page's
 //                          `attachments/` folder under the name an image would get
-//                          (index.js attachFile) and linked by its original name. A drop of
+//                          (page/dom.ts attachFile) and linked by its original name. A drop of
 //                          images alone is left to Milkdown's uploader, which makes image
 //                          blocks; images that arrive in the same drop as other files are
 //                          attached here and become the same image blocks.
@@ -13,7 +13,7 @@
 //
 // Every link is the mark the Link command writes (link.ts insertLink), never markdown text,
 // and its href goes through relativeHref, so it renders, round-trips and follows a rename
-// (lib/links.js) exactly like one typed by hand. The plugin goes in front of Milkdown's
+// (src/core/links.ts) exactly like one typed by hand. The plugin goes in front of Milkdown's
 // upload plugin: that one claims any drop carrying files — even files it then throws away —
 // so it must be asked second.
 
@@ -23,7 +23,7 @@ import { toast } from './deps.ts';
 import { pageTitle } from './link.ts';
 import * as P from './paths.ts';
 
-/** The sidebar's private drag type (shell/sidebar.js DRAG_TYPE). */
+/** The sidebar's private drag type (src/shell/sidebar.ts DRAG_TYPE). */
 export const DRAG_TYPE = 'application/x-os-path';
 const DROP_KEY = new PluginKey('os-drop');
 
@@ -61,7 +61,7 @@ export function dropPlugin(o: { pagePath: () => string | null; attach: (file: Fi
         if (!view.editable) return false;
         const payload = payloadOf(event.dataTransfer);
         if (!payload) return false;
-        // Images alone are the uploader's (crepe.ts onUpload -> index.js uploadImage).
+        // Images alone are the uploader's (crepe.ts onUpload -> page/dom.ts uploadImage).
         if (!payload.paths.length && payload.files.every(isImage)) return false;
         const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
         void dropInto(view, payload, at ? at.pos : view.state.selection.from, o);
@@ -74,7 +74,7 @@ export function dropPlugin(o: { pagePath: () => string | null; attach: (file: Fi
 /**
  * Turn a payload into links (and image blocks) at `pos`. Async because a page's title is read
  * from its file and an attachment is written before it can be linked; a failure toasts and
- * the rest still lands. Also called for a drop on the title (index.js), with `pos` 0.
+ * the rest still lands. Also called for a drop on the title (page/dom.ts), with `pos` 0.
  */
 export async function dropInto(view, payload, pos, o) {
   const from = o.pagePath() || '';

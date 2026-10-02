@@ -1,6 +1,6 @@
 // What makes a `$` a formula, on one line: the pandoc rule of math.ts, kept apart from Temml
 // and the CSS so that the serializer (stringify.ts) and the headless engine the tests run can
-// import it without a DOM (docs/CORE.md `ose:editor`). math.ts re-exports all three.
+// import it without a DOM (docs/CORE.md, the editor). math.ts re-exports all three.
 //
 // One line, as the parser sees it.
 //

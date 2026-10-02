@@ -1,4 +1,4 @@
-/* The sidebar (shell/sidebar.js) and the Trash view (shell/trash.js). Tokens only, both
+/* The sidebar (src/shell/sidebar.ts). Tokens only, both
    themes. Copied from shell.css's `sidebar` block at the start of wave 2 and owned here since;
    this sheet loads after shell.css, so where the two still overlap this one wins. */
 
@@ -126,44 +126,3 @@
 .sb-focus-exit svg { width: 0.6875rem; height: 0.6875rem; }
 .sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
 
-/* ------------------------------------------------------------------ trash view */
-
-/* The Trash view (shell/trash.js): the page column's title, one sentence, a Restore button and
-   a four-column list. The same row grammar as the folder view: a surface up when selected, the
-   active row ringed while the list has the keyboard. */
-.trash-view .tr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-.trash-view .tr-count { color: var(--fg-3); }
-.tr-say { margin: var(--sp-2) 0 var(--sp-4); color: var(--fg-2); font-size: var(--fs-chrome); max-width: 44rem; }
-.tr-tools { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-.tr-tools .btn { gap: var(--sp-1); }
-.tr-tools .btn svg { width: 0.75rem; height: 0.75rem; }
-.tr-cols, .tr-row {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
-  column-gap: var(--sp-3);
-  align-items: center;
-  padding: 0 var(--sp-2);
-}
-.tr-cols { color: var(--fg-3); padding-bottom: var(--sp-1); }
-.tr-list { border: 1px solid var(--border); border-radius: var(--radius); outline: none; }
-.tr-list:focus-visible { border-color: var(--focus); }
-.tr-row {
-  min-height: var(--row-h);
-  color: var(--fg-2);
-  font-size: var(--fs-chrome);
-  cursor: default;
-}
-.tr-row + .tr-row { border-top: 1px solid var(--border); }
-.tr-row:hover { background: var(--bg-3); }
-.tr-row.selected { background: var(--bg-4); color: var(--fg); }
-.tr-list:focus-visible .tr-row.active { box-shadow: inset 2px 0 0 var(--accent); }
-.tr-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tr-name { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg); }
-.tr-name svg {
-  flex: none; width: 0.875rem; height: 0.875rem; color: var(--fg-3);
-  stroke: currentColor; fill: none; stroke-width: 1.71; stroke-linecap: round; stroke-linejoin: round;
-}
-.tr-text { overflow: hidden; text-overflow: ellipsis; }
-.tr-row.selected .tr-name svg { color: var(--fg-2); }
-.tr-note { margin-top: var(--sp-3); color: var(--err-ink); font-size: var(--fs-chrome); }
-.tr-note:empty { display: none; }

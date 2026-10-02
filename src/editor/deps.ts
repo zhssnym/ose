@@ -1,11 +1,11 @@
-// The dialogs the editor asks for, and the two state calls, over the core (`ose:ui`,
-// `ose.state`) through `host.ts`.
+// The dialogs the editor asks for, and the two state calls, over the kit (src/ui) and the
+// core (`ose.state`) through `host.ts`.
 //
 // The editor once loaded the shell's dialogs lazily and carried a fallback implementation of
 // every one of them, because the shell shipped separately and might not have been there. The
-// dialogs are the core's now (docs/CORE.md `ose:ui`): they are part of what a page editor
-// is handed, like the file system, so they are imported statically and there is nothing to
-// fall back to. What is left here is `choose`, which `ose:ui` does not have in that shape, and
+// dialogs are the kit's now (src/ui): they are part of what a page editor is handed, like
+// the file system, so they are imported statically and there is nothing to fall back to.
+// What is left here is `choose`, which the kit does not have in that shape, and
 // the two thin state helpers.
 
 import { confirm, openOverlay, patchState as hostPatchState, pickPage as hostPickPage, prompt, stateCache, toast } from './host.ts';
@@ -70,7 +70,7 @@ export async function patchState(partial) {
   return hostPatchState(partial);
 }
 
-/** The loaded `.ose/state.json`, read-only. `{}` until the core has loaded it. */
+/** The loaded vault state (`ose.state`), read-only. `{}` until the core has loaded it. */
 export async function readState() {
   const c = stateCache();
   return c && typeof c === 'object' ? c : {};

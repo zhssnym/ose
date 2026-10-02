@@ -1,6 +1,6 @@
 // File operations (docs/CORE.md `ose.fileops`, H12, H13, C6, M17, M18). The one
 // implementation of create, new folder, rename, move, copy, paste, trash, restore and
-// duplicate. The tree, the folder view, the palette, the router's "Create it" and the editor
+// duplicate. The tree, the palette, the router's "Create it" and the editor
 // all call these; the prompts that ask for a name are the shell's.
 //
 // Every operation that moves or removes a path asks the page first. The page host's
@@ -11,7 +11,7 @@
 // rewritten. Renaming the open page used to close it, and closing threw the unsaved buffer away
 // (C6). Nothing here navigates: the caller decides where to land.
 //
-// Every operation that changed something is written down in the undo journal (./journal.js)
+// Every operation that changed something is written down in the undo journal (./journal.ts)
 // as the steps that undo it, and its result carries that `entry`, so a toast can offer [Undo].
 // An undo walks the steps back through these same functions, quietly: an undo is not journaled.
 //
@@ -202,7 +202,7 @@ export async function create(folder: string, name: string, { text, unique = fals
 }
 
 /**
- * A new folder `name` in `folder` (the tree's and the folder view's New folder). `name` may
+ * A new folder `name` in `folder` (the tree's New folder). `name` may
  * hold `/`. An existing name is refused with `exists`.
  * @param folder  vault-relative, '' for the root
  */
@@ -780,7 +780,7 @@ async function trashIfSame(path, step) {
 
 /**
  * Undo `steps` (already in reverse order), each through the ordinary operation, quietly, so
- * open pages follow and links are rewritten back. Used by the journal (./journal.js `undo`).
+ * open pages follow and links are rewritten back. Used by the journal (./journal.ts `undo`).
  * Answers the steps that failed, `[{ step, error }]`.
  */
 export async function undoSteps(steps: any[]) {

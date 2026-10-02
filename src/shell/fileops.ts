@@ -1,7 +1,7 @@
 // File operations as a person asks for them: New file…, New folder, Rename…, Move to…,
 // Duplicate, Move to the trash, Cut, Copy, Paste and Undo (H12, H13, C6, M17, M18), and for a
 // file outside the vault Open file… and Copy into the vault… (X7). This is the
-// only UI for them. The tree and its context menu, the folder view, the palette, the title
+// only UI for them. The tree and its context menu, the palette, the title
 // bar's New file button and quick open's Shift+Enter all end here, and every one of them ends
 // at `ose.fileops`, the core's one implementation, which asks the open page to save before
 // anything on disk changes and refuses when it cannot (docs/CORE.md `ose.fileops`). The
@@ -155,7 +155,7 @@ function reveal(path, focus) { bus.emit('tree:reveal', { path, focus: !!focus &&
 
 /**
  * Whether the gesture came from the sidebar (a row, its menu, its tool strip): only then does
- * the new row take the keyboard. From the folder view or the palette over a page, focus stays
+ * the new row take the keyboard. From the palette over a page, focus stays
  * where the person is working.
  */
 function fromSidebar() {
@@ -646,7 +646,7 @@ export async function copyIntoVault(target: Target | null): Promise<string | nul
  * The file commands (docs/SHELL.md "Files"). Each takes an optional target from whoever runs
  * it — the tree's menu hands it the row under the pointer — and otherwise acts on the context.
  * `file.new` is Ctrl+Alt+N and `file.rename` F2 in `keys.json`; Cut, Copy, Paste and Undo are
- * Ctrl+X, C, V and Z inside the tree and the folder view only, so the editor keeps its own.
+ * Ctrl+X, C, V and Z inside the tree only, so the editor keeps its own.
  */
 export function initFileOps() {
   // A file outside the vault (X7) is opened and saved, never renamed, moved, copied or trashed

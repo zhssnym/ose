@@ -59,7 +59,7 @@ let live: Live | null = null;
 // re-asking is a handful of stats.
 const mtimes = new Map<string, number>();
 
-/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.js. */
+/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.ts. */
 const display = (p: string) => titleOf(p);
 
 /** Both answers: the `{hits}` object of batch 12 and the bare array an older host returns. */
@@ -415,7 +415,7 @@ export function openSearch(opts: { query?: string, folder?: string | null, prefi
 /** Close the panel if search is what it holds. */
 export function closeSearch() { panel.close(PANEL); }
 
-/** Register the search commands and keep an open result list current. Called once by `boot.js`. */
+/** Register the search commands and keep an open result list current. Called once by `boot.ts`. */
 export function initSearch() {
   commands.register({
     id: 'app.search', title: 'Search in vault', group: 'navigate', hint: 'in the side panel',

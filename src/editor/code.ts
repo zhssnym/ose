@@ -128,7 +128,7 @@ function search(query) {
 
 let picker: null | { el: HTMLElement; close: (refocus?: boolean) => void; pos: number; } = null;
 
-/** The api index.js hands over at boot (registerCommands): `touch` is what marks the page dirty. */
+/** The api page/commands.ts hands over at boot (registerCommands): `touch` is what marks the page dirty. */
 let api: any = null;
 
 function closePicker(refocus = true) {

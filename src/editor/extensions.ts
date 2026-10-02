@@ -2,13 +2,13 @@
 //
 // Each package owns exactly one module listed here and touches nothing else in this file:
 // crepe.ts asks `extensionPlugins` for ProseMirror plugins and `extensionFeatureConfigs` for
-// Crepe feature options; index.js asks `registerExtensionCommands` once at boot and hands
+// Crepe feature options; page/commands.ts asks `registerExtensionCommands` once at boot and hands
 // over a small API onto the open page. A module may export any of:
 //
 //   plugins(ctx, o)        -> Plugin[]   ProseMirror plugins, asked before Milkdown's own keymap
 //                                        and before the block keymap (blocks.ts), in list order
 //   featureConfig(o)       -> { [CrepeFeature]: options }   merged over crepe.ts's own configs
-//   registerCommands(api)  -> void       commands.register(...) with `api` (see index.js editorApi)
+//   registerCommands(api)  -> void       commands.register(...) with `api` (see page/commands.ts editorApi)
 //
 // Order matters for keymaps: the table keymap must answer Enter and Tab inside a cell before
 // anything else sees them, so `table` is first.

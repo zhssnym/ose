@@ -76,7 +76,7 @@ export function recoveredModeOf(p, r) {
 }
 
 // ---------------------------------------------------------------------------
-// the serializer's two checks (docs/CORE.md `ose:editor`, "Writing")
+// the serializer's two checks (docs/CORE.md, the editor, "Writing")
 //
 // `readMarkdownChecked` and `openCheck` are crepe.ts's, and neither throws; the try blocks here
 // only make sure that a bug in them can never read as a clean write or a clean open.

@@ -10,7 +10,7 @@
 // parser and serializer before it builds the view, so `create()` is allowed to fail at the view
 // (there is no root to mount into) once the other two are ready.
 //
-// Nothing in this file imports `ose:*`, a stylesheet or the DOM at module top level. The two
+// Nothing in this file imports the core, a stylesheet or the DOM at module top level. The two
 // modules that bring nodes of their own, maths (math-node.ts) and the image block (image.ts),
 // reach the core through host.ts and are only imported inside `makeEngine`, which the app never
 // calls; the page passes them in through `configureMarkdown`'s options instead. One stylesheet

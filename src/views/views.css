@@ -1,5 +1,5 @@
-/* ose:views — Day, Week, Month, Journal and Settings › Planner. Emitted as `views.css` and
-   linked by the shell. Tokens only, both themes: every colour,
+/* The views (src/views) — Day, Week, Month, Journal and Settings › Planner. Imported by
+   views/index.ts. Tokens only, both themes: every colour,
    face and size is a token of `tokens.css`; every padding, margin and gap is a step of the
    scale. The pixel numbers left are geometry (grid columns, the hour gutter, borders), never
    spacing. Sentence case everywhere (M27): nothing here uppercases a label. */

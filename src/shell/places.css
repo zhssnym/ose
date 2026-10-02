@@ -32,7 +32,7 @@
 .tb-win-close:hover { background: var(--err); color: var(--bg); }
 .tb-win-btn:focus-visible { outline: none; box-shadow: inset var(--focus); }
 
-/* The mark: a triangle in the text colour (logo.js), the same in both themes. */
+/* The mark: a triangle in the text colour (logo.ts), the same in both themes. */
 .tb-mark {
   width: 1.125rem; height: 1.125rem; flex: none;
   display: grid; place-items: center;
@@ -72,47 +72,6 @@
 .tb-fold.on .tb-side-fill { fill: currentColor; }
 
 
-/* ------------------------------------------------------- title bar: back, forward */
-
-/* Two icon buttons between the app mark and the breadcrumb, the height of the bar so they
-   read as part of the chrome and not as a floating toolbar (N45, L23). Same hover as every
-   chrome button, same 120ms, same square corners. */
-.tb-nav {
-  display: flex;
-  align-self: stretch;
-  flex: none;
-  margin-left: var(--sp-3);
-}
-
-/* No cursor of its own: one policy for every control in the app, the arrow the body sets (R20). */
-.tb-nav-btn {
-  width: 1.625rem;
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  background: none;
-  border: 0;
-  color: var(--fg-2);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-
-.tb-nav-btn svg {
-  width: 0.875rem;
-  height: 0.875rem;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.tb-nav-btn:hover:not(:disabled) { background: var(--bg-3); color: var(--fg); }
-.tb-nav-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-
-/* Nowhere to go: half visible and inert, the app's one disabled treatment. */
-.tb-nav-btn:disabled { opacity: .35; cursor: default; }
-
-
 /* ------------------------------------------------------------------ main */
 
 /* The main column is the tab strip and the page column under it. The router clears `.main`
@@ -132,7 +91,7 @@
 
 /* ------------------------------------------------------------------ tabs */
 
-/* One tab per open route (shell/tabs.js). Text only: no borders between tabs, no surface on
+/* One tab per open route (src/shell/tabs.ts). Text only: no borders between tabs, no surface on
    the active one, a 2px accent line under it and nothing else. The strip is the one taller
    bar, the line the sidebar's fold chevron sits on, and it scrolls sideways rather than
    wrapping — a second row of tabs is a second thing to read before you have read the first. */
@@ -178,7 +137,7 @@
 .tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
 .tab-x:hover { background: var(--bg-4); color: var(--fg); }
 
-/* The strip in the title bar (layout.js moves it there): the title bar's main thing, compact
+/* The strip in the title bar (layout.ts moves it there): the title bar's main thing, compact
    chips after back and forward, the open one on a lighter ground, then the + for a new tab.
    It takes what the row has and scrolls sideways past that. */
 .titlebar .tabs {
@@ -252,7 +211,7 @@ body.resizing * { cursor: col-resize !important; }
 
 /* ------------------------------------------------------------------ side panel */
 
-/* The side panel (layout.js `panel`, M25): a column to the right of the page column for a
+/* The side panel (layout.ts `panel`, M25): a column to the right of the page column for a
    surface that stays open while pages are opened from it. Chrome, like the sidebar: --bg-2,
    one hairline on the edge it shares with the page, the panel head every bar with a label in
    it wears. Its width is a variable the layout writes, as the sidebar's is. */

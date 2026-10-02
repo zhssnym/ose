@@ -1,4 +1,4 @@
-// The planner's date logic, on date-fns (L10). Pure: no DOM, no `ose:*`, no vault path, so the
+// The planner's date logic, on date-fns (L10). Pure: no DOM, no `ose`, no vault path, so the
 // tests import it as it is. Every date here is a local `Date`; a day is its calendar date in
 // the machine's time zone, exactly as the file names are written (`2026-09-26.md`).
 //

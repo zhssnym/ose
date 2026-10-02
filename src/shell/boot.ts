@@ -6,15 +6,15 @@
 //             -> initRecover -> loadKeys
 //             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
 //
-// The app opens on Home, an empty page (shell/start.js). With no vault open the shell is not built at
-// all: one surface asks for a folder and the shell starts again on the answer.
+// The app opens on Home, an empty page (./start.ts). With no vault open the shell is not built
+// at all: one surface asks for a folder and the shell starts again on the answer.
 //
-// The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:views`
-// that ships inside the executable. It is loaded here, after the shell's own surfaces, so a
-// planner that fails costs its own views and one toast, never the window.
+// The planner (Day, Week, Month, Journal) is part of the app, the views in src/views, loaded
+// as a chunk of its own that ships inside the executable. It is loaded here, after the
+// shell's own surfaces, so a planner that fails costs its own views and one toast, never the window.
 //
-// `main.js` imports this file and calls `boot()`. Whatever throws in here ends on the boot
-// error page (`boot-error.js`, M38), never on a blank window.
+// `main.ts` imports this file and calls `boot()`. Whatever throws in here ends on the boot
+// error page (`boot-error.ts`, M38), never on a blank window.
 
 import { ose } from '../core/core.ts';
 import { toast } from '../ui/index.ts';
@@ -40,7 +40,7 @@ function loadKeys() {
 }
 
 /**
- * Day, Week, Month and Journal (`ose:views`, src/views). One import and one call; the
+ * Day, Week, Month and Journal (the views, src/views). One import and one call; the
  * planner registers its views, commands and its section of Settings itself. A planner that
  * does not load is logged and said once, and the rest of the app carries on without it.
  */
@@ -54,7 +54,7 @@ async function loadPlanner() {
   }
 }
 
-/** Start the app. Called once by `main.js`; a vault change boots again through a reload. */
+/** Start the app. Called once by `main.ts`; a vault change boots again through a reload. */
 export async function boot(): Promise<void> {
   // The editor is the biggest bundle the window loads, and nothing in the core's own start
   // needs it: its download starts now and `initPageHost` waits for it below.
@@ -68,7 +68,7 @@ export async function boot(): Promise<void> {
   }
 
   try {
-    // The host has answered for itself now, and that is the authority: `first-paint.js`
+    // The host has answered for itself now, and that is the authority: `first-paint.ts`
     // guessed from the user agent so the first frame had the right font stack.
     if (ose.platform === 'macos') document.documentElement.classList.add('mac');
     document.documentElement.dataset.os =
@@ -96,7 +96,7 @@ export async function boot(): Promise<void> {
     initTabs(els.tabs, els.main);
     // The one call that starts the core in the shell: the theme, the key engine, and the
     // router mounted into the shell's own page column. `start: false` because the shell
-    // decides where the app opens (start.js).
+    // decides where the app opens (start.ts).
     ose.init({ page: els.main, start: false });
 
     initPalette();
@@ -106,7 +106,7 @@ export async function boot(): Promise<void> {
     initRecover();
     await loadKeys();
 
-    // Before the first route, so a restored tab on Day or Journal finds its view registered.
+    // Before the first route, so a tab opened on Day or Journal finds its view registered.
     await loadPlanner();
     await startSurface();
 

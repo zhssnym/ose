@@ -101,7 +101,7 @@ export interface AdapterWindow {
   startDragging?: () => Promise<unknown>;
 }
 
-/** What every bridge adapter answers (./bridge/index.js). */
+/** What every bridge adapter answers (./bridge/index.ts). */
 export interface Adapter {
   invoke: (name: string, args: unknown[]) => Promise<unknown>;
   subscribe: (fn: (msg: { event: string, data: any }) => unknown) => () => void;
@@ -111,7 +111,7 @@ export interface Adapter {
   close?: () => void;
 }
 
-/** The page host the shell registers (./pagehost.js); every method but `open` is optional. */
+/** The page host the shell registers (./pagehost.ts); every method but `open` is optional. */
 export interface PageHost {
   open: (el: HTMLElement, path: string, opts: { line?: number, col?: number, query?: string, selection?: { from: number, to: number } | null }) => Promise<unknown>;
   canLeave?: (reason: string) => Promise<boolean> | boolean;

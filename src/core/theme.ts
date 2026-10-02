@@ -1,6 +1,6 @@
 // Theme. Preference lives in localStorage 'os.theme' as 'light' | 'dark' | 'system', which is
 // per machine already (M26). Nothing saved means 'system': the app follows the platform's
-// light or dark setting until the user picks one. shell/first-paint.js has to agree with this.
+// light or dark setting until the user picks one. src/shell/first-paint.ts has to agree with this.
 // The resolved value ('light'|'dark') goes on <html data-theme>, into store 'theme',
 // out on bus 'theme', and down to the host so it can recolour the native frame.
 import { bus, store, commands } from './registry.ts';

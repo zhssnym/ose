@@ -1,14 +1,14 @@
 // The page seam: who draws a page, and which pages the app offers.
 //
-// The core's router never imports `ose:editor` — the editor is a bundle of its own and the
-// core must not know it exists (docs/CORE.md). The shell joins them here, and this file is
+// The core's router never imports the editor (src/editor) — the editor is a chunk of its own
+// and the core must not know it exists (docs/CORE.md). The shell joins them here, and this file is
 // the whole of the page host the router and `ose.fileops` talk to (docs/SHELL.md "The page
 // seam"): open, leave, park, close, release, the two halves of a rename, a move or a trash of
 // the page on screen, and link rewrites into pages that are open. Everything else the editor
 // does (its commands, its chords, its dialogs, its autosave) it does for itself.
 //
 // Every file in the vault opens (H17). What draws it is decided here and nowhere else: a PDF
-// or an image goes to `media.js`; anything else is asked of the host (`stat` with `sniff`),
+// or an image goes to `media.ts`; anything else is asked of the host (`stat` with `sniff`),
 // and text goes to the editor — markdown with its Rich/Source switch, the rest as plain
 // Source — while bytes that are not text get `binaryPage`, a box with the ways out.
 //
@@ -53,12 +53,13 @@ let released: MediaPage | null = null;
 
 const under = (p, folder) => p === folder || p.startsWith(folder + '/');
 const mapped = (p, from, to) => (p === from ? to : to + p.slice(from.length));
-// Media handles only (`media.js`), whose `path` is a function; an editor handle's is a getter.
+// Media handles only (`media.ts`), whose `path` is a function; an editor handle's is a getter.
 const pathOf = (h: MediaPage) => clean(h.path());
 
 /**
- * Start loading `ose:editor`, once, and answer the module (or null when it failed). `boot.js`
- * calls this first thing, so the biggest bundle in the window downloads while the core boots.
+ * Start loading the editor (src/editor/lib.ts), once, and answer the module (or null when it
+ * failed). `boot.ts` calls this first thing, so the biggest chunk in the window downloads
+ * while the core boots.
  */
 export function loadEditor() {
   if (!editorLoad) {
@@ -202,9 +203,9 @@ const host = {
   // for these and calls `open` anyway (docs/CORE.md `setPageHost`).
   claims: (path) => isMediaFile(path),
 
-  // `headingLine` is the editor's (setext headings, fenced code), and `ose:editor` does not
-  // export it yet (work/inbox/K1c/002). Until it does, the core's own ATX fallback in
-  // pagehost.js resolves a `#fragment`, which is every heading the vault actually has.
+  // `headingLine` is the editor's (setext headings, fenced code), and the editor does not
+  // export it yet. Until it does, the core's own ATX fallback in
+  // src/core/pagehost.ts resolves a `#fragment`, which is every heading the vault actually has.
 };
 
 /**

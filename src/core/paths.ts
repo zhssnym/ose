@@ -59,8 +59,8 @@ export const segments = (p) => clean(p).split('/').filter(Boolean);
 /**
  * The one list of what a file is by its extension (`ose.paths`). Markdown opens in the rich
  * editor and is what the link rewrite edits; text is every file that opens as text by its
- * name, markdown included, and is what backlinks read. The editor, the tree, the folder view
- * and the palette take these, so the lists cannot drift apart. A file the list does not name
+ * name, markdown included, and is what backlinks read. The editor, the tree and the palette
+ * take these, so the lists cannot drift apart. A file the list does not name
  * may still read as text (`stat {sniff}`); this is the answer by name only.
  */
 export const MARKDOWN_EXTS = Object.freeze(['md', 'markdown', 'mdown', 'mkd']);

@@ -4,8 +4,8 @@
 // no panel: the picker is the whole feature (CLAUDE.md: minimal).
 //
 // Built on the core's overlay stack (openOverlay) with the palette's `.pal` classes, exactly
-// as `pickPage` in `ose:ui` is, so Esc, click-outside and focus return are the same everywhere
-// a list is chosen from.
+// as `pickPage` (src/core/pickers.ts) is, so Esc, click-outside and focus return are the same
+// everywhere a list is chosen from.
 
 import { openOverlay, fuzzy, highlight } from './host.ts';
 import { caretAt } from './reveal.ts';

@@ -38,7 +38,7 @@ const P = {
   // Copy: two offset sheets. Link: the two halves of a chain, drawn as open brackets.
   copy: '<rect x="5.75" y="5.75" width="7.5" height="7.5"/><path d="M10.25 5.75V2.75h-7.5v7.5h3"/>',
   link: '<path d="M6.75 9.25a2.4 2.4 0 0 1 0-3.4l2-2a2.4 2.4 0 0 1 3.4 3.4l-1 1"/><path d="M9.25 6.75a2.4 2.4 0 0 1 0 3.4l-2 2a2.4 2.4 0 0 1-3.4-3.4l1-1"/>',
-  // Wave 2: the files-first shell (the folder view, the address bar, the clipboard, the trash).
+  // The files-first shell (the address bar, the clipboard, the trash).
   home: '<path d="M2.5 7.5L8 2.75l5.5 4.75"/><path d="M4 6.5v6.75h8V6.5"/><path d="M6.75 13.25v-3.5h2.5v3.5"/>',
   arrowUp: '<path d="M8 13.25v-10.5"/><path d="M3.75 7L8 2.75 12.25 7"/>',
   sortAsc: '<path d="M4.5 12.75v-9.5"/><path d="M2.25 5.5L4.5 3.25 6.75 5.5"/><path d="M8.75 4.25h5M8.75 8h3.5M8.75 11.75h2"/>',

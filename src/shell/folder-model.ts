@@ -1,6 +1,6 @@
-// The folder view's model (docs/SHELL.md "The folder view", H15, M22). Pure: no DOM and no
-// `ose:*`, so the tests import it as it is and the tree (shell/sidebar.js) sorts with the same
-// rules the folder view does. One folder is sorted one way wherever it is drawn.
+// A folder's entries: how they sort, which are visible, and how a row names and draws one.
+// Pure: no DOM and no `ose`, so the tests import it as it is; the tree (./sidebar-tree.ts)
+// sorts with it and media.ts labels with it.
 //
 // An entry is the host's `Entry` (docs/HOST.md `list`): `{ name, path, kind, ext, mtime, size,
 // hidden, link?, readable? }`. `ext` is lower case without the dot, `mtime` is milliseconds.
@@ -169,7 +169,7 @@ const CODE_EXTS = new Set([
 
 /**
  * The icon a row wears, by name from the core's set: `folder`, `fileImage`, `fileText`,
- * `fileCode`, else `file`. The tree and the folder view draw the same file the same way.
+ * `fileCode`, else `file`. A file is drawn the same way wherever it appears.
  */
 export function iconName(entry: FolderEntry | null | undefined): string {
   if (!entry) return 'file';

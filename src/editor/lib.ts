@@ -1,4 +1,4 @@
-// `ose:editor` — the bundle (docs/CORE.md).
+// The editor (src/editor), loaded on its own by the shell (docs/CORE.md).
 //
 //   markdownPage(el, path, opts)  the page editor: title strip, properties, autosave, drafts,
 //                                 changes made on disk merged in (H7), versions, the Rich |
@@ -14,10 +14,10 @@
 //   render(markdown, opts)        the same markdown, read-only, as DOM.
 //   renderMath(tex, opts)         one formula, rendered with Temml to MathML.
 //
-// Everything the bundle needs from outside comes through `host.ts` (the core: `ose:core`,
-// `ose:ui`) and nothing else. The stylesheet is `editor.css` on the core origin:
-// the bundler concatenates every `src/editor/*.css` this graph imports, plus the Crepe theme,
-// into that one file — `editor.css` itself, `code.css`, `table.css`, `source.css`,
+// Everything the editor needs from outside comes through `host.ts` (the core, src/core, and
+// the kit, src/ui) and nothing else. Its stylesheets are imported by the files that use them:
+// Vite bundles every `src/editor/*.css` this graph imports, plus the Crepe theme, with the
+// editor's chunk — `editor.css` itself, `code.css`, `table.css`, `source.css`,
 // `backlinks.css`, `render.css`, in that graph's order. No absolute URL is written anywhere
 // inside it: a vault image goes through `ose.files.assetUrl`.
 

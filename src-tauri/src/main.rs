@@ -362,7 +362,7 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
         Err(e) => log_line(host, &format!("log: no log folder: {e}")),
     }
     // Drafts live per machine, outside every vault (docs/HOST.md "Drafts"), and so does the local
-    // store: the session, the window, the theme mirror (docs/HOST.md "Local state").
+    // store: the window, the theme mirror (docs/HOST.md "Local state").
     match handle.path().app_local_data_dir() {
         Ok(dir) => {
             write_drag_icon(host, &dir);

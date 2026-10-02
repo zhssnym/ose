@@ -1,12 +1,11 @@
 // The two things the router needs that the core does not own: whoever draws a file, and
-// whoever draws a folder.
+// which pages the pickers offer.
 //
 // docs/CORE.md: nothing in the core knows a view or a file of the shell. The router is
-// core (tabs and their history, the window title, the mount cycle); the editor is
-// `ose:editor`, a separate bundle, and the folder view is the shell's. So the router imports
-// neither: the shell hands the core a page host and a folder host once, and the router calls
-// through them. With no page host the router still shows a file as text; with no folder host a
-// folder route says so in a box.
+// core (tabs and their history, the window title, the mount cycle); the editor (src/editor)
+// is loaded on its own. So the router does not import it: the shell hands the core a page
+// host once, and the router calls through it. With no page host the router still shows a file
+// as text.
 //
 //   setPageHost({ open, canLeave?, stay?, close?, release?, rewriteLinksIn?, scrollToLine?,
 //                 selection?, headingLine?, beforePathChange?, afterPathChange?, claims?,
@@ -33,7 +32,7 @@
 //   selection()                    -> { from, to } | null, the caret to restore on back
 //   headingLine(text, heading)     -> 1-based line of that heading, or 0
 //   beforePathChange({kind, from, to}) -> Promise<{ok, reason?}>; ok:false and the file
-//                                     operation touches nothing (./fileops.js, C6)
+//                                     operation touches nothing (./fileops.ts, C6)
 //   afterPathChange({kind, from, to, ok}) -> Promise, whether the host call succeeded or not
 //   claims(path)                   -> boolean, true when the host draws a missing path itself
 //   problems()                     -> string[], the paths of the pages that hold unsaved work
@@ -58,7 +57,7 @@ export function setPageHost(next) {
 export function pageHost() { return host; }
 
 /**
- * The third seam: which markdown pages the page picker and the editor's `[[` menu offer. The list belongs to whatever draws the tree — the sidebar narrows it to the focused
+ * The second seam: which markdown pages the page picker and the editor's `[[` menu offer. The list belongs to whatever draws the tree — the sidebar narrows it to the focused
  * folder — and the core must not import a sidebar. With nothing registered the picker falls
  * back to walking the vault itself, so it works wherever there is no tree.
  */

@@ -75,7 +75,7 @@ export { acquireCommands, releaseCommands, activePage } from './page/commands.ts
 
 
 /**
- * Mount the file at `path` into `el` and answer the handle (docs/CORE.md `ose:editor`).
+ * Mount the file at `path` into `el` and answer the handle (docs/CORE.md, the editor).
  * The handle comes back at once; `handle.ready` is the open in flight.
  *
  * `opts.line` (1-based, a line of the file as the search overlay counts them) puts the caret in

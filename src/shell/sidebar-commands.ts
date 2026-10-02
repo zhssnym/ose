@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). Drag and drop, the tree commands and their menu, and the
+// Part of the sidebar (./sidebar.ts). Drag and drop, the tree commands and their menu, and the
 // tool strip.
 
 import { ose } from '../core/core.ts';
@@ -28,10 +28,10 @@ import {
 /* ------------------------------------------------------------- drag and drop */
 
 // Internal drags carry the vault paths (a JSON list: a selection drags together, C17) in a
-// private type (drag.js `DRAG_TYPE`); `dragPaths` mirrors it because dataTransfer.getData is
+// private type (drag.ts `DRAG_TYPE`); `dragPaths` mirrors it because dataTransfer.getData is
 // unreadable during dragover, and the self/descendant guard has to run there, for every item,
 // to decide whether the row may light up at all. A drop from Explorer or Finder is copied in,
-// folders and all, through drag.js `importDropped`.
+// folders and all, through drag.ts `importDropped`.
 
 let dragPaths: string[] | null = null;
 let dropEl: Element | null = null;
@@ -82,7 +82,7 @@ export function bindDnd(host) {
   host.addEventListener('dragend', endDrag);
 
   host.addEventListener('dragover', (e) => {
-    // A row dragged from a folder view is internal too: its paths are drag.js's.
+    // A drag `dragPaths` missed is internal too when it carries drag.ts's paths.
     const moving = dragPaths || dragged();
     const internal = !!moving || isInternal(e.dataTransfer);
     const external = !internal && hasOsFiles(e.dataTransfer);
@@ -180,7 +180,7 @@ function setAllExpanded(open) {
   render();
 }
 
-/** Show hidden items (H16): a machine setting, read by the tree, the folder view and search. */
+/** Show hidden items (H16): a machine setting, read by the tree and search. */
 export function toggleHidden() {
   const next = !showHidden();
   Promise.resolve(ose.settings.set({ showHidden: next })).catch((e) => toast(String(e.message || e), 'err', 0));
@@ -194,7 +194,7 @@ export function toggleHidden() {
 // copy, move and trash act on the whole selection when the target is part of one (C17).
 //
 // The file operations are not the tree's: `file.*` and `tree.new-folder` are registered by
-// shell/fileops.js, the one UI for them. Their rows here (`own: false`) only say when the menu
+// src/shell/fileops.ts, the one UI for them. Their rows here (`own: false`) only say when the menu
 // offers them and hand them the row.
 const TREE_COMMANDS = [
   { id: 'file.new', title: 'New file…', icon: 'plus', group: 'file', own: false,
@@ -238,7 +238,7 @@ const TREE_COMMANDS = [
     applies: () => true, run: () => setAllExpanded(false) },
   { id: 'tree.expand-all', title: 'Expand all folders', icon: 'chevron', group: 'tree',
     applies: () => true, run: () => setAllExpanded(true) },
-  // The title the menus draw is the registered command's, which names the real bin (fileops.js).
+  // The title the menus draw is the registered command's, which names the real bin (fileops.ts).
   { id: 'file.trash', title: 'Move to the trash', icon: 'trash', group: 'file', danger: true, own: false,
     applies: (t) => !!t.path, run: (t) => void trashPaths(batchFor(t) || [t]) },
 ];
@@ -255,8 +255,8 @@ export function registerTreeCommands() {
 }
 
 // The menu's order: create, open, the row's own verbs, the clipboard, then copy and Explorer,
-// then the one destructive action. `app.focus-exit` lives in focus.js; its menu row shows only
-// on the folder that is the focus.
+// then the one destructive action. `app.focus-exit` lives in src/core/focus.ts; its menu row
+// shows only on the folder that is the focus.
 const MENU = [
   'file.new', 'tree.new-folder',
   null,
@@ -299,7 +299,7 @@ function menuItem(id, target, label?: string): MenuRow | null {
   };
 }
 
-/** A row of the context menu (ose:ui `contextMenu`): a command, or a separator. */
+/** A row of the context menu (the kit's `contextMenu`): a command, or a separator. */
 type MenuRow = { label?: string, iconSvg?: string, shortcut?: string, danger?: boolean, sep?: boolean, run?: () => void };
 
 /** No two separators in a row and none at either end, whatever was filtered out between. */

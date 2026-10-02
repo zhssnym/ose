@@ -39,7 +39,7 @@ const openMenus = new Set<any>();
 export const slashMenuOpen = () => openMenus.size > 0;
 
 // ---------------------------------------------------------------------------
-// icons. The app's 16-unit grid (`ose:ui`), so a 16px slot draws the 1.5 stroke from
+// icons. The app's 16-unit grid (src/ui/icons.ts), so a 16px slot draws the 1.5 stroke from
 // base.css `.row svg` at 1.5px — the same weight as every other glyph in the app. Square
 // corners throughout (DESIGN.md). What the shell already draws is taken from it; the rest is
 // drawn here on the same grid: an `H` with the level beside it, three lines for text, and so

@@ -272,7 +272,7 @@ async function chooseAttachments(which, box) {
 /**
  * `Change vault…` (C5), in this order: choose a folder without adopting it, let the window go
  * (the open page is saved into *this* vault, or the switch stops with the page's reason on
- * screen), adopt the folder, and boot again on it (`switchVault`, shell/vault.js).
+ * screen), adopt the folder, and boot again on it (`switchVault`, src/shell/vault.ts).
  */
 async function changeVault() {
   let picked;
@@ -313,8 +313,8 @@ function guideHtml() {
       'A markdown page opens in one of two modes. Rich is the page drawn as a document, written '
       + `like one. Source is the raw markdown, as in a code editor. ${kbd('mod+e')} switches between `
       + 'them, and each file keeps the mode it was left in. The bar at the bottom of the window shows '
-      + 'the mode, the counts, when the file was changed and saved, and a dot while there are '
-      + 'unsaved changes.'],
+      + 'the mode, the counts and when the file was last saved, and says so when a save fails. '
+      + 'Ose saves as you type.'],
     ['Tabs',
       `Each tab holds one page, with its own back and forward: ${kbd(back)} and ${kbd(fwd)}. `
       + `${kbd('mod+t')} opens a new tab, ${kbd('mod+w')} closes one, ${kbd('mod+tab')} moves to `
@@ -605,7 +605,7 @@ export async function openSettings(arg?: string): Promise<void> {
   if (live) live.focus();
 }
 
-/** Register the Settings view and its commands, and apply the settings once. Called by `boot.js`. */
+/** Register the Settings view and its commands, and apply the settings once. Called by `boot.ts`. */
 export function initSettings() {
   ose.settings.apply();
   ose.views.register('settings', view);

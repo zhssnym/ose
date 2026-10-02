@@ -33,7 +33,7 @@ const MAX_PREFILL = 64;
  * @param root       the page column (`.ed`); the bar is prepended to it
  * @param getView      the live ProseMirror view, or null once the page is gone
  * @param onEdit    a replacement happened: the page has been edited by the user.
- *   The bar's own keys and clicks are deliberately not "touching the page" (index.js), so
+ *   The bar's own keys and clicks are deliberately not "touching the page" (the page editor), so
  *   without this a replacement on a page nobody had typed in went dirty-less and unsaved.
  * Returns { open, close, isOpen, destroy }.
  */
@@ -300,7 +300,7 @@ export function createFind(root: HTMLElement, getView: () => any, onEdit: () => 
     el = input = count = replaceInput = replaceRow = null;
   }
 
-  // index.js keeps this on the page object (`p.find`) and hands it to `page.replace` through
+  // page/open.ts keeps this on the page object (`p.find`) and hands it to `page.replace` through
   // `editorApi.openFind`, so that a page in source mode reaches CodeMirror's panel instead
   // (QA F5). There is no module-level "the current bar" any more.
   return { open, close, destroy, isOpen: () => !!el };

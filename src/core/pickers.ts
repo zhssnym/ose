@@ -10,8 +10,8 @@ import { titleOf } from './paths.ts';
 import { pageItems } from './page-items.ts';
 import { pageList } from './pagehost.ts';
 
-// A local subsequence matcher so this file stays free of a palette import (palette.js
-// imports this one). Same idea, fewer bonuses: enough to rank a path list.
+// A local subsequence matcher, the same idea as the palette's (src/ui/fuzzy.ts) with fewer
+// bonuses: enough to rank a path list.
 function fuzzyPath(text, q) {
   if (!q) return 0;
   const t = text.toLowerCase();

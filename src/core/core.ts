@@ -1,16 +1,15 @@
-// `ose:core` (docs/CORE.md). One object, composed from the files beside this one, and
+// The core (docs/CORE.md). One object, composed from the files beside this one, and
 // nothing else exported. The core never draws and knows no view and no file of the shell: it
 // serves and it answers.
 //
 // Everything that touches the host is async and goes through `./bridge/index.ts`. Everything
 // that is a registry (commands, views, status, settings sections) lives in `./registry.ts` and
 // `./settings-core.ts`. The router is `./router.ts`, with the tabs' model in `./tabs.ts`; it
-// reaches the page editor and the folder view through `./pagehost.ts`, so that `ose:editor`
-// stays a separate bundle and the shell's folder view stays the shell's.
+// reaches the page editor through `./pagehost.ts`, so that the editor (src/editor) stays a
+// chunk of its own that the core never imports.
 //
-// There are no plugins any more (W2): Day, Week, Month and Journal are `ose:views`, a module
-// built into the app that registers through the same seams the shell does (views, commands,
-// settings sections).
+// Day, Week, Month and Journal are the views (src/views), built into the app; they register
+// through the same seams the shell does (views, commands, settings sections).
 
 /// <reference path="./globals.d.ts" />
 import { bus, store, commands, views, status, uid, debounce, esc } from './registry.ts';
@@ -169,20 +168,20 @@ const ready = (async () => {
   } catch (e) { console.warn('[core] platform', e); }
   journal.setPlatform(platformName);
   try { await loadState(); } catch (e) { console.warn('[core] state', e); }
-  // The per-machine store (W5), and the one-time copy of what used to live in the synced state
-  // file and belongs to the machine now: recent files, the sidebar, the reading settings.
+  // The per-machine store, and the one-time copy of what used to live in the vault's state
+  // and belongs to the machine now: recent files, the sidebar, the reading settings.
   try { await loadLocal(); } catch (e) { console.warn('[core] local', e); }
   try { migrateLocal(stateCache(), [...settingsCore.MACHINE_KEYS]); } catch (e) { console.warn('[core] local migration', e); }
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[core] focus', e); }
   try { await readRoot(); } catch (e) { console.warn('[core] rootInfo', e); }
-  // What the OS asks this window to open: taken once the first surface is up (./opens.js).
+  // What the OS asks this window to open: taken once the first surface is up (./opens.ts).
   initOpens();
 })();
 
 /* ------------------------------------------------------------------------ leaving (C5) */
 
 // Closing the window through the app (`ose.window.close`, Ctrl+Q) goes through the same gate as
-// a reload and a change of vault (./leave.js). The adapter awaits what this answers, and a
+// a reload and a change of vault (./leave.ts). The adapter awaits what this answers, and a
 // `false` keeps the window. The router's own `closing` handler (unmount the view, flush the
 // state file) stays beside it.
 bridge.on('window', (d) => (d && d.closing ? leaveWindow('close') : undefined));
@@ -485,7 +484,7 @@ export const ose = {
 
   /**
    * What a file is by its name (docs/CORE.md `ose.paths`): the one list of markdown and text
-   * extensions the editor, the tree, the folder view, the palette and backlinks agree on.
+   * extensions the editor, the tree, the palette and backlinks agree on.
    */
   paths: {
     markdownExts: MARKDOWN_EXTS,
@@ -507,18 +506,18 @@ export const ose = {
     /** Close the active tab (Ctrl+W); the last one goes Home. */
     close: (opts) => router.clearRoute(opts),
     reopenClosed: () => router.reopenClosedTab(),
-    /** The route the last tab falls back to instead of the empty surface. */
+    /** The route the last tab falls back to instead of an empty column. */
     setHome: (route) => router.setHome(route),
     /** A file or folder moved and the page followed it: every tab, history and title re-pointed. */
     repoint: (moves) => router.repoint(moves),
     recent: () => router.recentFiles(),
     on: (fn) => router.onRoute(fn),
     // The shell mounts the router into its page column; nothing else may. `{ start: false }`
-    // skips the empty surface the mount draws, for a shell that opens on a surface of its own.
+    // skips the first show: the column stays blank until the shell navigates.
     init: (el, opts) => router.initRouter(el, opts),
   },
 
-  /** The tabs (M23): the core owns them, `shell/tabs.js` draws them. */
+  /** The tabs (M23): the core owns them, `src/shell/tabs.ts` draws them. */
   tabs: {
     list: () => tabs.list(),
     active: () => tabs.active(),
@@ -561,9 +560,10 @@ export const ose = {
   },
 
   /**
-   * `ose.state(key)` — the vault's own state in `.ose/state.json`, synced with it (pins, the
-   * planner's paths, vault settings), one key per concern, written debounced. A dotted key is
-   * a path into the object. What belongs to this machine is `ose.local`.
+   * `ose.state(key)` — the vault's own state (the planner's paths, vault settings), kept by
+   * the host outside the vault, in `<app data>/vaults/<vaultKey>/state.json`. One key per
+   * concern, written debounced. A dotted key is a path into the object. What belongs to this
+   * machine is `ose.local`.
    */
   state(key: string) {
     const path = String(key).split('.').filter(Boolean);
@@ -699,15 +699,15 @@ export const ose = {
     return true;
   },
 
-  /* The seams the shell fills: whoever draws a file, whoever draws a folder, and whoever knows
-     the page list. All three are documented in ./pagehost.js; each is the shell's to call once. */
+  /* The seams the shell fills: whoever draws a file, and whoever knows the page list. Both are
+     documented in ./pagehost.ts; each is the shell's to call once. */
   setPageHost,
   setPageList,
 
   /**
    * What the shell calls once, after its own surfaces exist: the key engine and the theme.
-   * `start: false` mounts the router without drawing the empty surface, for a shell that opens
-   * on a surface of its own and would otherwise flash the core's on every boot.
+   * `start: false` mounts the router without its first show: the column stays blank until the
+   * shell navigates.
    */
   init({ page, keys = true, theme = true, start = true }: { page?: HTMLElement; keys?: boolean; theme?: boolean; start?: boolean; } = {}) {
     if (theme) initTheme();

@@ -301,9 +301,9 @@ export const bridge = {
   /** opts { ifRev? } -> { dropped } */
   draftDrop: (path: string, opts: any): Promise<Dropped> => as(valued('draftDrop', path, withEpoch(opts))),
 
-  // Versions (docs/HOST.md "Commands"): `.ose/history`, tiered. `opts` is `{ force?, reason? }`,
-  // and carries the epoch like every other write. The host names the files; nothing here
-  // builds a path into the history folder.
+  // Versions (docs/HOST.md "Commands"): kept by the host in the app's data folder, tiered.
+  // `opts` is `{ force?, reason? }`, and carries the epoch like every other write. The host
+  // names the files; nothing here builds a path into the history folder.
   /** -> { kept, id } */
   versionKeep: (path: string, text: string, opts: { force?: boolean; reason?: string; }): Promise<Kept> => as(valued('versionKeep', path, text, withEpoch(opts))),
   /** -> VersionInfo[], newest first */

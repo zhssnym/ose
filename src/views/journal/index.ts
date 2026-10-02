@@ -12,8 +12,8 @@
 //
 // The record has two modes (`journalMode`): full prints every entry, compact one line per day
 // that expands in place. Newest 30 days first, the rest on scroll or "Show earlier". An entry is
-// drawn with `ose:editor`'s `render` when it is there, so maths and links read as on the page,
-// and a link in an entry opens what it points at, with the mouse or with Enter.
+// drawn with the editor's `render` (src/editor/lib.ts) when it is there, so maths and links
+// read as on the page, and a link in an entry opens what it points at, with the mouse or with Enter.
 
 import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
@@ -48,7 +48,7 @@ function parseEntry(text) {
   return out.map((s) => s.trim()).filter(Boolean);
 }
 
-/** Without `ose:editor`: paragraphs, and an inner heading kept as a bold line. */
+/** Without the editor: paragraphs, and an inner heading kept as a bold line. */
 function plainThought(text) {
   const out: any[] = [];
   for (const b of String(text).split(/\n\s*\n/)) {
@@ -200,7 +200,7 @@ async function addToToday(ose, store, text): Promise<string> {
  */
 export function createJournalView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
-  let renderMd: ((markdown: string, opts?: any) => HTMLElement | null) | null = null;       // `ose:editor` render, once loaded
+  let renderMd: ((markdown: string, opts?: any) => HTMLElement | null) | null = null;       // the editor's render, once loaded
   const editorReady = import('../../editor/lib.ts').then((m) => { renderMd = m.render; }).catch(() => { /* the plain renderer */ });
 
   function mount(host) {

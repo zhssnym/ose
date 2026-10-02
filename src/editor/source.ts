@@ -26,7 +26,7 @@ import { HIGHLIGHT } from './highlight.ts';
 import { commands } from './host.ts';
 import './source.css';
 
-/** The api handed over by index.js at boot (registerExtensionCommands). */
+/** The api handed over by page/commands.ts at boot (registerExtensionCommands). */
 let api: any = null;
 
 // ---------------------------------------------------------------------------
@@ -497,8 +497,8 @@ export function createSourceView(o: { host: HTMLElement; text: string; markdown?
  *
  * `o.onLeaveTop()` takes the caret to the end of the title and answers true when there was a
  * title to take it to; `o.onSelectAll()` widens a whole-document selection to the title as
- * well and answers true when it did. Both are supplied by index.js, which owns the title strip;
- * with neither, the plugin does nothing.
+ * well and answers true when it did. Both are supplied by the page editor, which owns the
+ * title strip; with neither, the plugin does nothing.
  */
 export function plugins(_ctx, o) {
   const opts = o || {};

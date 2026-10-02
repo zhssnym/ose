@@ -5,10 +5,9 @@
 // while Show hidden items is on, greyed; `.ose`, `.git` and the exe are the host's to keep out
 // and never arrive here (docs/HOST.md, the one hide rule).
 //
-// A folder row goes to the folder's own view (`{type:'folder'}`) on a click or Enter; its
-// chevron, Left and Right fold it. A file row opens the file, whatever it is: the page host
-// decides how (H17). Each folder sorts the way its folder view says (M22, `folder-model.js`),
-// by name with numbers in number order unless the person chose otherwise.
+// A folder row folds and unfolds on a click or Enter, and with its chevron, Left and Right. A
+// file row opens the file, whatever it is: the page host decides how (H17). Each folder sorts
+// by name with numbers in number order (`folder-model.ts`).
 //
 // The tree is read once at boot (`ose.files.tree`) and then patched in place (M16): a batch
 // of watcher changes re-lists only the folders those changes are in, and the app's own file
@@ -18,14 +17,14 @@
 //
 // Several rows can be selected at once (C17) and cut, copied, moved, trashed or dragged
 // together. Create, rename, move, copy, duplicate and trash are not done here: every gesture
-// of the tree ends in shell/fileops.js and from there in `ose.fileops`, which saves the open
+// of the tree ends in ./fileops.ts and from there in `ose.fileops`, which saves the open
 // page first and refuses when it cannot (C6), and journals what it did so Ctrl+Z in the tree
 // takes it back (M17). This file only follows what happened: expansion, the selection and the
 // focused row.
 //
-// The sidebar is in parts: sidebar-state.js (what they share), sidebar-tree.js, sidebar-select.js,
-// sidebar-load.js, sidebar-commands.js and sidebar-init.js. This file says what the sidebar
-// exports.
+// The sidebar is in parts: sidebar-state.ts (what they share), sidebar-tree.ts,
+// sidebar-select.ts, sidebar-load.ts, sidebar-commands.ts and sidebar-init.ts. This file says
+// what the sidebar exports.
 
 export { allPages, allFiles, focusTree } from './sidebar-tree.ts';
 export { refreshTree, revealFolder } from './sidebar-load.ts';

@@ -1,4 +1,4 @@
-// `codeEditor(el, opts)` (docs/CORE.md `ose:editor`): CodeMirror as a component.
+// `codeEditor(el, opts)` (docs/CORE.md, the editor): CodeMirror as a component.
 //
 // The same editor source mode mounts, with two things added: a language from the CodeMirror
 // language pack (the one the code-block feature uses, so a `python` block and a `.py` file are
@@ -149,8 +149,9 @@ export function codeEditor(el: HTMLElement, opts: any = {}) {
   // CodeMirror binds its keymap on `.cm-content`. The search panel is a sibling of the
   // scroller, not a child of the content, so a chord typed in the Find field reaches no keymap
   // at all — and since the shell now stands down for everything inside `.ed-code`
-  // (`OWN_EDITOR_KEYS` in keys.js), Ctrl+S there meant nothing whatsoever and the browser's own
-  // Save dialog came up over the app (A, finding 10). The host catches what falls through.
+  // (`OWN_EDITOR_KEYS` in src/core/keys.ts), Ctrl+S there meant nothing whatsoever and the
+  // browser's own Save dialog came up over the app (A, finding 10). The host catches what
+  // falls through.
   // `defaultPrevented` is the test for "CodeMirror already has it": the `Mod-s` binding below
   // is declared `preventDefault: true`, so a Ctrl+S with the caret in the text never reaches
   // this and the file is never written twice.
@@ -205,7 +206,7 @@ export function codeEditor(el: HTMLElement, opts: any = {}) {
   // cannot differ (`ide()` in source.ts). What is only this editor's is Ctrl+S.
   //
   // Ctrl+S here as well as in the shell: a code editor inside a dialog or a panel is not always
-  // under a chord the shell bound (docs/CORE.md, keyboard reachable every time). `keys.js`
+  // under a chord the shell bound (docs/CORE.md, keyboard reachable every time). `src/core/keys.ts`
   // binds `mod+s` on `window` in the capture phase, so the shell's `page.save` would otherwise
   // take it first and nothing inside CodeMirror could outrank a listener that runs before the
   // event ever descends. The exemption belongs in the key engine rather than here, and that is

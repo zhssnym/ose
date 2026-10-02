@@ -1,5 +1,5 @@
 // The editor's context menu: right-click, Shift+F10 and the Menu key in the body. Built on
-// `contextMenu` from `ose:ui`, the same component the tree uses, so arrows, Home/End, letter
+// `contextMenu` from the kit (src/ui), the same component the tree uses, so arrows, Home/End, letter
 // jumps, Enter and Esc are already right and the two menus cannot drift apart.
 //
 // Every row is a registered command, drawn from the registry with its own title and its own

@@ -10,7 +10,7 @@
 //
 // Lines are compared with their line endings attached, so a merged text keeps each line's own
 // ending: a CRLF file stays CRLF where it was, and a line that came from the other side keeps
-// whatever that side wrote. Nothing is normalised. Pure: no DOM, no `ose:*`, so the tests import
+// whatever that side wrote. Nothing is normalised. Pure: no DOM, no `ose`, so the tests import
 // it as it is.
 
 import { diff3Merge } from 'node-diff3';

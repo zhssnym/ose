@@ -10,11 +10,11 @@ Agents work best with plain local files, with no API, export or plugin in betwee
 
 **The editor.** Pages look like printed documents rather than web pages. Each page is edited in one of two modes: **Rich**, where you write as in a word processor, or **Source**, the raw markdown as in a code editor. Formulas between dollar signs render as real maths, tables and code blocks are drawn properly, and a page can be laid out as A4 sheets and exported to PDF. Line endings and formatting are always preserved: Ose never rewrites a part of a file you did not edit.
 
-**The file manager.** Every folder is a page of its own, listing what is in it, like Explorer or Finder. Folders come first, then everything by name. Tabs, back and forward, Go to file (Ctrl+P), the command palette (Ctrl+Shift+P) and full-text search get you anywhere quickly.
+**The file manager.** The sidebar is your folder as it is on disk, every file under its real name, with a Scratchpad section for quick notes and a focus mode that narrows everything to one folder. Files open in tabs, which you can reorder and drag files onto. Go to file (Ctrl+P), the command palette (Ctrl+Shift+P) and full-text search get you anywhere quickly. Files Ose does not show itself open in their own app.
 
 **Nothing typed is lost.** Unsaved text is kept as a draft until it reaches the file. When an agent or another program changes a file you have open, Ose merges the change into your page line by line, and asks only when you both changed the same lines.
 
-**Journal, systems and monthly view.** Built-in views over ordinary files whose paths you choose once in the settings. They write back one line at a time, so the files stay readable and editable by anything else.
+**Day, Week, Month and Journal.** Built-in views over ordinary files whose paths you choose once in the settings. They write back one line at a time, so the files stay readable and editable by anything else.
 
 ## Your folder stays yours
 
@@ -33,3 +33,17 @@ npm test             # the unit tests
 ```
 
 How it is built and how each part works is documented in `docs/`.
+
+## Make it yours
+
+Ose is meant to be forked. The code is small and every folder is one idea:
+
+| You want to… | Look in |
+|---|---|
+| add a view of your files (a kanban, a reading list…) | `src/views/`: one folder per view; copy `journal/` and follow `docs/VIEWS.md` |
+| change the look (colours, fonts, sizes) | `src/ui/styles/tokens.css` |
+| change the layout (sidebar, tabs, title bar, status bar, settings) | `src/shell/` |
+| change how files are read, saved, renamed or watched | `src/core/` and `src-tauri/` |
+| change the editor | `src/editor/` |
+
+There is no plugin system on purpose: a fork is the plugin system. Claude Code can do most of these for you: point it at the repository and say what you want.

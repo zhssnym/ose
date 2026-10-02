@@ -1,6 +1,6 @@
 // The status bar: one thin line at the foot of the window, where a page's facts live so the
 // page itself holds nothing but the page. Left: the save dot (on while there are unsaved
-// changes, the error mark when a save failed; titlebar.js keeps it current), then the fields
+// changes, the error mark when a save failed; titlebar.ts keeps it current), then the fields
 // `ose.status.all()` answers, joined by ' · ': the editing mode (a menu of the modes), the
 // counts, when the file was changed and when it was saved, and the save state when it is bad.
 // Right: the zoom while it is not 100 %.
@@ -76,7 +76,7 @@ function renderRight() {
 const hasChoices = (s) => Array.isArray(s.choices) && s.choices.length > 0 && typeof s.onChoose === 'function';
 
 /**
- * Draw the bar into `node` and keep it current. Called once by `layout.js`.
+ * Draw the bar into `node` and keep it current. Called once by `layout.ts`.
  */
 export function initStatusbar(node: HTMLElement) {
   node.className = 'statusbar';

@@ -56,7 +56,7 @@ export function resolveHref(fromFile, href) {
   let decoded = h;
   // decodeURIComponent, not decodeURI: relativeHref encodes with encodeURIComponent, and
   // decodeURI leaves %2C %3B %3A %40 %26 %3D %2B %24 in place, so a page named with a comma
-  // or an ampersand never resolved (and lib/links.js could not confirm links into it).
+  // or an ampersand never resolved (and src/core/links.ts could not confirm links into it).
   try { decoded = decodeURIComponent(h); } catch { /* leave as written */ }
   if (decoded.startsWith('/')) return normalize(decoded);
   return joinPath(dirname(fromFile), decoded);
@@ -92,7 +92,7 @@ export function linkTarget(fromFile, href) {
 
 /**
  * GitHub's heading slug: lowercased, punctuation dropped, spaces to hyphens. The one
- * `[text](#some-heading)` is written against, and the first thing `lines.js headingLine`
+ * `[text](#some-heading)` is written against, and the first thing `src/editor/lines.ts headingLine`
  * compares a heading with.
  */
 export const headingSlug = (s) =>

@@ -48,7 +48,7 @@ const digit = (code) => code !== EOF && code > 47 && code < 58;
 // Temml
 
 /**
- * One formula as an element (docs/CORE.md `ose:editor`). Never throws and never loses the
+ * One formula as an element (docs/CORE.md, the editor). Never throws and never loses the
  * text: a formula Temml refuses comes back as its own source in the error colour, carrying
  * Temml's message as its title, which is the only useful thing to say about a typo in TeX.
  */

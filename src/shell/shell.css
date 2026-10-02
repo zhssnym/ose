@@ -1,6 +1,6 @@
 /* Ose: the shell's frame, overlays, the vault chooser, the status bar, search, settings, Go to
    file, and the empty and miss boxes. The tree is tree.css, the title bar, tabs and page column
-   places.css, the folder view folder.css. Tokens only, no literal colours, and every
+   places.css. Tokens only, no literal colours, and every
    padding, margin and gap a step of the spacing scale (DESIGN.md "Space"); the few pixel
    numbers left are geometry (icon sizes, hit zones, the tree grid) and say so.
    Canonical components (.btn .input .row .chip .kbd .surface .section-label) come from base.css. */
@@ -53,7 +53,7 @@
 
 /* ------------------------------------------------------------------ choose a vault */
 
-/* No root yet (shell/vault.js): the title bar and one centred column. The same empty-state
+/* No root yet (src/shell/vault.ts): the title bar and one centred column. The same empty-state
    voice as `.empty`, with the sentence in the UI face because it is a sentence, not a label;
    the suggestion and any error are mono because they are a path and a message from the host. */
 .vault {
@@ -89,7 +89,7 @@
 
 /* ------------------------------------------------------------------ search panel (M25) */
 
-/* Search lives in the side panel (layout.js `panel`): a field at the top, one quiet line of
+/* Search lives in the side panel (layout.ts `panel`): a field at the top, one quiet line of
    counts, and the hits grouped under their file the way palette rows group under a section
    label. The panel's own frame and title are the layout's; this is what is inside it. */
 .sp { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -139,7 +139,7 @@
 
 /* ------------------------------------------------------------------ settings (M26) */
 
-/* Settings is a page (settings.js): the section list on the left, one section's rows on the
+/* Settings is a page (settings.ts): the section list on the left, one section's rows on the
    right, in the page column's own air. The list is a vertical tab list; the current section
    carries the same bar and ground as the current row in the tree. Under a narrow column the
    list goes across the top. */

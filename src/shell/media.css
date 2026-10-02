@@ -1,4 +1,4 @@
-/* The third line of the "not in the vault" box (media.js `mediaMiss`), in the `.empty` voice:
+/* The third line of the "not in the vault" box (media.ts `mediaMiss`), in the `.empty` voice:
    a missing attachment is a fact, not a fault, so it is not the core's red `.miss-why`. */
 .media-gone {
   margin-top: var(--sp-3);
@@ -6,7 +6,7 @@
   max-width: 44rem;
 }
 
-/* A file that is not text (media.js `binaryPage`): one box in the page column, the name in
+/* A file that is not text (media.ts `binaryPage`): one box in the page column, the name in
    the chrome's mono voice, three facts, one sentence and the ways out. Boxes, not rules. */
 .binary-page { padding-top: var(--page-pad-top); }
 .binary-page:focus { outline: none; }

@@ -1,5 +1,5 @@
-// Versions: the previous content of a file, kept under `.ose/history` by the host when a save
-// replaces it (wave 1, M2: the page's save is one host call that keeps the version itself); the
+// Versions: the previous content of a file, kept by the host in the app's data folder when a
+// save replaces it (wave 1, M2: the page's save is one host call that keeps the version itself); the
 // Versions… dialog that lists, compares and restores. Host side in src-tauri/src/versions.rs. See
 // docs/HOST.md "Commands".
 //
@@ -12,7 +12,7 @@ import { choose, openOverlay, toast } from './deps.ts';
 import { compareTexts } from './compare.ts';
 import { isOutside } from './paths.ts';
 
-/** The api handed over by index.js at boot (registerExtensionCommands). */
+/** The api handed over by page/commands.ts at boot (registerExtensionCommands). */
 let api: any = null;
 
 // ---------------------------------------------------------------------------
@@ -237,8 +237,8 @@ export function registerCommands(a) {
     title: 'Versions…',
     group: 'page',
     when: () => !!(api && api.hasPage()),
-    // A file outside the vault (wave 3, X7) has no `.ose/history` to keep versions in: the
-    // host answers `unsupported`, and the palette says so before asking it.
+    // A file outside the vault has no versions: the host answers `unsupported`, and the
+    // palette says so before asking it.
     run: () => {
       if (api && isOutside(api.getPath() || '')) { toast('Versions are kept only for files inside the vault', 'info'); return; }
       void openVersions();

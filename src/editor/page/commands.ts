@@ -164,7 +164,7 @@ function registerCommands() {
     id: 'page.print', title: 'Print', group: 'page',
     when: hasPage, run: () => void printPage(),
   });
-  // The chords are the core's (keys.js): Ctrl+F for find, the outline's is its choice.
+  // The chords are the core's (src/core/keys.ts): Ctrl+F for find, the outline's is its choice.
   commands.register({
     id: 'page.find', title: 'Find in page', group: 'page',
     when: hasPage, run: () => editorApi.find(),

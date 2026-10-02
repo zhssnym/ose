@@ -1,6 +1,6 @@
 // Vault path helpers. Paths are relative to the root, forward slashes, no leading slash.
 //
-// The shell's own copy of the core's `paths.js`: pure string functions with no state, which
+// The shell's own copy of the core's `paths.ts`: pure string functions with no state, which
 // the sidebar, the title bar and the palette all need. Keep it in step with
 // `src/core/paths.ts`. There is no list of hidden names here any more: what is hidden is the
 // host's one rule (dotfiles and the OS hidden attribute, `Entry.hidden`), and what is never

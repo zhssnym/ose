@@ -6,7 +6,7 @@
 // nobody has open. Now it is one page that says what happened, where the log is, and offers
 // the two things a person can do about it: copy the details to send to someone, and try again.
 //
-// It imports nothing. `main.js` reaches it when `boot.js` itself could not be loaded, which may
+// It imports nothing. `main.ts` reaches it when `boot.ts` itself could not be loaded, which may
 // be because the core could not be, so this file cannot lean on either: the core is handed
 // in when there is one and only asked for the log path and the version. Colours are the
 // tokens, with the system colours behind them for the case where the core's stylesheet is

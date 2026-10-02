@@ -1,6 +1,6 @@
 // The window's title bar. The corner over the sidebar is the sidebar's: the mark and,
-// at its right edge, the sidebar's toggle; folded, only the toggle is left. Then the tabs (tabs.js
-// draws them; layout.js puts the strip here) as flat cells, and their +. The window has no system
+// at its right edge, the sidebar's toggle; folded, only the toggle is left. Then the tabs (tabs.ts
+// draws them; layout.ts puts the strip here) as flat cells, and their +. The window has no system
 // title bar: its empty parts move the window (`data-tauri-drag-region`; a double click
 // maximises), and the window buttons are drawn here on Windows and Linux. On macOS the system's
 // traffic lights sit over the row's left end, which leaves them room.
@@ -49,7 +49,7 @@ export function initTitlebar(node: HTMLElement) {
   foldEl = el.querySelector('.tb-fold') as HTMLButtonElement;
   foldEl.addEventListener('click', () => commands.run('app.sidebar'));
   setSidebarShown(sidebarVisible());
-  // The window hides the sidebar on its own under 640px (layout.js `fit`, L25), without
+  // The window hides the sidebar on its own under 640px (layout.ts `fit`, L25), without
   // touching the preference, so the glyph follows what is on screen and not what is stored.
   bus.on('sidebar', setSidebarShown);
 

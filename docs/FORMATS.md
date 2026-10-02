@@ -5,13 +5,18 @@ Journal) builds its views out of a handful of ordinary markdown and JSONL files.
 is the contract for those files. An agent such as Claude Code, run on the vault from outside,
 reads it to know how to write a file that the app will read, and what the app writes back.
 
-The code that reads each format is in `src/planner/`. The files are named for what they hold:
-`timetable.js`, `tasks.js`, `plans.js` and `journal.js`.
+The code is in `src/views/`: one folder per view (`day/`, `week/`, `month/`, `journal/`) and
+`shared/` for the readers they share, named for what they hold: `timetable.ts` (the calendar),
+`tasks.ts` and `todo.ts` (todo lines), `plans.ts` (monthly plans and `systems.jsonl`),
+`settings.ts` and `detect.ts` (where the files are). The journal's format is read in
+`journal/index.ts`.
 
 ## Where the files are
 
-Settings › Planner holds four paths. They are stored in the vault's `.ose/state.json` under
-`planner`, so they travel with the vault:
+Settings › Planner holds four paths. They are stored under `planner` in the vault's state, which
+the app keeps on this machine (`<app data>/vaults/<vaultKey>/state.json`, see docs/HOST.md), not
+in the vault. A vault that still has a `.ose/state.json` from an older Ose is read from there
+until the app first writes its state:
 
 | Setting | Kind | Read by |
 |---|---|---|
@@ -24,13 +29,14 @@ The first time the app opens a vault, it looks for these by name and shows what 
 
 - names are compared without case and without a leading number, so `4-journal` is a journal
   folder and `1-general-todo.md` is a todo file;
-- the calendar is a file named `calendar`, `timetable`, `schedule` or `emploi du temps`;
+- the calendar is a markdown file named `calendar`, `calendrier`, `timetable`, `schedule`,
+  `emploi du temps` (or `emploi-du-temps`) or `edt`;
 - a markdown file with `todo` or `todos` as a word of its name is a todo file (`todo.md`,
   `1-general-todo.md`, `School TODO.md`); inside a word it does not count, so `Mastodon.md`
   is not one;
 - the reports folder is the folder that holds `systems.jsonl`, or else one named `reports`,
-  `plans` or `execution`;
-- the journal folder is one named `journal` or `diary`;
+  `report`, `plans`, `monthly plans` (or `monthly-plans`) or `execution`;
+- the journal folder is one named `journal`, `journals`, `journaling` or `diary`;
 - when several match, the shallowest wins.
 
 The views use what was found straight away, and say in one quiet line that the paths were
@@ -254,12 +260,14 @@ editor.
   is not made again under the old name: a message says so and offers "Choose…" and
   "Create it", and only "Create it" makes the folder.
 
-Text that the old Journal's composer kept unsaved on this machine is offered at each start
-until it is placed: "Add to today's journal" appends it to today's file with `appendLine`,
-after a `---` line when the day already has something written; "Discard…" asks first.
-
 From then on it is an ordinary page: the editor saves it, keeps drafts and versions, and
 refuses to lose it.
+
+Text that the old Journal's composer left unsaved on this machine (the web view's
+`localStorage` key `os.journal.draft`) is offered at each start until it is placed: "Add to
+today's journal" appends it to today's file with `appendLine`, one line at a time: a blank line
+first when the file does not already end in one, then `---` and a blank line when the day
+already has something written, then the text. "Discard…" asks first.
 
 ## What the app writes, in one place
 
@@ -269,8 +277,8 @@ refuses to lose it.
 | a todo file | `replaceLine`: one line, only if it still reads what was shown | a task ticked or unticked in Day |
 | the first todo file | `appendLine`: `- [ ] <text>` at the end | a task added in Day |
 | `<journal>/YYYY-MM-DD.md` | exclusive create, never an overwrite | "Write today" when today has no file |
-| today's journal file | `appendLine`: `---`, then the text, line by line | "Add to today's journal" on the old composer's unsaved text |
-| `.ose/state.json` `planner` | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Planner; a chosen file or folder renamed or moved |
+| today's journal file | `appendLine`, line by line: `---` and a blank line when the day has text, then the text | "Add to today's journal" on the old composer's unsaved text |
+| the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Planner; a chosen file or folder renamed or moved |
 
 Every other planner file is read and never written. The calendar, the plans and the journal
 entries change only when you edit them, in the editor or anywhere else.

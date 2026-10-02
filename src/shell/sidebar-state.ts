@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). What every part of the sidebar shares: the core's hoses it
+// Part of the sidebar (./sidebar.ts). What every part of the sidebar shares: the core's hoses it
 // leans on, and its state.
 
 import { ose } from '../core/core.ts';
@@ -22,7 +22,7 @@ export interface TreeNode {
   children?: TreeNode[] | null;
 }
 
-/** What the parts of sidebar.js share and change: each was a `let` of the one file. */
+/** What the parts of sidebar.ts share and change: each was a `let` of the one file. */
 export interface SidebarState {
   el: HTMLElement | null;
   scrollEl: HTMLElement | null;
@@ -78,10 +78,10 @@ export const messageOf = (e) => (e && typeof e === 'object' && 'message' in e &&
 export const ic = (name, fallback) => (hasIcon(name) ? name : fallback);
 
 // Per-machine UI state (`ose.local`, W5): the tree's open folders beside the layout's open
-// switch and width. Every folder is sorted by name (shell/folder.js `sortSpec`).
+// switch and width. Every folder is sorted by name (folder-model.ts `DEFAULT_SORT`).
 // Every write is read-modify-write of the whole slot, so the layout's writes to `sidebar.open`
-// and this file's to `sidebar.expanded` never clobber each other. Never the vault's
-// `.ose/state.json`: UI state is per machine and never lands in a synced file.
+// and this file's to `sidebar.expanded` never clobber each other. Never the vault's state
+// (`ose.state`): UI state is per machine.
 export const slot = (key) => ose.local(key);
 
 export const showHidden = () => !!(ose.settings.get() || {}).showHidden;

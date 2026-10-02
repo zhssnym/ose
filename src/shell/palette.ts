@@ -23,8 +23,9 @@ const shortcutFor = (id) => ose.keys.shortcutFor(id);
 const GROUP_ORDER = ['navigate', 'tab', 'folder', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'planner', 'trash', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
-// The matcher and the page-list builder live in fuzzy.js so `pickPage` (dialog.js) ranks pages
-// exactly the way Ctrl+P does. Re-exported here because this is where they used to be.
+// The matcher and the page-list builder live in src/ui/fuzzy.ts so `pickPage`
+// (src/core/pickers.ts) ranks pages exactly the way Ctrl+P does. Re-exported here because
+// this is where they used to be.
 export { fuzzy };
 
 /* -------------------------------------------------------------- what is listed */
@@ -82,7 +83,7 @@ function commandItems(q): Item[] {
   return out;
 }
 
-/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.js. */
+/** The name the chrome shows for a path (W8): `ose.names.display`, through paths.ts. */
 const display = (p) => titleOf(p);
 
 /** Markdown first when two files tie (H17): `notes.md` before `notes.txt` for the same query. */
@@ -105,7 +106,7 @@ function fileItems(q): Item[] {
 
 /**
  * Shift+Enter in Go to file (N41): the file you were looking for and did not find, made with
- * the name you typed. It is New file… (shell/fileops.js) with the prompt already answered, so
+ * the name you typed. It is New file… (src/shell/fileops.ts) with the prompt already answered, so
  * there is one way a file is created and one rule for where it goes. The name is taken as
  * typed; a name that carries no extension is a page and gets `.md`, and one that does
  * (`notes.txt`, `data.json`) is exactly that file. A name that cannot be used brings the New
@@ -281,7 +282,7 @@ export function openPalette(mode: Mode = 'commands') {
   focusField(ov.box, input);
 }
 
-/** Register the palette's two commands. Called once by `boot.js`. */
+/** Register the palette's two commands. Called once by `boot.ts`. */
 export function initPalette() {
   commands.register({ id: 'app.palette', title: 'Command palette', group: 'app', run: () => openPalette('commands') });
   commands.register({ id: 'app.quickopen', title: 'Go to file', group: 'navigate', hint: 'by name or path', run: () => openPalette('files') });

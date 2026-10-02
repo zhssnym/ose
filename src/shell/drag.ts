@@ -1,5 +1,4 @@
-// Drag in (docs/SHELL.md "Drag in", contract §5.5): the one place the tree and the folder view
-// go for a drop from the OS.
+// Drag in (docs/SHELL.md "Drag in"): the one place the tree goes for a drop from the OS.
 //
 // A drop from Explorer or Finder is an ordinary HTML5 `drop`. `takeDropped` turns the drop's items into entries — folders
 // walked with `webkitGetAsEntry()`, their children read in batches — and `importDropped`
@@ -18,7 +17,7 @@ import { undo } from './fileops.ts';
 export const DRAG_TYPE = 'application/x-os-path';
 
 // The paths an internal drag carries, while it lasts: `getData` is unreadable during dragover,
-// and the tree and the folder view both need them there to know which folders may light up.
+// and the tree needs them there to know which folders may light up.
 let draggedNow: string[] | null = null;
 
 /** Say which vault paths a drag that started in this window carries (null when it ends). */
@@ -39,7 +38,7 @@ const fileManager = (): string => (ose.platform === 'windows' ? 'Explorer' : ose
 /** Whether a drag carries files from outside the window. */
 export const hasOsFiles = (dt: DataTransfer | null | undefined): boolean => !!dt && [...(dt.types || [])].includes('Files');
 
-/** Whether a drag is one of ours (a row of the tree or of a folder view). */
+/** Whether a drag is one of ours (a row of the tree). */
 export const isInternal = (dt: DataTransfer | null | undefined): boolean => !!dt && [...(dt.types || [])].includes(DRAG_TYPE);
 
 export type DropEntry = { path: string, kind: 'dir' | 'file', file?: File };

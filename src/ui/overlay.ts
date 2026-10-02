@@ -275,7 +275,7 @@ export function confirm({ title = 'Are you sure?', body = '', ok = 'OK', danger 
 }
 
 /**
- * `choose({ title, body, options, cancel })` (docs/CORE.md `ose:ui`): one question, a short
+ * `choose({ title, body, options, cancel })` (docs/CORE.md, the kit): one question, a short
  * list of answers, one of them the default. Resolves to the chosen `value`, or null when the
  * dialog is dismissed. Options are `{ value, label, note?, danger? }` or bare strings.
  *

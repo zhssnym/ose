@@ -1,11 +1,11 @@
-// The settings core (docs/CORE.md, `ose.settings`). Two scopes (W5, M26): the vault's
-// settings live in `.ose/state.json` `settings` and travel with the vault (where trash goes,
-// where attachments go, title sync); this machine's live in the per-machine store
-// (`ose.local.app('settings')`: reading comfort, Show hidden, the restore switch, `.md` in
-// names). `settings()` merges the defaults with both, `save(partial)` sends each key to its
-// own scope. The page that draws them is the shell's; the core keeps the defaults, the read
-// and the write, what the rest of the app asks of a setting, applying them to the document,
-// and the registry of the sections a built-in module contributes.
+// The settings core (docs/CORE.md, `ose.settings`). Two scopes: the vault's settings live
+// under `settings` in the vault's state (./state.ts: where trash goes, where attachments go,
+// title sync); this machine's live in the per-machine store (`ose.local.app('settings')`:
+// reading comfort, Show hidden, `.md` in names). `settings()` merges the defaults with both,
+// `save(partial)` sends each key to its own scope. The page that draws them is the shell's;
+// the core keeps the defaults, the read and the write, what the rest of the app asks of a
+// setting, applying them to the document, and the registry of the sections a built-in module
+// contributes.
 import { bus } from './registry.ts';
 import { patchState, stateCache } from './state.ts';
 import { local } from './local.ts';
@@ -48,8 +48,8 @@ export const DEFAULTS = {
 };
 
 /**
- * The keys that belong to this machine rather than to the vault (W5). Every other key,
- * including one a built-in module invents, is the vault's and goes to `.ose/state.json`.
+ * The keys that belong to this machine rather than to the vault. Every other key, including
+ * one a built-in module invents, is the vault's and goes to the vault's state.
  */
 export const MACHINE_KEYS = new Set([
   'fontSize', 'lineHeight', 'pageFace', 'layout', 'readableWidth', 'zoom', 'spellcheck',

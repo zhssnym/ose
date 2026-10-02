@@ -1,6 +1,6 @@
 // Linked mentions (batch 12, package P7, N6).
 //
-// `lib/links.js findInbound` has been in the tree since batch 9 with no caller: this is the
+// `src/core/links.ts findInbound` has been in the tree since batch 9 with no caller: this is the
 // caller. Under the page body sits one box, `linked from`, collapsed, listing every page that
 // links here — the page's title, and the line the link is on, which is the only thing that
 // makes a backlink worth reading. A row opens that page at that line.
@@ -10,7 +10,7 @@
 // all: an empty box on every page would be permanent furniture for a rare case.
 //
 // The box is mounted from a ProseMirror plugin's `view`, which is the one moment the editor
-// says where its DOM went without this module having to know anything about index.js.
+// says where its DOM went without this module having to know anything about the page editor.
 
 import { Plugin } from '@milkdown/kit/prose/state';
 import { bus, commands, debounce, esc, findInbound, navigate, titleOf } from './host.ts';
@@ -20,7 +20,7 @@ import './backlinks.css';
 
 /** path -> how many pages link to it, as last computed. Read by the editor's meta line. */
 const counts = new Map();
-/** The editor API (index.js `editorApi`), handed over once at boot. */
+/** The editor API (page/commands.ts `editorApi`), handed over once at boot. */
 let api: any = null;
 /** The box on screen right now, or null: one page is open at a time, so one box. */
 let live: { box: HTMLElement; path: any; open(): boolean; paint(pages: any): void; } | null = null;

@@ -1,4 +1,4 @@
-// What the operating system asks the app to open (§5.3 of the wave-3 contract): a file
+// What the operating system asks the app to open: a file
 // double-clicked in Explorer or Finder, or named on the command line, which the OS hands to the
 // Rust host (src-tauri/src/main.rs, windows.rs `open_path`). The host turns each one into an
 // OpenRequest (`{ path, outside, kind, line? }`, `path` a vault path or `abs:`), and either
@@ -6,10 +6,9 @@
 // event.
 //
 // This file takes them. A booting window takes its queue (`takeOpens`) once the router has put
-// its first surface up, after session restore, so the restored tabs come first and the files
-// the OS asked for open over them, each in a tab of its own; the last one comes forward. A
-// running window does the same with each `open` event. A request for a folder opens the folder.
-// Nothing here writes a file.
+// its first surface up (Home), so the files the OS asked for open over it, each in a tab of its
+// own; the last one comes forward. A running window does the same with each `open` event. A
+// request for a folder reveals the folder in the sidebar. Nothing here writes a file.
 
 import { bus } from './registry.ts';
 import { bridge } from './bridge/index.ts';
@@ -25,8 +24,8 @@ let started = false;
 let chain: Promise<void> = Promise.resolve();
 
 /**
- * A request as the route it opens: a folder route for a folder, a page route otherwise, with
- * the line when the request named one. Null when it is not a request.
+ * A request as the route it opens: a folder route (revealed in the sidebar) for a folder, a
+ * page route otherwise, with the line when the request named one. Null when it is not a request.
  */
 export function routeOf(r: unknown): import('./types.ts').Route | null {
   if (!r || typeof r !== 'object') return null;
@@ -81,8 +80,8 @@ async function takeQueued() {
 
 /**
  * Start taking what the OS asks for: called once by the core at boot. The queue is taken
- * after the first route change (the restored session or Home), so nothing the OS asked for is
- * drawn under a surface that replaces it a moment later.
+ * after the first route change (Home), so nothing the OS asked for is drawn under a surface
+ * that replaces it a moment later.
  */
 export function initOpens() {
   if (started) return;

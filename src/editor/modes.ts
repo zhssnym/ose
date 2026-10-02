@@ -11,7 +11,7 @@
 //     hold) is never remembered, and neither is a file outside the vault;
 //   - the machine setting `editorMode` (default 'rich'), for a file that remembers nothing.
 //
-// This replaces `sourcePages` in `.ose/state.json`, the list of paths left in source mode that
+// This replaces `sourcePages` in the vault's state, the list of paths left in source mode that
 // source.ts kept until wave 2. That list is read once, the first time a vault has no
 // `pageModes` yet, and its paths come over as 'source'. It is never written again and it is not
 // deleted: a copy of the vault opened by an older Ose still finds it.

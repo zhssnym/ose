@@ -2,7 +2,7 @@
 //
 // This table once lived beside the window chords, because the shell owned every key in the
 // app. The window chords are the shell's now (`keys.json`, docs/SHELL.md) and every command
-// below is one `ose:editor` registers itself, so the table came with it: commands.ts binds
+// below is one the editor registers itself, so the table came with it: commands.ts binds
 // them into the ProseMirror keymap, where they have to be answered before Milkdown's own
 // bindings see the key, and the menus print them.
 //

@@ -184,7 +184,7 @@ export type Commands = {
 	versionRestore: (path: string, id: string, opts: {
 	epoch?: number | null,
 } | null) => Promise<RestoredVersion>,
-	/**  `getState()`: the vault's `.ose/state.json`. */
+	/**  `getState()`: the vault's state, kept on this machine outside the vault. */
 	getState: () => Promise<Json>,
 	/**  `setState(state, opts)`: the whole object. */
 	setState: (state: Json, opts: {

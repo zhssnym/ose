@@ -7,7 +7,7 @@
 // deliberately not captured unless an overlay is open: the editor's block selection uses it.
 //
 // Body chords (BODY_KEYS) are *not* bound here. They live in this file so that `shortcutFor`
-// stays the one source of every hint the palette and the menus draw; `editor/commands.js`
+// stays the one source of every hint the palette and the menus draw; `src/editor/commands.ts`
 // reads the list and binds it inside a ProseMirror keymap, where a chord can stand down for a
 // code block or a table.
 import { commands, allCommands, commandsRevision } from './registry.ts';
@@ -67,7 +67,7 @@ export const KEYMAP = [
 ];
 
 /**
- * The chords that only mean anything with the caret in the editor body. `editor/commands.js`
+ * The chords that only mean anything with the caret in the editor body. `src/editor/commands.ts`
  * binds them; nothing here does. Digits are matched on `event.code` as well as `event.key`
  * (see `combosOf`), which is what makes the block group work on an AZERTY row (E26).
  */
@@ -77,7 +77,8 @@ export const BODY_KEYS = [
   { combo: 'mod+shift+x', cmd: 'format.strike', label: 'Ctrl+Shift+X' },
   { combo: 'mod+`', cmd: 'format.code', label: 'Ctrl+`' },
   { combo: 'mod+shift+m', cmd: 'format.clear', label: 'Ctrl+Shift+M' },
-  // hintOnly: the browser's own plain paste already answers this one, and Esc is blocks.js's.
+  // hintOnly: the browser's own plain paste already answers this one, and Esc is
+  // src/editor/blocks.ts's.
   // They are here so the palette can print their chords, and bound by nobody.
   { combo: 'mod+shift+v', cmd: 'format.paste-plain', label: 'Ctrl+Shift+V', hintOnly: true },
   { combo: 'mod+0', cmd: 'block.paragraph', label: 'Ctrl+0' },
@@ -114,10 +115,10 @@ export const BODY_KEYS = [
  *
  * Only two of the six can ever reach the check below, because `byCombo` is built from KEYMAP
  * alone: `alt+arrowleft` and `alt+arrowright`. The other four are body chords, and
- * `commands.js codeTarget()` has already stood the body keymap down inside a code block. The
- * set stays whole all the same — it is the list of what CodeMirror owns, not a list of what
- * this file happens to match today, and a chord that moves between the two tables must not
- * quietly lose its exemption on the way.
+ * `codeTarget()` (src/editor/commands.ts) has already stood the body keymap down inside a code
+ * block. The set stays whole all the same — it is the list of what CodeMirror owns, not a
+ * list of what this file happens to match today, and a chord that moves between the two
+ * tables must not quietly lose its exemption on the way.
  */
 export const CODE_KEYS = new Set([
   'alt+arrowleft', 'alt+arrowright', 'alt+arrowup', 'alt+arrowdown', 'mod+d', 'mod+shift+k',
@@ -268,7 +269,7 @@ function index() {
   for (const entry of byCombo.values()) {
     if (!byCmd.has(entry.cmd)) byCmd.set(entry.cmd, labelOf(entry));
   }
-  // Body chords are bound by `editor/commands.js` inside a ProseMirror keymap and are not in
+  // Body chords are bound by `src/editor/commands.ts` inside a ProseMirror keymap and are not in
   // `byCombo` at all. A window binding of the same combo does not take one away: inside the
   // body the window listener stands down for every body chord (body keys win), so the chord
   // still does what the body command's hint says there.

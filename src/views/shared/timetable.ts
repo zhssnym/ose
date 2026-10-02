@@ -1,5 +1,5 @@
 // The calendar format: one H1 per weekday, one line per block. Day and Week both draw it.
-// Pure: text in, data out; no DOM, no `ose:*`, no vault path (docs/FORMATS.md "Calendar").
+// Pure: text in, data out; no DOM, no `ose`, no vault path (docs/FORMATS.md "Calendar").
 //
 //   # Lundi
 //   - 17h30 à 19h30 Maths · salle 328 [maths] (Q1)

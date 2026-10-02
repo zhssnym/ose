@@ -95,9 +95,9 @@ async function saveAs(info: DraftInfo) {
 }
 
 /**
- * The tab that shows `path` now, or null. A restored session (H19) mounts the tab in front
- * before this sheet comes up, and a page that finds its draft applies it: the buffer on screen
- * is then the recovered text, marked unsaved, and the next leave writes it.
+ * The tab that shows `path` now, or null. A page already open before this sheet comes up has
+ * found its draft and applied it: the buffer on screen is then the recovered text, marked
+ * unsaved, and the next leave writes it.
  */
 function tabShowing(path) {
   const list = ose.tabs.list();

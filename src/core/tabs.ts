@@ -1,12 +1,12 @@
 // Tabs (docs/CORE.md `ose.tabs`, M23). The core owns them: a strip of tabs, each with a
 // history of its own (a back and forward stack of routes), and one column that shows the
-// active tab's current entry. `shell/tabs.js` draws the strip and registers the tab commands;
+// active tab's current entry. `src/shell/tabs.ts` draws the strip and registers the tab commands;
 // it keeps no model of its own.
 //
 // This file is the model and the public calls. The model is plain data: tab records, which one
 // is active, the closed tabs Ctrl+Shift+T brings back whole, and the order tabs were last used
 // in (where a close goes). Everything that has to put something on screen — open, activate,
-// close, navigate, back — is the router's (./router.js), which changes the model here under a
+// close, navigate, back — is the router's (./router.ts), which changes the model here under a
 // snapshot and rolls it back when the page on screen refuses to be left (C1).
 //
 // A record is `{ id, stack: Route[], index, scroll: Map<routeKey, px> }`. The route objects in
@@ -210,7 +210,7 @@ export const changePending = () => !!pending;
 
 /* ------------------------------------------------------------------------------ home */
 
-/** `ose.route.setHome(route)`: where the last tab goes when it is closed (null: the empty surface). */
+/** `ose.route.setHome(route)`: where the last tab goes when it is closed (null: an empty column). */
 export function setHome(route) { home = route || null; }
 /** The home route, or null. */
 export const homeRoute = () => home;

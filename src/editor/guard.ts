@@ -12,7 +12,7 @@
 // then write the file without it. So at open the page asks whether everything the file says made
 // it into the document, and opens the file as text when it did not.
 //
-// No DOM, no view, no `ose:*`: this file takes an engine (engine.ts, or crepe.ts `engineOf`) and
+// No DOM, no view, no `ose`: this file takes an engine (engine.ts, or crepe.ts `engineOf`) and
 // works on strings and ProseMirror nodes only.
 
 import { detectLineBreak, postProcess, reconcile, serializeContextKey, withSerializeContext } from './stringify.ts';

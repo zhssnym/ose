@@ -62,23 +62,6 @@
 
 .ed .page-meta { user-select: none; align-items: baseline; }
 
-/* ---------------------------------------------------------------- Rich | Source (H14, X1)
-
-   Which mode the page is in, on screen: two small buttons at the end of the meta line, one
-   pressed. They are the palette's `page.mode-rich` / `page.mode-source`, reachable with Tab. */
-.ed-mode {
-  display: inline-flex; flex: none;
-  border: 1px solid var(--border); border-radius: var(--radius);
-}
-.ed-mode-btn {
-  font: inherit; color: var(--fg-3); background: transparent;
-  border: 0; border-radius: 0; padding: 0 var(--sp-2); cursor: pointer;
-}
-.ed-mode-btn + .ed-mode-btn { border-left: 1px solid var(--border); }
-.ed-mode-btn:hover { color: var(--fg); background: var(--bg-3); }
-.ed-mode-btn[aria-pressed="true"] { color: var(--fg); background: var(--bg-3); }
-.ed-mode-btn:focus-visible { outline: none; box-shadow: var(--focus); }
-
 /* ---------------------------------------------------------------- the banner (H8)
 
    One sticky box at the top of the column while the page needs the user: not saved, changed

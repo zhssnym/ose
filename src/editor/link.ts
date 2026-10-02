@@ -5,8 +5,8 @@
 // `.md`) and whose href is the target path relative to the folder of the page being edited,
 // with `%20` for spaces. Cancelling inserts nothing.
 //
-// The module knows nothing about which file is open: `index.js` binds a getter at init, so this
-// file never imports the editor back (slash.ts -> link.ts -> index.js would be a cycle).
+// The module knows nothing about which file is open: page/globals.ts binds a getter at init, so this
+// file never imports the editor back (slash.ts -> link.ts -> page.ts would be a cycle).
 
 import { allPages, bridge, esc, highlight, icon, openOverlay, pageFiles, pageItems } from './host.ts';
 import { pickPage } from './deps.ts';
@@ -15,7 +15,7 @@ import { TextSelection } from '@milkdown/kit/prose/state';
 
 let pagePath: () => string | null = (): string | null => null;
 
-/** `index.js` calls this once: `bindPagePath(() => page ? page.path : null)`. */
+/** page/globals.ts calls this once, with a getter of the active page's path. */
 export function bindPagePath(fn) {
   pagePath = typeof fn === 'function' ? fn : () => null;
 }

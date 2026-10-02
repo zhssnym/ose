@@ -183,7 +183,7 @@ export const commands = {
 	versionRestore: (path: string, id: string, opts: {
 	epoch?: number | null,
 } | null) => typedError<RestoredVersion, HostError>(__TAURI_INVOKE("version_restore", { path, id, opts })),
-	/**  `getState()`: the vault's `.ose/state.json`. */
+	/**  `getState()`: the vault's state, kept on this machine outside the vault. */
 	getState: () => typedError<Json, HostError>(__TAURI_INVOKE("get_state")),
 	/**  `setState(state, opts)`: the whole object. */
 	setState: (state: Json, opts: {

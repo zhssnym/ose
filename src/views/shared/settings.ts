@@ -1,6 +1,6 @@
-// The planner's settings (9.2, M29): four paths, the (Q1) week anchor and the journal mode, kept in
-// `.ose/state.json` under `planner` so they travel with the vault. Nothing else in the planner
-// spells a path; the views ask the store.
+// The planner's settings: four paths, the (Q1) week anchor and the journal mode, kept in the
+// vault's state (`ose.state`, on this machine, outside the vault) under `planner`. Nothing
+// else in the planner spells a path; the views ask the store.
 //
 // The first time there is no `planner` key, the choices the old plugins saved are copied over
 // (`plugins.day.paths.*`, `plugins.week.paths.calendar`, `plugins.month.paths.reports`,
@@ -54,7 +54,7 @@ export const q1Of = (s: PlannerSettings): string | null => (s && (s.q1Anchor || 
 
 /**
  * What the old plugins had saved, as planner settings (only the fields they knew).
- * @param plugins the `plugins` key of `.ose/state.json`
+ * @param plugins the `plugins` key of the vault's state
  */
 export function migrate(plugins: any): Partial<PlannerSettings> {
   const p = plugins && typeof plugins === 'object' ? plugins : {};

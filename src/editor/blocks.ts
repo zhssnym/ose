@@ -134,7 +134,7 @@ export function selectBlock(view) {
 
 /**
  * The whole body, from a block selection (L19). Notion's widening: Esc selects the block,
- * Ctrl+A from there takes the body. `index.js` (P5) carries the next press on to the title,
+ * Ctrl+A from there takes the body. The page editor (P5) carries the next press on to the title,
  * and reads an `AllSelection` — what Milkdown's own `selectAll` leaves — as the signal.
  */
 export function selectBody(view) {

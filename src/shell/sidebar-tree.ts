@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). The tree: its data, which folders are open, how its rows are
+// Part of the sidebar (./sidebar.ts). The tree: its data, which folders are open, how its rows are
 // drawn, and the keys that walk it.
 
 import { ose } from '../core/core.ts';
@@ -99,7 +99,7 @@ export function expandAncestors(path) {
 
 /* ------------------------------------------------------------------ rendering */
 
-/** The glyph of a row: the folder view's own choice (`iconName`), so a file looks the same in both. */
+/** The glyph of a row: `iconName` (folder-model.ts), so a file looks the same wherever it is drawn. */
 function glyphFor(node) {
   const name = iconName(node);
   return icon(ic(name, name === 'fileText' ? 'page' : 'file'));
@@ -195,7 +195,7 @@ function heading(frag, text) {
   frag.appendChild(d);
 }
 
-/** The planner's views, in their own order (order.js). */
+/** The planner's views, in their own order (order.ts). */
 const plannerViews = () => ose.views.list().filter((v) => v && v.section === 'planner').sort(byViewOrder);
 
 function treeBox(frag, name, multi = false) {
@@ -218,8 +218,7 @@ function renderNode(node, depth, box, cur, cuts) {
     : '';
   const flags = (hidden ? ' hidden-entry' : '') + (link ? ' link' : '') + (cuts && cuts.has(node.path) ? ' cut' : '');
   if (node.kind === 'dir') {
-    // A link is listed, never walked: the tree does not unfold one, its folder view lists it
-    // when the target is inside the vault.
+    // A link is listed, never walked: the tree does not unfold one.
     const unfolds = !link;
     const open = unfolds && isOpen(node.path);
     box.appendChild(rowEl({

@@ -2,7 +2,7 @@
 // rename or a move in the tree used to leave every `](href)` pointing at the old path; the
 // page column then opened "page not found" from a link that was right a minute ago. Finding
 // them is a vault search on the file's name; each hit is confirmed by parsing the linking file
-// and resolving the href the way the editor does (editor/paths.js resolveHref), so a page that
+// and resolving the href the way the editor does (src/editor/paths.ts resolveHref), so a page that
 // merely mentions the name is left alone.
 //
 // Fidelity: only the bytes of a confirmed href change. The rest of the file, its line endings
@@ -35,9 +35,9 @@ const samePath = (a: string | null, b: string | null) => a !== null && b !== nul
  * in the app that edits files the user is not looking at, and a folder move can touch hundreds
  * of them at once: with no version kept, a rewrite that misfires misfires everywhere and
  * nothing can get any of it back. Forced, because the host's own keep on a save is tiered and
- * may skip a file it kept a minute ago. Same shape as `editor/versions.js keepVersion` — swallowed and
- * logged, never a precondition for the write — and inlined rather than imported, because
- * `lib/` does not depend on `editor/` for anything but the pure path helpers above.
+ * may skip a file it kept a minute ago. Same shape as `keepVersion` (src/editor/versions.ts) —
+ * swallowed and logged, never a precondition for the write — and inlined rather than imported,
+ * because the core does not depend on the editor for anything but the pure path helpers above.
  */
 async function keep(path, previous) {
   if (!path || !previous) return;
@@ -52,8 +52,8 @@ async function keep(path, previous) {
 
 /**
  * The name a link to `path` has to contain, in the two spellings the app writes: as typed,
- * and with the characters a markdown href cannot carry escaped (`%20` for a space; sidebar.js
- * linkUrl and editor/paths.js relativeHref agree on every character that matters here). A
+ * and with the characters a markdown href cannot carry escaped (`%20` for a space;
+ * src/shell/sidebar-commands.ts linkUrl and src/editor/paths.ts relativeHref agree on every character that matters here). A
  * page's `.md` is dropped so the name is a substring of both `Note.md` and `Note`.
  */
 function needlesFor(path) {
@@ -62,7 +62,7 @@ function needlesFor(path) {
   return escaped === base ? [base] : [base, escaped];
 }
 
-/** The parser (./mdparse.js), loaded the first time a link is looked for. */
+/** The parser (./mdparse.ts), loaded the first time a link is looked for. */
 let parserP: any = null;
 const parser = () => (parserP ||= import('./mdparse.ts'));
 
@@ -190,7 +190,7 @@ const hitsOf = (r) => (r && Array.isArray(r.hits) ? r.hits : []);
 
 /**
  * The files (by their current path) that a search for any of `needles` turns up. Backlinks read
- * only the text files among them (`isTextPath`, the one list in ./paths.js): a hit in a PDF or
+ * only the text files among them (`isTextPath`, the one list in ./paths.ts): a hit in a PDF or
  * an image holds no markdown link. The rewrite edits only markdown files (`isMarkdownPath`).
  */
 async function candidates(needles, seed: any[] = []) {

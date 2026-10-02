@@ -1,4 +1,4 @@
-// Part of the sidebar (./sidebar.js). The selection: the rows the tree commands act on.
+// Part of the sidebar (./sidebar.ts). The selection: the rows the tree commands act on.
 
 import { toast } from '../ui/index.ts';
 import { dirName } from './paths.ts';

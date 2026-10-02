@@ -1,9 +1,9 @@
-// The entry. One job: start the boot (`boot.js`), and when anything on the way throws — a
+// The entry. One job: start the boot (`boot.ts`), and when anything on the way throws — a
 // module of the shell that does not load, the core itself, a surface that throws while it is
-// built — put the boot error page up (`boot-error.js`, M38) instead of leaving a blank window.
+// built — put the boot error page up (`boot-error.ts`, M38) instead of leaving a blank window.
 //
-// `boot.js` is imported, not loaded by a static `import`, because a static import that fails
-// takes this file down with it and nothing would be left to say so. `boot-error.js` imports
+// `boot.ts` is imported, not loaded by a static `import`, because a static import that fails
+// takes this file down with it and nothing would be left to say so. `boot-error.ts` imports
 // nothing, for the same reason.
 
 // The stylesheets, in the order they win: the kit, then the shell's own, then theme.css, whose

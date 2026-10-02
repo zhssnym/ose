@@ -1,10 +1,10 @@
-// The one door out of the editor bundle (round four, K1c).
+// The one door out of the editor.
 //
-// `ose:editor` is a library: it knows the core and nothing else. Every other file under
-// `src/editor/` imports what it needs from here, so the whole bundle has exactly one place
-// that names anything outside the folder — and `ose:core` and `ose:ui` are
-// external to this bundle (vite.config.js), so there is one bridge, one overlay stack
-// and one toast queue in a running Ose, never two.
+// The editor (src/editor) is a library: it knows the core and the kit and nothing else. Every
+// other file under `src/editor/` imports what it needs from here, so the editor has exactly
+// one place that names anything outside the folder — and it imports the same core and kit
+// modules as the rest of the app, so there is one bridge, one overlay stack and one toast
+// queue in a running Ose, never two.
 //
 // The names below are the ones the editor has always used: `bridge.readText(path)`,
 // `commands`, `toast`. Renaming a thousand call sites would have been a refactor with no
@@ -267,8 +267,8 @@ export const pageFiles = {
 // ---------------------------------------------------------------------------
 // state
 //
-// `.ose/state.json` under the editor's own key, as every module gets it. `sourcePages` and
-// `editor.last` are the two things the editor remembers between sessions.
+// The vault's state (`ose.state`) under the editor's own key, as every module gets it.
+// `sourcePages` and `editor.last` are the two things the editor remembers between sessions.
 
 const slot = ose.state('editor');
 

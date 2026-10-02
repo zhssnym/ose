@@ -1,13 +1,13 @@
 // What a link does and what it looks like (batch 12, package P7).
 //
 // One function decides where a link goes — `followHref` — and every way of following one ends
-// in it: Ctrl+click and the link tooltip (index.js hands over), the command `page.follow-link`
+// in it: Ctrl+click and the link tooltip (the page editor hands over), the command `page.follow-link`
 // (Alt+Enter), and the `[[` picker's "open" path. The rules, in order:
 //
 //   external            bridge.openExternal; the host refuses anything but http/https/mailto
 //                       and that refusal is now said out loud instead of vanishing (N9)
 //   #heading            the same page, scrolled to that heading (N4, L13)
-//   a folder            the folder view, `{type:'folder', path}` (wave 2, H15), never Explorer
+//   a folder            revealed in the sidebar, `{type:'folder', path}`, never Explorer
 //   any other file      navigate to `{type:'page', path}`, with the heading when the href
 //                       carried one (N3): the page host decides how the file is drawn — the
 //                       editor, an image or a PDF, or a box for a binary file (H17). A missing

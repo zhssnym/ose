@@ -1,5 +1,5 @@
-// `ose:views`: the pages of their own in the sidebar's Views section, Day, Week, Month and
-// Journal, one folder each. `shell/boot.js` imports this bundle after `ose.init` and calls
+// The views (src/views): the pages of their own in the sidebar's Views section, Day, Week, Month
+// and Journal, one folder each. `src/shell/boot.ts` imports this module after `ose.init` and calls
 // `initViews(ose)` once; everything the views add to the app is registered here.
 //
 // A view, and how to add one (copy `journal/`, the fullest example):
@@ -16,8 +16,9 @@
 //     file it did not create. docs/FORMATS.md says exactly what each view reads and writes.
 //   - It never spells a vault path: where its files are is a setting (Settings › Planner,
 //     `shared/settings.ts`), found by name the first time (`shared/detect.ts`).
-//   - It imports `ose:ui`, `date-fns`, `shared/` and its own files, and `ose:editor` only by
-//     dynamic import; never `ose:core` or the shell. `ose` is handed to it.
+//   - It imports the kit (src/ui), `date-fns`, `shared/` and its own files, and the editor
+//     (src/editor/lib.ts) only by dynamic import; never the core (a type aside) or the shell.
+//     `ose` is handed to it.
 //   - Tokens only in `views.css`: no colour, font or size of its own.
 
 import './views.css';
@@ -37,7 +38,7 @@ const VIEWS = {
 };
 
 /**
- * Register the views. Called once by shell/boot.js after `ose.init`.
+ * Register the views. Called once by src/shell/boot.ts after `ose.init`.
  * @param ose the core facade
  */
 export function initViews(ose: any): { dispose: () => void; store: any; } {

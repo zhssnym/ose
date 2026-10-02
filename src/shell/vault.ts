@@ -1,5 +1,5 @@
 // The choose-vault surface, the recent-vault chooser, the one dialog that says the vault is
-// gone, and windows per vault. Mounted by main.js instead of the shell when the window has no
+// gone, and windows per vault. Mounted by main.ts instead of the shell when the window has no
 // vault: one sentence, the vaults this machine has opened before, one primary button. Nothing else
 // exists yet: no sidebar, no commands, no state file (the state file lives inside the vault).
 //

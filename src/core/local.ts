@@ -1,8 +1,8 @@
-// The per-machine store (docs/CORE.md `ose.local`, W5, M26). Two objects outside the vault,
-// kept by the host: `vault`, for this machine and the open vault (recent files,
-// the sidebar, per-folder sort, the side panel, one-time notices), and `app`, for this machine
-// and every vault (reading comfort, Show hidden). `.ose/state.json` keeps
-// only what belongs to the vault and travels with it: pins, the planner's paths, vault settings.
+// The per-machine store (docs/CORE.md `ose.local`). Two objects outside the vault, kept by
+// the host: `vault`, for this machine and the open vault (recent files, the sidebar, the side
+// panel, the page modes, one-time notices), and `app`, for this machine
+// and every vault (reading comfort, Show hidden). The vault's state (./state.ts) keeps only
+// what belongs to the vault: the planner's paths, vault settings.
 //
 // Both objects are read once in `ose.ready` and written back debounced, the way `state.ts`
 // writes the state file. A write sends the whole object, so it is merged first with what is on
@@ -124,8 +124,8 @@ export function local(key: string) { return handle(scopes.vault, key); }
 local.app = (key: string) => handle(scopes.app, key);
 
 /**
- * The first time a machine opens a vault after the upgrade, what used to live in the synced
- * `.ose/state.json` and now belongs to the machine is copied over: the recent files, the
+ * The first time a machine opens a vault after the upgrade, what used to live in the vault's
+ * state and now belongs to the machine is copied over: the recent files, the
  * sidebar and the reading settings. Copied, never deleted from the state file, so an older
  * build on another machine still finds what it had. `readingKeys` are the machine settings.
  * @param state  the state file as loaded

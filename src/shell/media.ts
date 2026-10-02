@@ -1,6 +1,6 @@
 // A page for a file nobody edits: a PDF, an image, or any other file that is not text.
 //
-// `shell/page.js` branches on the extension and hands the first two here; a file whose first
+// `src/shell/page.ts` branches on the extension and hands the first two here; a file whose first
 // bytes are not text (the host's sniff) gets `binaryPage`, a box that says what it is and
 // offers the ways out, because every file in the vault opens in the app (H17). The shape is
 // `markdownPage`'s, because the core's page host contract is one shape (docs/CORE.md
@@ -33,7 +33,7 @@ import { icon, toast, esc } from '../ui/index.ts';
 import { baseName, extOf, isOutside, outsideLabel } from './paths.ts';
 import { typeLabel, sizeLabel, dateLabel } from './folder-model.ts';
 
-/** The extensions this file claims. `page.js` asks; nothing else needs to know. */
+/** The extensions this file claims. `page.ts` asks; nothing else needs to know. */
 export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico']);
 export const isImageFile = (p) => IMAGE_EXTS.has(extOf(p));
 export const isPdfFile = (p) => extOf(p) === 'pdf';

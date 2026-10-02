@@ -1,4 +1,4 @@
-// The markdown parser the core reads links with (./links.js, H6): the same
+// The markdown parser the core reads links with (./links.ts, H6): the same
 // mdast-util-from-markdown, GFM and maths that remark-parse runs under Milkdown, so a link is a
 // link here exactly when it is one in the editor. It is its own module so that the core
 // loads it with a dynamic import the first time a link is looked for (a rename, the backlinks

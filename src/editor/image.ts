@@ -22,7 +22,7 @@ const NODE = 'image-block';
 /** Narrower than this and the image is a smudge; the drag stops there. */
 const MIN_WIDTH = 60;
 
-/** The api handed over by index.js at boot (registerExtensionCommands). */
+/** The api handed over by page/commands.ts at boot (registerExtensionCommands). */
 let api: any = null;
 
 /** Markdown srcs whose image failed to load, so the block draws the box that names the file. */

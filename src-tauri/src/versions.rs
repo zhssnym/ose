@@ -1,8 +1,9 @@
-//! Versions (docs/HOST.md "Versions", H10): the previous bytes of a vault file, kept under
-//! `.ose/history/<rel path>/` before a save replaces them, thinned by age.
+//! Versions (docs/HOST.md "Versions", H10): the previous bytes of a vault file, kept on this
+//! machine under `<data>/history/<vaultKey>/<rel path>/` before a save replaces them, thinned
+//! by age. Nothing is written into the vault.
 //!
 //! The file's own name is a folder, so `7-scratchpad/note.md` keeps its versions under
-//! `.ose/history/7-scratchpad/note.md/`. Each version is `<id>.<tag>.<ext>`: the id is the UTC
+//! `<data>/history/<vaultKey>/7-scratchpad/note.md/`. Each version is `<id>.<tag>.<ext>`: the id is the UTC
 //! time it was kept (`2026-09-10-201500`), the tag its reason (`save`, `conflict`, `reload`,
 //! `restore`) with `-s` when it was the first version of that file this session, and the
 //! extension the file's own, so a version of `data.json` opens as JSON. The names are this
@@ -20,13 +21,14 @@
 //! and across the vault at most 200 MB, the oldest evicted first, never a file's newest version
 //! and never one younger than a day.
 //!
-//! The history follows a file: `rename` moves `.ose/history/<from>` to `<to>` (a file's folder
-//! or a folder's whole subtree), merging when the target already has one. `.ose` is hidden from
-//! the tree, so a version is never a page. Every write goes through `vault::write_atomic`.
+//! The history follows a file: `rename` moves `<history>/<from>` to `<to>` (a file's folder or
+//! a folder's whole subtree), merging when the target already has one. Every write goes through
+//! `vault::write_atomic`.
 //!
-//! Before 1.1 the folder was `.ose/versions` and every version was `<id>.md`. The first use
-//! renames the folder when `.ose/history` does not exist yet, and those names still read: an
-//! old version is a `save` of this session's past, and its id is still valid.
+//! An older Ose kept the history inside the vault, in `.ose/history` (before 1.1,
+//! `.ose/versions`, every version `<id>.md`). With no data folder set (the unit tests) it is
+//! still kept there, and the pre-1.1 folder is renamed on first use; those names still read:
+//! an old version is a `save` of this session's past, and its id is still valid.
 
 use std::collections::HashSet;
 use std::fs;
@@ -38,7 +40,7 @@ use serde_json::{json, Value};
 
 use crate::{civil_from_days, coded, vault};
 
-/// Where every version lives, vault-relative.
+/// Where an older Ose kept every version, vault-relative (and the tests still do).
 const ROOT_DIR: &str = ".ose/history";
 
 /// The app's data folder, set once at startup (main.rs): the history is kept on this machine,
@@ -227,8 +229,8 @@ fn migrate(root: &Path) {
     }
 }
 
-/// The folder holding the versions of `rel`. `vault::resolve` does the containment, so a `..`
-/// in the page path can never reach outside `.ose/history`.
+/// The folder holding the versions of `rel`. Every segment is checked, so a `..`
+/// in the page path can never reach outside the vault's history.
 fn dir_for(root: &Path, rel: &str) -> Result<PathBuf, String> {
     let cleaned = rel.replace('\\', "/");
     let cleaned = cleaned.trim().trim_start_matches('/');
@@ -413,7 +415,7 @@ fn grew(root: &Path, bytes: u64) {
 }
 
 /// `prune_vault`, but only when the running total says the cap may be exceeded: the walk reads
-/// every file under `.ose/history`, and a keep happens on every save. The first call of a run
+/// every file of the vault's history, and a keep happens on every save. The first call of a run
 /// walks once to learn the total.
 fn prune_vault_if_over(root: &Path, now: i64) {
     let known = TOTALS
@@ -581,7 +583,7 @@ pub fn restore(root: &Path, rel: &str, id: &str) -> Result<Value, String> {
 
 // ---- following a rename ----------------------------------------------------
 
-/// `rename(from, to)` for the history: `.ose/history/<from>` becomes `.ose/history/<to>`, a
+/// `rename(from, to)` for the history: `<history>/<from>` becomes `<history>/<to>`, a
 /// file's folder of versions or a folder's whole subtree, merged into what is already there.
 /// Nothing to move is not an error.
 pub fn move_history(root: &Path, from: &str, to: &str) -> Result<(), String> {

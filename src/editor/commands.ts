@@ -31,7 +31,7 @@ import { turnIntoMenu } from './menu.ts';
 import { toast } from './deps.ts';
 
 // ---------------------------------------------------------------------------
-// the open page, through the api index.js hands us (never an import back)
+// the open page, through the api page/commands.ts hands us (never an import back)
 
 let api: any = null;
 
@@ -371,7 +371,7 @@ async function closePage() {
 }
 
 /**
- * Ctrl+H. index.js knows which bar the open page has — the block editor's, or CodeMirror's
+ * Ctrl+H. The page editor knows which bar the open page has — the block editor's, or CodeMirror's
  * own panel in source mode, where replace is built in. Asking `find.ts currentFind()` here
  * meant the chord did nothing at all on a page in source mode (QA F5).
  */

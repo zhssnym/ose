@@ -105,7 +105,7 @@ export const views = {
   list: () => [...viewMap.values()],
 };
 
-// `focus` is the core's own (./focus.js): while the app is narrowed to a folder, the bar says so.
+// `focus` is the core's own (./focus.ts): while the app is narrowed to a folder, the bar says so.
 const STATUS_ORDER = ['mode', 'focus', 'doc', 'save'];
 const statusData = new Map();
 const statusWatchers = makeEmitter();
