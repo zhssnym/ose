@@ -3,11 +3,10 @@
 //   ose.ready -> settings.apply -> vault chooser | mountShell
 //             -> initPageHost -> initFolder -> initHome -> initTabs
 //             -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
-//             -> initTrash -> initRecover -> loadKeys
+//             -> initRecover -> loadKeys
 //             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
 //
-// The app opens where it was left: the tabs of the last session, when `restoreSession` is on
-// and there is one, else Home (shell/start.js). With no vault open the shell is not built at
+// The app opens on Home, the vault folder (shell/start.js). With no vault open the shell is not built at
 // all: one surface asks for a folder and the shell starts again on the answer.
 //
 // The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:planner`
@@ -29,7 +28,6 @@ import { initSettings } from './settings.js';
 import { initHome, startSurface } from './start.js';
 import { initTabs } from './tabs.js';
 import { initFileOps } from './fileops.js';
-import { initTrash } from './trash.js';
 import { initRecover, offerRecovered } from './recover.js';
 import { showBootError } from './boot-error.js';
 
@@ -61,22 +59,6 @@ async function loadPlanner() {
     console.error('[shell] planner', e);
     toast('The planner could not be loaded: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e), 'err');
   }
-}
-
-/**
- * The one-time notice for a vault that still has `.ose/plugins` from before the planner was
- * built in. Said once per vault on this machine (`ose.local('notices')`), with a way to go
- * and look at the folder; nothing is deleted for the user.
- */
-async function noticeOldPlugins() {
-  const notices = ose.local('notices');
-  const seen = notices.get() || {};
-  if (seen.plugins) return;
-  let there = false;
-  try { there = await ose.files.exists('.ose/plugins'); } catch { there = false; }
-  if (!there) return;
-  toast('Day, Week, Month and Journal are built in now. The .ose/plugins folder is no longer used and can be deleted.', 'info', 0);
-  notices.set({ ...seen, plugins: true });
 }
 
 /**
@@ -132,7 +114,6 @@ export async function boot() {
     initSearch();
     initSettings();
     initFileOps();
-    initTrash();
     initRecover();
     await loadKeys();
 
@@ -144,8 +125,15 @@ export async function boot() {
 
     // Text that never reached its file last time: the sheet, once the window is whole (C4).
     void offerRecovered();
-    void noticeOldPlugins();
+    void offerUpdate();
   } catch (e) {
     showBootError(e, { stage: 'The interface failed while it was starting.', ose });
   }
+}
+
+/** A new version, downloaded in the background: one sticky toast, and a restart on the user's word. */
+async function offerUpdate() {
+  const u = await ose.window.updateReady();
+  if (!u) return;
+  toast(`Ose ${u.version} is ready`, 'info', 0, { actions: [{ label: 'Restart', run: () => u.restart() }] });
 }

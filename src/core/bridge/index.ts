@@ -1,16 +1,15 @@
-// Bridge facade. The one host is the browser: src/host/adapter.ts answers every command over the
-// File System Access API (docs/HOST.md). The adapter implements `invoke(name, args) -> Promise`
-// and `subscribe(fn({event, data}))`, and adds `win`, `platform` and `assetUrl` for what is not
-// a host command. This file is the surface the adapter answers to. Nothing else imports it.
+// Bridge facade. The one host is the Rust host in src-tauri, reached through ./tauri.ts. The
+// adapter implements `invoke(name, args) -> Promise` and `subscribe(fn({event, data}))`, and
+// adds `win`, `platform` and `assetUrl` for what is not a host command.
 //
 // Every method below is one host command, typed in ./commands.ts. A name the host does not have
 // is `[unknown_command]`, a hard error: nothing here guesses what an older host might have
 // answered.
 
 /// <reference path="../globals.d.ts" />
-/// <reference path="../../host/web.d.ts" />
 import { bus } from '../registry.ts';
 import { HostError, hostError } from './errors.ts';
+import { guessPlatform, vaultUrl } from './tauri-urls.ts';
 
 export { HostError, hostError };
 
@@ -77,7 +76,7 @@ function dispatch({ event, data }: { event: string; data: any; }): unknown[] {
 
 let adapter: Adapter | null = null;
 const ready: Promise<Adapter> = (async () => {
-  const mod = await import('../../host/adapter.ts');
+  const mod = await import('./tauri.ts');
   const a = (await mod.create() as Adapter);
   adapter = a;
   a.subscribe(dispatch);
@@ -142,25 +141,9 @@ const winCall = async (name: keyof AdapterWindow, ...args: unknown[]): Promise<u
   return typeof own === 'function' ? (own as (...x: unknown[]) => unknown)(...args) : null;
 };
 
-/**
- * Ose Web's `vault/` form before the adapter is ready (src/host/adapter.ts `assetUrlFor`, which
- * takes over once it is): `./vault/<vaultId>/<path>` beside the page, the tab's vault from
- * sessionStorage. An `abs:/web/<id>/<name>` file is `./vault/~abs/<id>/<name>`.
- */
-const webAssetUrl = (path: string) => {
-  const s = String(path ?? '');
-  const out = /^abs:\/web\/([0-9a-f]{16})\/([^/]+)$/.exec(s);
-  let id: string | null = null;
-  try { id = sessionStorage.getItem('ose.web.vault'); } catch { /* storage refused */ }
-  const rel = out
-    ? `vault/~abs/${out[1]}/${encodeURIComponent(out[2] || '')}`
-    : `vault/${id || '_'}/${s.replace(/^\.?\//, '').split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
-  try { return new URL(rel, new URL('./', location.href)).href; } catch { return `./${rel}`; }
-};
-
 // Synchronous, and used in <img src> possibly before `ready` resolves; the adapter's own
 // version takes over as soon as there is one.
-const staticAssetUrl = webAssetUrl;
+const staticAssetUrl = (path: string) => vaultUrl(path, guessPlatform());
 
 /**
  * A typed answer: the value `call` resolved, named as ./commands.ts declares it. A cast, not a
@@ -169,8 +152,8 @@ const staticAssetUrl = webAssetUrl;
 const as = <T>(p: Promise<unknown>): Promise<T> => (p as Promise<T>);
 
 export const bridge = {
-  /** The one host there is: the browser, through src/host/adapter.ts. */
-  kind: ('web' as 'web'),
+  /** The one host there is: the Rust host, through ./tauri.ts. */
+  kind: ('tauri' as 'tauri'),
   /** 'windows', 'macos' or 'linux', once the adapter has said; 'windows' until then. */
   get platform() { return platform.os; },
   ready,
@@ -335,6 +318,10 @@ export const bridge = {
     // The window goes, without the `closing` fan-out: `app.close-anyway` only, after the user
     // said so. Drafts are outside the window and survive it.
     destroy: () => winCall('destroy'),
+    minimize: () => winCall('minimize'),
+    toggleMaximize: () => winCall('toggleMaximize'),
+    isMaximized: async () => !!(await winCall('isMaximized')),
+    onResized: (fn: () => void) => winCall('onResized', fn),
   },
 
   // The tab's title (S13): "<page> — <vault>". Called by the router on every route change;

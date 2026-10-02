@@ -35,6 +35,7 @@ import * as journal from './journal.ts';
 import * as focusLib from './focus.ts';
 import { toast, confirm } from './dialog.ts';
 import { initOpens } from './opens.ts';
+import { updateReady } from './update.ts';
 import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.ts';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
@@ -638,6 +639,14 @@ export const ose = {
     title: (text) => bridge.setTitle(text),
     /** This window, through its close path: the `closing` handlers run, as for the OS button. */
     close: () => bridge.win.close(),
+    /** A downloaded update, ready to install and restart into; null when there is none. */
+    updateReady: () => updateReady(),
+    /** The title bar's own buttons (the window has no system title bar on Windows). */
+    minimize: () => bridge.win.minimize(),
+    toggleMaximize: () => bridge.win.toggleMaximize(),
+    isMaximized: () => bridge.win.isMaximized(),
+    /** `fn()` on every resize, maximise and restore included. -> Promise<unsubscribe> */
+    onResized: (fn) => bridge.win.onResized(fn),
     /**
      * The window is closing. `fn()` may return a promise and the host **awaits it** before the
      * window is destroyed, so the open page's last save finishes; resolving `false` keeps the

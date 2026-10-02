@@ -243,14 +243,6 @@ function renderTree() {
     }
   }
 
-  // The last row: what was moved to the trash, and the way back (M18).
-  const tail = treeBox(frag, 'Trash');
-  tail.classList.add('sb-tail');
-  tail.appendChild(rowEl({
-    cls: 'sb-view sb-trash' + (cur.view === 'trash' ? ' current' : ''),
-    depth: 0, glyphHtml: icon('trash'), text: 'Trash', data: { view: 'trash' },
-  }));
-
   // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,
   // put it back. A row that is gone (trashed) hands focus to whatever now sits at its index,
   // so Delete on a run of files keeps working. `focusOrigin` rather than activeElement: while

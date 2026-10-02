@@ -4,46 +4,46 @@
 
 /* ------------------------------------------------------------------ toolbar */
 
-/* The window's title bar. Installed, the app asks for Window Controls Overlay (the manifest's
-   `display_override`): Chrome's own bar goes, this row takes its place, and the system's
-   window buttons float over its corner. Its empty parts move the window (a double click
-   maximises); everything that can be pressed stays pressable. */
+/* The window's title bar: the app's toolbar, with no system bar above it. Its empty parts
+   move the window (titlebar.js, `data-tauri-drag-region`). */
 .titlebar {
   height: var(--titlebar-h);
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 0 var(--sp-3);
+  padding: 0 0 0 var(--sp-3);
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
-  app-region: drag;
-  -webkit-app-region: drag;
 }
-.titlebar button, .titlebar input, .titlebar a, .titlebar [role="button"] {
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}
-/* In the overlay the row starts after the traffic lights (macOS) and ends before the window
-   buttons (Windows), at the height the system gives them, so the two line up. */
-@media (display-mode: window-controls-overlay) {
-  .titlebar {
-    padding-left: max(var(--sp-3), env(titlebar-area-x, 0px));
-    padding-right: max(var(--sp-3), calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
-  }
-}
+/* macOS: the system's traffic lights sit over the row's left end. */
+:root[data-os="mac"] .titlebar { padding-left: 5rem; padding-right: var(--sp-3); }
+.tb-space { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
 
-/* The logo (logo.png, 64px, the app icon itself) at 18px: the same mark in both themes. */
+/* The window buttons (Windows, Linux): flat, the bar's full height, the close turning red. */
+.tb-win { display: flex; align-self: stretch; flex: none; }
+.tb-win-btn {
+  width: 2.875rem; display: grid; place-items: center;
+  color: var(--fg-2); background: transparent; border: 0; border-radius: 0;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-win-btn svg { width: 0.625rem; height: 0.625rem; stroke: currentColor; fill: none; stroke-width: 1; }
+.tb-win-btn:hover { background: var(--bg-3); color: var(--fg); }
+.tb-win-close:hover { background: var(--err); color: var(--bg); }
+.tb-win-btn:focus-visible { outline: none; box-shadow: inset var(--focus); }
+
+/* The mark: a triangle in the text colour (logo.js), the same in both themes. */
 .tb-mark {
   width: 1.125rem; height: 1.125rem; flex: none;
   display: grid; place-items: center;
   border-radius: var(--radius); overflow: hidden;
 }
-.tb-mark img { width: 100%; height: 100%; display: block; }
+.tb-mark { color: var(--fg); }
+.tb-mark svg { display: block; }
 
 /* The path bar (M21): the place on screen as segments, each folder a button. It
-   takes the room after the buttons, up to a readable measure; what is left of the row stays
-   empty, which is room, not a handle. */
+   takes the room after the buttons, up to a readable measure; what is left of the row moves
+   the window. */
 .tb-addr {
   flex: 1 1 auto; min-width: 6rem; max-width: 48rem;
   height: 1.5rem; margin-left: var(--sp-3);

@@ -39,9 +39,6 @@ function stepZoom(dir) {
   setZoom(ZOOM_STEPS[next]);
 }
 
-/** What the system's bin is called here, in the words the platform uses. */
-const binName = () => (ose.platform === 'windows' ? 'Recycle Bin' : 'Trash');
-
 /* ------------------------------------------------------------------ controls */
 
 function seg(name, options, value) {
@@ -79,10 +76,8 @@ function currentValues() {
     spell: onOff(s.spellcheck !== false),
     titlesync: onOff(s.titleSync === true),
     mode: MODES.some((m) => m.value === s.editorMode) ? s.editorMode : 'rich',
-    trash: s.trash === 'vault' ? 'vault' : 'system',
     attach: s.attachments === 'beside' || s.attachments === undefined ? 'beside' : 'folder',
     hidden: onOff(s.showHidden === true),
-    restore: onOff(s.restoreSession !== false),
     mdext: onOff(s.hideMdExt === true),
   };
 }
@@ -99,10 +94,8 @@ function applySeg(group, v, box) {
   else if (group === 'spell') save({ spellcheck: v === 'on' });
   else if (group === 'titlesync') save({ titleSync: v === 'on' });
   else if (group === 'mode') save({ editorMode: v });
-  else if (group === 'trash') { save({ trash: v }); void paintTrashNote(box); }
   else if (group === 'attach') void chooseAttachments(v, box);
   else if (group === 'hidden') save({ showHidden: v === 'on' });
-  else if (group === 'restore') save({ restoreSession: v === 'on' });
   else if (group === 'mdext') save({ hideMdExt: v === 'on' });
 }
 
@@ -168,22 +161,13 @@ function editorHtml() {
 
 function filesHtml() {
   const v = currentValues();
-  const bin = binName();
-  return row('Deleted files go to',
-    seg('trash', [{ value: 'system', label: `The ${bin}` }, { value: 'vault', label: '.trash in this vault' }], v.trash),
-    `Nothing is deleted outright. The ${esc(bin)} is the system's own; .trash is a folder inside this vault. `
-    + 'Show trash lists both and restores from them.',
-    '<div class="set-extra set-trash-note" hidden></div>')
-    + row('Attachments go to',
+  return row('Attachments go to',
       seg('attach', [{ value: 'beside', label: 'Beside the page' }, { value: 'folder', label: 'A folder…' }], v.attach),
       "A file dropped on a page is copied here, then linked. Beside the page means <code>attachments/</code> in the page's own folder.",
       '<div class="set-extra set-attach-path mono-sm text-select" hidden></div>')
     + row('Show hidden items',
       seg('hidden', ON_OFF, v.hidden),
       'Names that start with a dot, and files the system marks as hidden, greyed in the tree and in folders. .ose and .git are never listed.')
-    + row('Restore tabs at start',
-      seg('restore', ON_OFF, v.restore),
-      'On, the app opens with the tabs you left open. Off, it opens on Home.')
     + row('Hide .md in names',
       seg('mdext', ON_OFF, v.mdext),
       'On, the .md at the end of a page\'s name is left out in the tree, the tabs and the title bar. The file keeps its name.');
@@ -223,27 +207,6 @@ function paintAttachments(box) {
     el.textContent = s === '' ? 'The vault root' : s;
     el.title = String(s);
   }
-}
-
-/**
- * The trash row's honest second line. A drive with no recycle bin sends a deleted file to
- * .trash in the vault even with the system setting, and the host says so (`trashWhere`); on
- * macOS the system Trash cannot be listed, so only the vault's .trash is restorable here.
- */
-async function paintTrashNote(box) {
-  const el = box && box.querySelector('.set-trash-note');
-  if (!el) return;
-  const lines = [];
-  if (settings().trash !== 'vault') {
-    try {
-      const r = await ose.files.trashWhere('');
-      if (r && r.where === 'vault') lines.push(`This drive has no ${binName()}, so deleted files go to .trash in this vault.`);
-    } catch { /* no answer: the sentence above is still true */ }
-    if (ose.platform === 'macos') lines.push('Items in the system Trash cannot be listed here. Only items moved to this vault\'s .trash can be restored in Show trash.');
-  }
-  if (!el.isConnected) return;
-  el.textContent = lines.join(' ');
-  el.hidden = !lines.length;
 }
 
 /**
@@ -378,7 +341,6 @@ function mountPage(el, route = {}) {
     if (my !== seq || unmounted) return;
     body.innerHTML = html;
     syncControls(body);
-    if (sec.id === 'files') void paintTrashNote(body);
     if (sec.id === 'vault') paintVaultInfo(body);
   }
 

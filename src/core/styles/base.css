@@ -15,10 +15,6 @@ body {
   user-select: none;
   cursor: default;
 }
-/* Installed, the title bar is as tall as the system's window buttons (Window Controls Overlay). */
-@media (display-mode: window-controls-overlay) {
-  :root { --titlebar-h: max(2.25rem, env(titlebar-area-height, 0px)); }
-}
 #app { height: 100%; }
 img { max-width: 100%; display: block; }
 a { color: var(--accent-ink); text-decoration: none; }

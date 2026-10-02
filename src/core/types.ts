@@ -93,12 +93,17 @@ export interface ImportEntry {
   file?: File;
 }
 
-/** Window control the adapter has (a browser tab: its title, and a close through the gate). */
+/** Window control the adapter has: Tauri's own window API. */
 export interface AdapterWindow {
   close?: () => Promise<unknown>;
   setTheme?: (theme: string) => Promise<unknown>;
   setTitle?: (text: string) => unknown;
   destroy?: () => unknown;
+  minimize?: () => Promise<unknown>;
+  toggleMaximize?: () => Promise<unknown>;
+  isMaximized?: () => Promise<boolean>;
+  onResized?: (fn: () => void) => Promise<unknown>;
+  startDragging?: () => Promise<unknown>;
 }
 
 /** What every bridge adapter answers (./bridge/index.js). */
