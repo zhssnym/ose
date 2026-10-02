@@ -183,7 +183,7 @@
   background: transparent; border-bottom: 0;
 }
 .titlebar .tab {
-  height: 1.5rem; max-width: 11rem;
+  height: 1.5rem; max-width: 40rem;
   padding: 0 var(--sp-1) 0 var(--sp-2);
   border-radius: var(--radius);
 }
