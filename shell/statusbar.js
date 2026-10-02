@@ -5,8 +5,9 @@
 // counts, when the file was changed and when it was saved, and the save state when it is bad.
 // Right: the zoom while it is not 100 %.
 import { ose } from 'ose:core';
-import { esc, icon, contextMenu } from 'ose:ui';
+import { esc, icon, contextMenu, copyText, toast } from 'ose:ui';
 import { zoomLabel } from './settings.js';
+import { clean, isOutside, outsideLabel } from './paths.js';
 
 const { bus, status, commands } = ose;
 
@@ -38,14 +39,32 @@ function renderLeft() {
   leftEl.title = all.map((s) => s.text).join(' · ');
 }
 
+/**
+ * The file in front, as a path: the vault-relative one on screen, the absolute one on the
+ * clipboard when it is clicked (for a terminal, or a message to an agent). Nothing for a view.
+ */
+function pathOf(r) {
+  if (!r || r.type !== 'page' || !r.path) return null;
+  if (isOutside(r.path)) { const abs = outsideLabel(clean(r.path)); return { shown: abs, abs }; }
+  const rel = clean(r.path);
+  const root = String((ose.vault && ose.vault.root) || '');
+  const sep = ose.platform === 'windows' ? '\\' : '/';
+  const abs = root ? root.replace(/[\\/]+$/, '') + sep + rel.split('/').join(sep) : rel;
+  return { shown: rel, abs };
+}
+
 function renderRight() {
+  const p = pathOf(ose.route.current());
+  const path = p
+    ? `<button type="button" class="st-item st-path" data-abs="${esc(p.abs)}" title="Copy the full path">${esc(p.shown)}</button>`
+    : '';
   // The zoom shows only while it is not 100 %: a bar that always says `100%` teaches nobody
   // anything, and one that says `110%` explains why the window looks different (S4). It is a
   // button, so clicking or tabbing to it and pressing Enter puts the app back to 100 %.
   const zoom = zoomLabel();
-  rightEl.innerHTML = zoom
+  rightEl.innerHTML = path + (zoom
     ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button>`
-    : '';
+    : '');
 }
 
 /** A field that offers a choice between values (§4.5), rather than one action. */
@@ -105,8 +124,15 @@ export function initStatusbar(node) {
     if (item && item.onClick) { try { item.onClick(); } catch (err) { console.error('[shell] status', err); } }
   });
   bus.on('settings', renderRight);
+  bus.on('route', renderRight);
+  bus.on('route:repointed', renderRight);
   rightEl.addEventListener('click', (e) => {
-    if (e.target instanceof Element && e.target.closest('.st-zoom')) commands.run('app.zoom-reset');
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest('.st-zoom')) { commands.run('app.zoom-reset'); return; }
+    const p = e.target.closest('.st-path');
+    if (p instanceof HTMLElement && p.dataset.abs) {
+      void copyText(p.dataset.abs).then((ok) => toast(ok ? 'Path copied' : 'Could not copy the path', ok ? 'info' : 'err', 1800));
+    }
   });
   renderLeft();
   renderRight();

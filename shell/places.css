@@ -41,49 +41,6 @@
 .tb-mark { color: var(--fg); }
 .tb-mark svg { display: block; }
 
-/* The path bar (M21): the place on screen as segments, each folder a button. It
-   takes the room after the buttons, up to a readable measure; what is left of the row moves
-   the window. */
-.tb-addr {
-  flex: 0 1 auto; min-width: 6rem; max-width: 48rem;
-  height: 1.5rem; margin-left: var(--sp-3);
-  display: flex; align-items: center;
-  border: 1px solid transparent; border-radius: var(--radius);
-  transition: border-color var(--t-fast);
-}
-.tb-crumbs {
-  flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: var(--sp-1);
-  padding: 0 var(--sp-1);
-  font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-2);
-  white-space: nowrap; overflow: hidden;
-}
-.tb-crumb {
-  height: 1.25rem; padding: 0 var(--sp-1); line-height: 1.25rem;
-  flex: 0 1 auto; min-width: 0; max-width: 20rem;
-  display: inline-block; overflow: hidden; text-overflow: ellipsis;
-  color: inherit; border-radius: var(--radius);
-  font: inherit; white-space: nowrap;
-  transition: background var(--t-fast), color var(--t-fast);
-}
-button.tb-crumb:hover { background: var(--bg-3); color: var(--fg); }
-button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-/* The last segment is what is on screen: it keeps its whole name and the folders above it
-   give way first. */
-.tb-crumb.cur { color: var(--fg); flex: 0 0 auto; max-width: 28rem; }
-/* A page outside the vault (X7): the first segment says so, in the faint voice of a note. */
-.tb-crumb.tb-outside { color: var(--fg-3); flex: none; }
-.tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
-/* The × beside what is open: closes it, back to the empty page. Quiet until hovered. */
-.tb-close {
-  flex: none; width: 1.125rem; height: 1.125rem; margin-left: var(--sp-1);
-  display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tb-close svg { width: 0.625rem; height: 0.625rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
-.tb-close:hover { background: var(--bg-3); color: var(--fg); }
-.tb-close:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 /* The sidebar's one control, in the title bar's left corner and in the same spot whether the
    sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
@@ -216,11 +173,11 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
 .tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
 .tab-x:hover { background: var(--bg-4); color: var(--fg); }
 
-/* The strip in the title bar (layout.js moves it there): compact chips between the path and
-   the window buttons, on the bar's own ground, the open one lifted and underlined. It takes the
-   room the path leaves, up to half the bar, and scrolls sideways past that. */
+/* The strip in the title bar (layout.js moves it there): the title bar's main thing, compact
+   chips after back and forward, the open one lifted and underlined, then the + for a new tab.
+   It takes what the row has and scrolls sideways past that. */
 .titlebar .tabs {
-  height: 100%; flex: 0 1 auto; min-width: 0; max-width: 50%;
+  height: 100%; flex: 0 1 auto; min-width: 0; margin-left: var(--sp-2);
   align-items: center; gap: var(--sp-1);
   padding: 0 var(--sp-2);
   background: transparent; border-bottom: 0;
@@ -231,6 +188,20 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
   border-radius: var(--radius);
 }
 .titlebar .tab.on { background: var(--bg-3); box-shadow: inset 0 -2px 0 var(--accent); }
+.titlebar .tab .tab-x { opacity: 1; }
+.tb-tab-add { flex: none; }
+/* A tab being dragged along the strip; the strip while a file from the sidebar is over it. */
+.tab.dragging { opacity: 0.4; }
+.tabs.drop-on { background: var(--accent-soft); }
+/* The last, empty tab cannot be closed: a short shake says so. */
+.tab.nope { animation: tab-nope 0.32s ease; }
+@keyframes tab-nope {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+}
+@media (prefers-reduced-motion: reduce) { .tab.nope { animation: none; } }
 
 /* ------------------------------------------------------------------ resizers */
 

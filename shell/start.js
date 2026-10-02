@@ -13,7 +13,7 @@ export const HOME = { type: 'view', name: 'home' };
 /** The Home view, the core's home route and `app.home`. Before `ose.init`, for the first navigation. */
 export function initHome() {
   ose.views.register('home', {
-    title: 'Home',
+    title: 'New tab',
     mount(el) { el.innerHTML = '<div class="view-root home-empty" tabindex="-1"></div>'; },
   });
   ose.route.setHome(HOME);

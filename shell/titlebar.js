@@ -1,5 +1,5 @@
 // The window's title bar, which is the app's toolbar: the sidebar's fold, the app mark, back
-// and forward, and the path bar. The window has no
+// and forward, then the tabs (tabs.js draws them; layout.js puts the strip here) and their +. The window has no
 // system title bar: its empty parts move the window (`data-tauri-drag-region`; a double click
 // maximises), and the window buttons are drawn here on Windows and Linux. On macOS the system's
 // traffic lights sit over the row's left end, which leaves them room.
@@ -11,113 +11,17 @@
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
-import { openInNewTab } from './tabs.js';
 import { LOGO } from './logo.js';
-import { HOME } from './start.js';
-import { clean, baseName, dirName, titleOf, vaultName, isOutside, outsideLabel } from './paths.js';
+import { clean } from './paths.js';
 
 const { bus, commands, route } = ose;
 const currentRoute = () => route.current();
 
 let el = null;
-let addrEl = null;
 /** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
 const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let foldEl = null;
 let navEls = null;
-
-/* ------------------------------------------------------------------ the address, at rest */
-
-/** A file's name as the chrome shows it (W8): whole, `.md` stripped only when hideMdExt is on. */
-const display = (path) => titleOf(path) || baseName(path);
-
-/**
- * The segments of a route: `[{ text, folder?, cur? }]`. The vault's name always leads, so the
- * root is one click away from anywhere; a folder segment carries the folder it opens.
- */
-function partsOf(r) {
-  /** @typedef {{text: string, folder?: string, home?: boolean, cur?: boolean, outside?: boolean, path?: string}} Part */
-  /** @type {Part} */
-  const vault = { text: vaultName(), home: true, cur: false };
-  /** @type {Part[]} */
-  const parts = [vault];
-  if (!r) return parts;
-  // The empty page: the vault's name alone.
-  if (r.type === 'view' && r.name === 'home') { vault.cur = true; return parts; }
-  if (r.type === 'view') {
-    const v = ose.views.get(r.name);
-    parts.push({ text: (v && v.title) || r.name, cur: true });
-    return parts;
-  }
-  if (r.type === 'page' && isOutside(r.path)) {
-    // A file outside the vault (X7): no folder of it is a place in the app, so its folder is
-    // one plain segment with the whole absolute path, and nothing but the name is current.
-    const abs = outsideLabel(clean(r.path));
-    parts[0] = { text: 'Outside the vault', outside: true };
-    const dir = outsideLabel(dirName(clean(r.path)));
-    if (dir) parts.push({ text: dir, path: dir });
-    parts.push({ text: display(r.path), cur: true, path: abs });
-    return parts;
-  }
-  const segs = clean(r.path).split('/').filter(Boolean);
-  segs.forEach((s, i) => {
-    const dir = segs.slice(0, i + 1).join('/');
-    const last = i === segs.length - 1;
-    if (last && r.type === 'page') parts.push({ text: display(dir), cur: true, path: dir });
-    else parts.push({ text: s, folder: dir, cur: last });
-  });
-  if (!segs.length && r.type === 'folder' && parts[0]) parts[0].cur = true;
-  return parts;
-}
-
-function renderAddress(r) {
-  if (!addrEl) return;
-  const crumbs = addrEl.querySelector('.tb-crumbs');
-  crumbs.textContent = '';
-  const parts = partsOf(r);
-  parts.forEach((p, i) => {
-    if (i) {
-      const s = document.createElement('span');
-      s.className = 'tb-sep-ch';
-      s.setAttribute('aria-hidden', 'true');
-      s.textContent = '›';
-      crumbs.appendChild(s);
-    }
-    const b = document.createElement(p.folder != null || p.home ? 'button' : 'span');
-    b.className = 'tb-crumb' + (p.cur ? ' cur' : '') + (p.outside ? ' tb-outside' : '');
-    b.textContent = p.text;
-    if (p.home) {
-      // The vault's name goes to the empty page.
-      b.setAttribute('type', 'button');
-      b.dataset.home = '1';
-      b.title = vaultName();
-      if (p.cur) b.setAttribute('aria-current', 'page');
-    } else if (p.folder != null) {
-      b.setAttribute('type', 'button');
-      b.dataset.folder = p.folder;
-      b.title = p.folder ? `Open ${p.folder}` : `Open ${vaultName()}`;
-      if (p.cur) b.setAttribute('aria-current', 'location');
-    } else {
-      b.title = p.path || p.text;
-      if (p.cur) b.setAttribute('aria-current', 'page');
-    }
-    crumbs.appendChild(b);
-  });
-  // What is open can be closed, like a file in Explorer: the × beside its name goes back to the
-  // empty page (the leave gate saves first, as for any navigation).
-  if (r && !(r.type === 'view' && r.name === 'home')) {
-    const x = document.createElement('button');
-    x.type = 'button';
-    x.className = 'tb-close';
-    x.dataset.close = '1';
-    x.title = 'Close';
-    x.setAttribute('aria-label', 'Close');
-    x.innerHTML = icon('close');
-    crumbs.appendChild(x);
-  }
-  // The last segment is the one that matters: it stays in view when the path is long.
-  crumbs.scrollLeft = crumbs.scrollWidth;
-}
 
 /* ------------------------------------------------------------------ build */
 
@@ -136,11 +40,9 @@ export function initTitlebar(node) {
       <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
       <button class="tb-nav-btn" data-nav="forward" type="button">${icon('forward')}</button>
     </div>
-    <div class="tb-addr" data-tauri-drag-region>
-      <nav class="tb-crumbs" aria-label="Location" data-tauri-drag-region></nav>
-    </div>
-    <span class="tb-space" data-tauri-drag-region></span>
     <span class="tb-tabs-slot"></span>
+    <button class="tb-nav-btn tb-tab-add" type="button" title="New tab" aria-label="New tab">${icon('plus')}</button>
+    <span class="tb-space" data-tauri-drag-region></span>
     ${windowButtons()}`;
   el.setAttribute('data-tauri-drag-region', '');
   wireWindowButtons(el);
@@ -156,28 +58,8 @@ export function initTitlebar(node) {
   // touching the preference, so the glyph follows what is on screen and not what is stored.
   bus.on('sidebar', setSidebarShown);
 
-  addrEl = /** @type {HTMLElement} */ (el.querySelector('.tb-addr'));
-
-  // A folder segment opens its folder.
-  addrEl.addEventListener('click', (e) => {
-    if (e.target instanceof Element && e.target.closest('.tb-close')) { void route.navigate(HOME); return; }
-    const home = e.target instanceof Element ? e.target.closest('.tb-crumb[data-home]') : null;
-    if (home) { if (!home.classList.contains('cur')) void route.navigate(HOME); return; }
-    /** @type {HTMLElement|null} */
-    const b = e.target instanceof Element ? e.target.closest('.tb-crumb[data-folder]') : null;
-    if (b && !b.classList.contains('cur')) {
-      const r = { type: 'folder', path: b.dataset.folder };
-      if (e.ctrlKey || e.metaKey) void openInNewTab(r);
-      else void route.navigate(r);
-    }
-  });
-  addrEl.addEventListener('auxclick', (e) => {
-    /** @type {HTMLElement|null} */
-    const b = e.target instanceof Element ? e.target.closest('.tb-crumb[data-folder]') : null;
-    if (!b || e.button !== 1) return;
-    e.preventDefault();
-    void openInNewTab({ type: 'folder', path: b.dataset.folder });
-  });
+  const addEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-tab-add'));
+  addEl.addEventListener('click', () => commands.run('tab.new'));
 
   // Back and forward, where every browser and every file manager puts them (N45, L23): the
   // tab in front's own history (M23).
@@ -199,13 +81,8 @@ export function initTitlebar(node) {
   titleNav();
   updateNav();
 
-  renderAddress(currentRoute());
-  bus.on('route', (r) => { renderAddress(r); updateNav(); setState(null); });
+  bus.on('route', () => { updateNav(); setState(null); });
   bus.on('tabs', () => updateNav());
-  bus.on('route:repointed', (d) => { renderAddress(d ? d.current : currentRoute()); });
-  // The names follow hideMdExt; a view's title can arrive after it was first drawn.
-  bus.on('settings', () => renderAddress(currentRoute()));
-  bus.on('booted', () => renderAddress(currentRoute()));
   // The mark follows the page in front only: the tabs carry every other page's (H8).
   const mine = (d) => {
     const r = currentRoute();

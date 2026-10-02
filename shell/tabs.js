@@ -15,6 +15,7 @@
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { HOME } from './start.js';
+import { DRAG_TYPE, dragged, isInternal } from './drag.js';
 import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands } = ose;
@@ -84,9 +85,8 @@ export function openInNewTab(route) {
 function render() {
   if (!strip) return;
   const tabs = snap.tabs || [];
-  // One tab is not a strip: it says nothing the title bar does not, and it costs the page
-  // column a bar for the privilege. It comes back the moment there are two.
-  strip.hidden = tabs.length < 2;
+  // The tabs are the title bar's main thing: always there, one or many.
+  strip.hidden = false;
   // The nodes are kept, not redrawn. A click on a tab while the page in front is dirty blurs
   // the editor on mousedown, the blur saves, and the save's `doc:state` draws the strip again
   // before mouseup: a node rebuilt in between would never get the click. So each tab id keeps
@@ -117,6 +117,7 @@ function render() {
     if (!el) {
       el = document.createElement('div');
       el.setAttribute('role', 'tab');
+      el.draggable = true;
       el.dataset.id = t.id;
       el.innerHTML = '<span class="tab-name"></span>'
         + `<button type="button" class="tab-x" tabindex="-1" title="Close">${icon('close')}</button>`;
@@ -200,10 +201,89 @@ function activate(id) {
  */
 async function closeTab(id) {
   if (!id) return false;
+  // The last tab, already empty, cannot go: the window always has one. It says so with a shake.
+  const tabs = snap.tabs || [];
+  const only = tabs.length === 1 ? tabs[0] : null;
+  if (only && only.id === id && isHome(only.route)) { nope(id); return false; }
   let ok = false;
   try { ok = (await api.close(id)) !== false; } catch (e) { console.error('[shell] close tab', e); ok = false; }
   if (!ok) clearRefocus();
   return ok;
+}
+
+/** The little "no" of a tab that cannot be closed. */
+function nope(id) {
+  const el = tabEls().find((t) => t.dataset.id === id);
+  if (!el) return;
+  el.classList.remove('nope');
+  void el.offsetWidth;
+  el.classList.add('nope');
+  el.addEventListener('animationend', () => el.classList.remove('nope'), { once: true });
+}
+
+/* ------------------------------------------------------------------- drag */
+
+// A tab dragged along the strip moves there; a file dragged from the sidebar onto the strip
+// opens in a new tab. The tab's own drag carries its id under a private type.
+const TAB_TYPE = 'application/x-ose-tab';
+let draggingTab = null;
+
+/** The index a drop at `x` lands on: before the first tab whose middle is right of it. */
+function dropIndex(x) {
+  const els = tabEls();
+  for (let i = 0; i < els.length; i++) {
+    const r = els[i].getBoundingClientRect();
+    if (x < r.left + r.width / 2) return i;
+  }
+  return els.length;
+}
+
+function wireDrag() {
+  strip.addEventListener('dragstart', (e) => {
+    const el = e.target instanceof Element ? e.target.closest('.tab') : null;
+    if (!(el instanceof HTMLElement) || !e.dataTransfer) return;
+    draggingTab = el.dataset.id || null;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(TAB_TYPE, draggingTab || '');
+    el.classList.add('dragging');
+  });
+  strip.addEventListener('dragend', () => {
+    draggingTab = null;
+    for (const el of tabEls()) el.classList.remove('dragging');
+    strip.classList.remove('drop-on');
+  });
+  strip.addEventListener('dragover', (e) => {
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    if (draggingTab) { e.preventDefault(); dt.dropEffect = 'move'; return; }
+    if (isInternal(dt)) { e.preventDefault(); dt.dropEffect = 'move'; strip.classList.add('drop-on'); }
+  });
+  strip.addEventListener('dragleave', (e) => {
+    if (!(e.relatedTarget instanceof Node) || !strip.contains(e.relatedTarget)) strip.classList.remove('drop-on');
+  });
+  strip.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    strip.classList.remove('drop-on');
+    if (!dt) return;
+    if (draggingTab) {
+      e.preventDefault();
+      const tabs = snap.tabs || [];
+      const from = tabs.findIndex((t) => t.id === draggingTab);
+      let to = dropIndex(e.clientX);
+      if (from >= 0 && to > from) to -= 1;
+      if (from >= 0 && to !== from) api.move(draggingTab, to);
+      draggingTab = null;
+      return;
+    }
+    if (!isInternal(dt)) return;
+    e.preventDefault();
+    let paths = dragged();
+    if (!paths) { try { paths = JSON.parse(dt.getData(DRAG_TYPE) || '[]'); } catch { paths = []; } }
+    for (const p of paths || []) {
+      const node = typeof p === 'string' ? p : null;
+      if (node) void openInNewTab({ type: 'page', path: node });
+    }
+  });
 }
 
 function step(delta) {
@@ -287,6 +367,7 @@ export function initTabs(node, panel) {
     void closeTab(el.dataset.id);
   });
   strip.addEventListener('keydown', onKey);
+  wireDrag();
 
   api.on((d) => {
     snap = { tabs: (d && d.tabs) || api.list(), active: d && d.active !== undefined ? d.active : (api.active() || {}).id || null };

@@ -340,6 +340,12 @@
 .st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
 /* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
    bar's own colour and only warms up under the pointer (S4) */
+/* The file's path at the right, quiet; a click copies the absolute one. */
+.st-path {
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); color: var(--fg-3); direction: rtl; text-align: left;
+}
+.st-path:hover { color: var(--fg); }
 .st-zoom { color: var(--fg-2); }
 .st-zoom:hover { color: var(--fg); }
 
