@@ -1,7 +1,7 @@
 # Every push to main is a release: Ose for Windows (an NSIS installer) and macOS (Apple silicon),
 # signed for the updater with the key in the repository's secrets, published as a GitHub
 # release with `latest.json`. An installed Ose checks that file on launch, installs the update
-# and restarts. The version is 1.0.<run number>, so every push is newer than the last.
+# and restarts. The version is 0.9.<run number> until v1, so every push is newer than the last.
 #
 # Secrets: TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD when the key has
 # one), from `npx tauri signer generate`. The public half is `plugins.updater.pubkey` in
@@ -51,11 +51,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v1.0.${{ github.run_number }}
-          releaseName: Ose 1.0.${{ github.run_number }}
+          tagName: v0.9.${{ github.run_number }}
+          releaseName: Ose 0.9.${{ github.run_number }}
           releaseBody: Install once; Ose updates itself after that.
           releaseDraft: false
           prerelease: false
           args: >-
             ${{ matrix.args }}
-            --config {"version":"1.0.${{ github.run_number }}","bundle":{"createUpdaterArtifacts":true}}
+            --config {"version":"0.9.${{ github.run_number }}","bundle":{"createUpdaterArtifacts":true}}

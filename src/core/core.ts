@@ -35,7 +35,7 @@ import * as journal from './journal.ts';
 import * as focusLib from './focus.ts';
 import { toast, confirm } from './dialog.ts';
 import { initOpens } from './opens.ts';
-import { updateReady } from './update.ts';
+import { appVersion, checkForUpdate, updateReady } from './update.ts';
 import { isOutside, absOf, MARKDOWN_EXTS, TEXT_EXTS, isMarkdownPath, isTextPath } from './paths.ts';
 
 // `ose:ui` is a facade over this bundle (see ./ui-surface.js): the names are exported here so
@@ -641,6 +641,10 @@ export const ose = {
     close: () => bridge.win.close(),
     /** A downloaded update, ready to install and restart into; null when there is none. */
     updateReady: () => updateReady(),
+    /** Check now, from Settings: `{status: 'none' | 'ready' | 'error', …}`. */
+    checkForUpdate: () => checkForUpdate(),
+    /** The running app's version, as installed. */
+    appVersion: () => appVersion(),
     /** The title bar's own buttons (the window has no system title bar on Windows). */
     minimize: () => bridge.win.minimize(),
     toggleMaximize: () => bridge.win.toggleMaximize(),
