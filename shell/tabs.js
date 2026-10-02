@@ -239,6 +239,8 @@ function dropIndex(x) {
 }
 
 function wireDrag() {
+  // The whole title bar takes a drop, not only the tabs: anywhere up there opens a new tab.
+  const zone = strip.closest('.titlebar') || strip;
   strip.addEventListener('dragstart', (e) => {
     const el = e.target instanceof Element ? e.target.closest('.tab') : null;
     if (!(el instanceof HTMLElement) || !e.dataTransfer) return;
@@ -247,23 +249,23 @@ function wireDrag() {
     e.dataTransfer.setData(TAB_TYPE, draggingTab || '');
     el.classList.add('dragging');
   });
-  strip.addEventListener('dragend', () => {
+  zone.addEventListener('dragend', () => {
     draggingTab = null;
     for (const el of tabEls()) el.classList.remove('dragging');
-    strip.classList.remove('drop-on');
+    zone.classList.remove('drop-on');
   });
-  strip.addEventListener('dragover', (e) => {
+  zone.addEventListener('dragover', (e) => {
     const dt = e.dataTransfer;
     if (!dt) return;
     if (draggingTab) { e.preventDefault(); dt.dropEffect = 'move'; return; }
-    if (isInternal(dt)) { e.preventDefault(); dt.dropEffect = 'move'; strip.classList.add('drop-on'); }
+    if (isInternal(dt)) { e.preventDefault(); dt.dropEffect = 'move'; zone.classList.add('drop-on'); }
   });
-  strip.addEventListener('dragleave', (e) => {
-    if (!(e.relatedTarget instanceof Node) || !strip.contains(e.relatedTarget)) strip.classList.remove('drop-on');
+  zone.addEventListener('dragleave', (e) => {
+    if (!(e.relatedTarget instanceof Node) || !zone.contains(e.relatedTarget)) zone.classList.remove('drop-on');
   });
-  strip.addEventListener('drop', (e) => {
+  zone.addEventListener('drop', (e) => {
     const dt = e.dataTransfer;
-    strip.classList.remove('drop-on');
+    zone.classList.remove('drop-on');
     if (!dt) return;
     if (draggingTab) {
       e.preventDefault();
