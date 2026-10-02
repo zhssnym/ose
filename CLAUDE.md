@@ -147,8 +147,8 @@ app like everything else; what a vault decides is only where its files are (Sett
 - No network but the update check (GitHub releases). Nothing of a vault is ever sent anywhere.
 - No website: the browser host, the PWA and Vercel are gone (git history keeps them).
 - Tests: `npm test` for the JS (`tests/`, with a small fixture corpus in `tests/fixtures` copied
-  from the throwaway vault, never from a real one) and `npm run test:e2e` for the no-loss suite;
-  CI runs both. The app itself is still checked by running it.
+  from the throwaway vault, never from a real one) and `cargo test` for the host; CI runs both.
+  The app itself is still checked by running it.
 - No plugins: no loader, no manifest, no marketplace, no third-party code. Day, Week, Month and
   Journal are built in; a vault's old `.ose/plugins` folder is no longer read.
 - No interface in the vault: no `.ose/app`, no `cockpit.json`, no fallback page. A shell that

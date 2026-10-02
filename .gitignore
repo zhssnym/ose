@@ -13,9 +13,6 @@ graphify-out/
 # copies of real notes for the serializer tests: kept local, never published
 tests/fixtures/corpus/
 
-# Playwright's output (`npm run test:e2e`): traces, screenshots and the HTML report.
-test-results/
-playwright-report/
 
 # Sub-agents' working copies
 .claude/worktrees/
