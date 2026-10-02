@@ -362,9 +362,9 @@
 .st-left .st-item.accent { color: var(--accent); }
 .st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
 /* The editing mode as a small two-way toggle: the current one lit, the other a click away. */
-.st-seg { display: inline-flex; align-items: baseline; gap: var(--sp-1); vertical-align: baseline; }
+.st-seg { display: inline-flex; align-items: baseline; vertical-align: baseline; }
 .st-seg-b { padding: 0; color: var(--fg-3); background: transparent; border: 0; font: inherit; cursor: pointer; }
-.st-seg-b + .st-seg-b::before { content: '|'; color: var(--fg-3); opacity: 0.5; margin-right: var(--sp-1); display: inline-block; }
+.st-seg-b + .st-seg-b::before { content: '·'; color: var(--fg-3); margin: 0 var(--sp-1); display: inline-block; }
 .st-seg-b:hover { color: var(--fg-2); }
 .st-seg-b.on { color: var(--fg); cursor: default; }
 
