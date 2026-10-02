@@ -30,9 +30,8 @@ static GATE: Mutex<()> = Mutex::new(());
 /// The most one object may weigh, serialised.
 pub const MAX_BYTES: usize = 1024 * 1024;
 
-/// The keys of `app.json` the host owns. `legacyOrigin` is what was rescued from the old
-/// origin's page store, once (legacy.rs): a page that rewrote it would have it tried again.
-const HOST_KEYS: &[&str] = &["window", "theme", "legacyOrigin"];
+/// The keys of `app.json` the host owns.
+const HOST_KEYS: &[&str] = &["window", "theme"];
 /// The keys of a vault's object the host owns: the geometry of a window other than `main`.
 const VAULT_HOST_KEYS: &[&str] = &["window"];
 

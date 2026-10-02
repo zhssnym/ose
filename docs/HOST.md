@@ -196,8 +196,8 @@ temp file, excluded everywhere. The File System Access API does not expose links
 
 What belongs to this machine lives in the origin's IndexedDB (`idb.js`, database `ose-web`): the vaults and outside handles, drafts (`drafts`,
 `<vaultKey>/<pathKey>` with `pathKey = hash(path)`, the vault key `outside` for `abs:` paths), the
-local store (`local`: `app` and `vault:<vaultKey>`, 1 MB each, the host keys `window`, `theme` and
-`legacyOrigin` kept out of `app`), and the log (`log`, the newest 5000 lines).
+local store (`local`: `app` and `vault:<vaultKey>`, 1 MB each, the host keys `window` and `theme`
+kept out of `app`), and the log (`log`, the newest 5000 lines).
 Nothing of it is in the vault. What belongs to the vault is in it: `.ose/state.json`
 (`getState`/`setState`) and `.ose/history` (versions). The origin's storage is asked to persist
 (`navigator.storage.persist()`) at the first adopt, so Chrome does not evict drafts under pressure.
@@ -404,7 +404,7 @@ with the page's title as the document's, so Save as PDF suggests the page's name
   `not_utf8`. On a file outside the vault a failed `close()` has no folder to set the bytes
   aside in: a plain `write_failed`, and the page keeps the text and its draft.
 - local: a draft of an `abs:` file skips the epoch check. With no vault open, `draftList` still answers the outside files' drafts, so no
-  typed text is hidden. `app` keeps `window`, `theme` and `legacyOrigin` for the host, a vault's
+  typed text is hidden. `app` keeps `window` and `theme` for the host, a vault's
   object keeps `window`. `abs:` paths are not checked against the registry (no
   `not_registered` from a draft command).
 - A vault picked in one millisecond after another is still the newest in the recent list.

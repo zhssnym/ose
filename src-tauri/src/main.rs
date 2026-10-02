@@ -9,7 +9,7 @@ use tauri::{Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt as _;
 
 use ose::windows::{self, Host};
-use ose::{args, commands, legacy, local, log_line, platform, protocol, state, vault, vaults, Root, Source};
+use ose::{args, commands, local, log_line, platform, protocol, state, vault, vaults, Root, Source};
 
 fn main() {
     // Tauri's, wry's and notify's own warnings into our log (lib.rs `Records`), before any of
@@ -69,28 +69,13 @@ fn main() {
                 responder.respond(protocol::serve_for(win.as_deref(), &request));
             });
         })
-        // The old `app` origin, for one hidden window on the first launch after the upgrade: it
-        // reads what the previous version's page kept in its store (legacy.rs). Nothing else is
-        // served there.
-        .register_asynchronous_uri_scheme_protocol(legacy::SCHEME, |ctx, request, responder| {
-            let app = ctx.app_handle().clone();
-            let label = ctx.webview_label().to_string();
-            std::thread::spawn(move || {
-                let (response, done) = legacy::serve(&app, &label, &request);
-                responder.respond(response);
-                if done {
-                    legacy::close(&app);
-                }
-            });
-        })
         // A window starts invisible; the first finished page load is the earliest moment showing
-        // it cannot flash an empty frame. The hidden window of the old origin stays hidden.
+        // it cannot flash an empty frame.
         .on_page_load(|webview, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) && webview.label() != legacy::LABEL {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
                 let window = webview.window();
                 let _ = window.show();
                 let _ = window.set_focus();
-                legacy::page_loaded(webview.app_handle());
             }
         })
         .setup(move |app| setup(app, &opts))
@@ -444,8 +429,6 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
     }
 
     windows::build(&handle, windows::MAIN, root)?;
-    // Once per machine: what the previous version's page kept under its origin (legacy.rs).
-    legacy::start(&handle);
 
     // Every path of this launch, and what the OS asked for before the app was ready (macOS).
     // A folder that became the vault above routes to its own window, which is a no-op.

@@ -20,7 +20,6 @@ pub mod encoding;
 pub mod error;
 pub mod files;
 pub mod hide;
-pub mod legacy;
 pub mod local;
 pub mod outside;
 pub mod platform;
