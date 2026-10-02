@@ -357,6 +357,10 @@ export function emptyMenu() {
     menuItem('file.new', target, `New file in ${where}…`),
     menuItem('tree.new-folder', target, `New folder in ${where}`),
     clipboard() ? menuItem('file.paste', target, `Paste into ${where}`) : null,
+    // Focus mode says nothing on screen and its folder has no row of its own, so the way out
+    // is here, on the tree's empty space, as well as in the palette.
+    dir ? { sep: true } : null,
+    dir ? menuItem('app.focus-exit', target) : null,
     { sep: true },
     { label: 'Collapse all folders', iconSvg: icon(ic('chevron', 'dot')), run: () => commands.run('tree.collapse-all') },
     { label: showHidden() ? 'Hide hidden items' : 'Show hidden items', iconSvg: icon(ic(showHidden() ? 'eyeOff' : 'eye', 'dot')), run: () => commands.run('view.toggle-hidden') },

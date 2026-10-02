@@ -11,7 +11,9 @@
   border-right: 1px solid var(--border);
   overflow: hidden;
 }
-.shell.no-sidebar .sidebar, .shell.no-sidebar .rs-sidebar { display: none; }
+/* A folded sidebar leaves its resizer behind as a thin edge on the window's left (places.css):
+   dragging it out opens the sidebar again. */
+.shell.no-sidebar .sidebar { display: none; }
 
 .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
@@ -104,25 +106,6 @@
 .sb-row[draggable="true"] { -webkit-user-drag: element; }
 .sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
 .sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
-
-/* focus mode: the `pages` label, replaced. One line, on the label's own baseline. */
-.sb-focus-label {
-  display: flex; align-items: baseline; gap: var(--sp-2);
-  padding-right: var(--sp-2);
-}
-.sb-focus-key { flex: none; color: var(--accent); }
-.sb-focus-path {
-  flex: 1; min-width: 0; color: var(--fg-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sb-focus-exit {
-  flex: none; align-self: center;
-  width: 1rem; height: 1rem; display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.sb-focus-exit svg { width: 0.6875rem; height: 0.6875rem; }
-.sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
 
 /* ------------------------------------------------------------------ trash view */
 
