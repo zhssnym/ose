@@ -19,7 +19,7 @@ import { chooseTimetable, lanes } from '../shared/timetable.ts';
 /** The strip's span: 07h to midnight, in minutes. */
 const STRIP_FROM = 7 * 60, STRIP_TO = 24 * 60;
 import {
-  applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
+  applies, blockId, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
 import { groupsForDay, PRIORITY_RANK, taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
@@ -108,7 +108,7 @@ export function createTodayView(ose: any, store: any): any {
           <div class="td-list td-tasks" data-el="tasks"></div>
         </section>
         <section class="td-box">
-          <div class="label">Systems <span class="td-count" data-el="syscount"></span></div>
+          <div class="label">Habits <span class="td-count" data-el="syscount"></span></div>
           <div class="td-list" data-el="sys"></div>
         </section>
       </div>
@@ -150,8 +150,10 @@ export function createTodayView(ose: any, store: any): any {
         const end = Math.min(e.em, STRIP_TO);
         if (end <= STRIP_FROM) continue;
         const width = `calc(${pct(end)} - ${pct(e.sm)})`;
-        const title = `${e.q ? `${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em % 1440)}`;
-        out.push(`<div class="ts-ev wk-ev t-${e.type}" data-s="${e.sm}" data-e="${e.em}" style="left:${pct(e.sm)};width:${width};--lane:${lane};--lanes:${n}" title="${esc(title)}"><span class="ts-n">${esc(e.t)}</span></div>`);
+        const id = blockId(e.t, e.sm);
+        const dn = isDone(id, st.cursor);
+        const title = `${e.q ? `${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em % 1440)} · ${dn ? 'done, click to undo' : 'click when done'}`;
+        out.push(`<button type="button" class="ts-ev wk-ev t-${e.type}${dn ? ' done' : ''}" data-block="${esc(id)}" aria-pressed="${dn}" data-s="${e.sm}" data-e="${e.em}" style="left:${pct(e.sm)};width:${width};--lane:${lane};--lanes:${n}" title="${esc(title)}"><span class="ts-n">${dn ? '✓ ' : ''}${esc(e.t)}</span></button>`);
       }
       out.push('<div class="ts-now" data-el="now" hidden></div></div>');
       box.innerHTML = out.join('');
@@ -226,6 +228,7 @@ export function createTodayView(ose: any, store: any): any {
       const firstBefore = st.log.first.get(name);
       if (!firstBefore || date < firstBefore) st.log.first.set(name, date);
       renderSystems();
+      renderTimeline();
       try {
         await ose.files.appendLine(st.logFile, JSON.stringify(checkRecord(st.cursor, name, next)));
       } catch (err) {
@@ -234,6 +237,7 @@ export function createTodayView(ose: any, store: any): any {
         if (prev === undefined) st.log.done.delete(k); else st.log.done.set(k, prev);
         if (firstBefore === undefined) st.log.first.delete(name); else st.log.first.set(name, firstBefore);
         renderSystems();
+        renderTimeline();
         toast(`The check was not written: ${(e && e.message) || e}`, 'err');
       } finally {
         st.busy = false;
@@ -430,6 +434,9 @@ export function createTodayView(ose: any, store: any): any {
     function onClick(ev) {
       const sys = ev.target.closest('[data-system]');
       if (sys) { toggleSystem(sys.dataset.system); return; }
+      // a block of the strip is ticked where it is drawn
+      const blk = ev.target.closest('[data-block]');
+      if (blk) { toggleSystem(blk.dataset.block); return; }
       const tg = ev.target.closest('[data-toggle]');
       if (tg) { onToggleTask(tg.dataset.toggle); return; }
       const more = ev.target.closest('[data-more]');
