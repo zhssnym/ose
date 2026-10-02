@@ -17,7 +17,6 @@ import { clean, baseName, dirName, titleOf, vaultName, isOutside, outsideLabel }
 
 const { bus, commands, route, focus } = ose;
 const currentRoute = () => route.current();
-const shortcutFor = (id) => ose.keys.shortcutFor(id);
 
 let el = null;
 let addrEl = null;
@@ -157,7 +156,7 @@ export function initTitlebar(node) {
   });
 
   // Back and forward, where every browser and every file manager puts them (N45, L23): the
-  // tab in front's own history (M23). The chord is in the tooltip, not on a label.
+  // tab in front's own history (M23).
   navEls = {
     back: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="back"]')),
     forward: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="forward"]')),
@@ -165,9 +164,8 @@ export function initTitlebar(node) {
   const titleNav = () => {
     for (const name of ['back', 'forward']) {
       const b = navEls[name];
-      const chord = shortcutFor('app.' + name);
       const label = name === 'back' ? 'Back' : 'Forward';
-      b.title = chord ? `${label} (${chord})` : label;
+      b.title = label;
       b.setAttribute('aria-label', label);
     }
   };
@@ -180,10 +178,7 @@ export function initTitlebar(node) {
   // New file… (H12): the one toolbar button for it, beside back and forward. It runs the same
   // command Ctrl+Alt+N and the tree's menu run (shell/fileops.js), so there is one New file.
   const newBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-new'));
-  const titleNew = () => {
-    const chord = shortcutFor('file.new');
-    newBtn.title = chord ? `New file… (${chord})` : 'New file…';
-  };
+  const titleNew = () => { newBtn.title = 'New file…'; };
   titleNew();
   // The chords come from keys.json, which is read after the bar is built.
   bus.on('booted', () => { titleNew(); titleNav(); });
@@ -243,9 +238,8 @@ function setState(d) {
 /** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
 function setSidebarShown(shown) {
   if (!foldEl) return;
-  const chord = shortcutFor('app.sidebar');
   const what = shown ? 'Hide sidebar' : 'Show sidebar';
-  foldEl.title = chord ? `${what} (${chord})` : what;
+  foldEl.title = what;
   foldEl.setAttribute('aria-label', what);
   foldEl.setAttribute('aria-expanded', shown ? 'true' : 'false');
 }

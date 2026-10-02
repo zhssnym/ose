@@ -26,7 +26,6 @@ import { local } from './local.ts';
 import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.ts';
 import { display } from './names.ts';
 import { toast } from './dialog.ts';
-import { shortcutFor } from './keys.ts';
 import { loadingOverlay } from './loading.ts';
 import * as T from './tabs.ts';
 // "Create it" is a file operation like any other (H12, M4): exclusive, any extension, never a
@@ -591,17 +590,12 @@ async function renderView(scroll, route, my) {
 
 /**
  * The empty surface (D7): what shows when there is no tab and no home. A "Recent" label with
- * the last pages opened, and one quiet line of the chords that get anywhere from here.
+ * the last pages opened.
  */
 async function renderStart(scroll, my, opts) {
   const box = document.createElement('div');
   box.className = 'page-col start';
-  const keys = [
-    [shortcutFor('app.quickopen'), 'Go to file'],
-    [shortcutFor('app.palette'), 'Commands'],
-    [shortcutFor('page.new'), 'New page'],
-  ].filter(([k]) => k).map(([k, what]) => `<span><span class="kbd">${esc(k)}</span> ${what}</span>`).join('<span class="start-dot">·</span>');
-  box.innerHTML = `<div class="start-recent"></div><div class="start-keys mono-sm">${keys}</div>`;
+  box.innerHTML = `<div class="start-recent"></div>`;
   scroll.appendChild(box);
 
   const candidates = recentFiles().slice(0, START_RECENT * 2);

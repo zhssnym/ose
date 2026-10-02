@@ -236,6 +236,12 @@
    the outline under the seg's border and left a 1px sliver of it (R2). */
 .seg-b:focus-visible { outline-offset: -2px; }
 
+/* The keys, read only: the core's table component, the chord in its key cap. */
+.set-keys td { font-size: var(--fs-ui); }
+.set-keys .kbd { white-space: nowrap; }
+.set-keys-keys { white-space: nowrap; }
+.set-keys-where { color: var(--fg-3); white-space: nowrap; }
+
 
 .set-info {
   padding: var(--sp-2) var(--sp-3);

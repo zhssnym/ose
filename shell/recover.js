@@ -182,7 +182,7 @@ export async function showRecovered() {
           </button>`).join('')}</div>
       </div>
       <div class="dlg-foot">
-        <span class="grow mono-sm faint"><span class="kbd">Enter</span> open <span class="kbd">Del</span> discard</span>
+        <span class="grow"></span>
         <button class="btn" data-act="close">Close</button>
       </div>`;
     ov.box.setAttribute('aria-labelledby', 'rec-head');

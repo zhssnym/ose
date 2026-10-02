@@ -122,10 +122,8 @@ export function openPalette(mode = 'commands') {
     </div>
     <div class="pal-list" role="listbox"></div>
     <div class="pal-foot mono-sm">
-      <span><span class="kbd">↑</span><span class="kbd">↓</span> Move</span>
-      <span><span class="kbd">Enter</span> <span class="pal-enter">Run</span></span>
-      <span><span class="kbd">Esc</span> Close</span>
-      <span class="pal-create" hidden><span class="kbd">Shift</span><span class="kbd">Enter</span> New file</span>
+      <span class="pal-enter" hidden></span>
+      <span class="pal-create" hidden>Shift+Enter makes the file</span>
       <span class="grow"></span>
       <span class="pal-mode"></span>
     </div>`;
@@ -182,8 +180,7 @@ export function openPalette(mode = 'commands') {
       } else {
         row.innerHTML =
           `<span class="grow">${highlight(it.title, it.hits)}</span>` +
-          (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '') +
-          (it.shortcut ? `<span class="kbd">${esc(it.shortcut)}</span>` : '');
+          (it.hint ? `<span class="pal-hint">${esc(it.hint)}</span>` : '');
       }
       frag.appendChild(row);
     });

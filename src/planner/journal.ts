@@ -247,7 +247,6 @@ export function createJournalView(ose: any, store: any): any {
     const offs: any[] = [];
     const settings = () => store.get();
     const mode = () => (MODES.includes(settings().journalMode) ? settings().journalMode : 'full');
-    const chord = (() => { try { return ose.keys.shortcutFor('journal.today') || ''; } catch { return ''; } })();
 
     host.innerHTML = `
 <div class="view-root jr-root" tabindex="-1">
@@ -261,7 +260,6 @@ export function createJournalView(ose: any, store: any): any {
     <div class="jr-bar">
       <div class="jr-write">
         <button type="button" class="btn primary" data-act="today">Write today</button>
-        ${chord ? `<span class="jr-hint">${esc(chord)}</span>` : ''}
       </div>
       <div class="jr-mode seg" role="group" aria-label="Record" data-el="mode">
         <button type="button" class="seg-b" data-mode="full">Full</button>

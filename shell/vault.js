@@ -212,7 +212,7 @@ export async function chooseVault({ adopt = true } = {}) {
           <div class="vault-list">${items.map(recentRow).join('')}</div>
         </div>
         <div class="dlg-foot">
-          <span class="grow mono-sm faint"><span class="kbd">Del</span> forget <span class="kbd">Shift+Enter</span> new tab</span>
+          <span class="grow"></span>
           <button class="btn" data-act="cancel">Cancel</button>
           <button class="btn" data-act="window">Open in new tab</button>
           <button class="btn primary" data-act="pick">Choose folder…</button>

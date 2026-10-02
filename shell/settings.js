@@ -244,15 +244,64 @@ async function changeVault() {
   await switchVault(picked.root);
 }
 
+/**
+ * The Keys section: every chord the app answers to, read only. The core's defaults
+ * (`ose.keys.defaults()`) with the shell's `keys.json` over them, the way the key engine
+ * resolves them. A chord used in a page's text belongs to the editor while the caret is there,
+ * and says so in the last column.
+ */
+async function keysHtml() {
+  let shellMap = {};
+  try {
+    const res = await fetch(new URL('./keys.json', import.meta.url), { cache: 'no-store' });
+    if (res.ok) shellMap = (await res.json()) || {};
+  } catch { shellMap = {}; }
+  const mac = document.documentElement.dataset.os === 'mac';
+  const win = new Map();
+  const body = [];
+  for (const k of ose.keys.defaults()) {
+    const combo = (mac && k.mac) || k.combo;
+    const entry = { combo, cmd: k.cmd };
+    if (/^(format|block|table)\./.test(k.cmd)) body.push(entry);
+    else win.set(combo, entry);
+  }
+  for (const [combo, cmd] of Object.entries(shellMap)) {
+    if (typeof cmd === 'string' && cmd) win.set(combo, { combo, cmd });
+  }
+  const title = (id) => { const c = commands.get(id); return (c && c.title) || id; };
+  // One row per action and place: Go to file answers to Ctrl+P and Ctrl+O, and says so once.
+  const byAct = new Map();
+  /** @type {[string, {combo: string, cmd: string}[]][]} */
+  const groups = [['Everywhere', [...win.values()]], ['In a page', body]];
+  for (const [where, list] of groups) {
+    for (const e of list) {
+      const key = where + '|' + e.cmd;
+      if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, combos: [] });
+      byAct.get(key).combos.push(e.combo);
+    }
+  }
+  const rows = [...byAct.values()];
+  rows.sort((a, b) => (a.where === b.where ? 0 : a.where === 'Everywhere' ? -1 : 1) || title(a.cmd).localeCompare(title(b.cmd)));
+  return `<p class="set-lead">Read only. These are the chords the app answers to on this computer.</p>
+    <table class="table set-keys">
+      <thead><tr><th scope="col">Action</th><th scope="col">Keys</th><th scope="col">Where</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td>${esc(title(r.cmd))}</td>
+        <td class="set-keys-keys">${r.combos.map((c) => `<span class="kbd">${esc(ose.keys.label(c))}</span>`).join(' ')}</td>
+        <td class="set-keys-where">${esc(r.where)}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
 /* ------------------------------------------------------------------ the page */
 
-/** The stock sections, in the order the list shows them. Registered ones go before Vault. */
+/** The stock sections, in the order the list shows them. Registered ones go before Keys. */
 const HEAD = [
   { id: 'appearance', title: 'Appearance', html: appearanceHtml },
   { id: 'editor', title: 'Editor', html: editorHtml },
   { id: 'files', title: 'Files', html: filesHtml },
 ];
 const TAIL = [
+  { id: 'keys', title: 'Keys', html: keysHtml },
   { id: 'vault', title: 'Vault', html: vaultHtml },
 ];
 
@@ -421,7 +470,7 @@ const view = {
 
 /**
  * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named.
- * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'vault', or a registered one
+ * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'keys', 'vault', or a registered one
  * @returns {Promise<void>}
  */
 export async function openSettings(arg) {
@@ -437,6 +486,7 @@ export function initSettings() {
   ose.settings.apply();
   ose.views.register('settings', view);
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: () => openSettings() });
+  commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Keys', run: () => openSettings('keys') });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
   // A window of its own (X6), on no vault: it opens on the chooser. Change vault… offers the
