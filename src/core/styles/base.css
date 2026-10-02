@@ -109,8 +109,8 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 .chip.info { background: var(--info-soft); border-color: transparent; color: var(--info-ink); }
 
 /* list row. The 2px left border is the current-row bar; the left padding is what puts the
-   text at --sp-3 from the edge of the row once that bar is counted. The sidebar and the
-   start surface both lean on that number (tree.css .sb-row). */
+   text at --sp-3 from the edge of the row once that bar is counted. The sidebar's rows
+   lean on that number (tree.css .sb-row). */
 .row {
   height: var(--row-h); padding: 0 var(--sp-2) 0 calc(var(--sp-3) - 2px);
   display: flex; align-items: center; gap: var(--sp-2);
