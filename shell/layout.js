@@ -575,6 +575,10 @@ export function mountShell(rootEl) {
   });
 
   initTitlebar(els.titlebar);
+  // The tabs live in the title bar, between the path and the window buttons: no row of their
+  // own. The strip is the same element tabs.js draws into, moved, so nothing else changes.
+  const slot = els.titlebar.querySelector('.tb-tabs-slot');
+  if (slot) slot.replaceWith(els.tabs);
   initSidebar(els.sidebar);
   initStatusbar(els.statusbar);
   guardWindowDrops();

@@ -45,7 +45,7 @@
    takes the room after the buttons, up to a readable measure; what is left of the row moves
    the window. */
 .tb-addr {
-  flex: 1 1 auto; min-width: 6rem; max-width: 48rem;
+  flex: 0 1 auto; min-width: 6rem; max-width: 48rem;
   height: 1.5rem; margin-left: var(--sp-3);
   display: flex; align-items: center;
   border: 1px solid transparent; border-radius: var(--radius);
@@ -215,6 +215,22 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
    when it appears. Delete on a focused tab closes without it.  */
 .tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
 .tab-x:hover { background: var(--bg-4); color: var(--fg); }
+
+/* The strip in the title bar (layout.js moves it there): compact chips between the path and
+   the window buttons, on the bar's own ground, the open one lifted and underlined. It takes the
+   room the path leaves, up to half the bar, and scrolls sideways past that. */
+.titlebar .tabs {
+  height: 100%; flex: 0 1 auto; min-width: 0; max-width: 50%;
+  align-items: center; gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: transparent; border-bottom: 0;
+}
+.titlebar .tab {
+  height: 1.5rem; max-width: 11rem;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  border-radius: var(--radius);
+}
+.titlebar .tab.on { background: var(--bg-3); box-shadow: inset 0 -2px 0 var(--accent); }
 
 /* ------------------------------------------------------------------ resizers */
 

@@ -140,6 +140,7 @@ export function initTitlebar(node) {
       <nav class="tb-crumbs" aria-label="Location" data-tauri-drag-region></nav>
     </div>
     <span class="tb-space" data-tauri-drag-region></span>
+    <span class="tb-tabs-slot"></span>
     ${windowButtons()}`;
   el.setAttribute('data-tauri-drag-region', '');
   wireWindowButtons(el);
