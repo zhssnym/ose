@@ -1,6 +1,6 @@
-// The one window hose left: a vault another launch asked this tab to switch to. The window's
-// frame, its buttons, moving and resizing it are the browser's own: nothing here draws or
-// drives them.
+// The one window hose left: a vault another launch asked this window to switch to. Moving and
+// resizing the window are the platform's and the title bar's (titlebar.js): nothing here
+// draws or drives them.
 //
 // One file knows; everybody else calls it.
 

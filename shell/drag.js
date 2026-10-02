@@ -6,8 +6,8 @@
 // hands them to `ose.fileops.importEntries`, which makes the folders, writes every file as its
 // bytes through the create-only `createNewBinary` (never over anything, a taken name gets a
 // free one) and records one undo step. Nothing here reads a file as text: a byte-order mark
-// or a file in another encoding lands as it was. A drag of a row is the internal move; a
-// browser tab cannot drag a vault file out to the system, so nothing here does.
+// or a file in another encoding lands as it was. A drag of a row is the internal move; nothing
+// here drags a vault file out to the system.
 
 import { ose } from 'ose:core';
 import { toast } from 'ose:ui';

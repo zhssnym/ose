@@ -14,7 +14,7 @@
 //   Date          inserts YYYY-MM-DD at the caret
 //   page / os     run the registry command of the same name
 
-import { commands, icon } from './host.ts';
+import { commands, icon, revealTitle } from './host.ts';
 import { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
 import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
@@ -204,7 +204,8 @@ const GROUPS = [
       { key: 'rename', label: 'Rename', icon: I.rename, aliases: ['rename'], cmd: 'file.rename' },
       { key: 'duplicate', label: 'Duplicate', icon: I.duplicate, aliases: ['duplicate', 'copy'], cmd: 'file.duplicate' },
       { key: 'trash', label: 'Move to trash', icon: I.trash, aliases: ['trash', 'delete'], cmd: 'file.trash' },
-      { key: 'reveal', label: 'Reveal in Explorer', icon: I.reveal, aliases: ['reveal', 'explorer'], cmd: 'page.reveal' },
+      // The label is read when the menu opens: the platform names the file manager.
+      { key: 'reveal', get label() { return revealTitle(); }, icon: I.reveal, aliases: ['reveal', 'show', 'explorer', 'finder'], cmd: 'page.reveal' },
     ],
   },
   {

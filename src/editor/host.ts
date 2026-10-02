@@ -136,6 +136,9 @@ export function log(text: unknown, level: 'error' | 'warn' | 'info' | 'debug' = 
   } catch { /* a log that cannot be written is not an error of the page */ }
 }
 
+/** `Show in Explorer`, `Show in Finder` or `Show in the file manager`: the reveal's title. */
+export const revealTitle = () => `Show in ${ose.files.fileManager()}`;
+
 /** The chord a command answers to, as the menus print it. The key engine is the core's. */
 export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
 
@@ -199,8 +202,9 @@ export const bridge = {
   // Where a deleted file goes is the user's setting, and the core applies it: the editor
   // says which file, never which bin.
   trash: (path) => ose.files.trash(path),
-  // No system file manager in a browser: the file is shown in the sidebar's tree.
-  reveal: (path) => { ose.bus.emit('tree:reveal', { path, focus: true }); },
+  // The file selected in Explorer, Finder or the file manager; a refusal is said out loud.
+  reveal: (path) => ose.files.reveal(path).catch((e) => { toast(`could not show ${titleOf(path)}: ${e && e.message ? e.message : e}`, 'err'); }),
+  // The default app for the file's type; an executable is revealed instead of run.
   openPath: (path) => ose.files.open(path),
   openExternal: (url) => ose.openExternal(url),
   assetUrl: (path) => ose.files.assetUrl(path),

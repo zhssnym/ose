@@ -1,11 +1,11 @@
 // The choose-vault surface, the recent-vault chooser, the one dialog that says the vault is
-// gone, and tabs per vault. Mounted by main.js instead of the shell when the tab has no vault:
-// one sentence, the vaults this browser has opened before, one primary button. Nothing else
+// gone, and windows per vault. Mounted by main.js instead of the shell when the window has no
+// vault: one sentence, the vaults this machine has opened before, one primary button. Nothing else
 // exists yet: no sidebar, no commands, no state file (the state file lives inside the vault).
 //
-// A vault can open in a browser tab of its own: Shift+Enter on a row of either list, or the
-// "Open in new tab" button (`ose.windows.open`). There is never a second tab on one vault: the
-// adapter holds one lock per vault, and says so. See docs/HOST.md.
+// A vault can open in a window of its own: Shift+Enter on a row of either list, or the
+// "Open in new window" button (`ose.windows.open`). There is never a second window on one
+// vault: the host brings the one that has it forward instead. See docs/HOST.md.
 import { LOGO } from './logo.js';
 import { windowButtons, wireWindowButtons } from './titlebar.js';
 import { ose } from 'ose:core';
@@ -15,10 +15,10 @@ import { errorOf } from './paths.js';
 
 const { store } = ose;
 
-/** What is said when the vault asked for is open in another tab. */
-const FOCUSED = 'That vault is open in another tab';
+/** What is said when the vault asked for is open in another window. */
+const FOCUSED = 'That vault is open in another window';
 
-/** An answer of `ose.vault.open` that did not adopt: the vault is another tab's. */
+/** An answer of `ose.vault.open` that did not adopt: the vault is another window's. */
 const wasFocused = (r) => !!r && (r.focused === true || r.status === 'focused');
 
 /**
@@ -28,22 +28,22 @@ const wasFocused = (r) => !!r && (r.focused === true || r.status === 'focused');
 const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /**
- * Open `root` in a browser tab of its own, or a new tab with no vault when `root` is absent
- * (`app.new-window`). A vault already open in another tab is not opened twice, and this says
- * so.
+ * Open `root` in a window of its own, or a new window with no vault when `root` is absent
+ * (`app.new-window`). A vault already open in another window is brought forward, never opened
+ * twice, and this says so.
  * @param {string} [root] an absolute folder
  * @returns {Promise<boolean>} whether a window was opened or brought forward
  */
 export async function openInNewWindow(root) {
   if (root && ose.vault.root && sameRoot(root, ose.vault.root)) {
-    toast('That vault is open in this tab', 'info', 2600);
+    toast('That vault is open in this window', 'info', 2600);
     return false;
   }
   let r;
   try { r = await ose.windows.open(root || undefined); } catch (e) {
     const err = errorOf(e);
-    if (err.code === 'unsupported') toast(`Could not open a new tab: ${err.message}`, 'info', 4000);
-    else toast(`Could not open a new tab: ${err.message}`, 'err', 0);
+    if (err.code === 'unsupported') toast(`Could not open a new window: ${err.message}`, 'info', 4000);
+    else toast(`Could not open a new window: ${err.message}`, 'err', 0);
     return false;
   }
   if (root && r && r.created === false) toast(FOCUSED, 'info', 2600);
@@ -184,7 +184,7 @@ function bindRowKeys(box, { onForget, onWindow }) {
  * in it passes `false`: the folder is only chosen, and `switchVault` adopts it once the page
  * has been saved where it belongs (C5).
  *
- * Shift+Enter or Shift+click on a row, or the "Open in new tab" button, opens that vault in
+ * Shift+Enter or Shift+click on a row, or the "Open in new window" button, opens that vault in
  * a window of its own instead (X6): this window stays, and the answer is `null`. The button
  * with no row focused asks for the folder first.
  *
@@ -214,14 +214,14 @@ export async function chooseVault({ adopt = true } = {}) {
         <div class="dlg-foot">
           <span class="grow"></span>
           <button class="btn" data-act="cancel">Cancel</button>
-          <button class="btn" data-act="window">Open in new tab</button>
+          <button class="btn" data-act="window">Open in new window</button>
           <button class="btn primary" data-act="pick">Choose folder…</button>
         </div>`;
       ov.box.setAttribute('aria-labelledby', 'vault-pick-head');
     };
     paint();
 
-    // The row the keyboard last stood on: what "Open in new tab" opens.
+    // The row the keyboard last stood on: what "Open in new window" opens.
     let lastRow = null;
     ov.box.addEventListener('focusin', (e) => {
       const row = e.target instanceof Element ? e.target.closest('.vault-row') : null;
@@ -373,7 +373,7 @@ export async function mountVaultChooser(rootEl) {
     <p class="vault-text">Ose needs a folder to open — a vault is any folder of markdown files.</p>
     <div class="vault-acts">
       <button class="btn primary vault-pick" type="button">Choose folder…</button>
-      <button class="btn vault-window" type="button">Open in new tab…</button>
+      <button class="btn vault-window" type="button">Open in new window…</button>
     </div>
     <div class="vault-recent" hidden><div class="label">Recent</div><div class="vault-list"></div></div>
     <div class="vault-err mono-sm" role="status" hidden></div>`;

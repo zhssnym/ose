@@ -56,7 +56,7 @@ const VERSION = {
 /* ------------------------------------------------------------------------------- the assets */
 
 // The core's assets are served beside the page (docs/CORE.md "Where the app is served"):
-// the site's own origin, or the dev server's. No origin is spelled here.
+// the app's own origin in the host, or the dev server's. No origin is spelled here.
 const assets = {
   url(name: string) {
     const base = typeof location !== 'undefined' ? location.origin : '';
@@ -268,8 +268,8 @@ export const ose = {
   get platform() { return platformName; },
   ready,
 
-  /** The one host there is: the browser (src/host/adapter.ts). */
-  host: 'browser',
+  /** The one host there is: the Rust host in src-tauri, reached through src/core/bridge/tauri.ts. */
+  host: 'tauri',
 
   vault: {
     get root() { return vaultInfo.root; },
@@ -361,7 +361,18 @@ export const ose = {
     trashList: () => fileops.trashList(),
     /** A file or a whole folder, bytes, create-only (`[exists]`). -> `{ path, files }` */
     copyPath: (from, to) => bridge.copyPath(from, to),
+    /**
+     * The file in the system's default app for its type; a folder opens in the file manager,
+     * and an executable is shown in the file manager instead of run. -> null
+     */
     open: (path) => bridge.openPath(path),
+    /** The file or folder shown selected in the system's file manager. -> null */
+    reveal: (path) => bridge.reveal(path),
+    /**
+     * What this platform calls its file manager, for a label: 'Explorer', 'Finder', or
+     * 'the file manager' elsewhere. `Show in ${ose.files.fileManager()}` is the reveal's title.
+     */
+    fileManager: () => (platformName === 'macos' ? 'Finder' : platformName === 'windows' ? 'Explorer' : 'the file manager'),
     assetUrl: (path) => bridge.assetUrl(path),
 
     // The save path (docs/CORE.md "Saving a file"). The host compares and writes in one call
@@ -682,7 +693,7 @@ export const ose = {
    * a page that cannot be saved keeps the window, and this answers false. `{skipLeave:true}`
    * is for a caller that has already left (Change vault). Answers true once the reload is on
    * its way. The app is served from where the window loaded it (X4), so the document reloads
-   * itself, in the host as in a browser.
+   * itself.
    */
   async reload(opts: { skipLeave?: boolean; } = {}) {
     if (!(opts && opts.skipLeave) && !(await leaveWindow('reload'))) return false;

@@ -19,8 +19,9 @@ of a vault is anywhere else but the machine-local state below. Vercel serves the
 there is is `src/host/adapter.ts`, answering every command in the browser. The exact shapes are in
 `src/core/bridge/commands.ts`, kept by hand: a change of a command changes it, the facade and the
 adapter together. Every refusal is a `HostError` with one of the host's codes
-(`src/core/bridge/errors.ts`), and a name nobody answers is `unknown_command`. `bridge.kind` is
-`'web'` and `ose.host` is `'browser'`.
+(`src/core/bridge/errors.ts`), and a name nobody answers is `unknown_command`. Since the move to
+the desktop app, `bridge.kind` is `'tauri'` and `ose.host` is `'tauri'`: the adapter is
+`src/core/bridge/tauri.ts` over the Rust host in `src-tauri/`.
 
 ## Files
 

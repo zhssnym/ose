@@ -292,8 +292,11 @@ on a tie a markdown file comes first. Shift+Enter makes the file you typed and d
   which gives `.md`, `.markdown`, `.mdown` and `.mkd` the Rich / Source switch and opens
   every other text file, extensionless ones included, as plain source, keeping its line endings
   and BOM;
-- a file that is not text gets a box with its name, size and type, and **Open in a browser
-  tab** and **Show in folder** (for a file outside the vault, **Copy into the vault…**).
+- a file that is not text gets a box with its name, size and type, and **Open with default
+  app**, **Show in folder** (for a file outside the vault, **Copy into the vault…**) and **Show in
+  Explorer** (Finder on a Mac). A picture or a PDF has **open with default app** and **show in
+  Explorer** in its header. The tree's menu has the same two for a row: **Open with default app**
+  (files only) and **Show in Explorer** (files and folders).
 
 | method | what the shell does |
 |---|---|

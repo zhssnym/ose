@@ -1,14 +1,15 @@
 // The host's command contract: the argument and answer types of every command the core's
-// facade (./index.js) calls. Hand-maintained. The one host is the browser, and src/host/adapter.ts
-// answers every command named in `Commands` below (src/host/fs.ts and src/host/local.ts do the
-// work). A change of a command changes this file, the facade and the adapter together.
+// facade (./index.ts) calls. Hand-maintained. The one host is the Rust host in src-tauri
+// (src-tauri/src/commands.rs), reached through ./tauri.ts and the functions tauri-specta
+// generated into ./bindings.ts. A change of a command changes the Rust command, the bindings,
+// this file and the facade together.
 //
-// First written by the old desktop host's type generator; its `_Serialize` /
-// `_Deserialize` pairs are kept as they were, so the facade's typedefs read the same.
+// First written from the host's type generator; its `_Serialize` / `_Deserialize` pairs are
+// kept as they were, so the facade's typedefs read the same.
 
 /**
  * Every host command, by the name the facade calls it with (src/core/bridge/index.ts), with
- * its arguments in order and its answer. src/host/adapter.ts answers each one.
+ * its arguments in order and its answer. The Rust host answers each one.
  */
 export type Commands = {
 	/**  `rootInfo()`: this window's vault, or nulls, and its epoch. */
@@ -197,8 +198,10 @@ export type Commands = {
 } | null) => Promise<null>,
 	/**  `openExternal(url)`: http, https and mailto only. */
 	openExternal: (url: string) => Promise<null>,
-	/**  `openPath(path)` (**A**): in a browser tab, for the types a browser shows; never a program. */
+	/**  `openPath(path)` (**A**): in the default application; an executable is revealed instead. */
 	openPath: (path: string) => Promise<null>,
+	/**  `reveal(path)` (**A**): selected in the file manager. */
+	reveal: (path: string) => Promise<null>,
 	/**
 	 *  `outsideOpen(path)`: a native absolute path or `abs:`. Inside this window's vault it answers
 	 *  the vault path and registers nothing; anywhere else the file is registered for this window

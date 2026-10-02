@@ -1,9 +1,9 @@
 // What the operating system asks the app to open (§5.3 of the wave-3 contract): a file
-// double-clicked in Explorer or Finder once Ose is installed as an app, which Chrome hands over
-// through its launch queue (the manifest's `file_handlers`). The adapter (src/host/adapter.ts)
-// turns each one into an OpenRequest (`{ path, outside, kind, line? }`, `path` a vault path or
-// `abs:`), and either queues it for a tab that is still booting or sends it to a running one
-// as the `open` event.
+// double-clicked in Explorer or Finder, or named on the command line, which the OS hands to the
+// Rust host (src-tauri/src/main.rs, windows.rs `open_path`). The host turns each one into an
+// OpenRequest (`{ path, outside, kind, line? }`, `path` a vault path or `abs:`), and either
+// queues it for a window that is still booting or sends it to a running one as the `open`
+// event.
 //
 // This file takes them. A booting window takes its queue (`takeOpens`) once the router has put
 // its first surface up, after session restore, so the restored tabs come first and the files

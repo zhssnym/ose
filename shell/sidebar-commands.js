@@ -20,7 +20,7 @@ import {
 } from './sidebar-state.js';
 import { findNode, persistExpanded, render, vaultName } from './sidebar-tree.js';
 import {
-  batchFor, clearSelection, folderOf, isSelectable, openWith, targetOf,
+  batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
 } from './sidebar-select.js';
 
 /* ------------------------------------------------------------- drag and drop */
@@ -89,7 +89,7 @@ export function bindDnd(host) {
     // Every dragged item has to be able to land there, or the folder does not light up.
     if (!t || (internal && !(moving || []).every((p) => canDropInto(p, t.dir)))) {
       setDropEl(null);
-      e.preventDefault();                       // still ours: no browser navigation
+      e.preventDefault();                       // still ours: the web view never navigates to it
       e.dataTransfer.dropEffect = 'none';
       return;
     }
@@ -222,9 +222,14 @@ const TREE_COMMANDS = [
     applies: (t) => !!t.path, run: (t) => void copyPathText(t.path) },
   { id: 'tree.copy-link', title: 'Copy link', icon: 'link', group: 'tree',
     applies: (t) => !!t.path, run: (t) => void copyLink(t.path, t.kind) },
-  // Every row, folders included: a folder handed to the platform opens in the file manager.
-  { id: 'tree.open-external', title: 'Open in a browser tab', icon: 'reveal', group: 'tree',
-    applies: (t) => !!t.path, run: (t) => openWith(t.path) },
+  // A file in the system's default app for its type; an executable is shown, never run. A
+  // folder has the file manager instead, which is the next row.
+  { id: 'tree.open-external', title: 'Open with default app', icon: 'reveal', group: 'tree',
+    applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => openWith(t.path) },
+  // Every row, folders included: selected in Explorer, Finder or the file manager. The title is
+  // the platform's, read when the commands are registered, after the host has said which.
+  { id: 'tree.reveal', get title() { return `Show in ${ose.files.fileManager()}`; }, icon: 'folder', group: 'tree',
+    applies: (t) => !!t.path, run: (t) => revealIn(t.path) },
   // Search, already narrowed to the folder (N38).
   { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',
     applies: (t) => t.kind === 'dir', run: (t) => openSearch({ folder: t.path }) },
@@ -262,7 +267,7 @@ const MENU = [
   null,
   'tree.copy-path', 'tree.copy-link',
   null,
-  'tree.search-here', 'tree.open-external',
+  'tree.search-here', 'tree.open-external', 'tree.reveal',
   null,
   'file.trash',
 ];

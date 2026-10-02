@@ -9,7 +9,7 @@ vi.mock('../../src/core/bridge/index.ts', async () => {
   const real = await vi.importActual('../../src/core/bridge/index.ts');
   const handlers = new Map();
   const bridge = {
-    kind: 'web', ready: Promise.resolve(),
+    kind: 'tauri', ready: Promise.resolve(),
     on: (ev, fn) => { if (!handlers.has(ev)) handlers.set(ev, new Set()); handlers.get(ev).add(fn); return () => handlers.get(ev).delete(fn); },
     __emit: (ev, d) => [...(handlers.get(ev) || [])].map((fn) => fn(d)),
     platformInfo: async () => ({ os: 'win' }),
@@ -28,7 +28,9 @@ const { bridge } = await import('../../src/core/bridge/index.ts');
 await ose.ready;
 
 test('the facade is whole', () => {
-  for (const k of ['readFile', 'save', 'createNew', 'copy', 'appendLine', 'replaceLine']) expect(typeof ose.files[k]).toBe('function');
+  for (const k of ['readFile', 'save', 'createNew', 'copy', 'appendLine', 'replaceLine', 'open', 'reveal']) expect(typeof ose.files[k]).toBe('function');
+  // The host said 'win': the reveal is titled after Explorer.
+  expect(ose.files.fileManager()).toBe('Explorer');
   for (const k of ['write', 'list', 'read', 'drop']) expect(typeof ose.files.drafts[k]).toBe('function');
   for (const k of ['create', 'rename', 'move', 'trash', 'duplicate']) expect(typeof ose.fileops[k]).toBe('function');
   for (const k of ['split', 'check', 'free', 'extChanged']) expect(typeof ose.names[k]).toBe('function');
