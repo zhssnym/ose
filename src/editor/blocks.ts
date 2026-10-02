@@ -68,8 +68,11 @@ function nodesIn(doc, from, to) {
 // ---------------------------------------------------------------------------
 // applying a range
 
-/** Dispatch a new block selection (or `null` to drop it) and keep the editor selection in step. */
-function setRange(view, range, extra?) {
+/**
+ * Dispatch a new block selection (or `null` to drop it) and keep the editor selection in step.
+ * `scroll` false leaves the scroll position alone: the marquee (marquee.ts) moves it itself.
+ */
+function setRange(view, range, extra?, scroll = true) {
   const tr = (extra || view.state.tr).setMeta(BLOCK_KEY, range || null);
   if (range) {
     const nodes = nodesIn(tr.doc, range.from, range.to);
@@ -81,10 +84,15 @@ function setRange(view, range, extra?) {
     if (!sel) sel = TextSelection.between(tr.doc.resolve(range.from), tr.doc.resolve(range.to));
     tr.setSelection(sel);
   }
-  tr.scrollIntoView();
+  if (scroll) tr.scrollIntoView();
   view.dispatch(tr);
   if (!view.hasFocus()) view.focus();
   return true;
+}
+
+/** A block selection over `range` (outer positions of whole siblings), the page left where it is. */
+export function selectRange(view, range) {
+  return setRange(view, range, undefined, false);
 }
 
 /**

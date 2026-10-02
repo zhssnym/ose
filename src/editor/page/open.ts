@@ -13,6 +13,7 @@ import { describe, indentFor, loadLanguage } from '../highlight.ts';
 import { parseDoc } from '../doc.ts';
 import * as P from '../paths.ts';
 import { attachSheets } from '../sheets.ts';
+import { attachMarquee } from '../marquee.ts';
 import {
   afterLayout, blankPage, checkOpened, editorView, errCode, errText, hasEditor, INTERNAL,
   makeCrepe, nextRev, PlainDoc, recoveredModeOf, seenRev,
@@ -270,6 +271,12 @@ export function installOpen(ctx: PageCtx) {
       p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null), () => ctx.markDirty(p));
       // Page view: the rules where each A4 sheet ends (sheets.ts). Idle unless the layout is `pages`.
       p.cleanups.push(attachSheets(p.el, () => p.bodyEl.querySelector('.ProseMirror')));
+      // The rubber band from the air around the blocks to a block selection (marquee.ts).
+      p.cleanups.push(attachMarquee({
+        col: p.el,
+        view: () => (p.crepe ? editorView(p.crepe) : null),
+        active: () => !ctx.parked && p === ctx.page,
+      }));
       // Anything the editor does to the document while it is settling (the trailing plugin adds
       // an empty paragraph, node views mount) must not count as a user edit. Two frames is the
       // normal path; the timer is the fallback, because a hidden window fires no frames at all.
