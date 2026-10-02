@@ -453,10 +453,9 @@ async function mountPage(scroll, route, my) {
     return;
   }
   if (my !== seq) return;
-  // A page route to a folder (a link, an address typed by hand) shows the folder (H15).
+  // A page route to a folder (a link): the folder is shown in the sidebar.
   if (st && st.exists && st.kind === 'dir') {
-    queueMicrotask(() => { void navigate({ type: 'folder', path }, { replace: true, force: true }); });
-    return;
+    bus.emit('tree:reveal', { path, focus: true, open: true });
   }
   // A path the page host draws itself when it is missing (a media file, whose own miss says
   // more than "not found") goes straight to it (M4).
@@ -867,6 +866,12 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
 export function navigate(route, opts: any = {}) {
   const r = normalize(route);
   if (!r) return Promise.resolve(false);
+  // A folder is not a place of its own: the sidebar is where folders are. Going to one shows it
+  // there, unfolded and selected, and the page on screen stays.
+  if (r.type === 'folder') {
+    bus.emit('tree:reveal', { path: r.path, focus: true, open: true });
+    return Promise.resolve(false);
+  }
   const where = opts.tab;
   if (where === 'new') return openTab(r, { reuse: false, focus: opts.focus }).then((x) => x.shown);
   if (where && where !== 'current') {
@@ -1221,7 +1226,8 @@ async function followTrash(paths) {
     const r = T.currentOf(rec);
     const g = hit(r);
     if (!g) continue;
-    const to = { type: 'folder', path: dirName(g), select: baseName(g) };
+    // A page that went to the trash: its tab goes Home.
+    const to = { ...(T.homeRoute() || { type: 'view', name: 'home' }) };
     if (rec.id === T.activeTabId()) { activeHit = { rec, to }; continue; }
     if (r.type === 'page' && !shownElsewhere(r, rec)) {
       try { await pageHost()?.release?.(r.path); } catch (e) { console.warn('[router] release after trash', e); }

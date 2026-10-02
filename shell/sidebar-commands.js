@@ -3,7 +3,7 @@
 
 import { ose } from 'ose:core';
 import { contextMenu, copyText, focusOrigin, icon, toast } from 'ose:ui';
-import { baseName, clean, dirName } from './paths.js';
+import { baseName, clean } from './paths.js';
 import {
   DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,
 } from './drag.js';
@@ -357,53 +357,9 @@ export function emptyMenu() {
     menuItem('file.new', target, `New file in ${where}…`),
     menuItem('tree.new-folder', target, `New folder in ${where}`),
     clipboard() ? menuItem('file.paste', target, `Paste into ${where}`) : null,
+    { sep: true },
+    { label: 'Collapse all folders', iconSvg: icon(ic('chevron', 'dot')), run: () => commands.run('tree.collapse-all') },
+    { label: showHidden() ? 'Hide hidden items' : 'Show hidden items', iconSvg: icon(ic(showHidden() ? 'eyeOff' : 'eye', 'dot')), run: () => commands.run('view.toggle-hidden') },
   ].filter(Boolean));
 }
 
-/* ------------------------------------------------------------------ the tool strip */
-
-// Four buttons over the tree, each also a command in the palette: New file, New folder,
-// Collapse all, and Show hidden items, which is a toggle and says so (`aria-pressed`).
-const TOOLS = [
-  { id: 'file.new', icon: 'plus', label: 'New file…' },
-  { id: 'tree.new-folder', icon: 'folderPlus', label: 'New folder' },
-  { id: 'tree.collapse-all', icon: 'chevron', label: 'Collapse all folders', cls: 'sb-tool-collapse' },
-  { id: 'view.toggle-hidden', icon: 'eye', label: 'Show hidden items', toggle: true },
-];
-
-export function buildHead() {
-  state.headEl.innerHTML = '';
-  for (const t of TOOLS) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'sb-tool' + (t.cls ? ' ' + t.cls : '');
-    b.dataset.cmd = t.id;
-    b.setAttribute('aria-label', t.label);
-    b.title = t.label + (shortcutFor(t.id) ? ` (${shortcutFor(t.id)})` : '');
-    b.innerHTML = icon(ic(t.icon, 'dot'));
-    b.addEventListener('click', () => {
-      // From the strip, "here" is the folder of the route on screen, not a row.
-      const r = currentRoute();
-      /** @type {import('./fileops.js').Target} */
-      const here = r && r.type === 'folder' ? { path: clean(r.path || ''), kind: 'dir' }
-        : r && r.type === 'page' ? { path: dirName(r.path), kind: 'dir' } : { path: getFocus() || '', kind: 'dir' };
-      if (t.id === 'file.new') void newFile(here);
-      else if (t.id === 'tree.new-folder') void newFolder(here.path);
-      else commands.run(t.id);
-    });
-    state.headEl.appendChild(b);
-  }
-  paintHead();
-}
-
-export function paintHead() {
-  if (!state.headEl) return;
-  const on = showHidden();
-  const b = state.headEl.querySelector('[data-cmd="view.toggle-hidden"]');
-  if (b) {
-    b.setAttribute('aria-pressed', String(on));
-    b.classList.toggle('on', on);
-    b.innerHTML = icon(on ? ic('eye', 'dot') : ic('eyeOff', 'dot'));
-    b.title = on ? 'Hide hidden items' : 'Show hidden items';
-  }
-}

@@ -80,19 +80,21 @@ export function toggleDir(row) {
 }
 
 /**
- * The route a row opens: a folder's view, a file's page, a view. Every file has one (H17): the
- * page host decides whether it is text, a picture, or a box with the ways out.
+ * The route a row opens: a file's page, or a view. A folder has none: it folds and unfolds here.
+ * Every file opens (H17): the page host decides whether it is text, a picture, or a box with
+ * the ways out.
  */
 function routeForRow(row) {
   if (!row) return null;
   if (row.dataset.view) return { type: 'view', name: row.dataset.view };
   const path = row.dataset.path;
   if (path === undefined) return null;
-  return row.dataset.kind === 'dir' ? { type: 'folder', path } : { type: 'page', path };
+  return row.dataset.kind === 'dir' ? null : { type: 'page', path };
 }
 
-/** Enter, or a click: what the row is, opened in the tab in front. */
+/** Enter, or a click: a folder folds or unfolds, anything else opens in the tab in front. */
 export function activateRow(row) {
+  if (row && row.dataset.kind === 'dir' && !row.dataset.view) { toggleDir(row); return; }
   const r = routeForRow(row);
   if (r) void navigate(r);
 }

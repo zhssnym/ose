@@ -8,7 +8,6 @@ import { hasIcon } from 'ose:ui';
 export const state = {
   /** @type {any} */ el: null,
   /** @type {any} */ scrollEl: null,
-  /** @type {any} */ headEl: null,
   /** @type {any} */ tree: null,
   /** @type {Set<any>} */ expanded: new Set(),
   // The root row is open unless the person folded it.
