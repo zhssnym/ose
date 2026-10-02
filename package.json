@@ -13,6 +13,7 @@
     "lint:fix": "biome check --write",
     "tauri": "tauri",
     "app": "tauri dev",
+    "app:dev": "tauri dev --config src-tauri/tauri.dev.json",
     "app:build": "tauri build"
   },
   "dependencies": {
