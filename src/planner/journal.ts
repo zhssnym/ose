@@ -227,10 +227,10 @@ export function createJournalView(ose: any, store: any): any {
       </div>
     </div>
     <div class="jr-bar">
-      <span></span>
-      <div class="jr-mode seg" role="group" aria-label="Record" data-el="mode">
-        <button type="button" class="seg-b" data-mode="full">Full</button>
-        <button type="button" class="seg-b" data-mode="compact">Compact</button>
+      <div class="jr-mode" role="group" aria-label="Record" data-el="mode">
+        <button type="button" data-mode="full">full</button>
+        <span class="jr-mode-sep" aria-hidden="true">|</span>
+        <button type="button" data-mode="compact">compact</button>
       </div>
     </div>
     <div class="jr-record" data-el="record"></div>
