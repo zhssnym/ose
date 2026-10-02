@@ -176,9 +176,10 @@ export function installDrafts(ctx: PageCtx) {
     if (!isUtf8(p.encoding)) bits.push(p.lossy ? `${p.encoding}, read-only` : p.encoding);
     bits.push(`${n(p.words)} word${p.words === 1 ? '' : 's'}`);
     bits.push(`${n(p.chars)} character${p.chars === 1 ? '' : 's'}`);
-    // One fact about saving: unsaved, or when the file was last saved.
-    if (p.dirty) bits.push('unsaved');
-    else { const when = savedLabel(p.mtime); if (when) bits.push(when); }
+    // When the file was last saved, and nothing while typing: autosave lands within a second,
+    // so 'unsaved' would only blink. A save that fails is said by the save state, loudly.
+    const when = savedLabel(p.mtime);
+    if (when) bits.push(when);
     const linked = p.outside ? 0 : backlinkCount(p.path);
     if (linked) bits.push(`${linked} linked`);
     if (p.deleted) bits.push('(deleted)');
