@@ -288,10 +288,83 @@ async function changeVault() {
 }
 
 /**
- * The Keys section: every chord the app answers to, read only. The core's defaults
- * (`ose.keys.defaults()`) with the shell's `keys.json` over them, the way the key engine
- * resolves them. A chord used in a page's text belongs to the editor while the caret is there,
- * and says so in the last column.
+ * One chord as a key cap, in this platform's words (Cmd and Option on a Mac).
+ * @param {string} combo
+ */
+const kbd = (combo) => `<span class="kbd">${esc(ose.keys.label(combo))}</span>`;
+
+/**
+ * The Help section's first half: how the app is used, a few sentences a topic. Written here,
+ * in the app's voice; every chord is drawn by `kbd`, so a Mac reads Cmd where Windows reads Ctrl.
+ */
+function guideHtml() {
+  const mac = document.documentElement.dataset.os === 'mac';
+  const back = mac ? 'mod+[' : 'alt+arrowleft';
+  const fwd = mac ? 'mod+]' : 'alt+arrowright';
+  /** @type {[string, string][]} */
+  const topics = [
+    ['The vault',
+      'A vault is a folder of plain markdown files on this computer. Ose opens the files where they '
+      + 'are and edits them in place. Nothing of the app is written into the folder: its settings, '
+      + "the versions of your files and any unsaved drafts are kept in the app's own folder. "
+      + 'Settings › Vault changes which folder is open.'],
+    ['The sidebar',
+      'Views holds Day, Week, Month and Journal, pages drawn from ordinary files in the vault whose '
+      + 'paths are set in Settings › Planner. Vault lists your folders and files under their real '
+      + 'names; a folder opens and closes in place. Right-click a row for what can be done with it, '
+      + 'or the empty space below for New file, New folder, Collapse all folders and Show hidden '
+      + `items. ${kbd('mod+\\')} hides or shows the sidebar, and ${kbd('mod+shift+e')} moves the keyboard into it.`],
+    ['Pages',
+      'A markdown page opens in one of two modes. Rich is the page drawn as a document, written '
+      + `like one. Source is the raw markdown, as in a code editor. ${kbd('mod+e')} switches between `
+      + 'them, and each file keeps the mode it was left in. The bar at the bottom of the window shows '
+      + 'the mode, the counts, when the file was changed and saved, and a dot while there are '
+      + 'unsaved changes.'],
+    ['Tabs',
+      `Each tab holds one page, with its own back and forward: ${kbd(back)} and ${kbd(fwd)}. `
+      + `${kbd('mod+t')} opens a new tab, ${kbd('mod+w')} closes one, ${kbd('mod+tab')} moves to `
+      + `the next and ${kbd('mod+shift+t')} brings back the last one closed. A page in a tab behind `
+      + 'keeps its text and its undo.'],
+    ['Go to file and commands',
+      `${kbd('mod+p')} goes to any file by its name or path. ${kbd('mod+shift+p')} opens the command `
+      + 'palette, which lists every action in the app with its shortcut.'],
+    ['Search',
+      `${kbd('mod+shift+f')} searches the text of every file in the vault, in the side panel. `
+      + 'Right-click a folder to search in it alone. In a page, '
+      + `${kbd('mod+f')} finds and ${kbd(mac ? 'mod+alt+f' : 'mod+h')} replaces.`],
+    ['Nothing typed is lost',
+      'Text that has not reached its file yet is kept as a draft until it does, and offered back '
+      + 'if the app closes first. When another program or an AI agent changes a file you have open, '
+      + 'Ose merges the change into your page, and asks only when you both changed the same lines.'],
+    ['Deleting',
+      "A deleted file or folder goes to the system's Recycle Bin or Trash, from where it can be "
+      + 'restored.'],
+    ['Updates',
+      'Ose checks for a new version when it starts. Settings › Updates shows the version running '
+      + 'and checks again on demand; when a new one is ready, Restart to update installs it.'],
+  ];
+  return '<h2 class="label set-help-label">Using Ose</h2>'
+    + topics.map(([head, text]) => `<div class="set-help-topic">
+        <h3 class="set-help-head">${esc(head)}</h3>
+        <p class="set-help-text">${text}</p>
+      </div>`).join('');
+}
+
+/**
+ * Commands whose chord is their own `shortcut` and that the guide above names. `commands.list()`
+ * leaves out a command whose `when` is false right now (Next tab with one tab open), so these
+ * are asked for by id as well.
+ */
+const NAMED = ['tab.new', 'tab.close', 'tab.next', 'tab.prev'];
+
+/** A chord as the key engine keys it: lower case, no spaces. */
+const normCombo = (c) => String(c || '').toLowerCase().split('+').map((p) => p.trim()).filter(Boolean).join('+');
+
+/**
+ * The Help section's second half: every chord the app answers to, read only, the way the key
+ * engine resolves them: the core's defaults (`ose.keys.defaults()`), then a command's own
+ * `shortcut`, then the shell's `keys.json` over both. A chord used in a page's text belongs to
+ * the editor while the caret is there, and says so in the last column.
  */
 async function keysHtml() {
   let shellMap = {};
@@ -306,10 +379,16 @@ async function keysHtml() {
     const combo = (mac && k.mac) || k.combo;
     const entry = { combo, cmd: k.cmd };
     if (/^(format|block|table)\./.test(k.cmd)) body.push(entry);
-    else win.set(combo, entry);
+    else win.set(normCombo(combo), entry);
+  }
+  const own = new Map(commands.list().map((c) => [c.id, c]));
+  for (const id of NAMED) { const c = commands.get(id); if (c) own.set(id, c); }
+  for (const c of own.values()) {
+    const combo = normCombo(c.shortcut);
+    if (combo) win.set(combo, { combo, cmd: c.id });
   }
   for (const [combo, cmd] of Object.entries(shellMap)) {
-    if (typeof cmd === 'string' && cmd) win.set(combo, { combo, cmd });
+    if (typeof cmd === 'string' && cmd) win.set(normCombo(combo), { combo, cmd });
   }
   const title = (id) => { const c = commands.get(id); return (c && c.title) || id; };
   // One row per action and place: Go to file answers to Ctrl+P and Ctrl+O, and says so once.
@@ -319,25 +398,36 @@ async function keysHtml() {
   for (const [where, list] of groups) {
     for (const e of list) {
       const key = where + '|' + e.cmd;
-      if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, combos: [] });
-      byAct.get(key).combos.push(e.combo);
+      if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, labels: [] });
+      const labels = byAct.get(key).labels;
+      const label = ose.keys.label(e.combo);
+      if (!labels.includes(label)) labels.push(label);
     }
   }
   const rows = [...byAct.values()];
   rows.sort((a, b) => (a.where === b.where ? 0 : a.where === 'Everywhere' ? -1 : 1) || title(a.cmd).localeCompare(title(b.cmd)));
-  return `<p class="set-lead">Read only. These are the chords the app answers to on this computer.</p>
+  return `<h2 class="label set-help-label">Shortcuts</h2>
+    <p class="set-lead">Every chord the app answers to on this computer. Those in a page work while the caret is in its text.</p>
     <table class="table set-keys">
       <thead><tr><th scope="col">Action</th><th scope="col">Keys</th><th scope="col">Where</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td>${esc(title(r.cmd))}</td>
-        <td class="set-keys-keys">${r.combos.map((c) => `<span class="kbd">${esc(ose.keys.label(c))}</span>`).join(' ')}</td>
+        <td class="set-keys-keys">${r.labels.map((l) => `<span class="kbd">${esc(l)}</span>`).join(' ')}</td>
         <td class="set-keys-where">${esc(r.where)}</td></tr>`).join('')}</tbody>
     </table>`;
 }
 
+/** Help: how the app is used, then every shortcut. */
+async function helpHtml() {
+  return guideHtml() + (await keysHtml());
+}
+
 /* ------------------------------------------------------------------ the page */
 
-/** The stock sections, in the order the list shows them. Registered ones go before Keys. */
+/**
+ * The stock sections, in the order the list shows them. Registered ones go between HEAD and
+ * TAIL. Help is last: it is the one section that sets nothing, read rather than changed.
+ */
 const HEAD = [
   { id: 'appearance', title: 'Appearance', html: appearanceHtml },
   { id: 'editor', title: 'Editor', html: editorHtml },
@@ -345,8 +435,8 @@ const HEAD = [
 ];
 const TAIL = [
   { id: 'updates', title: 'Updates', html: updatesHtml },
-  { id: 'keys', title: 'Keys', html: keysHtml },
   { id: 'vault', title: 'Vault', html: vaultHtml },
+  { id: 'help', title: 'Help', html: helpHtml },
 ];
 
 /** Every section, stock and registered, in list order. */
@@ -405,7 +495,9 @@ function mountPage(el, route = {}) {
 
   async function show(id) {
     const secs = allSections();
-    const sec = secs.find((s) => s.id === id) || secs[0];
+    // `keys` is the section Help replaced: a route or a command that still names it lands there.
+    const want = id === 'keys' ? 'help' : id;
+    const sec = secs.find((s) => s.id === want) || secs[0];
     if (!sec) return;
     const my = ++seq;
     dropSection();
@@ -516,7 +608,7 @@ const view = {
 
 /**
  * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named.
- * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'updates', 'keys', 'vault', or a registered one
+ * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'updates', 'vault', 'help', or a registered one
  * @returns {Promise<void>}
  */
 export async function openSettings(arg) {
@@ -533,7 +625,8 @@ export function initSettings() {
   ose.views.register('settings', view);
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: () => openSettings() });
   commands.register({ id: 'app.update', title: 'Check for updates', group: 'app', hint: 'Settings, Updates', run: () => openSettings('updates') });
-  commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Keys', run: () => openSettings('keys') });
+  commands.register({ id: 'app.help', title: 'Help', group: 'app', hint: 'Settings, Help', run: () => openSettings('help') });
+  commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Help', run: () => openSettings('help') });
   const root = store.get('root') || {};
   commands.register({ id: 'app.vault-change', title: 'Change vault…', group: 'app', hint: root.root || '', run: changeVault });
   // A window of its own (X6), on no vault: it opens on the chooser. Change vault… offers the

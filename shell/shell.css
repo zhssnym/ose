@@ -240,6 +240,16 @@
 .set-update { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
 .set-update-note { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--fg-2); }
 
+/* Help: two labelled halves, the guide and the keys. The first label sits flush with the
+   title; a topic is its name, then a few sentences, spaced like a settings row. */
+.set-help-label { margin: 0; font-weight: normal; }
+.set-help-label:first-child { padding-top: 0; }
+.set-help-topic { padding: var(--sp-2) 0; max-width: 64ch; }
+.set-help-head { margin: 0; font-size: var(--fs-ui); font-weight: normal; color: var(--fg); }
+.set-help-text { margin: var(--sp-1) 0 0; font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3); }
+.set-help-text .kbd { white-space: nowrap; }
+.set-help-label + .set-lead { margin-top: var(--sp-1); }
+
 /* The keys, read only: the core's table component, the chord in its key cap. */
 .set-keys td { font-size: var(--fs-ui); }
 .set-keys .kbd { white-space: nowrap; }
