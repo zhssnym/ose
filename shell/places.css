@@ -212,7 +212,13 @@
 .tb-tab-add svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; }
 /* A tab being dragged along the strip; the strip while a file from the sidebar is over it. */
 .tab.dragging { opacity: 0.4; }
-.titlebar.drop-on { background: var(--accent-soft); }
+.tab-ghost {
+  flex: none; height: 1.5rem; max-width: 40rem;
+  display: flex; align-items: center; padding: 0 var(--sp-2);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  color: var(--fg-3); opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
 /* The last, empty tab cannot be closed: a short shake says so. */
 .tab.nope { animation: tab-nope 0.32s ease; }
 @keyframes tab-nope {

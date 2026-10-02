@@ -238,6 +238,23 @@ function dropIndex(x) {
   return els.length;
 }
 
+// While a file from the sidebar is over the title bar: a ghost tab, faint and dashed, with the
+// file's name, where the new tab will open. It follows the pointer between the tabs.
+let ghost = null;
+function showGhost(x) {
+  const paths = dragged() || [];
+  if (!ghost) {
+    ghost = document.createElement('div');
+    ghost.className = 'tab-ghost';
+    ghost.setAttribute('aria-hidden', 'true');
+  }
+  const first = paths[0] ? baseName(paths[0]) : 'Open here';
+  ghost.textContent = paths.length > 1 ? `${first} +${paths.length - 1}` : first;
+  const at = tabEls()[dropIndex(x)] || null;
+  if (ghost.nextSibling !== at || ghost.parentNode !== strip) strip.insertBefore(ghost, at);
+}
+function hideGhost() { if (ghost) { ghost.remove(); ghost = null; } }
+
 function wireDrag() {
   // The whole title bar takes a drop, not only the tabs: anywhere up there opens a new tab.
   const zone = strip.closest('.titlebar') || strip;
@@ -252,20 +269,20 @@ function wireDrag() {
   zone.addEventListener('dragend', () => {
     draggingTab = null;
     for (const el of tabEls()) el.classList.remove('dragging');
-    zone.classList.remove('drop-on');
+    hideGhost();
   });
   zone.addEventListener('dragover', (e) => {
     const dt = e.dataTransfer;
     if (!dt) return;
     if (draggingTab) { e.preventDefault(); dt.dropEffect = 'move'; return; }
-    if (isInternal(dt)) { e.preventDefault(); dt.dropEffect = 'move'; zone.classList.add('drop-on'); }
+    if (isInternal(dt)) { e.preventDefault(); dt.dropEffect = 'move'; showGhost(e.clientX); }
   });
   zone.addEventListener('dragleave', (e) => {
-    if (!(e.relatedTarget instanceof Node) || !zone.contains(e.relatedTarget)) zone.classList.remove('drop-on');
+    if (!(e.relatedTarget instanceof Node) || !zone.contains(e.relatedTarget)) hideGhost();
   });
   zone.addEventListener('drop', (e) => {
     const dt = e.dataTransfer;
-    zone.classList.remove('drop-on');
+    hideGhost();
     if (!dt) return;
     if (draggingTab) {
       e.preventDefault();
@@ -281,10 +298,14 @@ function wireDrag() {
     e.preventDefault();
     let paths = dragged();
     if (!paths) { try { paths = JSON.parse(dt.getData(DRAG_TYPE) || '[]'); } catch { paths = []; } }
-    for (const p of paths || []) {
-      const node = typeof p === 'string' ? p : null;
-      if (node) void openInNewTab({ type: 'page', path: node });
-    }
+    // Where the ghost stood: the new tabs open there, in order.
+    let at = dropIndex(e.clientX);
+    void (async () => {
+      for (const p of paths || []) {
+        if (typeof p !== 'string') continue;
+        try { await api.open({ type: 'page', path: p }, { reuse: false, index: at }); at += 1; } catch (err) { console.error('[shell] open tab', err); }
+      }
+    })();
   });
 }
 
