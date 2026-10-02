@@ -368,7 +368,7 @@ export function splitStrayHtml(tr: import('@milkdown/kit/prose/transform').Trans
   return found.length > 0;
 }
 
-/** The whole document with every stray html block on its own (for tests and the harness). */
+/** The whole document with every stray html block on its own (for the write guard and the tests). */
 export function htmlEndsBlock(doc) {
   const tr = new Transform(doc);
   return splitStrayHtml(tr) ? tr.doc : doc;

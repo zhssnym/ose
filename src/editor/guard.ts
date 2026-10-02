@@ -161,7 +161,7 @@ function decide(engine, doc, original): WriteCheck {
 
 /**
  * What a save of `md` writes, as a string: the editor opening `md` and writing it back unchanged,
- * reconciled against `original` (the file on disk; `md` itself by default). The harness asks this.
+ * reconciled against `original` (the file on disk; `md` itself by default). For the tests (engine.ts).
  * An `unsafe` answer gives the best effort, which the page would never write.
  */
 export function roundTrip(engine: MdEngine, md: string, original: string = md): string {

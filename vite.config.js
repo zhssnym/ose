@@ -169,42 +169,6 @@ function kernelStylesheets() {
   };
 }
 
-/**
- * The one page of the repo that is not the shell: the round-trip harness
- * (`src/editor/harness.html`, every vault file through the serialiser).
- *
- * The dev root is the shell, so nothing under `src/` is reachable by its own path and the SPA
- * fallback would answer the shell's index.html. So it is served here, from its source file,
- * with its absolute `/src/...` URLs rewritten to the `/@fs/` paths Vite serves anything outside
- * the root under. A `.css` asked for by its own path is a JS module to Vite; `?direct` asks for
- * the stylesheet itself, which is what a `<link>` needs.
- */
-function repoPages() {
-  const root = posix(here('.')).replace(/\/+$/, '');
-  const PAGES = new Map([
-    ['/harness', 'src/editor/harness.html'],
-    ['/harness.html', 'src/editor/harness.html'],
-    ['/src/editor/harness.html', 'src/editor/harness.html'],
-  ]);
-  return {
-    name: 'ose-repo-pages',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url || '').split('?')[0];
-        const name = PAGES.get(url);
-        if (!name || !existsSync(here(name))) return next();
-        const html = readFileSync(here(name), 'utf8')
-          .replace(/(href|src)="\/src\/([^"]+)"/g, (_, attr, rest) =>
-            `${attr}="/@fs/${root}/src/${rest}${rest.endsWith('.css') ? '?direct' : ''}"`)
-          .replace(/(href|src)="\.\/(ui|editor)\.css"/g, '$1="/$2.css"');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-store');
-        res.end(html);
-      });
-    },
-  };
-}
-
 /* ---------------------------------------------------------------------------- the config */
 
 export default defineConfig(({ command }) => {
@@ -215,7 +179,7 @@ export default defineConfig(({ command }) => {
       publicDir: false,
       resolve: { alias: { ...ALIAS, ...KATEX } },
       define: { ...FLAGS },
-      plugins: [kernelStylesheets(), repoPages()],
+      plugins: [kernelStylesheets()],
       // The editor and the planner load by dynamic import, from outside the root: named here so
       // Vite's dependency scan finds Milkdown, CodeMirror and date-fns at startup, instead of on
       // the first page opened, where the late optimisation reloads the window under the user

@@ -1,5 +1,4 @@
-// One place that builds a Crepe instance. Both the page editor and the round-trip harness
-// use it, so what the harness proves is what the editor actually does.
+// One place that builds a Crepe instance, the page editor's.
 
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 // Crepe's theme, one file at a time instead of its `theme/common/style.css`, which is nothing
@@ -25,7 +24,7 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
 import { strikethroughInputRule } from '@milkdown/kit/preset/gfm';
 import { indentPlugin } from '@milkdown/kit/plugin/indent';
 import { trailingPlugin } from '@milkdown/kit/plugin/trailing';
-import { postProcess, reconcile } from './stringify.ts';
+import { postProcess } from './stringify.ts';
 import { docWithoutPad } from './space.ts';
 import { slashPlugin } from './slash.ts';
 import { blockKeysPlugin, htmlBlockPlugin } from './blocks.ts';
@@ -53,12 +52,11 @@ const cssVar = (name, fallback = 'currentColor') => {
  * @param o.uploadImage  File -> markdown src
  * @param o.attachFile   File -> vault path of the copy (drops)
  * @param o.pagePath  the open file, for the hrefs a drop writes
- * @param o.slashCommands   false in the round-trip harness: no menu, no block keys
  * @param o.onChange   after every transaction that changes the document
  * @param o.on
  *   Crepe's own listeners (blur, focus, …)
  */
-export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolveImage?: (src: string) => string; uploadImage?: (file: File) => Promise<string>; attachFile?: (file: File) => Promise<string>; pagePath?: () => string | null; slashCommands?: boolean; onChange?: () => void; on?: (api: import('@milkdown/kit/plugin/listener').ListenerManager) => void; }) {
+export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolveImage?: (src: string) => string; uploadImage?: (file: File) => Promise<string>; attachFile?: (file: File) => Promise<string>; pagePath?: () => string | null; onChange?: () => void; on?: (api: import('@milkdown/kit/plugin/listener').ListenerManager) => void; }) {
   const crepe = new Crepe({
     root: o.root,
     defaultValue: o.markdown ?? '',
@@ -107,7 +105,8 @@ export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolv
   });
 
   await installExtras(crepe.editor, o);
-  if (o.slashCommands !== false) { installSlash(crepe.editor); installBlockKeys(crepe.editor); }
+  installSlash(crepe.editor);
+  installBlockKeys(crepe.editor);
   if (o.onChange) watchDoc(crepe.editor, o.onChange);
   if (o.on) crepe.on(o.on);
 
@@ -146,7 +145,7 @@ function dropStaleTransactions(crepe) {
  * or claim a drop of files it then throws away, before ours are asked. The callout and find
  * decorations can go anywhere. The gfm strikethrough input rule is taken out before
  * `create()` (`remove` only edits the plugin store at that point) and the `~~`-only rule is
- * used in its place. The harness passes no `attachFile`, so it gets no drop handler.
+ * used in its place. With no `attachFile` there is no drop handler.
  */
 async function installExtras(editor, o) {
   const first = [urlPastePlugin()];
@@ -283,55 +282,6 @@ export function openCheck(crepe: import('@milkdown/crepe').Crepe, body: string):
     const e = (err as { code?: string, message?: string });
     return { ok: false, reason: `the check failed: ${String((e && e.message) || e).split('\n')[0]}`, missing: [] as any[] };
   }
-}
-
-/**
- * Body markdown as it would be written to disk: `readMarkdownChecked`'s text. For callers that
- * want a string and nothing else (copying, the harness); the page asks `readMarkdownChecked`,
- * because an `unsafe` text must never be written. With no view at all, Crepe's own markdown.
- */
-export function readMarkdown(crepe: import('@milkdown/crepe').Crepe, original: string): string {
-  const r = readMarkdownChecked(crepe, original);
-  if (r.text !== null && r.text !== undefined) return r.text;
-  try { return crepe.getMarkdown(); } catch { return ''; }
-}
-
-/**
- * Batch 9's engine — line-keyed reconcile, string-level verify, all or nothing. Nothing in the
- * app asks for it; the harness does, so the before and after of batch 12 are one measurement by
- * one instrument over one vault.
- */
-function legacyRoundTrip(crepe, markdown, original) {
-  const engine = engineOf(crepe);
-  const canonical = guard.canonicalise(engine, markdown);
-  if (!original) return canonical;
-  for (const opt of [{ lines: true }, { lines: false }]) {
-    const candidate = reconcile(canonical, original, opt);
-    if (candidate === canonical) return canonical;
-    if (guard.canonicalise(engine, candidate) === canonical) return candidate;
-  }
-  return canonical;
-}
-
-/**
- * Parse a markdown string and serialise it straight back, with no view involved.
- */
-export function canonicalise(crepe: import('@milkdown/crepe').Crepe, markdown: string) {
-  return guard.canonicalise(engineOf(crepe), markdown);
-}
-
-/**
- * What the editor would write for `markdown` if it were opened and saved unchanged.
- *
- * `original` is the text the reconcile pass is allowed to put back, and defaults to `markdown`
- * itself, which is the open-and-save case. The harness passes the two apart to ask the other
- * question: given the file on disk and a document with one line edited, what gets written?
- * The answer goes through the write guard like a save; an `unsafe` one is the best effort,
- * which a save would not write.
- */
-export function roundTrip(crepe, markdown, original = markdown, opt: any = {}) {
-  if (opt.legacy) return legacyRoundTrip(crepe, markdown, original);
-  return guard.roundTrip(engineOf(crepe), markdown, original);
 }
 
 /**

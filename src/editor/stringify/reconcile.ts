@@ -3,7 +3,6 @@
 
 import { fenceTracker } from './cleanup.ts';
 import { reconcileBlocks } from './blocks.ts';
-import { restoreTables } from './tables.ts';
 
 // ---------------------------------------------------------------------------
 // Reconciliation against the file on disk.
@@ -82,41 +81,10 @@ export function align(a, b, window = 80) {
 /**
  * @param out       canonical output of postProcess()
  * @param original  the file as it is on disk
- * @param opt.canon  parse-and-serialise, from the editor. When it is
- *        given, reconciliation is block by block (the batch-12 engine); without it the old
- *        line-only pass runs, which no caller in the app uses any more.
- * @param opt.lines line pass only: restore lines that differ only in escaping
+ * @param opt.canon  parse-and-serialise, from the editor: reconciliation is block by block
  * @returns a candidate the caller must verify by re-parsing
  */
-export function reconcile(out: string, original: string, opt: { canon?: (md: string) => string; lines?: boolean; } = {}): string {
+export function reconcile(out: string, original: string, opt: { canon: (md: string) => string; }): string {
   if (!original) return out;
-  if (typeof opt.canon === 'function') return reconcileBlocks(out, original, opt.canon);
-  return reconcileLines(out, original, opt);
-}
-
-function reconcileLines(out, original, opt: any = {}) {
-  const restoreLines = opt.lines !== false;
-
-  const text = restoreTables(out, original);
-  const A = units(original);
-  const B = units(text);
-  if (!B.items.length || !A.items.length) return text;
-
-  const map = align(A.items.map(lineKey), B.items.map(lineKey));
-
-  let result = '';
-  for (let j = 0; j < B.items.length; j++) {
-    const i = map[j] ?? -1;
-    // The original's spacing only describes this boundary when both sides of it survived and
-    // were adjacent in the original; anywhere the user inserted something, keep remark's.
-    // `map[j - 1]` is -1 for an inserted line, and -1 === i - 1 when i is 0: an insert above
-    // the first line would take the first line's leading gap as its own (C11). Both sides survive.
-    const keepsBoundary = i >= 0 && (j === 0 ? i === 0 : (map[j - 1] ?? -1) >= 0 && map[j - 1] === i - 1);
-    const gap = (keepsBoundary ? A.gaps[i] : B.gaps[j]) ?? 0;
-    result += '\n'.repeat(j === 0 ? gap : gap + 1);
-    result += i >= 0 && restoreLines ? A.items[i] : B.items[j];
-  }
-  const last = map[B.items.length - 1];
-  const tail = (last === A.items.length - 1 ? A.gaps[A.gaps.length - 1] : B.gaps[B.gaps.length - 1]) ?? 0;
-  return result + '\n'.repeat(tail);
+  return reconcileBlocks(out, original, opt.canon);
 }

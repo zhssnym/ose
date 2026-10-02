@@ -498,7 +498,7 @@ export function createSourceView(o: { host: HTMLElement; text: string; markdown?
  * `o.onLeaveTop()` takes the caret to the end of the title and answers true when there was a
  * title to take it to; `o.onSelectAll()` widens a whole-document selection to the title as
  * well and answers true when it did. Both are supplied by index.js, which owns the title strip;
- * the harness supplies neither, so the plugin does nothing there.
+ * with neither, the plugin does nothing.
  */
 export function plugins(_ctx, o) {
   const opts = o || {};

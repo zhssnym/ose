@@ -6,8 +6,7 @@
 // with `%20` for spaces. Cancelling inserts nothing.
 //
 // The module knows nothing about which file is open: `index.js` binds a getter at init, so this
-// file never imports the editor back (slash.ts -> link.ts -> index.js would be a cycle, and the
-// round-trip harness would pull the whole shell in with it).
+// file never imports the editor back (slash.ts -> link.ts -> index.js would be a cycle).
 
 import { allPages, bridge, esc, highlight, icon, openOverlay, pageFiles, pageItems } from './host.ts';
 import { pickPage } from './deps.ts';

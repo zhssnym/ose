@@ -119,54 +119,5 @@ function repad(next, prev) {
   return `${indent}|${cells.join('|')}|`;
 }
 
-function findTables(md) {
-  const lines = md.split('\n');
-  const fence = fenceTracker();
-  const inFence = lines.map((l) => fence(l));
-  const blocks: any[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    if (!inFence[i] && isTableRow(lines[i]) && isDelimiterRow(lines[i + 1] || '')) {
-      let j = i + 1;
-      while (j + 1 < lines.length && !inFence[j + 1] && isTableRow(lines[j + 1])) j++;
-      blocks.push({ start: i, end: j });
-      i = j + 1;
-      continue;
-    }
-    i++;
-  }
-  return { lines, blocks };
-}
-
 export const splitCells = (row) =>
   row.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/);
-
-/** Cell-content signature, ignoring padding, pipe alignment and delimiter dash counts. */
-function tableSignature(lines, start, end) {
-  const rows: any[] = [];
-  for (let i = start; i <= end; i++) {
-    const cells = splitCells(lines[i]);
-    if (i === start + 1) rows.push(cells.map((c) => c.replace(/-+/g, '-').replace(/\s+/g, '')));
-    else rows.push(cells.map(lineKey));
-  }
-  return JSON.stringify(rows);
-}
-
-export function restoreTables(out, original) {
-  const a = findTables(out);
-  const b = findTables(original);
-  if (!a.blocks.length || a.blocks.length !== b.blocks.length) return out;
-
-  let changed = false;
-  const lines = a.lines.slice();
-  // Walk backwards so earlier indexes stay valid while splicing.
-  for (let k = a.blocks.length - 1; k >= 0; k--) {
-    const A = a.blocks[k];
-    const B = b.blocks[k];
-    if (!A || !B) continue;
-    if (tableSignature(a.lines, A.start, A.end) !== tableSignature(b.lines, B.start, B.end)) continue;
-    lines.splice(A.start, A.end - A.start + 1, ...b.lines.slice(B.start, B.end + 1));
-    changed = true;
-  }
-  return changed ? lines.join('\n') : out;
-}
