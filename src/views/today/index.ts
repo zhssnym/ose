@@ -14,7 +14,7 @@ import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, monthTitle, parseYmd, startOfDay, ym, ymd,
 } from '../shared/dates.ts';
-import { chooseTimetable, lanes, TIMETABLE } from '../shared/timetable.ts';
+import { chooseTimetable } from '../shared/timetable.ts';
 import {
   applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
@@ -25,32 +25,27 @@ import {
 } from '../shared/nav.ts';
 import { q1Of } from '../shared/settings.ts';
 
-const { START, END, HOUR_H } = TIMETABLE;
-const BODY_H = (END - START) * HOUR_H;
-const NARROW = 900;      // main-column width below which the two columns stack
-const TIME_MIN = 40;     // px of block height before the times fit under the name
-const SUB_MIN = 72;      // and before the room or note fits under those
-const NAME_H = 17, PAD_MIN = 25;
 const LIMIT = 8;         // rows shown per todo file before "Show all"
+
+/** `Wednesday 30 September`, with the year only when it is not this one. */
+const titleOf = (d: Date): string => (d.getFullYear() === new Date().getFullYear() ? dayTitle(d).replace(/ \d{4}$/, '') : dayTitle(d));
 
 /** The one `.empty` line of DESIGN.md. */
 const note = (text) => `<div class="empty">${esc(text)}</div>`;
 
-/** The date and priority chips for one task. */
+/** What is said beside a task, in quiet words: late or today, the date, a high priority. */
 function taskChips(t) {
   const out: any[] = [];
   const today = ymd(new Date());
   if (t.due) {
-    const cls = t.due < today ? 'err' : t.due === today ? 'accent' : '';
-    out.push(`<span class="chip ${cls}" title="Due">${esc(t.due)}</span>`);
+    if (t.due < today) out.push(`<span class="td-late" title="Due ${esc(t.due)}">late</span>`);
+    else if (t.due === today) out.push(`<span class="td-due" title="Due ${esc(t.due)}">today</span>`);
+    else out.push(`<span class="td-meta mono-sm" title="Due">${esc(ddmm(parseYmd(t.due) || new Date()))}</span>`);
   } else if (t.scheduled) {
-    out.push(`<span class="chip" title="Scheduled">${esc(t.scheduled)}</span>`);
+    out.push(`<span class="td-meta mono-sm" title="Scheduled">${esc(t.scheduled)}</span>`);
   }
-  if (t.priority !== 'none') {
-    const cls = PRIORITY_RANK[t.priority] <= 1 ? 'err' : t.priority === 'medium' ? 'accent' : '';
-    out.push(`<span class="chip ${cls}" title="Priority">${esc(t.priority)}</span>`);
-  }
-  if (t.recurrence) out.push(`<span class="chip" title="Repeats">${esc(t.recurrence)}</span>`);
+  if (t.priority !== 'none' && PRIORITY_RANK[t.priority] <= 1) out.push('<span class="td-meta" title="Priority">high</span>');
+  if (t.recurrence) out.push(`<span class="td-meta" title="Repeats">${esc(t.recurrence)}</span>`);
   return out.join('');
 }
 
@@ -58,10 +53,9 @@ function taskChips(t) {
 function taskRow(t) {
   const depth = taskDepth(t);
   const source = `${t.path}:${t.line + 1}`;
-  return `<div class="tk-row${t.done ? ' done' : ''}${depth ? ' sub' : ''}" style="--tk-depth:${depth}">
+  return `<div class="tk-row${t.done ? ' done' : ''}${depth ? ' sub' : ''}" style="--tk-depth:${depth}" title="${esc(source)}">
     <button type="button" class="tk-check" data-toggle="${esc(t.id)}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.text)}"><span class="check${t.done ? ' on' : ''}"></span></button>
     <div class="tk-body"><span class="tk-text">${esc(t.text)}</span>${taskChips(t)}</div>
-    <button type="button" class="tk-src mono-sm" data-path="${esc(t.path)}" data-line="${t.line + 1}" title="${esc(source)}">:${t.line + 1}</button>
   </div>`;
 }
 
@@ -91,28 +85,25 @@ export function createTodayView(ose: any, store: any): any {
       unknown: [], expanded: new Set<any>(), busy: false, seq: 0, taskNote: '', shown: new Map(),
     };
     const offs: any[] = [];
-    let tickTimer: ReturnType<typeof setTimeout> | null = null, ro: ResizeObserver | null = null, alive = true;
+    let tickTimer: ReturnType<typeof setTimeout> | null = null, alive = true;
 
     host.innerHTML = `
 <div class="view-root" tabindex="-1">
-  <div class="page-col">
+  <div class="page-col td-col">
     <div class="v-head">
-      <h1 class="page-title view-title" data-el="title">${esc(dayTitle(st.cursor))}</h1>
+      <h1 class="page-title view-title" data-el="title">${esc(titleOf(st.cursor))}</h1>
       ${navHtml('day')}
     </div>
-    <div class="page-meta" data-el="meta">&nbsp;</div>
+    <div class="page-meta" data-el="meta"></div>
     <div data-el="detected"></div>
-    <div class="dy-split">
-      <div class="dy-left">
-        <div class="label">Timeline</div>
-        <div class="dy-tl" data-el="tl" style="--dy-body:${BODY_H}px"></div>
-      </div>
-      <div class="dy-right">
-        <div class="label">Systems</div>
-        <div class="dy-card" data-el="sys"></div>
-        <div class="label">Tasks</div>
-        <div class="dy-card dy-tasks" data-el="tasks"></div>
-      </div>
+    <div class="td">
+      <div class="td-now" data-el="nowbox" hidden></div>
+      <div class="label">Schedule</div>
+      <div class="td-list" data-el="tl"></div>
+      <div class="label">Systems <span class="td-count" data-el="syscount"></span></div>
+      <div class="td-list" data-el="sys"></div>
+      <div class="label">Tasks</div>
+      <div class="td-list td-tasks" data-el="tasks"></div>
     </div>
   </div>
 </div>`;
@@ -136,45 +127,41 @@ export function createTodayView(ose: any, store: any): any {
       }
       box.classList.remove('is-empty');
       const d = dayIndex(st.cursor);
-      const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s)));
-      const out = ['<div class="dy-times">'];
-      for (let h = Math.ceil(START); h <= Math.floor(END); h++) {
-        const y = (h - START) * HOUR_H;
-        out.push(`<div class="dy-t mono-sm" style="top:${Math.max(0, y - 6)}px">${String(h).padStart(2, '0')}h</div>`);
-      }
-      out.push('</div><div class="dy-track">');
-      for (let h = Math.ceil(START) + 1; h <= Math.floor(END); h++) {
-        out.push(`<div class="dy-line" style="top:${(h - START) * HOUR_H}px"></div>`);
-      }
-      for (const { e, lane, lanes: n } of lanes(list)) {
-        const top = (e.sm / 60 - START) * HOUR_H;
-        const h = Math.max(NAME_H, (e.em - e.sm) / 60 * HOUR_H - 2);
-        const time = h >= TIME_MIN ? `<span class="dy-ev-t mono-sm">${hhmm(e.sm)} to ${hhmm(e.em)}</span>` : '';
-        const sub = e.sub && h >= SUB_MIN ? `<span class="dy-ev-s mono-sm">${esc(e.sub)}</span>` : '';
-        const q = e.q ? `<span class="dy-ev-q mono-sm">${e.q}</span>` : '';
-        const title = `${e.q ? `${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}`;
-        out.push(`<div class="dy-ev t-${e.type}${h < PAD_MIN ? ' tight' : ''}" data-s="${e.sm}" data-e="${e.em}" style="top:${top}px;height:${h}px;--lane:${lane};--lanes:${n}" title="${esc(title)}"><span class="dy-ev-n">${q}${esc(e.t)}</span>${time}${sub}</div>`);
-      }
-      out.push('<div class="dy-now" data-el="now" hidden><span class="dy-now-dot"></span></div></div>');
-      box.innerHTML = out.join('');
-      if (!list.length) box.insertAdjacentHTML('beforeend', '<div class="dy-tl-empty empty">Nothing in the timetable for this day</div>');
+      const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s))).sort((a, b) => a.sm - b.sm);
+      box.innerHTML = list.length
+        ? list.map((e) => `<div class="td-ev" data-s="${e.sm}" data-e="${e.em}">
+            <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
+            <span class="wk-dot t-${e.type}"></span>
+            <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
+          </div>`).join('')
+        : note('Nothing in the timetable for this day');
       tick();
     }
 
     function tick() {
       if (!alive) return;
-      const line = $('now');
-      if (!line) return;
-      if (!isSameDay(st.cursor, new Date())) { line.hidden = true; return; }
+      const box = $('nowbox');
+      const today = isSameDay(st.cursor, new Date());
       const m = minutesOf();
-      const y = (m / 60 - START) * HOUR_H;
-      line.hidden = y < 0 || y > BODY_H;
-      line.style.top = `${y}px`;
-      for (const node of host.querySelectorAll('.dy-ev')) {
+      for (const node of host.querySelectorAll('.td-ev')) {
         const s = +node.dataset.s, e = +node.dataset.e;
-        node.classList.toggle('past', e <= m);
-        node.classList.toggle('live', s <= m && m < e);
+        node.classList.toggle('past', today && e <= m);
+        node.classList.toggle('live', today && s <= m && m < e);
       }
+      if (!box) return;
+      const d = dayIndex(st.cursor);
+      const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(settings()))).sort((a, b) => a.sm - b.sm);
+      if (!today || !list.length) { box.hidden = true; return; }
+      const cur = list.find((e) => e.sm <= m && m < e.em);
+      const nxt = list.find((e) => e.sm > m);
+      box.hidden = false;
+      box.innerHTML = `
+        <div class="td-now-row"><span class="td-now-k">Now</span>${cur
+          ? `<span class="td-now-v">${esc(cur.t)}</span><span class="td-meta mono-sm">until ${hhmm(cur.em % 1440)}</span>`
+          : '<span class="td-meta">Nothing scheduled</span>'}</div>
+        <div class="td-now-row"><span class="td-now-k">Next</span>${nxt
+          ? `<span class="td-now-v">${esc(nxt.t)}</span><span class="td-meta mono-sm">at ${hhmm(nxt.sm)}</span>`
+          : '<span class="td-meta">Nothing else today</span>'}</div>`;
     }
 
     /* ------------------------------------------------------------- systems */
@@ -192,20 +179,16 @@ export function createTodayView(ose: any, store: any): any {
         return;
       }
       const k = list.filter((x) => isDone(x.name, st.cursor)).length;
+      const count = $('syscount');
+      if (count) { count.textContent = `${k} of ${list.length}`; count.classList.toggle('ok', k === list.length); }
       box.innerHTML = `
-        <div class="dy-box">
-          <div class="dy-box-head">
-            <span class="mono-sm faint">${esc(ddmm(st.cursor))}</span>
-            <span class="mono-sm${k === list.length ? ' ok' : ''}">${k} / ${list.length}</span>
-          </div>
           ${list.map((x) => {
             const dn = isDone(x.name, st.cursor);
             return `<button type="button" class="dy-sys-row${dn ? ' done' : ''}" data-system="${esc(x.name)}" aria-pressed="${dn}">
               <span class="check${dn ? ' on' : ''}"></span>
               <span class="dy-sys-name">${esc(x.name)}</span>
             </button>`;
-          }).join('')}
-        </div>`;
+          }).join('')}`;
     }
 
     async function toggleSystem(name) {
@@ -249,7 +232,7 @@ export function createTodayView(ose: any, store: any): any {
         : g.error ? note(`Could not read ${g.path}: ${g.error}`)
         : list.length ? shown.map(taskRow).join('')
         : note('Nothing due, nothing late');
-      return `<div class="dy-box">${head}${body}
+      return `<div class="td-group">${head}${body}
         ${rest ? `<button type="button" class="dy-more mono-sm" data-more="${esc(g.path)}">Show all ${list.length}</button>` : ''}
       </div>`;
     }
@@ -337,19 +320,20 @@ export function createTodayView(ose: any, store: any): any {
       const box = $('meta');
       if (!box) return;
       const s = settings();
-      const files = [st.ttFrom === 'calendar' && !st.calMissing ? st.ttPath : '', st.planMissing ? '' : st.planFile, st.logFile, ...s.todo];
-      const links = files.filter(Boolean).map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`);
+      // The files are named in Settings › Views; the page only says when a line could not be read.
+      const links: string[] = [];
       if (st.unknown.length) {
         const where = st.unknown.map((u) => u.line).join(', ');
         links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(st.ttPath)}" data-line="${st.unknown[0]?.line}" title="Timetable lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
       }
-      box.innerHTML = links.join('') || '&nbsp;';
+      box.innerHTML = links.join('');
+      box.hidden = !links.length;
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
     }
 
     function render({ tasks = true } = {}) {
       if (!alive) return;
-      $('title').textContent = dayTitle(st.cursor);
+      $('title').textContent = titleOf(st.cursor);
       host.querySelector('[data-nav="today"]').hidden = isSameDay(st.cursor, new Date());
       renderMeta();
       renderTimeline();
@@ -460,12 +444,6 @@ export function createTodayView(ose: any, store: any): any {
       }
     }));
 
-    const fit = (w) => root.classList.toggle('narrow', w < NARROW);
-    fit(host.clientWidth);
-    if (typeof ResizeObserver === 'function') {
-      ro = new ResizeObserver((entries) => fit((entries[0] as ResizeObserverEntry).contentRect.width));
-      ro.observe(host);
-    }
     // Left open past midnight: a view that was on today moves to the new today, so a check lands
     // on the day in front of you (M32); one that was on another day stays and only redraws.
     let lastDay = startOfDay(new Date());
@@ -486,7 +464,6 @@ export function createTodayView(ose: any, store: any): any {
       unmount() {
         alive = false;
         clearInterval(tickTimer);
-        if (ro) ro.disconnect();
         for (const off of offs.splice(0)) { try { off(); } catch { /* already gone */ } }
         if (live === handle) live = null;
       },

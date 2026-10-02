@@ -511,3 +511,46 @@ button.mo-dh:hover { color: var(--fg); }
 .pn-zoom-b + .pn-zoom-b::before { content: '·'; display: inline-block; margin-right: var(--sp-1); color: var(--fg-3); }
 .pn-zoom-b:hover { color: var(--fg-2); }
 .pn-zoom-b.on { color: var(--fg); cursor: default; }
+
+/* --------------------------------------------------------------------------- Today */
+
+/* One quiet column, read top to bottom: now and next, the day's schedule, the systems, the
+   tasks. No boxes: whitespace groups, rows are plain lines, the accent only says late and now. */
+.td-col { max-width: 44rem; }
+.td-col .page-meta:empty { display: none; }
+.td > .label { margin-top: var(--sp-6); }
+.td-count { margin-left: var(--sp-2); color: var(--fg-3); font-family: var(--font-mono); }
+.td-count.ok { color: var(--ok-ink); }
+.td-meta { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
+.td-late { color: var(--accent-ink); font-size: var(--fs-chrome-sm); }
+.td-due { color: var(--fg-2); font-size: var(--fs-chrome-sm); }
+
+.td-now {
+  display: grid; gap: var(--sp-1); margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4); background: var(--bg-2); border-radius: var(--radius);
+}
+.td-now-row { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-ui); }
+.td-now-k { width: 3rem; flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }
+.td-now-v { color: var(--fg); }
+
+.td-ev {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-1) 0; font-size: var(--fs-ui); color: var(--fg);
+}
+.td-ev .wk-dot { align-self: center; }
+.td-time { width: 7.5rem; flex: none; color: var(--fg-3); }
+.td-name { min-width: 0; }
+.td-sub { color: var(--fg-3); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-ev.past { opacity: .45; }
+.td-ev.live .td-name { font-weight: 600; }
+.td-ev.live .td-time { color: var(--accent-ink); }
+
+.td .dy-sys-row, .td .tk-row { padding-left: 0; background: none; }
+.td .dy-sys-row:hover, .td .tk-row:hover { background: none; }
+.td .dy-sys-row:hover .dy-sys-name, .td .tk-row:hover .tk-text { color: var(--fg); }
+.td .dy-sys-row.done .dy-sys-name { color: var(--fg-3); text-decoration: line-through; }
+.td .tk-check { padding-left: 0; }
+.td .tk-row { padding-left: calc(var(--tk-depth) * var(--sp-5)); }
+.td .dy-add { margin-top: var(--sp-3); }
+.td .dy-add-in { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; padding-left: 0; }
+.td .empty { padding: var(--sp-1) 0; }
