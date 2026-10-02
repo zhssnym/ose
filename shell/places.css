@@ -13,9 +13,16 @@
   gap: 0;
   padding: 0 0 0 var(--sp-3);
   background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
   overflow: hidden;
+  position: relative;
 }
+/* The bar's bottom rule starts where the sidebar ends: the corner above the sidebar is the
+   sidebar's own. Folded, it runs the whole width. */
+.titlebar::after {
+  content: ''; position: absolute; left: var(--sidebar-w); right: 0; bottom: 0;
+  height: 1px; background: var(--border); pointer-events: none;
+}
+.shell.no-sidebar .titlebar::after { left: 0; }
 /* macOS: the system's traffic lights sit over the row's left end. */
 :root[data-os="mac"] .titlebar { padding-left: 5rem; padding-right: var(--sp-3); }
 .tb-space { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
@@ -46,9 +53,31 @@
    middle of the window; when the trail's buttons need more than half of what is left, the
    centre gives way to the left rather than overlapping them. */
 .tb-main, :root[data-os="mac"] .tb-main { padding: 0; }
+/* The corner over the sidebar is the sidebar's: as wide, on the same ground, its right border
+   carried up and the bar's bottom border stopped under it, so the sidebar runs from the top of
+   the window to the bottom. The mark, the vault's name, and the fold, which shows only while
+   the pointer is over the sidebar or this corner. Folded, the corner shrinks to the mark, and
+   the fold (») shows on hover of the corner. */
+.tb-brand {
+  flex: none; align-self: stretch; box-sizing: border-box;
+  width: var(--sidebar-w); margin-left: calc(-1 * var(--sp-3));
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  background: var(--bg-2); border-right: 1px solid var(--border);
+}
+.shell.no-sidebar .tb-brand { width: auto; border-right: 0; padding-right: var(--sp-1); }
+:root[data-os="mac"] .tb-brand { margin-left: -5rem; padding-left: 5rem; }
+.tb-brand .tb-mark { flex: none; }
+.tb-vault {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-ui); font-weight: 600; color: var(--fg);
+}
+.shell.no-sidebar .tb-vault { display: none; }
+.tb-fold { flex: none; opacity: 0; transition: opacity var(--t-fast); }
+.tb-fold svg { stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.shell.no-sidebar .tb-fold svg { transform: rotate(180deg); }
+.shell:has(.sidebar:hover) .tb-fold, .tb-brand:hover .tb-fold, .tb-fold:focus-visible { opacity: 1; }
 .tb-lead { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
-/* macOS: the system's traffic lights sit over the lead. */
-:root[data-os="mac"] .tb-lead { min-width: 5rem; }
 .tb-center {
   flex: 0 1 auto; min-width: 0; align-self: stretch;
   display: flex; align-items: center; gap: var(--sp-1);
@@ -83,11 +112,6 @@
 .tb-cmd-sep { color: var(--fg-3); padding: 0 var(--sp-1); }
 .tb-cmd-part:last-child { color: var(--fg); }
 
-/* The sidebar's toggle, at the trail's start: a window with its left panel, filled while the
-   sidebar is on screen. */
-.tb-side .tb-side-fill { fill: transparent; stroke: none; }
-.tb-side.on .tb-side-fill { fill: currentColor; }
-.tb-side { width: 2rem; }
 
 .tb-dirty {
   width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);

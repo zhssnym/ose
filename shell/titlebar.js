@@ -11,6 +11,7 @@
 
 import { ose } from 'ose:core';
 import { esc, icon } from 'ose:ui';
+import { LOGO } from './logo.js';
 import { sidebarVisible } from './layout.js';
 import { clean, baseName, dirName, titleOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
@@ -23,6 +24,7 @@ let placeEl = null;
 /** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
 const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let sideEl = null;
+let vaultEl = null;
 let navEls = null;
 
 /* ------------------------------------------------------------------ the place, at rest */
@@ -70,11 +72,9 @@ function renderPlace(r) {
 
 /* ------------------------------------------------------------------ build */
 
-// The sidebar's toggle: a window with its left panel, the panel filled while the sidebar is on
-// screen (VS Code's layout toggle). Drawn here, like the window buttons' glyphs.
-const SIDE_GLYPH = '<svg viewBox="0 0 16 16" aria-hidden="true">'
-  + '<rect class="tb-side-fill" x="2.25" y="2.75" width="3.75" height="10.5"/>'
-  + '<rect x="2.25" y="2.75" width="11.5" height="10.5"/><path d="M6 2.75v10.5"/></svg>';
+// The sidebar's fold: «, or » to bring it back. It shows only while the pointer is over the
+// sidebar or its corner (places.css): at rest there is no icon at all.
+const FOLD_GLYPH = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 4.5 5 8l3.5 3.5M12.5 4.5 9 8l3.5 3.5"/></svg>';
 
 /**
  * Build the title bar into `node`: back and forward, the command centre, the sidebar's toggle
@@ -86,6 +86,11 @@ export function initTitlebar(node) {
   el = node;
   el.className = 'titlebar tb-main';
   el.innerHTML = `
+    <div class="tb-brand" data-tauri-drag-region>
+      <span class="tb-mark" data-tauri-drag-region>${LOGO}</span>
+      <span class="tb-vault" data-tauri-drag-region></span>
+      <button class="tb-nav-btn tb-fold" type="button">${FOLD_GLYPH}</button>
+    </div>
     <span class="tb-lead" data-tauri-drag-region></span>
     <div class="tb-center" data-tauri-drag-region>
       <div class="tb-nav">
@@ -98,7 +103,6 @@ export function initTitlebar(node) {
       </button>
     </div>
     <div class="tb-trail" data-tauri-drag-region>
-      <button class="tb-nav-btn tb-side" type="button">${SIDE_GLYPH}</button>
       ${windowButtons()}
     </div>`;
   el.setAttribute('data-tauri-drag-region', '');
@@ -112,7 +116,9 @@ export function initTitlebar(node) {
   // The sidebar's toggle runs `app.sidebar`, the same command Ctrl+\ runs. The window hides the
   // sidebar on its own under 640px (layout.js `fit`, L25), without touching the preference, so
   // the glyph follows what is on screen and not what is stored.
-  sideEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-side'));
+  sideEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-fold'));
+  vaultEl = /** @type {HTMLElement} */ (el.querySelector('.tb-vault'));
+  paintVault();
   sideEl.addEventListener('click', () => commands.run('app.sidebar'));
   setSidebarShown(sidebarVisible());
   bus.on('sidebar', setSidebarShown);
@@ -143,7 +149,7 @@ export function initTitlebar(node) {
   // The names follow hideMdExt; a view's title can arrive after it was first drawn, and the
   // chords come from keys.json, which is read after the bar is built.
   bus.on('settings', () => renderPlace(currentRoute()));
-  bus.on('booted', () => { renderPlace(currentRoute()); setSidebarShown(sidebarVisible()); });
+  bus.on('booted', () => { renderPlace(currentRoute()); setSidebarShown(sidebarVisible()); paintVault(); });
   // The mark follows the page in front only: the tabs carry every other page's (H8).
   const mine = (d) => {
     const r = currentRoute();
@@ -170,13 +176,20 @@ function setState(d) {
   dirtyEl.hidden = !(bad || (d && d.dirty));
 }
 
-/** The sidebar toggle's two states: the filled panel is CSS off `.on`, the words are here. */
+/** The vault's name in the corner over the sidebar. */
+function paintVault() {
+  if (!vaultEl) return;
+  const name = vaultName();
+  vaultEl.textContent = name;
+  vaultEl.title = (ose.vault && ose.vault.root) || name;
+}
+
+/** The fold's two states: « hides the sidebar, » brings it back (the glyph turns in CSS). */
 function setSidebarShown(shown) {
   if (!sideEl) return;
   const what = shown ? 'Hide sidebar' : 'Show sidebar';
-  const key = ose.keys.shortcutFor('app.sidebar');
   sideEl.classList.toggle('on', !!shown);
-  sideEl.title = key ? `${what} (${key})` : what;
+  sideEl.title = what;
   sideEl.setAttribute('aria-label', what);
   sideEl.setAttribute('aria-pressed', shown ? 'true' : 'false');
 }
