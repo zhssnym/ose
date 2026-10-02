@@ -8,7 +8,7 @@ import { backlinkCount } from '../backlinks.ts';
 import { countWords } from '../doc.ts';
 import * as P from '../paths.ts';
 import {
-  DRAFT_DELAY, DRAFT_EVERY, editorView, errCode, errText, hasEditor, isUtf8, modifiedLabel,
+  DRAFT_DELAY, DRAFT_EVERY, editorView, errCode, errText, hasEditor, isUtf8, savedLabel,
   shownText,
 } from './shared.ts';
 import type { PageCtx } from './ctx.ts';
@@ -176,13 +176,12 @@ export function installDrafts(ctx: PageCtx) {
     if (!isUtf8(p.encoding)) bits.push(p.lossy ? `${p.encoding}, read-only` : p.encoding);
     bits.push(`${n(p.words)} word${p.words === 1 ? '' : 's'}`);
     bits.push(`${n(p.chars)} character${p.chars === 1 ? '' : 's'}`);
-    const when = modifiedLabel(p.mtime);
-    if (when) bits.push(when);
+    // One fact about saving: unsaved, or when the file was last saved.
+    if (p.dirty) bits.push('unsaved');
+    else { const when = savedLabel(p.mtime); if (when) bits.push(when); }
     const linked = p.outside ? 0 : backlinkCount(p.path);
     if (linked) bits.push(`${linked} linked`);
     if (p.deleted) bits.push('(deleted)');
-    if (p.dirty) bits.push('unsaved');
-    else if (p.savedAt) bits.push('saved ' + p.savedAt);
     if (p.metaText) p.metaText.textContent = bits.join('  ·  ');
     ctx.setStatus('doc', bits.join('  ·  '));
   }

@@ -322,16 +322,14 @@ export const cleanStem = (text) => String(text ?? '')
   .trim()
   .replace(/[. ]+$/, '');
 
-/** `modified today` / `modified yesterday` / `modified 9 Sep 2026`. Empty for a file with no mtime. */
-export function modifiedLabel(mtime) {
+/** `last saved 2 Oct 16:21` (the year too when it is not this one), from the file's time. */
+export function savedLabel(mtime) {
   const ms = Number(mtime) || 0;
   if (!ms) return '';
   const d = new Date(ms);
-  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const today = day(new Date());
-  if (day(d) === today) return 'modified today';
-  if (day(d) === today - 86_400_000) return 'modified yesterday';
-  return 'modified ' + d.toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' });
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return `last saved ${d.toLocaleDateString('en-GB', opts)} ${P.hhmm(d)}`;
 }
 
 /** `14:02` today, `9 Sep 14:02` another day: when a draft was written. */
