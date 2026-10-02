@@ -437,7 +437,7 @@ export function initTabs(node: HTMLElement, panel?: HTMLElement) {
     }
     render();
   });
-  // Labels follow the settings (hideMdExt) and the views the planner registers after boot.
+  // Labels follow the settings and the views registered after boot.
   bus.on('settings', render);
   bus.on('booted', render);
 

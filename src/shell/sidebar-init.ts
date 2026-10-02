@@ -154,7 +154,7 @@ export function initSidebar(node: HTMLElement) {
   bus.on('booted', () => render());
   bus.on('focus', () => { render(); scrollToCurrent(); });
   // Show hidden items flipping reads the tree again (the host lists hidden entries only when
-  // asked); `hideMdExt` and the rest only redraw.
+  // asked); the rest only redraw.
   bus.on('settings', () => {
     if (state.readHidden !== null && showHidden() !== state.readHidden) void refreshTree();
     else render();

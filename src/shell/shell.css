@@ -175,22 +175,17 @@
   .set-tab.on { border-bottom-color: var(--accent); }
 }
 
-/* Rows are grouped by whitespace, not by hairlines (E4): name and control on one line, one
-   sentence underneath, so a section is one list of the same thing. */
+/* Rows are grouped by whitespace, not by hairlines (E4): a name and its control on one line,
+   so a section is one list of the same thing. The few that need a word say it on hover. */
 .set-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start; gap: var(--sp-1) var(--sp-4);
-  padding: var(--sp-3) 0;
+  align-items: center; gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-2) 0;
 }
 .set-row:first-child { padding-top: 0; }
 .set-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
 .set-ctl { grid-column: 2; grid-row: 1; justify-self: end; }
-.set-note {
-  grid-column: 1; grid-row: 2; max-width: 64ch;
-  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
-}
-.set-note.err { color: var(--err); }
-.set-note code { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
+.set-note.err { font-size: var(--fs-ui); color: var(--err); }
 /* a third line under a row: the folder chosen for attachments, or what the trash really does */
 .set-extra {
   grid-column: 1; grid-row: 3; margin-top: var(--sp-1); max-width: 64ch;
@@ -248,8 +243,14 @@
 /* the key column: wide enough for `Version`, the longest key. rem, so it zooms with the text. */
 .set-info > div > span { width: 4.5rem; flex: none; color: var(--fg-3); }
 .set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
-/* the vault line carries `Change vault…`: the one control in the read-only block, kept small */
+/* `Change vault…` and `Check for updates`: the controls in the read-only block, kept small */
 .set-info .btn { margin-left: auto; flex: none; align-self: center; }
+/* the log path: a value that copies itself when clicked */
+.set-copy {
+  min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit;
+  text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.set-copy:hover { color: var(--fg); }
 
 /* ------------------------------------------------------------ Go to file rows */
 

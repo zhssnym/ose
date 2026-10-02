@@ -102,12 +102,8 @@ export function installDom(ctx: PageCtx) {
   }
 
   async function onTitleDone(p) {
-    const toBody = p.titleToBody;
     p.titleToBody = false;
     if (p.dirty) await ctx.saveNow();
-    // The rename is in place now (no remount), so the caret the user asked for is still there;
-    // it is put back only if the freeze around the flush took it away.
-    if (await ctx.renameUntitledFromTitle(p) && toBody && p === ctx.page && !(p.el && p.el.contains(document.activeElement))) focusBody();
   }
 
   /**

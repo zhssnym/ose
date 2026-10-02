@@ -54,8 +54,8 @@ export function errorOf(e: unknown): { code: string | null, message: string } {
 export const keyOf = (r: { type: string, name?: string, path?: string } | null | undefined): string => (!r ? '' : r.type === 'view' ? 'view:' + r.name : `${r.type}:${clean(r.path)}`);
 
 /**
- * The name the chrome shows for a path (W8, H20): the real file name with its extension,
- * `.md` stripped only when the machine setting `hideMdExt` asks (`ose.names.display`). The
+ * The name the chrome shows for a path (W8, H20): the real file name with its extension
+ * (`ose.names.display`). The
  * same rule for every file, in the tree, the tabs, the title bar and the palette. `p` is a
  * vault path.
  */

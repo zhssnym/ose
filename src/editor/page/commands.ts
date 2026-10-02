@@ -180,8 +180,7 @@ function registerCommands() {
  * `page.new` (Ctrl+N, M28): `Untitled.md` in the folder the user is in
  * (`ose.focus.defaultNewFolder()`: the focused folder, else the folder on screen or the open
  * page's, else the vault root), created through the one create there is (`ose.fileops`, never
- * an overwrite). The title is selected. With `titleSync` on, the name typed there becomes the
- * file's name when the title is left (C12, M13); otherwise the file keeps its name.
+ * an overwrite). The title is selected; the file keeps its name until it is renamed (F2).
  */
 async function newPage() {
   const ops = fileops();

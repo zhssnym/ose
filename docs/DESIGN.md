@@ -46,8 +46,8 @@ screen. Colour is rare and always means something.
   items", "Go to file". Nothing uppercased by CSS, no letter-spacing on labels. The chrome never
   shows an internal word: no route key, no host kind, no `READY`.
 - **Real names.** A file is shown under its real name, extension and all, the same in the tree,
-  the tab, the status bar, the window title, Go to file and search. Settings' "Hide .md in names"
-  strips `.md` for display only. A page's H1 is not a second name for its file.
+  the tab, the status bar, the window title, Go to file and search. A page's H1 is not a second
+  name for its file.
 
 ## Tokens
 
@@ -172,12 +172,11 @@ else: the editor's column, the page title, everything drawn through `render()` (
 in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
 
 - **Face.** `--font-doc` (Cambria on Windows, Iowan Old Style on a Mac) for body, headings and
-  title. Code keeps `--font-mono`. Settings' Page face `Plain` sets `data-face="plain"` on
-  `<html>`, which makes `--font-doc` resolve to `--font-ui`; only the family moves.
+  title. Code keeps `--font-mono`.
 - **Space.** A run of N blank lines between two blocks is N minus 1 empty paragraphs, each a real
   block the caret goes into. Enter twice leaves one line of space, as in Word. An empty
   paragraph is one line tall and carries no marker, rule or padding.
-- **Size and leading.** The body is Settings' Text size (16px by default) at `--lh-body`;
+- **Size and leading.** The body is `--fs-body` (16px) at `--lh-body` (1.35);
   everything else is a ratio of the body.
 - **Scale.** Title `--fs-doc-title`, bold, centred, in a `--doc-title-rule` double rule, square,
   `width: fit-content`. H1 `--fs-doc-h1` bold, H2 `--fs-doc-h2` bold, H3 bold at body size, H4
@@ -211,7 +210,7 @@ what follows; frames, bars, display formulas and pictures do not break inside; t
 blocks break between rows and lines. A picture is capped short of the sheet so its label stays
 with it. The sheet number is in the bottom margin, mono 9pt.
 
-The page view (Settings › Appearance › Page layout, or `app.layout`) shows the same A4 sheet
+The page view (Settings › General › Page layout, or `app.layout`) shows the same A4 sheet
 while writing, on a `--bg-3` desk, with the print margin, size and leading, so lines break where
 they will on paper. `src/editor/sheets.ts` draws a dashed rule where each sheet ends, as an
 overlay: nothing in the document moves.

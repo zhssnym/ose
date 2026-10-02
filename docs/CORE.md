@@ -237,8 +237,7 @@ these; the prompts for a name are the shell's.
 
 A name is literal: nothing appends `.md` or strips an extension. `ose.names.check` refuses only
 what Windows or macOS cannot hold, `free` finds the next free name (`x 2.md`, `folder 2`),
-`split`, `extChanged` and `display` (the name the chrome shows; `.md` is hidden only with the
-`hideMdExt` setting). Names are compared in Unicode form C. `create` makes missing folders and
+`split`, `extChanged` and `display` (the name the chrome shows, extension included). Names are compared in Unicode form C. `create` makes missing folders and
 gives a new `.md` a `# <stem>` heading.
 
 An operation that moves or removes a path asks the page host first (`beforePathChange`), which
@@ -298,9 +297,8 @@ All of it lives in the app's data folder on this machine; nothing goes into the 
   to its own scope; bus `settings`), `on`, `apply()` (font size, leading, face, layout, zoom and
   width onto the document), `zoom`, `setZoom`, `onRepaint`, and `section({ id, title, order?,
   render })` / `sections()` for a page of Settings (the planner registers one). The machine keys
-  are `fontSize`, `lineHeight`, `pageFace`, `layout`, `readableWidth`, `zoom`, `spellcheck`,
-  `showHidden`, `hideMdExt` and `editorMode`; every other key (`trash`, `attachments`,
-  `titleSync`, anything a view adds) is the vault's. `settings-core.ts` has the defaults.
+  are `layout`, `readableWidth`, `zoom`, `spellcheck`, `showHidden` and `editorMode`; every
+  other key (`trash`, `attachments`, anything a view adds) is the vault's. `settings-core.ts` has the defaults.
 
 ## The bridge
 

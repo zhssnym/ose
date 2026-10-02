@@ -199,8 +199,9 @@ Enter opens the page and the editor restores or offers the draft; a draft with n
 never saved. `app.recovered` reopens the sheet.
 
 **Settings** (`app.settings`, Ctrl+,) is a view in a tab; `route.arg` names a section. Sections:
-Appearance (theme, zoom, text size, line height, page face, page layout, full width), Editor
-(Rich or Source by default, spellcheck, name new pages after their heading), Files (attachments,
-show hidden items, hide `.md`), any registered section (Views, where the views' files are),
-Updates, Vault (path, Change vault…, log path) and Help (a short guide and every shortcut).
+General (theme, page layout, full width, Rich or Source by default, spellcheck, show hidden
+items, attachments), any registered section (Views, where the views' files are), About (the
+vault and Change vault…, the version and Check for updates, the log path, which copies on a
+click) and Help (a short guide and every shortcut). A row is a name and its control; the few
+that need a word say it on hover. Zoom is Ctrl + / Ctrl − / Ctrl 0, shown in the status bar.
 Every change applies at once. The values belong to `ose.settings`, which knows what is per machine and what per vault.

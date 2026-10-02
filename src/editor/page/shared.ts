@@ -23,8 +23,6 @@ export const RETRY_MAX = 30;
  * beside the note, one per try. After this many, only a deliberate save tries again.
  */
 export const KEPT_COPIES_MAX = 3;
-/** A file still carrying the name `newPage` gave it: the first real title renames it (C12). */
-export const UNTITLED = /^Untitled( \d+)?$/i;
 
 /**
  * The edit counter. It is one clock for every page and every open, started at the time the
@@ -310,17 +308,6 @@ export function shownText(text: string) {
     .trim();
   return `${d.title || ''} ${body}`;
 }
-
-/**
- * A file name's stem from free text (a title): no path separators, no characters Windows
- * refuses, no control characters, no trailing dot or space. The extension is the caller's.
- */
-export const cleanStem = (text) => String(text ?? '')
-  .replace(/[\u0000-\u001f\u007f]/g, '')
-  .replace(/[\\/:*?"<>|]/g, '-')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .replace(/[. ]+$/, '');
 
 /** `last saved 2 Oct 16:21` (the year too when it is not this one), from the file's time. */
 export function savedLabel(mtime) {

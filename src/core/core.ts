@@ -463,7 +463,7 @@ export const ose = {
     check: (name, opts?) => names.check(name, opts),
     free: (folder, name, opts) => names.free(folder, name, opts),
     extChanged: (a, b) => names.extChanged(a, b),
-    /** The name the chrome shows: the real name, `.md` stripped only with `settings.hideMdExt`. */
+    /** The name the chrome shows: the file's real name, extension included. */
     display: (path) => names.display(path),
   },
 
