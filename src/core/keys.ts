@@ -12,7 +12,6 @@
 // code block or a table.
 import { commands, allCommands, commandsRevision } from './registry.ts';
 import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.ts';
-import { getFocus, exitFocus } from './focus.ts';
 
 /** Cmd on macOS, Ctrl elsewhere. Read live: the shell sets `data-os` after the bridge answers. */
 export function isMac() {
@@ -355,9 +354,6 @@ function fire(id) {
   } catch (e) { failed(e); }
 }
 
-/** Where Esc is somebody's text to edit, focus mode stays: the key is the editor's there. */
-const TYPING = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .ProseMirror, .cm-editor';
-
 const inside = (e, sel) => e.target instanceof Element && !!e.target.closest(sel);
 
 export function initKeys() {
@@ -367,10 +363,8 @@ export function initKeys() {
       if (overlayCount() > 0) { e.preventDefault(); e.stopPropagation(); closeTopOverlay(); return; }
       // No overlay: the newest toast goes, and the key still falls through, because the
       // editor's block selection uses Esc too and both may want it (D10).
-      if (dismissToast()) return;
-      // Then focus mode (H18): Esc leaves it from anywhere that is not somebody's text. The
-      // key still falls through, so the tree's own Esc (back to the page) happens as well.
-      if (getFocus() && !inside(e, TYPING)) exitFocus();
+      // Focus mode is not left by Esc: only by its own ×, or Exit focus.
+      dismissToast();
       return;
     }
 

@@ -7,10 +7,9 @@
 // - it is entered only on purpose (the command, or the tree's own gesture), and it lasts for
 //   the session: it is never restored at boot, and a focus left in `.ose/state.json` by an
 //   older build is dropped;
-// - Esc leaves it, from anywhere that is not typing (keys.ts);
-// - while it is on, the status bar carries a `focus` field that says which folder, and that
-//   field is a button that leaves it. The bus says `focus` on every change for whoever else
-//   draws it (the sidebar's chip).
+// - it is said in one place only, the sidebar's heading (`Focus <folder> ×`), and left there
+//   with its ×, or with `app.focus-exit` from the tree's menu or the palette. No key leaves it.
+//   The bus says `focus` on every change for whoever draws it.
 //
 // Store key `focus` (a vault-relative folder path, or null).
 import { bus, store, commands, status } from './registry.ts';
@@ -47,10 +46,9 @@ export function isUnderFocus(path) {
 /** `Learning/School/3-philosophie` -> `3-philosophie`. Used by the breadcrumb and menus. */
 export function focusName() { return focus ? baseName(focus) : ''; }
 
-/** The status bar field: which folder, and a press leaves it. */
+/** Nothing in the status bar: the sidebar's heading says it. Clears what an older build set. */
 function publish() {
-  if (focus) status.set('focus', { text: `focus: ${baseName(focus)} · esc`, kind: 'accent', onClick: () => exitFocus() });
-  else status.clear('focus');
+  status.clear('focus');
 }
 
 /**
@@ -86,7 +84,7 @@ export function initFocus() {
   // opposite, is registered by the sidebar because it needs the focused row.
   commands.register({
     id: 'app.focus-exit', title: 'Exit focus', group: 'app', icon: 'focus',
-    hint: 'Esc, or the focus field in the status bar',
+    hint: 'or the × on the sidebar heading',
     when: () => !!focus,
     run: () => exitFocus(),
   });

@@ -43,8 +43,11 @@ test('the facade is whole', () => {
 test('focus is not restored at boot, and the old key is dropped', () => {
   expect(ose.focus.get()).toBe(null);
   ose.focus.set('a/b');
-  expect(ose.status.all().find((s) => s.key === 'focus').text).toContain('b');
+  // Said only by the sidebar heading: nothing in the status bar, and Esc does not leave it.
+  expect(ose.status.all().find((s) => s.key === 'focus')).toBe(undefined);
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(ose.focus.get()).toBe('a/b');
+  ose.focus.exit();
 });
 
 test('save needs expectedHash; a conflict is logged by the host, not twice', async () => {
