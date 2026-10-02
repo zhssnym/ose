@@ -7,12 +7,12 @@
 // not a second name for it: a file has one name, and it is the one on disk.
 import { ose } from 'ose:core';
 import { esc, icon, openOverlay, toast, fuzzy, highlight, pageItems, focusField } from 'ose:ui';
-import { allFiles } from './sidebar.js';
-import { newFile } from './fileops.js';
-import { dirName, extOf, titleOf } from './paths.js';
+import { allFiles } from './sidebar.ts';
+import { newFile } from './fileops.ts';
+import { dirName, extOf, titleOf } from './paths.ts';
 
 const { commands, route } = ose;
-const navigate = (r, opts) => route.navigate(r, opts);
+const navigate = (r, opts?) => route.navigate(r, opts);
 const recentFiles = () => route.recent();
 const shortcutFor = (id) => ose.keys.shortcutFor(id);
 
@@ -32,11 +32,30 @@ export { fuzzy };
 // `tab.close` is the same act, and it is the one listed. It still runs by id.
 const SHADOWED = new Set(['page.close']);
 
+/** One row of the palette: a command, or a file in Go to file. */
+type Item = {
+  kind: string;
+  id: string;
+  group: string;
+  title: string;
+  hint: string;
+  /** A file's folder, the row's second line. */
+  sub?: string;
+  shortcut: string;
+  score: number;
+  hits: Set<number> | number[] | null;
+  recent?: boolean;
+  run: () => unknown;
+};
+
+/** The palette's two data sources. */
+type Mode = 'commands' | 'files';
+
 /** A group's heading, in sentence case (M27): `navigate` -> `Navigate`. */
 const groupLabel = (g) => (g ? g.charAt(0).toUpperCase() + g.slice(1) : '');
 
-function commandItems(q) {
-  const out = [];
+function commandItems(q): Item[] {
+  const out: Item[] = [];
   for (const c of commands.list()) {
     if (SHADOWED.has(c.id)) continue;
     const hay = `${c.title} ${c.group || ''} ${c.id}`;
@@ -68,7 +87,7 @@ const display = (p) => titleOf(p);
 /** Markdown first when two files tie (H17): `notes.md` before `notes.txt` for the same query. */
 const isMd = (p) => ['md', 'markdown', 'mdown', 'mkd'].includes(extOf(p));
 
-function fileItems(q) {
+function fileItems(q): Item[] {
   // Every file the tree holds, not only the pages (H17). The title of a row is the file's own
   // name, extension and all; the line under it is its folder.
   const paths = allFiles();
@@ -101,13 +120,12 @@ async function createTyped(text) {
 
 /* ------------------------------------------------------------------ ui */
 
-let openOv = null;
+let openOv: (ReturnType<typeof openOverlay> & { mode: Mode; setMode: (m: Mode) => void }) | null = null;
 
 /**
  * Open the palette in `commands` or `files` mode; switch mode in place when it is already open.
- * @param {'commands'|'files'} [mode]
  */
-export function openPalette(mode = 'commands') {
+export function openPalette(mode: Mode = 'commands') {
   if (openOv) {
     // Already open: switch mode in place rather than stacking a second surface.
     if (openOv.mode !== mode) openOv.setMode(mode);
@@ -129,16 +147,16 @@ export function openPalette(mode = 'commands') {
     </div>`;
 
   // All written just above, so none of them is null.
-  const input = /** @type {HTMLInputElement} */ (ov.box.querySelector('.pal-input'));
-  const list = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-list'));
-  const modeEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-mode'));
-  const iconEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-icon'));
-  const createEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-create'));
-  const enterEl = /** @type {HTMLElement} */ (ov.box.querySelector('.pal-enter'));
+  const input = ov.box.querySelector('.pal-input') as HTMLInputElement;
+  const list = ov.box.querySelector('.pal-list') as HTMLElement;
+  const modeEl = ov.box.querySelector('.pal-mode') as HTMLElement;
+  const iconEl = ov.box.querySelector('.pal-icon') as HTMLElement;
+  const createEl = ov.box.querySelector('.pal-create') as HTMLElement;
+  const enterEl = ov.box.querySelector('.pal-enter') as HTMLElement;
 
-  let items = [];
+  let items: Item[] = [];
   let sel = 0;
-  let current = mode;
+  let current: Mode = mode;
 
   function build() {
     const q = input.value.trim();
@@ -157,7 +175,7 @@ export function openPalette(mode = 'commands') {
       return;
     }
     const frag = document.createDocumentFragment();
-    let group = null;
+    let group: string | null = null;
     items.forEach((it, i) => {
       const g = current === 'files' ? (it.recent && !input.value.trim() ? 'recent' : 'files') : it.group;
       if (g !== group) {
@@ -200,12 +218,8 @@ export function openPalette(mode = 'commands') {
     scrollSel();
   }
 
-  /**
-   * The row an event landed in, if any.
-   * @param {EventTarget|null} t
-   * @returns {HTMLElement|null}
-   */
-  const rowAt = (t) => (t instanceof Element ? t.closest('.pal-row') : null);
+  /** The row an event landed in, if any. */
+  const rowAt = (t: EventTarget | null): HTMLElement | null => (t instanceof Element ? t.closest<HTMLElement>('.pal-row') : null);
 
   function accept() {
     const it = items[sel];
@@ -218,9 +232,10 @@ export function openPalette(mode = 'commands') {
     });
   }
 
-  function setMode(m) {
+  function setMode(m: Mode) {
     current = m;
-    openOv.mode = m;
+    // Only ever called while the palette is open: `openOv` is set before the first call.
+    openOv!.mode = m;
     input.placeholder = m === 'files' ? 'Go to file…' : 'Type a command…';
     modeEl.textContent = m === 'files' ? 'Go to file' : 'Commands';
     // The foot names the act, and Go to file opens a file rather than running one (R17).

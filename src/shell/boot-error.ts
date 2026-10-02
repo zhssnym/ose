@@ -18,11 +18,8 @@ let shown = false;
  * Draw the error page over `#app`. `stage` is one sentence in the user's words saying how far
  * the boot got; `ose` is the core when it loaded, null when it did not. Only the first call
  * draws: a second failure while the page is up is the same failure seen again.
- *
- * @param {unknown} err
- * @param {{ stage?: string, ose?: any }} [opts]
  */
-export async function showBootError(err, { stage = 'Ose could not start.', ose = null } = {}) {
+export async function showBootError(err: unknown, { stage = 'Ose could not start.', ose = null }: { stage?: string, ose?: any } = {}) {
   console.error('[shell] boot', err);
   if (shown) return;
   shown = true;
@@ -130,14 +127,14 @@ async function copyText(text) {
   return ok;
 }
 
-function el(tag, cls, text) {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined) n.textContent = text;
   return n;
 }
 
-function button(text, cls) {
+function button(text: string, cls: string) {
   const b = el('button', cls, text);
   b.type = 'button';
   return b;

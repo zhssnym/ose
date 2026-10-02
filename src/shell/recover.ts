@@ -10,26 +10,26 @@
 
 import { ose } from 'ose:core';
 import { esc, openOverlay, overlayCount, prompt, confirm, toast } from 'ose:ui';
-import { clean, baseName, dirName, isOutside, outsideLabel } from './paths.js';
+import { clean, baseName, dirName, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, commands, route } = ose;
 
+type DraftInfo = Awaited<ReturnType<typeof ose.files.drafts.list>>[number];
+
 /** The last list the host answered: what `app.recovered`'s `when` reads. */
-let known = [];
-let openOv = null;
+let known: DraftInfo[] = [];
+let openOv: ReturnType<typeof openOverlay> | null = null;
 
 const drafts = () => ose.files.drafts;
 
 /**
  * A caught value as the two fields this file reads from it: an object as it is, anything else
  * as none.
- * @param {unknown} e
- * @returns {{code?: unknown, message?: unknown}}
  */
-const fieldsOf = (e) => (e && typeof e === 'object' ? e : {});
+const fieldsOf = (e: unknown): { code?: unknown, message?: unknown } => (e && typeof e === 'object' ? e : {});
 
 /** `DraftInfo[]`, newest first, or [] when there are none or the host cannot say. */
-async function listDrafts() {
+async function listDrafts(): Promise<DraftInfo[]> {
   const d = drafts();
   try {
     const list = await d.list();
@@ -59,9 +59,9 @@ function when(at) {
  * the one create (`ose.fileops.create`, never over an existing file). The draft is dropped only
  * once the new file holds its text.
  */
-async function saveAs(info) {
+async function saveAs(info: DraftInfo) {
   const d = drafts();
-  let draft = null;
+  let draft: Awaited<ReturnType<typeof d.read>> = null;
   try { draft = await d.read(info.path); } catch (e) { toast(`could not read the recovered text: ${fieldsOf(e).message || e}`, 'err', 0); return false; }
   if (!draft || typeof draft.text !== 'string') { toast('the recovered text is gone', 'err', 0); return false; }
   // A file that was outside the vault (X7) is saved into the vault root by its own name.
@@ -115,7 +115,7 @@ function tabShowing(path) {
  * buffer goes back to the file on disk, the draft goes, and the page asks its own question.
  * Answers true once the draft is gone.
  */
-async function discard(info) {
+async function discard(info: DraftInfo) {
   if (tabShowing(info.path)) {
     let shown = false;
     try { shown = await route.navigate({ type: 'page', path: info.path }); } catch (e) { console.warn('[shell] recovered discard', e); }
@@ -190,7 +190,7 @@ export async function showRecovered() {
   paint();
 
   // The rows are the buttons `paint` writes.
-  const rows = () => [.../** @type {NodeListOf<HTMLButtonElement>} */ (ov.box.querySelectorAll('.rec-row'))];
+  const rows = () => [...ov.box.querySelectorAll<HTMLButtonElement>('.rec-row')];
   const focusAt = (i) => { const r = rows(); const row = r[Math.max(0, Math.min(i, r.length - 1))]; if (row) row.focus(); };
 
   const act = async (i) => {
@@ -210,8 +210,7 @@ export async function showRecovered() {
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (t.closest('[data-act="close"]')) { ov.close(); return; }
-    /** @type {HTMLElement|null} */
-    const row = t.closest('.rec-row');
+    const row = t.closest<HTMLElement>('.rec-row');
     if (row) void act(Number(row.dataset.i));
   });
   ov.box.addEventListener('keydown', async (e) => {
@@ -223,7 +222,8 @@ export async function showRecovered() {
       focusAt(at < 0 ? 0 : (at + (e.key === 'ArrowDown' ? 1 : -1) + r.length) % r.length);
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && at >= 0) {
       e.preventDefault();
-      const gone = items[at];
+      // Row `at` was drawn from `items[at]` by the last `paint`.
+      const gone = items[at]!;
       if (!(await discard(gone))) { focusAt(at); return; }
       items = items.filter((x) => x !== gone);
       known = known.filter((k) => k.path !== gone.path);

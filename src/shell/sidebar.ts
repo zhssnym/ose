@@ -27,6 +27,6 @@
 // sidebar-load.js, sidebar-commands.js and sidebar-init.js. This file says what the sidebar
 // exports.
 
-export { allPages, allFiles, focusTree } from './sidebar-tree.js';
-export { refreshTree, revealFolder } from './sidebar-load.js';
-export { initSidebar } from './sidebar-init.js';
+export { allPages, allFiles, focusTree } from './sidebar-tree.ts';
+export { refreshTree, revealFolder } from './sidebar-load.ts';
+export { initSidebar } from './sidebar-init.ts';

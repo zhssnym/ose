@@ -3,24 +3,25 @@
 
 import { ose } from 'ose:core';
 import { esc, focusOrigin, hasIcon, icon, overlayCount, retargetFocusOrigin } from 'ose:ui';
-import { byViewOrder } from './order.js';
+import { byViewOrder } from './order.ts';
 import {
   baseName, clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,
-} from './paths.js';
-import { clipboard } from './fileops.js';
-import { DEFAULT_SORT, iconName, sortEntries, visibleEntries } from './folder-model.js';
-import { setSidebarOpen, sidebarVisible } from './layout.js';
+} from './paths.ts';
+import { clipboard } from './fileops.ts';
+import { DEFAULT_SORT, iconName, sortEntries, visibleEntries } from './folder-model.ts';
+import { setSidebarOpen, sidebarVisible } from './layout.ts';
 import {
   currentRoute, exitFocus, getFocus, ic, isUnderFocus, showHidden, slot, state,
-} from './sidebar-state.js';
-import { pruneSelection } from './sidebar-select.js';
-import { loadChildren, movedKey } from './sidebar-load.js';
+} from './sidebar-state.ts';
+import type { TreeNode } from './sidebar-state.ts';
+import { pruneSelection } from './sidebar-select.ts';
+import { loadChildren, movedKey } from './sidebar-load.ts';
 
 /* ------------------------------------------------------------------ tree data */
 
-export function findNode(path) {
+export function findNode(path): TreeNode | null {
   if (!state.tree) return null;
-  let node = state.tree;
+  let node: TreeNode | undefined = state.tree;
   for (const s of segments(path)) {
     if (!node || !node.children) return null;
     node = node.children.find((c) => c.name === s);
@@ -34,7 +35,7 @@ export function findNode(path) {
  * ideas. It has its own section under the vault, drawn flat (its files as rows, its folders
  * unfolding in place), and the empty-space menu creates there. No such folder, no section.
  */
-export function scratchNode() {
+export function scratchNode(): TreeNode | null {
   const kids = (state.tree && state.tree.children) || [];
   return kids.find((c) => c && c.kind === 'dir' && String(c.name).toLowerCase() === 'scratchpad') || null;
 }
@@ -59,9 +60,9 @@ const MD_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd']);
 const isMarkdown = (p) => MD_EXTS.has(extOf(p));
 
 /** Every file under `node`, depth first in drawing order, never under a link or into a hidden entry. */
-function walkFiles(keep) {
-  const out = [];
-  const walk = (n) => {
+function walkFiles(keep: (c: TreeNode) => boolean): string[] {
+  const out: string[] = [];
+  const walk = (n: TreeNode | null) => {
     if (!n || !n.children) return;
     for (const c of sortEntries(n.children.filter((x) => !x.hidden), DEFAULT_SORT)) {
       if (c.kind === 'dir') { if (!c.link) walk(c); } else if (keep(c)) out.push(c.path);
@@ -111,16 +112,26 @@ const LINK_WORDS = {
 
 // Every row is the same grid: 16px chevron slot, 14px glyph, name, an optional tail. Folders
 // and files at the same depth put their text at the same x.
-/**
- * @param {{cls?: string, depth?: number, glyphHtml?: string, chevron?: boolean | null, text: string,
- *   tail?: string, hint?: string, badge?: string, title?: string, data?: Record<string, string>}} row
- */
-function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail = '', hint = '', badge = '', title = '', data = {} }) {
+interface RowSpec {
+  cls?: string;
+  depth?: number;
+  glyphHtml?: string;
+  chevron?: boolean | null;
+  text: string;
+  tail?: string;
+  hint?: string;
+  badge?: string;
+  title?: string;
+  data?: Record<string, string>;
+}
+
+function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail = '', hint = '', badge = '', title = '', data = {} }: RowSpec) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'row sb-row ' + cls;
-  const inTree = data.path !== undefined && data.root !== '1';
-  if (inTree && state.selected.has(data.path)) b.classList.add('selected');
+  const path = data.path;
+  const inTree = path !== undefined && data.root !== '1';
+  if (inTree && state.selected.has(path)) b.classList.add('selected');
   b.style.setProperty('--d', String(depth));
   for (const k of Object.keys(data)) b.dataset[k] = data[k];
   if (inTree) b.draggable = true; // moves within the vault; see drag and drop
@@ -129,7 +140,7 @@ function rowEl({ cls = '', depth = 0, glyphHtml = '', chevron = null, text, tail
   // only a folder that unfolds claims to expand.
   b.setAttribute('role', 'treeitem');
   b.setAttribute('aria-level', String(depth + 1));
-  if (inTree) b.setAttribute('aria-selected', String(state.selected.has(data.path)));
+  if (inTree) b.setAttribute('aria-selected', String(state.selected.has(path)));
   if (chevron !== null) b.setAttribute('aria-expanded', String(!!chevron));
   if (title) b.title = title;
   b.innerHTML =
@@ -243,7 +254,7 @@ export function vaultName() {
   return (state.tree && state.tree.name) || nameOfVault();
 }
 
-function renderTree() {
+function renderTree(scrollEl: HTMLElement) {
   const frag = document.createDocumentFragment();
   const cur = currentOf();
   const focus = getFocus();
@@ -293,14 +304,14 @@ function renderTree() {
   // a confirm or rename dialog is up, the row is where focus will return to, and the dialog
   // must be told the row's replacement or it would hand focus back to a detached node.
   const origin = focusOrigin();
-  const had = origin && origin !== state.scrollEl && state.scrollEl.contains(origin) ? origin : null;
+  const had = origin && origin !== scrollEl && scrollEl.contains(origin) ? origin : null;
   const hadKey = had ? rowKey(had) : null;
-  const hadIndex = had ? treeRows().indexOf(had) : -1;
+  const hadIndex = had ? (treeRows() as Element[]).indexOf(had) : -1;
 
-  const keep = state.scrollEl.scrollTop;
-  state.scrollEl.textContent = '';
-  state.scrollEl.appendChild(frag);
-  state.scrollEl.scrollTop = keep;
+  const keep = scrollEl.scrollTop;
+  scrollEl.textContent = '';
+  scrollEl.appendChild(frag);
+  scrollEl.scrollTop = keep;
   // A selected row that is no longer drawn (its folder collapsed, the file gone) is no longer
   // selected: a batch must never act on something the user cannot see.
   pruneSelection();
@@ -323,11 +334,11 @@ function renderTree() {
 
 export function render() {
   if (!state.scrollEl) return;
-  renderTree();
+  renderTree(state.scrollEl);
 }
 
-export function rowFor(path) {
-  return state.scrollEl ? state.scrollEl.querySelector(`.sb-row[data-path="${CSS.escape(path)}"]`) : null;
+export function rowFor(path): HTMLElement | null {
+  return state.scrollEl ? state.scrollEl.querySelector<HTMLElement>(`.sb-row[data-path="${CSS.escape(path)}"]`) : null;
 }
 
 /* ------------------------------------------------------------ keyboard tree */
@@ -335,8 +346,8 @@ export function rowFor(path) {
 // Everything a key can land on, top to bottom: the tree, Trash. It is read out of the
 // DOM, so it is the drawing order by construction and the Up/Down walk can never disagree with
 // what is on screen. Folded folders draw no children, so this is exactly the visible rows.
-export function treeRows() {
-  return state.scrollEl ? [...state.scrollEl.querySelectorAll('.sb-row')] : [];
+export function treeRows(): HTMLElement[] {
+  return state.scrollEl ? [...state.scrollEl.querySelectorAll<HTMLElement>('.sb-row')] : [];
 }
 
 /** A stable identity for a row across renders: the path or the view. */

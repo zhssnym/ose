@@ -2,14 +2,15 @@
 // and the disk did.
 
 import { confirm, toast } from 'ose:ui';
-import { vaultLost } from './vault.js';
-import { baseName, clean, dirName, errorOf, join, segments } from './paths.js';
-import { setSidebarOpen } from './layout.js';
+import { vaultLost } from './vault.ts';
+import { baseName, clean, dirName, errorOf, join, segments } from './paths.ts';
+import { setSidebarOpen } from './layout.ts';
 import {
   debounce, files, findInbound, messageOf, rewriteInboundMany, showHidden, state,
-} from './sidebar-state.js';
-import { expandAncestors, findNode, persistExpanded, render, rowFor } from './sidebar-tree.js';
-import { scrollToCurrent } from './sidebar-select.js';
+} from './sidebar-state.ts';
+import type { TreeNode } from './sidebar-state.ts';
+import { expandAncestors, findNode, persistExpanded, render, rowFor } from './sidebar-tree.ts';
+import { scrollToCurrent } from './sidebar-select.ts';
 
 /* ------------------------------------------------------------------ data load */
 
@@ -28,7 +29,7 @@ async function vaultGone(e) {
   }
 }
 
-let treeLoad = null;
+let treeLoad: Promise<void> | null = null;
 
 /**
  * Read the whole tree again. Boot, a watcher `rescan` or `lost`, and Show hidden items
@@ -63,7 +64,7 @@ export async function refreshTree() {
  * Answers null when the folder could not be listed (and a gone one hands the question up to
  * its parent).
  */
-async function relistOne(path) {
+async function relistOne(path: string): Promise<string[] | null> {
   let entries;
   try { entries = await files.list(path, { hidden: showHidden() }); } catch (e) {
     const code = codeOf(e);
@@ -75,9 +76,9 @@ async function relistOne(path) {
   const node = findNode(path);
   if (!node || node.kind !== 'dir') return null;
   const old = new Map((node.children || []).map((c) => [c.name, c]));
-  const fresh = [];
+  const fresh: string[] = [];
   node.children = (entries || []).map((e) => {
-    const n = { ...e, path: e.path != null ? clean(e.path) : join(path, e.name) };
+    const n: TreeNode = { ...e, path: e.path != null ? clean(e.path) : join(path, e.name) };
     const prev = old.get(e.name);
     if (n.kind === 'dir' && !n.link) {
       if (prev && prev.kind === 'dir' && prev.children) n.children = prev.children;
@@ -89,9 +90,9 @@ async function relistOne(path) {
 }
 
 // Folders whose listing is out of date, gathered from a batch of changes and read together.
-const pendingDirs = new Set();
-let patchTimer = null;
-let patching = null;
+const pendingDirs = new Set<string>();
+let patchTimer: ReturnType<typeof setTimeout> | null = null;
+let patching: Promise<void> | null = null;
 // A folder that arrived whole (moved in from Explorer) is read down to its files, so quick
 // open finds them; past this many listings in one batch the whole tree is read instead.
 const PATCH_BUDGET = 200;
@@ -110,7 +111,7 @@ async function flushPatch() {
     while (pendingDirs.size) {
       // Each changed path's nearest folder the tree has read: a change inside a folder the tree
       // never unfolded is that folder's news, not the tree's.
-      const targets = new Set();
+      const targets = new Set<string>();
       for (let d of pendingDirs) {
         let n = findNode(d);
         while (d && (!n || n.kind !== 'dir' || !n.children)) { d = dirName(d); n = findNode(d); }
@@ -121,7 +122,7 @@ async function flushPatch() {
       const queue = [...order];
       while (queue.length) {
         if (--budget < 0) { pendingDirs.clear(); await refreshTree(); return; }
-        const fresh = await relistOne(queue.shift());
+        const fresh = await relistOne(queue.shift()!);
         if (fresh) queue.push(...fresh);
       }
     }
@@ -131,7 +132,7 @@ async function flushPatch() {
 }
 
 /** A folder the tree had not read (past the walk's depth), read when it is unfolded. */
-const loadingDirs = new Set();
+const loadingDirs = new Set<string>();
 export async function loadChildren(path) {
   if (loadingDirs.has(path)) return;
   loadingDirs.add(path);
@@ -145,7 +146,7 @@ export async function loadChildren(path) {
 
 // Autosaves: a `modify` of a file the tree already has only changes its size and time, which
 // the tree does not draw; the node is brought up to date quietly, a few at a time.
-const staleFiles = new Set();
+const staleFiles = new Set<string>();
 const statStale = debounce(async () => {
   const list = [...staleFiles];
   staleFiles.clear();
@@ -163,7 +164,7 @@ export function onFsTree(payload) {
   if (!payload) return;
   if (payload.lost || payload.rescan) { void refreshTree(); return; }
   const changes = Array.isArray(payload.changes) ? payload.changes : [];
-  const dirs = [];
+  const dirs: string[] = [];
   for (const c of changes) {
     if (!c || !c.path) continue;
     const p = clean(c.path);
@@ -203,7 +204,7 @@ function filePairs(from, to) {
 
 // The focused row's path when a move of it began (`paths:moving`), so `paths:moved` can put the
 // keyboard back on it even if a watcher re-list moved focus in between.
-let movedFocus = null;
+let movedFocus: string | null = null;
 
 const followMove = (p, from, to) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : null);
 
@@ -229,7 +230,7 @@ export function onMoving(d) {
 export function onMoved(d) {
   const moves = ((d && d.moves) || []).filter((m) => m && m.from && m.to).map((m) => ({ from: clean(m.from), to: clean(m.to) }));
   if (!moves.length) return;
-  const dirs = [];
+  const dirs: string[] = [];
   for (const m of moves) {
     noteSelfMove(m.from, m.to);
     for (const p of [...state.expanded]) { const n = followMove(p, m.from, m.to); if (n) { state.expanded.delete(p); state.expanded.add(n); } }
@@ -242,7 +243,7 @@ export function onMoved(d) {
   }
   persistExpanded();
   if (state.selected.size) {
-    const next = new Set();
+    const next = new Set<string>();
     for (const p of state.selected) {
       let moved = null;
       for (const m of moves) { moved = followMove(p, m.from, m.to); if (moved) break; }
@@ -323,7 +324,9 @@ const wasSelfMove = (from, to) => {
 
 // Renames the watcher has reported and we have not asked about yet. They are collected rather
 // than handled one by one, because moving a folder in Explorer arrives as one event per file.
-let pendingRenames = [];
+/** A path renamed or moved: where it was, and where it is now. */
+type Move = { from: string, to: string };
+let pendingRenames: Move[] = [];
 let askingRenames = false;
 
 /**
@@ -340,11 +343,11 @@ export async function askAboutRenames() {
   try {
     // Which of them anything actually links to. One search per moved name; a rename nobody
     // linked to is never mentioned at all.
-    const real = [];
+    const real: Move[] = [];
     let count = 0;
     const where = new Set();
     for (const m of moves) {
-      let inbound = [];
+      let inbound: Awaited<ReturnType<typeof findInbound>> = [];
       try { inbound = await findInbound(m.from); } catch (e) { console.error('[shell] links', e); continue; }
       if (!inbound.length) continue;
       real.push(m);

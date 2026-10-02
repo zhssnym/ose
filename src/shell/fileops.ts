@@ -24,25 +24,29 @@
 
 import { ose } from 'ose:core';
 import { prompt, confirm, pickFolder, toast, focusOrigin } from 'ose:ui';
-import { clean, join, baseName, dirName, errorOf, isOutside, outsideLabel } from './paths.js';
+import { clean, join, baseName, dirName, errorOf, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, commands, route } = ose;
 
-/** @typedef {{path: string, kind: 'file'|'dir'}} Target */
+/** A file or a folder of the vault, as a command is handed it. */
+export type Target = { path: string, kind: 'file' | 'dir' };
+
+/** The app's file clipboard: what was cut or copied, waiting for a Paste. */
+type Clip = { mode: 'cut' | 'copy', paths: string[] };
 
 const under = (p, folder) => p === folder || p.startsWith(folder + '/');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const countOf = (items) => plural(items.length, 'item');
 
 /** The page on screen as a target, or null on a view or Home. */
-function openPageTarget() {
+function openPageTarget(): Target | null {
   const r = route.current();
   return r && r.type === 'page' && r.path ? { path: clean(r.path), kind: 'file' } : null;
 }
 
 // What a command acts on when it is not handed a target. The sidebar replaces both: `target`
 // is the focused row (else the open page), `batch` the selection that row is part of.
-let context = {
+let context: { target: () => Target | null, batch: () => Target[] } = {
   target: () => openPageTarget(),
   batch: () => { const t = openPageTarget(); return t ? [t] : []; },
 };
@@ -50,35 +54,27 @@ let context = {
 /**
  * The sidebar says what "here" is: `{ target, batch }`, two functions answering a Target and a
  * list of them. Either may be left out; the open page stands in for it.
- * @param {{target?: () => Target|null, batch?: () => Target[]}} c
  */
-export function setContext(c) {
+export function setContext(c: { target?: () => Target | null, batch?: () => Target[] }) {
   context = {
     target: typeof c.target === 'function' ? c.target : context.target,
     batch: typeof c.batch === 'function' ? c.batch : context.batch,
   };
 }
 
-const isTarget = (t) => !!t && typeof t === 'object' && !(t instanceof Event) && typeof t.path === 'string';
-/** @returns {Target} */
-const norm = (t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' : 'file' });
+const isTarget = (t): boolean => !!t && typeof t === 'object' && !(t instanceof Event) && typeof t.path === 'string';
+const norm = (t): Target => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' : 'file' });
 
-/**
- * One target: the one handed in, the first of a list handed in, else the context's.
- * @returns {Target|null}
- */
-function one(arg) {
+/** One target: the one handed in, the first of a list handed in, else the context's. */
+function one(arg): Target | null {
   if (isTarget(arg)) return norm(arg);
   if (Array.isArray(arg)) return arg.length && isTarget(arg[0]) ? norm(arg[0]) : null;
   const t = context.target();
   return isTarget(t) ? norm(t) : null;
 }
 
-/**
- * Every target: a list handed in, one handed in, else the context's selection.
- * @returns {Target[]}
- */
-function many(arg) {
+/** Every target: a list handed in, one handed in, else the context's selection. */
+function many(arg): Target[] {
   if (Array.isArray(arg)) return arg.filter(isTarget).map(norm);
   if (isTarget(arg)) return [norm(arg)];
   const list = context.batch();
@@ -187,13 +183,10 @@ function folderFor(target) {
  * (H17), and a binary it cannot show gets its own box with the ways out.
  *
  * With `name` the prompt is skipped (quick open's Shift+Enter has already asked), and comes
- * back only if that name cannot be used.
- *
- * @param {Target} [target]
- * @param {{name?: string|null}} [opts]
- * @returns {Promise<string|null>} the new path, or null when nothing was created
+ * back only if that name cannot be used. The answer is the new path, or null when nothing was
+ * created.
  */
-export async function newFile(target, { name = null } = {}) {
+export async function newFile(target?: Target, { name = null }: { name?: string | null } = {}): Promise<string | null> {
   const folder = folderFor(target);
   const where = folder ? `In ${folder}.` : 'In the vault root.';
   let value = name == null ? 'Untitled.md' : String(name);
@@ -233,10 +226,10 @@ export async function newFile(target, { name = null } = {}) {
  * New folder (Ctrl+Shift+N): a name prompt, then `ose.fileops.mkdir`. The same literal rule
  * as every name; `a/b` makes both. The tree opens down to it and its row takes the keyboard.
  *
- * @param {Target|string} [target] a folder target, a file (its folder), or a folder path
- * @returns {Promise<string|null>} the new folder's path
+ * `target` is a folder target, a file (its folder), or a folder path. The answer is the new
+ * folder's path.
  */
-export async function newFolder(target) {
+export async function newFolder(target?: Target | string): Promise<string | null> {
   const folder = typeof target === 'string' ? clean(target) : folderFor(isTarget(target) ? norm(target) : one(target) || undefined);
   const where = folder ? `In ${folder}.` : 'In the vault root.';
   let value = '';
@@ -267,12 +260,10 @@ export async function newFolder(target) {
  * Rename… (H13): the prompt holds the full name with the stem selected. The name typed is the
  * name written; changing the extension asks once ("Change .md to .txt?"), and No goes back to
  * the prompt with the text as typed. The open page, or any page under a renamed folder, is
- * saved first and follows its file without being reopened (`ose.fileops.rename`).
- *
- * @param {Target|null} [target]
- * @returns {Promise<string|null>} the new path, or null when nothing was renamed
+ * saved first and follows its file without being reopened (`ose.fileops.rename`). The answer
+ * is the new path, or null when nothing was renamed.
  */
-export async function renamePath(target) {
+export async function renamePath(target?: Target | null): Promise<string | null> {
   const t = one(target);
   if (!t || !t.path) return null;
   const old = baseName(t.path);
@@ -321,16 +312,12 @@ export async function renamePath(target) {
  * Move to… : one target or a selection into `folder`, asked for with the folder picker when it
  * is not given (a drag gives it). A path already there, or a folder into itself, is passed by;
  * one that cannot go is named, and the rest still move. One toast for the batch.
- *
- * @param {Target|Target[]} [targets]
- * @param {string} [folder]
  */
-export async function movePaths(targets, folder) {
+export async function movePaths(targets?: Target | Target[], folder?: string | null) {
   const list = many(targets).filter((t) => t.path);
   const [head] = list;
   if (!head) return null;
-  /** @type {string | null | undefined} */
-  let dest = folder;
+  let dest: string | null | undefined = folder;
   if (dest === undefined || dest === null) {
     const first = head.path;
     const title = list.length === 1 ? `Move ${baseName(first)} to…` : `Move ${countOf(list)} to…`;
@@ -371,7 +358,7 @@ function trashWords(where) {
  * Where `path` would go, asked of the host (`ose.files.trashWhere`, which knows a volume with
  * no Recycle Bin). When the host cannot say, the setting is the next best answer.
  */
-async function whereFor(path) {
+async function whereFor(path: string): Promise<'vault' | 'system'> {
   try {
     const r = await ose.files.trashWhere(path);
     if (r && (r.where === 'vault' || r.where === 'system')) return r.where;
@@ -382,14 +369,13 @@ async function whereFor(path) {
 // Where the vault's files go when trashed, as the host last said for the vault root: what the
 // `file.trash` command is called, in every menu and in the palette. A drive with no Recycle Bin
 // answers `vault` even with the system setting, and the words follow.
-let binWhere = null;
+let binWhere: 'vault' | 'system' | null = null;
 
 /**
  * The title of `file.trash`, naming the real bin: "Move to the Recycle Bin", "Move to the
  * Trash" or "Move to .trash in this vault".
- * @returns {string}
  */
-export function trashTitle() {
+export function trashTitle(): string {
   const where = binWhere || (ose.settings.get().trash === 'vault' ? 'vault' : 'system');
   return trashWords(where).title;
 }
@@ -400,10 +386,8 @@ export function trashTitle() {
  * deleted permanently: where the platform's bin refuses, the host puts it in the vault's
  * `.trash` and says so. The page is asked first and a refusal keeps it and its file (C6); the
  * tabs that showed a trashed file turn into its folder (the core's `paths:trashed`).
- *
- * @param {Target|Target[]} [targets]
  */
-export async function trashPaths(targets) {
+export async function trashPaths(targets?: Target | Target[]) {
   const list = many(targets).filter((t) => t.path);
   const [head] = list;
   if (!head) return null;
@@ -439,10 +423,8 @@ export async function trashPaths(targets) {
 /**
  * Duplicate: `stem 2.ext` beside the file, byte for byte, whatever its type (N23). The open
  * page is saved first, so the copy holds what is on screen.
- *
- * @param {Target|null} [target]
  */
-export async function duplicatePath(target) {
+export async function duplicatePath(target?: Target | null) {
   const t = one(target);
   if (!t || !t.path || t.kind === 'dir') return null;
   try {
@@ -460,8 +442,8 @@ export async function duplicatePath(target) {
 
 // The app's own file clipboard: vault paths, never the system clipboard (which holds text the
 // person may still want). A cut is only a mark until Paste: nothing moves, the rows dim.
-let clip = null;
-const clipListeners = new Set();
+let clip: Clip | null = null;
+const clipListeners = new Set<(clip: Clip | null) => void>();
 
 function emitClip() {
   for (const fn of [...clipListeners]) {
@@ -469,7 +451,7 @@ function emitClip() {
   }
 }
 
-function setClip(next) {
+function setClip(next: Clip | null) {
   clip = next && next.paths && next.paths.length ? { mode: next.mode, paths: [...next.paths] } : null;
   emitClip();
 }
@@ -477,9 +459,8 @@ function setClip(next) {
 /**
  * Cut: the targets are marked to move on the next Paste. Their rows show dimmed; nothing moves
  * until then, and Esc or another Cut or Copy forgets it.
- * @param {Target|Target[]} [targets]
  */
-export function cut(targets) {
+export function cut(targets?: Target | Target[]) {
   const list = many(targets).filter((t) => t.path);
   const [head] = list;
   if (!head) return;
@@ -489,9 +470,8 @@ export function cut(targets) {
 
 /**
  * Copy: the targets are copied on the next Paste, as many times as it is pasted.
- * @param {Target|Target[]} [targets]
  */
-export function copy(targets) {
+export function copy(targets?: Target | Target[]) {
   const list = many(targets).filter((t) => t.path);
   const [head] = list;
   if (!head) return;
@@ -502,10 +482,9 @@ export function copy(targets) {
 /**
  * Paste into `folder`: a cut moves (and the clipboard empties), a copy copies (`x 2.ext` when
  * the name is taken, so pasting into the same folder duplicates). One toast, with Undo.
- * @param {string|Target} [folder] a folder path, or a target whose folder is meant
- * @returns {Promise<object|null>} the core's result
+ * `folder` is a folder path, or a target whose folder is meant; the answer is the core's result.
  */
-export async function paste(folder) {
+export async function paste(folder?: string | Target) {
   if (!clip) { toast('Nothing to paste', 'info', 1800); return null; }
   const dest = typeof folder === 'string' ? clean(folder) : folderFor(isTarget(folder) ? norm(folder) : one(folder) || undefined);
   const { mode } = clip;
@@ -542,18 +521,11 @@ export async function paste(folder) {
 /** Forget the clipboard: Esc in the tree after a Cut, so the dimmed rows are themselves again. */
 export function clearClipboard() { if (clip) setClip(null); }
 
-/**
- * What is on the clipboard.
- * @returns {{mode: 'cut'|'copy', paths: string[]}|null}
- */
-export function clipboard() { return clip ? { mode: clip.mode, paths: [...clip.paths] } : null; }
+/** What is on the clipboard. */
+export function clipboard(): Clip | null { return clip ? { mode: clip.mode, paths: [...clip.paths] } : null; }
 
-/**
- * Be told when the clipboard changes (to dim cut rows, to show Paste).
- * @param {(clip: {mode: string, paths: string[]}|null) => void} fn
- * @returns {() => void} unsubscribe
- */
-export function onClipboard(fn) {
+/** Be told when the clipboard changes (to dim cut rows, to show Paste). Answers the unsubscribe. */
+export function onClipboard(fn: (clip: { mode: string, paths: string[] } | null) => void): () => void {
   clipListeners.add(fn);
   return () => clipListeners.delete(fn);
 }
@@ -587,10 +559,8 @@ function followClipboard() {
 /**
  * Undo the newest file operation, or the one named by `id` (a toast's Undo). The result is a
  * toast: what was undone, or each step that could not be, which is left as it is.
- * @param {string} [id]
- * @returns {Promise<{ok: boolean}|null>}
  */
-export async function undo(id) {
+export async function undo(id?: string) {
   const j = journal();
   if (!id && !j.canUndo()) { toast('Nothing to undo', 'info', 1800); return null; }
   let r;
@@ -612,11 +582,8 @@ export async function undo(id) {
 
 /* ------------------------------------------------------------------ files outside the vault */
 
-/**
- * The outside file a command acts on: the one handed in, else the page on screen when it is one.
- * @returns {Target|null}
- */
-function outsideTarget(arg) {
+/** The outside file a command acts on: the one handed in, else the page on screen when it is one. */
+function outsideTarget(arg): Target | null {
   if (isTarget(arg) && isOutside(arg.path)) return { path: arg.path, kind: 'file' };
   if (typeof arg === 'string' && isOutside(arg)) return { path: arg, kind: 'file' };
   const r = route.current();
@@ -627,11 +594,10 @@ function outsideTarget(arg) {
  * Open file… (X7): the system's own file dialog, then the file in a tab. A file inside this
  * vault opens as the vault page it is; any other opens marked "outside vault", edited and
  * saved in place, with no versions, no links and no attachments (docs/SHELL.md "Files outside
- * the vault").
- * @returns {Promise<boolean>} whether a file was opened
+ * the vault"). The answer is whether a file was opened.
  */
-export async function openOutsideFile() {
-  let picked = null;
+export async function openOutsideFile(): Promise<boolean> {
+  let picked: string | null = null;
   try { picked = await ose.files.pick({ title: 'Open file' }); } catch (e) {
     const err = errorOf(e);
     if (err.code === 'unsupported') { toast('Open file… is not available in this build: it has no file dialog', 'info', 3200); return false; }
@@ -652,11 +618,10 @@ export async function openOutsideFile() {
  * Copy into the vault… (X7): a folder of the vault is asked for, and the outside file is
  * copied there byte for byte under a free name (`ose.fileops.copy`, which brings an `abs:`
  * file in through the host's create-only `importOutside` and journals it, so Undo takes the
- * copy back). The copy opens; the outside file is left as it is, and its tab stays.
- * @param {Target|null} target an `abs:` target
- * @returns {Promise<string|null>} the copy's vault path
+ * copy back). The copy opens; the outside file is left as it is, and its tab stays. `target`
+ * is an `abs:` target; the answer is the copy's vault path.
  */
-export async function copyIntoVault(target) {
+export async function copyIntoVault(target: Target | null): Promise<string | null> {
   if (!target || !isOutside(target.path)) return null;
   const name = baseName(target.path);
   const folder = await pickFolder({ title: `Copy ${name} into…`, enterLabel: 'copy here' });
@@ -685,8 +650,7 @@ export async function copyIntoVault(target) {
 export function initFileOps() {
   // A file outside the vault (X7) is opened and saved, never renamed, moved, copied or trashed
   // from here: those commands are not offered for it at all.
-  /** @param {Target|null|undefined} t @returns {t is Target} */
-  const hasPath = (t) => !!t && !!t.path && !isOutside(t.path);
+  const hasPath = (t: Target | null | undefined): t is Target => !!t && !!t.path && !isOutside(t.path);
   followClipboard();
   commands.register({
     id: 'file.new', title: 'New file…', group: 'file', icon: 'plus',

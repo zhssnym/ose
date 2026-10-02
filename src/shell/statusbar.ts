@@ -6,8 +6,8 @@
 // Right: the zoom while it is not 100 %.
 import { ose } from 'ose:core';
 import { esc, copyText, toast } from 'ose:ui';
-import { zoomLabel } from './settings.js';
-import { clean, isOutside, outsideLabel } from './paths.js';
+import { zoomLabel } from './settings.ts';
+import { clean, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, status, commands } = ose;
 
@@ -15,7 +15,7 @@ const { bus, status, commands } = ose;
 // wants to read it; `watch` is what an older shell set, kept out in case anything still does.
 const NEVER = new Set(['path', 'watch']);
 
-let leftEl = null, rightEl = null;
+let leftEl: HTMLElement | null = null, rightEl: HTMLElement | null = null;
 
 /** A field worth a place in the bar. The save state only when it carries a kind (bad news). */
 function shown(s) {
@@ -24,9 +24,10 @@ function shown(s) {
   return true;
 }
 
+// Both renderers are wired by `initStatusbar`, after it has drawn the two halves.
 function renderLeft() {
   const all = status.all().filter(shown);
-  leftEl.innerHTML = all.map((s) => {
+  leftEl!.innerHTML = all.map((s) => {
     const cls = `st-item${s.kind ? ' ' + esc(s.kind) : ''}`;
     if (hasChoices(s)) {
       // A choice between values (the editing mode): every value a button, the current one lit.
@@ -40,7 +41,7 @@ function renderLeft() {
       ? `<button type="button" class="${cls} st-click" data-key="${esc(s.key)}">${esc(s.text)}</button>`
       : `<span class="${cls}">${esc(s.text)}</span>`;
   }).join('<span class="st-dot">·</span>');
-  leftEl.title = all.map((s) => s.text).join(' · ');
+  leftEl!.title = all.map((s) => s.text).join(' · ');
 }
 
 /**
@@ -66,7 +67,7 @@ function renderRight() {
   // anything, and one that says `110%` explains why the window looks different (S4). It is a
   // button, so clicking or tabbing to it and pressing Enter puts the app back to 100 %.
   const zoom = zoomLabel();
-  rightEl.innerHTML = path + (zoom
+  rightEl!.innerHTML = path + (zoom
     ? `<button type="button" class="st-item st-zoom" title="Reset the zoom to 100%">${esc(zoom)}</button>`
     : '');
 }
@@ -76,14 +77,13 @@ const hasChoices = (s) => Array.isArray(s.choices) && s.choices.length > 0 && ty
 
 /**
  * Draw the bar into `node` and keep it current. Called once by `layout.js`.
- * @param {HTMLElement} node
  */
-export function initStatusbar(node) {
+export function initStatusbar(node: HTMLElement) {
   node.className = 'statusbar';
   node.innerHTML = `<div class="st-left"></div><div class="st-right"></div>`;
   // Both were drawn just above.
-  leftEl = /** @type {HTMLElement} */ (node.querySelector('.st-left'));
-  rightEl = /** @type {HTMLElement} */ (node.querySelector('.st-right'));
+  leftEl = node.querySelector('.st-left') as HTMLElement;
+  rightEl = node.querySelector('.st-right') as HTMLElement;
 
   status.watch(renderLeft);
   // A field set with an `onClick` is a button, and this is where it is pressed.

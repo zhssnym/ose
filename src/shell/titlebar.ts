@@ -7,13 +7,13 @@
 
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
-import { sidebarVisible } from './layout.js';
-import { LOGO } from './logo.js';
+import { sidebarVisible } from './layout.ts';
+import { LOGO } from './logo.ts';
 
 const { bus, commands } = ose;
 
-let el = null;
-let foldEl = null;
+let el: HTMLElement | null = null;
+let foldEl: HTMLButtonElement | null = null;
 
 /* ------------------------------------------------------------------ build */
 
@@ -25,9 +25,8 @@ const SIDE_GLYPH = '<svg viewBox="0 0 16 16" aria-hidden="true">'
 /**
  * Build the title bar into `node`: every control, the address bar and its command, and the
  * listeners that keep them in step with the sidebar.
- * @param {HTMLElement} node
  */
-export function initTitlebar(node) {
+export function initTitlebar(node: HTMLElement) {
   el = node;
   el.className = 'titlebar';
   el.innerHTML = `
@@ -47,14 +46,14 @@ export function initTitlebar(node) {
   // sidebar's toggle, which runs `app.sidebar` like Ctrl+\. Folded, the toggle is all that is
   // left of it, before the tabs.
   // Every control below was written just above, so none of them is null.
-  foldEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-fold'));
+  foldEl = el.querySelector('.tb-fold') as HTMLButtonElement;
   foldEl.addEventListener('click', () => commands.run('app.sidebar'));
   setSidebarShown(sidebarVisible());
   // The window hides the sidebar on its own under 640px (layout.js `fit`, L25), without
   // touching the preference, so the glyph follows what is on screen and not what is stored.
   bus.on('sidebar', setSidebarShown);
 
-  const addEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-tab-add'));
+  const addEl = el.querySelector('.tb-tab-add') as HTMLButtonElement;
   addEl.addEventListener('click', () => commands.run('tab.new'));
 
 
@@ -89,11 +88,11 @@ export function windowButtons() {
   </div>`;
 }
 
-/** The buttons' clicks, and the maximise glyph following the window. @param {HTMLElement} root */
-export function wireWindowButtons(root) {
+/** The buttons' clicks, and the maximise glyph following the window. */
+export function wireWindowButtons(root: HTMLElement) {
   const box = root.querySelector('.tb-win');
   if (!box) return;
-  const max = /** @type {HTMLElement} */ (box.querySelector('[data-win="max"]'));
+  const max = box.querySelector('[data-win="max"]') as HTMLElement;
   const paint = async () => {
     let on = false;
     try { on = await ose.window.isMaximized(); } catch { on = false; }

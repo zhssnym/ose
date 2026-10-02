@@ -18,10 +18,26 @@
 // and, inside a class, the file changed most recently first.
 import { ose } from 'ose:core';
 import { esc, icon } from 'ose:ui';
-import { panel, focusPage } from './layout.js';
-import { dirName, titleOf } from './paths.js';
+import { panel, focusPage } from './layout.ts';
+import { dirName, titleOf } from './paths.ts';
 
 const { bus, commands, debounce } = ose;
+
+/** One hit as the bridges answer it: a line of a file, or (no line) a match on its name. */
+type Hit = { path: string, kind?: string, line?: number, col?: number, text?: string };
+
+/** A file of the ranked result: its hits, and the class it is in (1 to 4, see above). */
+export type RankedFile = { path: string, kind: 'dir' | 'file', rank: number, hits: Hit[] };
+
+/** The route a hit opens. */
+type HitRoute = { type: string, path: string, line?: number, col?: number, query?: string };
+
+/** The live panel's handle. */
+type Live = {
+  setQuery: (text: string, opts?: { caretAtEnd?: boolean }) => void,
+  focus: () => void,
+  rerun: () => void,
+};
 
 const PANEL = 'search';
 // Files, not lines (N34). A hundred files is more than anybody reads and enough that the
@@ -35,19 +51,19 @@ const MAX_HISTORY = 20;
 
 // What survives the panel being closed and opened again: the query and the history.
 let lastQuery = '';
-let history = [];
+let history: string[] = [];
 // The live panel, while it is open: `{ setQuery, focus, rerun }`.
-let live = null;
+let live: Live | null = null;
 // path -> mtime, for the tie-break. Filled lazily by one `stat` per file in a result, and
 // dropped on every `fs` batch: a stale mtime would only mis-order two files, but the cost of
 // re-asking is a handful of stats.
-const mtimes = new Map();
+const mtimes = new Map<string, number>();
 
 /** The name the chrome shows for a path (W8): `ose.names.display`, through paths.js. */
-const display = (p) => titleOf(p);
+const display = (p: string) => titleOf(p);
 
 /** Both answers: the `{hits}` object of batch 12 and the bare array an older host returns. */
-const hitsOf = (r) => (Array.isArray(r) ? r : Array.isArray(r && r.hits) ? r.hits : []);
+const hitsOf = (r): Hit[] => (Array.isArray(r) ? r : Array.isArray(r && r.hits) ? r.hits : []);
 
 function remember(q) {
   const t = String(q || '').trim();
@@ -61,7 +77,7 @@ function remember(q) {
  * hit is ranked.
  */
 function termsOf(q) {
-  const out = [];
+  const out: string[] = [];
   const re = /"([^"]*)"|(\S+)/g;
   let m;
   while ((m = re.exec(String(q || '')))) {
@@ -74,7 +90,7 @@ function termsOf(q) {
 }
 
 /** Escape, then wrap every case-insensitive occurrence of any term in <b>. */
-function highlight(text, terms) {
+function highlight(text, terms: string[]) {
   const t = String(text);
   if (!terms.length) return esc(t);
   const low = t.toLowerCase();
@@ -92,25 +108,25 @@ function highlight(text, terms) {
   return out;
 }
 
-const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** One regex per term that matches it only as a whole word, letters of any script counted. */
-function wordMatchers(terms) {
+function wordMatchers(terms: string[]): RegExp[] {
   return terms.map((t) => {
     try { return new RegExp(`(?<![\\p{L}\\p{N}_])${reEscape(t)}(?![\\p{L}\\p{N}_])`, 'iu'); } catch { return null; }
-  }).filter(Boolean);
+  }).filter((w): w is RegExp => Boolean(w));
 }
 
-const isNameHit = (h) => !(Number.isInteger(h.line) && h.line > 0);
+const isNameHit = (h: Hit) => !(Number.isInteger(h.line) && (h.line as number) > 0);
 const isHeading = (text) => /^#{1,6}\s/.test(String(text || '').trim());
 
 /**
  * The hits grouped by file and put in the order at the top of this file. Pure apart from the
  * mtime map it reads. Answers `[{ path, kind, rank, hits: [...] }]`.
  */
-export function rankFiles(hits, terms, mtimeOf = (p) => mtimes.get(p) || 0) {
+export function rankFiles(hits: Hit[], terms: string[], mtimeOf = (p: string) => mtimes.get(p) || 0): RankedFile[] {
   const words = wordMatchers(terms);
-  const byPath = new Map();
+  const byPath = new Map<string, RankedFile>();
   for (const h of hits) {
     let f = byPath.get(h.path);
     if (!f) { f = { path: h.path, kind: h.kind === 'dir' ? 'dir' : 'file', rank: 4, hits: [] }; byPath.set(h.path, f); }
@@ -129,7 +145,7 @@ export function rankFiles(hits, terms, mtimeOf = (p) => mtimes.get(p) || 0) {
 }
 
 /** Ask the host for the mtime of every file of a result that is not known yet. */
-async function fillMtimes(paths) {
+async function fillMtimes(paths: string[]) {
   const want = paths.filter((p) => !mtimes.has(p));
   if (!want.length) return false;
   await Promise.all(want.map(async (p) => {
@@ -139,12 +155,12 @@ async function fillMtimes(paths) {
 }
 
 /** The route a hit opens: a folder is a folder route (H15); a line carries the caret and the query. */
-function routeOf(h, terms) {
+function routeOf(h: Hit, terms: string[]): HitRoute {
   if (h.kind === 'dir') return { type: 'folder', path: h.path };
-  const route = { type: 'page', path: h.path };
+  const route: HitRoute = { type: 'page', path: h.path };
   if (!isNameHit(h)) {
     route.line = h.line;
-    if (Number.isInteger(h.col) && h.col > 0) route.col = h.col;
+    if (Number.isInteger(h.col) && (h.col as number) > 0) route.col = h.col;
     if (terms[0]) route.query = terms[0];
   }
   return route;
@@ -152,10 +168,8 @@ function routeOf(h, terms) {
 
 /**
  * Draw the search into `el` (the side panel's body) and answer the panel's handle.
- * @param {HTMLElement} el
- * @param {{ query?: string, caretAtEnd?: boolean }} [start]
  */
-function mountSearch(el, start = {}) {
+function mountSearch(el: HTMLElement, start: { query?: string, caretAtEnd?: boolean } = {}) {
   el.innerHTML = `
     <div class="sp">
       <div class="sp-field">
@@ -169,15 +183,15 @@ function mountSearch(el, start = {}) {
     </div>`;
 
   // All three drawn just above.
-  const input = /** @type {HTMLInputElement} */ (el.querySelector('.sp-input'));
-  const list = /** @type {HTMLElement} */ (el.querySelector('.sp-list'));
-  const meta = /** @type {HTMLElement} */ (el.querySelector('.sp-meta'));
+  const input = el.querySelector('.sp-input') as HTMLInputElement;
+  const list = el.querySelector('.sp-list') as HTMLElement;
+  const meta = el.querySelector('.sp-meta') as HTMLElement;
 
-  let rows = [];          // the hits in drawn order: what ArrowUp/Down walk
-  let files = [];
+  let rows: Hit[] = [];   // the hits in drawn order: what ArrowUp/Down walk
+  let files: RankedFile[] = [];
   let sel = 0;
   let seq = 0;
-  let terms = [];
+  let terms: string[] = [];
   let note = '';
   let summary = '';
   let histAt = -1;        // where ArrowUp is in the history (N40)
@@ -236,7 +250,7 @@ function mountSearch(el, start = {}) {
     if (node) { node.scrollIntoView({ block: 'nearest' }); input.setAttribute('aria-activedescendant', node.id); }
   }
 
-  function move(d) {
+  function move(d: number) {
     if (!rows.length) return;
     sel = (sel + d + rows.length) % rows.length;
     markActive();
@@ -302,7 +316,7 @@ function mountSearch(el, start = {}) {
     }
   }, 150);
 
-  const setQuery = (text, { caretAtEnd = false } = {}) => {
+  const setQuery = (text: string, { caretAtEnd = false }: { caretAtEnd?: boolean } = {}) => {
     input.value = text;
     lastQuery = text;
     histAt = -1;
@@ -322,7 +336,7 @@ function mountSearch(el, start = {}) {
       const next = Math.min(histAt + 1, history.length - 1);
       if (next === histAt) return;          // the oldest: stay there rather than wrap
       histAt = next;
-      input.value = history[histAt];
+      input.value = history[histAt] as string;
       lastQuery = input.value;
       input.select();
       run();
@@ -334,14 +348,14 @@ function mountSearch(el, start = {}) {
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); focusPage(); }
   });
   list.addEventListener('click', (e) => {
-    const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.sp-row')) : null;
+    const row = e.target instanceof Element ? e.target.closest<HTMLElement>('.sp-row') : null;
     if (!row) return;
     sel = Number(row.dataset.i);
     markActive();
     accept({ aside: e.ctrlKey || e.metaKey });
   });
   list.addEventListener('auxclick', (e) => {
-    const row = e.target instanceof Element ? /** @type {HTMLElement|null} */ (e.target.closest('.sp-row')) : null;
+    const row = e.target instanceof Element ? e.target.closest<HTMLElement>('.sp-row') : null;
     if (!row || e.button !== 1) return;
     e.preventDefault();
     sel = Number(row.dataset.i);
@@ -379,11 +393,9 @@ function mountSearch(el, start = {}) {
  * `openSearch({ folder })` is Search in folder (the tree's `tree.search-here`): the field
  * starts as `path:<folder>/ ` with the caret after it, so the next thing typed is the query.
  * `{ query }` puts a query in; `{ prefill }` is the older name for the same thing.
- *
- * @param {{ query?: string, folder?: string, prefill?: string }} [opts]
  */
-export function openSearch(opts = {}) {
-  let query;
+export function openSearch(opts: { query?: string, folder?: string | null, prefill?: string } = {}) {
+  let query: string | undefined;
   let caretAtEnd = false;
   if (opts.folder !== undefined && opts.folder !== null) {
     const f = String(opts.folder).replace(/\/+$/, '');

@@ -6,14 +6,23 @@
 // A vault can open in a window of its own: Shift+Enter on a row of either list, or the
 // "Open in new window" button (`ose.windows.open`). There is never a second window on one
 // vault: the host brings the one that has it forward instead. See docs/HOST.md.
-import { LOGO } from './logo.js';
-import { windowButtons, wireWindowButtons } from './titlebar.js';
+import { LOGO } from './logo.ts';
+import { windowButtons, wireWindowButtons } from './titlebar.ts';
 import { ose } from 'ose:core';
 import { esc, openOverlay, confirm, toast } from 'ose:ui';
-import { onVaultChangeRequested } from './host.js';
-import { errorOf } from './paths.js';
+import { onVaultChangeRequested } from './host.ts';
+import { errorOf } from './paths.ts';
 
 const { store } = ose;
+
+/** A vault this machine has opened before, as the host lists it. */
+type RecentVault = { path: string, name: string, exists: boolean, current: boolean };
+
+/**
+ * What `chooseVault` resolves to: the folder chosen (`{root, name}`, or the host's answer when it
+ * was adopted as it was chosen), or `null` when the user backed out.
+ */
+type Chosen = { root?: string | null, name?: string | null, [k: string]: unknown } | null;
 
 /** What is said when the vault asked for is open in another window. */
 const FOCUSED = 'That vault is open in another window';
@@ -21,20 +30,16 @@ const FOCUSED = 'That vault is open in another window';
 /** An answer of `ose.vault.open` that did not adopt: the vault is another window's. */
 const wasFocused = (r) => !!r && (r.focused === true || r.status === 'focused');
 
-/**
- * What a thrown value says: its `message` when it has one, else the value itself.
- * @param {unknown} e
- */
-const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
+/** What a thrown value says: its `message` when it has one, else the value itself. */
+const messageOf = (e: unknown) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /**
  * Open `root` in a window of its own, or a new window with no vault when `root` is absent
  * (`app.new-window`). A vault already open in another window is brought forward, never opened
- * twice, and this says so.
- * @param {string} [root] an absolute folder
- * @returns {Promise<boolean>} whether a window was opened or brought forward
+ * twice, and this says so. `root` is an absolute folder; the answer is whether a window was
+ * opened or brought forward.
  */
-export async function openInNewWindow(root) {
+export async function openInNewWindow(root?: string): Promise<boolean> {
   if (root && ose.vault.root && sameRoot(root, ose.vault.root)) {
     toast('That vault is open in this window', 'info', 2600);
     return false;
@@ -65,7 +70,7 @@ function sameRoot(a, b) {
   return ose.platform === 'linux' ? n(a) === n(b) : n(a).toLowerCase() === n(b).toLowerCase();
 }
 
-let switching = null;
+let switching: Promise<boolean> | null = null;
 
 /**
  * Change the vault this window is open on (C5). One order, whoever asks — Change vault…, the
@@ -82,11 +87,9 @@ let switching = null;
  * as a draft and offered again when that vault is open (docs/SHELL.md "Recovered changes").
  * One switch at a time; a second call answers the first one's promise.
  *
- * @param {string} root  an absolute folder
- * @param {{anyway?: boolean}} [opts]
- * @returns {Promise<boolean>} false when the window stayed where it was
+ * `root` is an absolute folder. The answer is false when the window stayed where it was.
  */
-export function switchVault(root, { anyway = false } = {}) {
+export function switchVault(root: string, { anyway = false }: { anyway?: boolean } = {}): Promise<boolean> {
   if (switching) return switching;
   switching = (async () => {
     if (!root) return false;
@@ -140,7 +143,7 @@ export async function recentVaults() {
 }
 
 /** One row of the recent list, in both places it is drawn. */
-function recentRow(v, i) {
+function recentRow(v: RecentVault, i: number) {
   return `<button type="button" class="row vault-row${v.exists ? '' : ' gone'}" data-i="${i}" data-path="${esc(v.path)}" title="${esc(v.path)}">
       <span class="vault-name">${esc(v.name || v.path)}</span>
       <span class="grow vault-path mono-sm">${esc(v.path)}</span>
@@ -154,23 +157,26 @@ function recentRow(v, i) {
  * it in a new window (`onWindow`). Returns the teardown nobody needs (the nodes go with their
  * dialog), so callers can ignore it.
  */
-function bindRowKeys(box, { onForget, onWindow }) {
+function bindRowKeys(
+  box: HTMLElement,
+  { onForget, onWindow }: { onForget: (path: string | undefined, at: number) => void, onWindow?: (path: string | undefined, at: number) => void },
+) {
   box.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const rows = [...box.querySelectorAll('.vault-row')];
+    const rows = [...box.querySelectorAll<HTMLElement>('.vault-row')];
     if (!rows.length) return;
-    const at = rows.indexOf(document.activeElement);
+    const at = rows.indexOf(document.activeElement as HTMLElement);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const d = e.key === 'ArrowDown' ? 1 : -1;
       const from = at < 0 ? (d > 0 ? -1 : 0) : at;
-      rows[(from + d + rows.length) % rows.length].focus();
+      rows[(from + d + rows.length) % rows.length]?.focus();
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && at >= 0) {
       e.preventDefault();
-      onForget(rows[at].dataset.path, at);
+      onForget(rows[at]?.dataset.path, at);
     } else if (e.key === 'Enter' && e.shiftKey && at >= 0 && onWindow) {
       e.preventDefault();
-      onWindow(rows[at].dataset.path, at);
+      onWindow(rows[at]?.dataset.path, at);
     }
   });
 }
@@ -187,17 +193,15 @@ function bindRowKeys(box, { onForget, onWindow }) {
  * Shift+Enter or Shift+click on a row, or the "Open in new window" button, opens that vault in
  * a window of its own instead (X6): this window stays, and the answer is `null`. The button
  * with no row focused asks for the folder first.
- *
- * @param {{adopt?: boolean}} [opts]
  */
-export async function chooseVault({ adopt = true } = {}) {
+export async function chooseVault({ adopt = true }: { adopt?: boolean } = {}): Promise<Chosen> {
   const pick = () => ose.vault.pick({ adopt });
   const list = (await recentVaults()).filter((v) => !v.current);
   if (!list.length) return pick();
 
-  return new Promise((resolve) => {
+  return new Promise<Chosen>((resolve) => {
     let done = false;
-    const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
+    const finish = (v: Chosen) => { if (done) return; done = true; resolve(v); ov.close(); };
     const ov = openOverlay({
       width: 560, className: 'dlg vault-pick', title: 'Open a vault',
       onClose: () => { if (!done) { done = true; resolve(null); } },
@@ -222,13 +226,13 @@ export async function chooseVault({ adopt = true } = {}) {
     paint();
 
     // The row the keyboard last stood on: what "Open in new window" opens.
-    let lastRow = null;
+    let lastRow: string | undefined | null = null;
     ov.box.addEventListener('focusin', (e) => {
       const row = e.target instanceof Element ? e.target.closest('.vault-row') : null;
       if (row instanceof HTMLElement) lastRow = row.dataset.path;
     });
-    const inWindow = async (path) => {
-      let root = path;
+    const inWindow = async (path: string | undefined | null) => {
+      let root: string | undefined | null = path;
       if (!root) {
         const picked = await ose.vault.pick({ adopt: false }).catch(() => null);
         root = picked && picked.root;
@@ -274,18 +278,18 @@ export async function chooseVault({ adopt = true } = {}) {
         if (lastRow === path) lastRow = null;
         if (!items.length) { finish(null); return; }
         paint();
-        requestAnimationFrame(() => /** @type {HTMLElement | null} */ (ov.box.querySelector('.vault-row'))?.focus());
+        requestAnimationFrame(() => ov.box.querySelector<HTMLElement>('.vault-row')?.focus());
       },
       onWindow: (path) => { void inWindow(path); },
     });
 
-    requestAnimationFrame(() => /** @type {HTMLElement | null} */ (ov.box.querySelector('.vault-row'))?.focus());
+    requestAnimationFrame(() => ov.box.querySelector<HTMLElement>('.vault-row')?.focus());
   });
 }
 
 /* ------------------------------------------------------------------ the vault is gone */
 
-let lostOv = null;
+let lostOv: ReturnType<typeof openOverlay> | null = null;
 
 /**
  * The vault folder itself stopped existing: renamed, unmounted, deleted (S29). One dialog,
@@ -294,7 +298,7 @@ let lostOv = null;
  * page and its unsaved text are all still here, and the watcher's `rescan` brings the tree up
  * to date (C5).
  */
-export function vaultLost(root) {
+export function vaultLost(root?: string) {
   if (lostOv) return;
   const path = root || (store.get('root') || {}).root || '';
   const ov = openOverlay({ width: 440, className: 'dlg', title: 'The vault is gone', onClose: () => { lostOv = null; } });
@@ -312,7 +316,7 @@ export function vaultLost(root) {
   ov.box.setAttribute('aria-labelledby', 'vault-lost-head');
 
   // Both buttons were drawn just above.
-  const retry = /** @type {HTMLButtonElement} */ (ov.box.querySelector('[data-act="retry"]'));
+  const retry = ov.box.querySelector('[data-act="retry"]') as HTMLButtonElement;
   retry.addEventListener('click', async () => {
     retry.disabled = true;
     let back = false;
@@ -321,7 +325,7 @@ export function vaultLost(root) {
     retry.disabled = false;
     retry.focus();
   });
-  /** @type {HTMLButtonElement} */ (ov.box.querySelector('[data-act="change"]')).addEventListener('click', async () => {
+  (ov.box.querySelector('[data-act="change"]') as HTMLButtonElement).addEventListener('click', async () => {
     const picked = await chooseVault({ adopt: false }).catch(() => null);
     if (picked && picked.root) await switchVault(picked.root, { anyway: true });
   });
@@ -346,16 +350,15 @@ export function vaultFound() {
 /**
  * A second launch named another folder (the host's `vault` event with `requested`): the
  * same switch Change vault… makes, the open page saved first.
- * @param {{root: string, name?: string}} d
  */
-export function vaultRequested(d) {
+export function vaultRequested(d: { root: string, name?: string }) {
   if (!d || !d.root) return;
   void switchVault(d.root);
 }
 
 /* ------------------------------------------------------------------ the first run */
 
-export async function mountVaultChooser(rootEl) {
+export async function mountVaultChooser(rootEl: HTMLElement) {
   if (ose.platform === 'macos') document.documentElement.classList.add('mac');
   document.documentElement.dataset.os =
     ose.platform === 'macos' ? 'mac' : ose.platform === 'linux' ? 'other' : 'win';
@@ -381,10 +384,10 @@ export async function mountVaultChooser(rootEl) {
   rootEl.appendChild(surface);
 
   // All drawn just above.
-  const pick = /** @type {HTMLButtonElement} */ (body.querySelector('.vault-pick'));
-  const err = /** @type {HTMLElement} */ (body.querySelector('.vault-err'));
-  const recentBox = /** @type {HTMLElement} */ (body.querySelector('.vault-recent'));
-  const list = /** @type {HTMLElement} */ (body.querySelector('.vault-list'));
+  const pick = body.querySelector('.vault-pick') as HTMLButtonElement;
+  const err = body.querySelector('.vault-err') as HTMLElement;
+  const recentBox = body.querySelector('.vault-recent') as HTMLElement;
+  const list = body.querySelector('.vault-list') as HTMLElement;
 
   // The vaults this machine has opened before, so the second run is one keystroke (S46).
   let items = await recentVaults();
@@ -416,7 +419,7 @@ export async function mountVaultChooser(rootEl) {
   };
   pick.addEventListener('click', choose);
   // A vault in a window of its own, this one staying on the chooser (X6).
-  /** @type {HTMLButtonElement} */ (body.querySelector('.vault-window')).addEventListener('click', async () => {
+  (body.querySelector('.vault-window') as HTMLButtonElement).addEventListener('click', async () => {
     const picked = await ose.vault.pick({ adopt: false }).catch((e) => { fail(e); return null; });
     if (picked && picked.root) await openInNewWindow(picked.root);
   });
@@ -459,7 +462,7 @@ export async function mountVaultChooser(rootEl) {
       try { await ose.vault.forget(path); } catch (e) { console.warn('[shell] forgetVault', e); }
       items = items.filter((v) => v.path !== path);
       paintRecent();
-      (/** @type {HTMLElement | null} */ (list.querySelector('.vault-row')) || pick).focus();
+      (list.querySelector<HTMLElement>('.vault-row') || pick).focus();
     },
     onWindow: (path) => { void openInNewWindow(path); },
   });

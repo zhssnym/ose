@@ -22,21 +22,39 @@
 
 import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
-import { allPages } from './sidebar.js';
-import { clean } from './paths.js';
-import { isMediaFile, mediaMissingPage, binaryPage } from './media.js';
+import { allPages } from './sidebar.ts';
+import { clean } from './paths.ts';
+import { isMediaFile, mediaMissingPage, binaryPage, type MediaPage } from './media.ts';
 
-let editorLoad = null;
-let editor = null;
-let page = null;
+type Editor = typeof import('ose:editor');
+
+/**
+ * The handle `markdownPage` answers, as far as this file calls it: the editor types it loosely,
+ * so the calls made here are written down. `media` is never set, which tells it from a
+ * `MediaPage`.
+ */
+interface EditorPage {
+  media?: undefined;
+  readonly ready: Promise<unknown>;
+  canLeave(reason?: string): Promise<boolean>;
+  stay(): void;
+  park(): unknown;
+  close(): Promise<boolean>;
+  goToLine(line: number, col?: number): boolean;
+  selection(): { from: number, to: number } | null;
+}
+
+let editorLoad: Promise<Editor | { failed: unknown }> | null = null;
+let editor: Editor | null = null;
+let page: EditorPage | MediaPage | null = null;
 // Set by `beforePathChange` when the media page on screen let go of its file for the host call;
 // `afterPathChange` mounts it again, at the new path or the old one.
-let released = null;
+let released: MediaPage | null = null;
 
 const under = (p, folder) => p === folder || p.startsWith(folder + '/');
 const mapped = (p, from, to) => (p === from ? to : to + p.slice(from.length));
 // Media handles only (`media.js`), whose `path` is a function; an editor handle's is a getter.
-const pathOf = (h) => clean(h.path());
+const pathOf = (h: MediaPage) => clean(h.path());
 
 /**
  * Start loading `ose:editor`, once, and answer the module (or null when it failed). `boot.js`
@@ -87,7 +105,7 @@ const host = {
     }
     // No editor: draw nothing, and the router shows the file as text.
     if (!editor) { page = null; return undefined; }
-    page = editor.markdownPage(el, path, opts);
+    page = editor.markdownPage(el, path, opts) as EditorPage;
     return page.ready;
   },
 
@@ -108,7 +126,7 @@ const host = {
    * and this always answers true; a media page has nothing to keep and simply closes.
    * Otherwise it is torn down, and false means it refused and is still mounted, untouched.
    */
-  async close(opts = {}) {
+  async close(opts: { park?: boolean } = {}) {
     if (!page) return true;
     const closing = page;
     if (opts && opts.park && !closing.media) {
@@ -214,8 +232,9 @@ async function remountReleased(ok, change) {
  */
 export async function initPageHost() {
   const ed = await loadEditor();
-  if (ed && ed.failed) {
-    const why = String((ed.failed && ed.failed.message) || ed.failed);
+  if (ed && 'failed' in ed && ed.failed) {
+    const failed = ed.failed;
+    const why = String((failed && typeof failed === 'object' && 'message' in failed && failed.message) || failed);
     try { await ose.log(`editor failed to load: ${why}`, 'error'); } catch { /* the log is best effort */ }
     toast(`The editor could not be loaded (${why}). Pages open as plain text, read-only.`, 'err', 0);
   } else if (editor) {

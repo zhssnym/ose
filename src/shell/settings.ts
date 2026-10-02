@@ -8,7 +8,7 @@
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
 import { ose } from 'ose:core';
 import { esc, pickFolder, toast } from 'ose:ui';
-import { chooseVault, switchVault } from './vault.js';
+import { chooseVault, switchVault } from './vault.ts';
 import KEYS from './keys.json';
 
 const { bus, commands, store } = ose;
@@ -27,11 +27,8 @@ const save = (partial) => ose.settings.set(partial);
 const zoom = () => ose.settings.zoom();
 const setZoom = (pct) => ose.settings.setZoom(pct);
 
-/**
- * What a thrown value says: its `message` when it has one, else the value itself.
- * @param {unknown} e
- */
-const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
+/** What a thrown value says: its `message` when it has one, else the value itself. */
+const messageOf = (e: unknown) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
 /** The zoom as the status bar says it, or null at 100 %. */
 export const zoomLabel = () => (zoom() === 100 ? null : `${zoom()}%`);
@@ -288,11 +285,8 @@ async function changeVault() {
   await switchVault(picked.root);
 }
 
-/**
- * One chord as a key cap, in this platform's words (Cmd and Option on a Mac).
- * @param {string} combo
- */
-const kbd = (combo) => `<span class="kbd">${esc(ose.keys.label(combo))}</span>`;
+/** One chord as a key cap, in this platform's words (Cmd and Option on a Mac). */
+const kbd = (combo: string) => `<span class="kbd">${esc(ose.keys.label(combo))}</span>`;
 
 /**
  * The Help section's first half: how the app is used, a few sentences a topic. Written here,
@@ -302,8 +296,7 @@ function guideHtml() {
   const mac = document.documentElement.dataset.os === 'mac';
   const back = mac ? 'mod+[' : 'alt+arrowleft';
   const fwd = mac ? 'mod+]' : 'alt+arrowright';
-  /** @type {[string, string][]} */
-  const topics = [
+  const topics: [string, string][] = [
     ['The vault',
       'A vault is a folder of plain markdown files on this computer. Ose opens the files where they '
       + 'are and edits them in place. Nothing of the app is written into the folder: its settings, '
@@ -368,11 +361,10 @@ const normCombo = (c) => String(c || '').toLowerCase().split('+').map((p) => p.t
  * the editor while the caret is there, and says so in the last column.
  */
 async function keysHtml() {
-  /** @type {Record<string, string>} */
-  const shellMap = KEYS;
+  const shellMap: Record<string, string> = KEYS;
   const mac = document.documentElement.dataset.os === 'mac';
   const win = new Map();
-  const body = [];
+  const body: { combo: string, cmd: string }[] = [];
   for (const k of ose.keys.defaults()) {
     const combo = (mac && k.mac) || k.combo;
     const entry = { combo, cmd: k.cmd };
@@ -390,14 +382,14 @@ async function keysHtml() {
   }
   const title = (id) => { const c = commands.get(id); return (c && c.title) || id; };
   // One row per action and place: Go to file answers to Ctrl+P and Ctrl+O, and says so once.
-  const byAct = new Map();
-  /** @type {[string, {combo: string, cmd: string}[]][]} */
-  const groups = [['Everywhere', [...win.values()]], ['In a page', body]];
+  const byAct = new Map<string, { cmd: string, where: string, labels: string[] }>();
+  const groups: [string, { combo: string, cmd: string }[]][] = [['Everywhere', [...win.values()]], ['In a page', body]];
   for (const [where, list] of groups) {
     for (const e of list) {
       const key = where + '|' + e.cmd;
       if (!byAct.has(key)) byAct.set(key, { cmd: e.cmd, where, labels: [] });
-      const labels = byAct.get(key).labels;
+      // Set just above when it was not there.
+      const labels = byAct.get(key)!.labels;
       const label = ose.keys.label(e.combo);
       if (!labels.includes(label)) labels.push(label);
     }
@@ -447,14 +439,10 @@ function allSections() {
 
 // The page on screen, while it is: `{ show(id), focus() }`. `openSettings` reaches it to change
 // section when the tab was already open.
-let live = null;
+let live: { show: (id?: string) => Promise<void>, focus: () => void } | null = null;
 
-/**
- * Draw the page into `el`. `route.arg` picks the first section shown.
- * @param {HTMLElement} el
- * @param {{ arg?: string }} [route]
- */
-function mountPage(el, route = {}) {
+/** Draw the page into `el`. `route.arg` picks the first section shown. */
+function mountPage(el: HTMLElement, route: { arg?: string } = {}) {
   el.innerHTML = `
 <div class="view-root set-page" tabindex="-1">
   <div class="set-wrap">
@@ -466,15 +454,15 @@ function mountPage(el, route = {}) {
   </div>
 </div>`;
   // All drawn just above.
-  const root = /** @type {HTMLElement} */ (el.querySelector('.set-page'));
-  const nav = /** @type {HTMLElement} */ (root.querySelector('.set-nav'));
-  const titleEl = /** @type {HTMLElement} */ (root.querySelector('#set-title'));
-  const body = /** @type {HTMLElement} */ (root.querySelector('.set-body'));
+  const root = el.querySelector('.set-page') as HTMLElement;
+  const nav = root.querySelector('.set-nav') as HTMLElement;
+  const titleEl = root.querySelector('#set-title') as HTMLElement;
+  const body = root.querySelector('.set-body') as HTMLElement;
   /** The tab that is on, when the list is drawn. */
-  const onTab = () => /** @type {HTMLElement | null} */ (nav.querySelector('.set-tab.on'));
+  const onTab = () => nav.querySelector<HTMLElement>('.set-tab.on');
 
   let current = null;
-  let sectionHandle = null;
+  let sectionHandle: { unmount?: () => void } | null = null;
   let seq = 0;
   let unmounted = false;
 
@@ -535,7 +523,7 @@ function mountPage(el, route = {}) {
   // A vertical tab list: Up and Down move and show, Home and End go to the ends, Tab leaves
   // for the rows.
   nav.addEventListener('keydown', (e) => {
-    const tabs = /** @type {HTMLElement[]} */ ([...nav.querySelectorAll('.set-tab')]);
+    const tabs = [...nav.querySelectorAll<HTMLElement>('.set-tab')];
     const at = tabs.findIndex((t) => t.dataset.sec === current);
     let next = -1;
     if (e.key === 'ArrowDown') next = (at + 1) % tabs.length;
@@ -605,12 +593,11 @@ const view = {
 };
 
 /**
- * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named.
- * @param {string} [arg] a section id: 'appearance', 'editor', 'files', 'updates', 'vault', 'help', or a registered one
- * @returns {Promise<void>}
+ * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named:
+ * 'appearance', 'editor', 'files', 'updates', 'vault', 'help', or a registered section's id.
  */
-export async function openSettings(arg) {
-  const route = { type: 'view', name: 'settings' };
+export async function openSettings(arg?: string): Promise<void> {
+  const route: { type: 'view', name: string, arg?: string } = { type: 'view', name: 'settings' };
   if (arg) route.arg = arg;
   await ose.tabs.open(route);
   if (live && arg) await live.show(arg);

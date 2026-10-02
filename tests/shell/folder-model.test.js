@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-const m = await import('../../src/shell/folder-model.js');
+const m = await import('../../src/shell/folder-model.ts');
 
 const file = (name, over = {}) => {
   const dot = name.lastIndexOf('.');

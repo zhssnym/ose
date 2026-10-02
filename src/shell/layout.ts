@@ -8,11 +8,11 @@
 
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
-import { onVaultChangeRequested } from './host.js';
-import { initTitlebar } from './titlebar.js';
-import { initStatusbar } from './statusbar.js';
-import { initSidebar } from './sidebar.js';
-import { vaultLost, vaultFound, vaultRequested } from './vault.js';
+import { onVaultChangeRequested } from './host.ts';
+import { initTitlebar } from './titlebar.ts';
+import { initStatusbar } from './statusbar.ts';
+import { initSidebar } from './sidebar.ts';
+import { vaultLost, vaultFound, vaultRequested } from './vault.ts';
 
 const { bus, store, commands } = ose;
 
@@ -33,17 +33,17 @@ const P_SHARE = 0.5;
 // it is open is this screen's business, not something the vault carries to the next machine.
 // `sidebar.js` writes `expanded` into the same slot. Never the vault's `.ose/state.json`: that
 // file is synced, and one screen's layout is not the vault's (W5).
-let sidebarState = null;
-let panelState = null;
+let sidebarState: ReturnType<typeof ose.local> | null = null;
+let panelState: ReturnType<typeof ose.local> | null = null;
 
-let shell = null;
-let mainEl = null;
+let shell: HTMLElement | null = null;
+let mainEl: HTMLElement | null = null;
 let wantS = S_DEFAULT;
 let wantP = P_DEFAULT;
 let autoHidden = false;
 // What the last `fit` put on screen, so the `sidebar` event is emitted on a change and not on
 // every resize frame.
-let shown = null;
+let shown: boolean | null = null;
 // The user overruled the auto-hide at this width (QA-5 finding 3). Without it `fit` re-armed
 // `autoHidden` on the very call the toggle made to clear it, so under NARROW the sidebar could
 // not be opened at all: Ctrl+\ did nothing, said nothing, and neither chevron was on screen —
@@ -109,12 +109,12 @@ const RS_STEP = 8, RS_BIG = 32;
  * (its width stays what it was when the drag began, for when it opens again), dragged back out
  * past it it opens and follows the pointer. A folded column's handle stays on screen as an edge,
  * so the same drag, the arrows, Enter or a double click bring it back.
- * @param {HTMLElement} handle
- * @param {{get: () => number, set: (v: number) => void, min: number, max: number | (() => number),
- *   invert?: boolean, done?: (v: number) => void,
- *   fold?: {at: number, isOpen: () => boolean, setOpen: (open: boolean) => void}}} opts
  */
-function makeResizer(handle, { get, set, min, max, invert, done, fold }) {
+function makeResizer(handle: HTMLElement, { get, set, min, max, invert, done, fold }: {
+  get: () => number, set: (v: number) => void, min: number, max: number | (() => number),
+  invert?: boolean, done?: (v: number) => void,
+  fold?: { at: number, isOpen: () => boolean, setOpen: (open: boolean) => void },
+}) {
   // `max` may be a function: the sidebar's ceiling is a share of the window (L5), so it moves
   // when the window does and is asked for at every step.
   const hi = () => (typeof max === 'function' ? max() : max);
@@ -165,7 +165,7 @@ function makeResizer(handle, { get, set, min, max, invert, done, fold }) {
     const x0 = e.clientX, w0 = get();
     // A folded column is dragged out from nothing: its edge is where its width starts.
     const from = folded() ? 0 : w0;
-    const move = (ev) => {
+    const move = (ev: PointerEvent) => {
       const v = from + (invert ? x0 - ev.clientX : ev.clientX - x0);
       if (fold) {
         if (v < fold.at) {
@@ -231,11 +231,11 @@ export function toggleSidebar() { setSidebarOpen(!sidebarVisible()); }
 // 800, which is past what a printed page sets (R27).
 const WIDE_MAIN = 1400;
 
-let wide = null;
+let wide: boolean | null = null;
 
 /** Called by the ResizeObserver, and by fit() so a hidden window (no frames, no observer
  *  callbacks) still ends up with the right tokens after a resize or a panel toggle. */
-function measureMain(w) {
+function measureMain(w?: number) {
   if (!shell || !mainEl) return;
   const width = typeof w === 'number' ? w : mainEl.getBoundingClientRect().width;
   const next = width > WIDE_MAIN;
@@ -249,11 +249,11 @@ function measureMain(w) {
   }
 }
 
-function watchMainWidth(el) {
+function watchMainWidth(el: HTMLElement) {
   measureMain();
   if (typeof ResizeObserver !== 'function') return;
   const ro = new ResizeObserver((entries) => {
-    const e = /** @type {ResizeObserverEntry} */ (entries[entries.length - 1]);
+    const e = entries[entries.length - 1] as ResizeObserverEntry;
     measureMain(e.contentRect ? e.contentRect.width : undefined);
   });
   ro.observe(el);
@@ -267,13 +267,13 @@ function watchMainWidth(el) {
  */
 export function focusPage() {
   if (!mainEl) return false;
-  const pick = mainEl.querySelector('.ProseMirror')
+  const pick = mainEl.querySelector<HTMLElement>('.ProseMirror')
     // A code file is a page too, and `.cm-content` is its body the way `.ProseMirror` is prose's.
-    || mainEl.querySelector('.cm-content')
-    || mainEl.querySelector('.page-title')
-    || mainEl.querySelector('.view-root')
-    || mainEl.querySelector('.home-row')
-    || mainEl.querySelector('.miss .btn');
+    || mainEl.querySelector<HTMLElement>('.cm-content')
+    || mainEl.querySelector<HTMLElement>('.page-title')
+    || mainEl.querySelector<HTMLElement>('.view-root')
+    || mainEl.querySelector<HTMLElement>('.home-row')
+    || mainEl.querySelector<HTMLElement>('.miss .btn');
   if (!pick) return false;
   if (!pick.isContentEditable && !pick.hasAttribute('tabindex') && pick.tagName !== 'BUTTON') pick.tabIndex = -1;
   pick.focus({ preventScroll: true });
@@ -391,12 +391,18 @@ async function reloadApp() {
 // that stays open while pages are opened from it — search first. It holds one thing at a time,
 // by id; opening another replaces it. The panel draws its own head (the title and a close
 // button) and hands the body to the caller's `mount`, which answers `{ unmount?, focus? }`.
-let panelEl = null;
-let panelRs = null;
-let panelTitle = null;
-let panelBody = null;
+let panelEl: HTMLElement | null = null;
+let panelRs: HTMLElement | null = null;
+let panelTitle: HTMLElement | null = null;
+let panelBody: HTMLElement | null = null;
+
+/** What a panel's `mount` may answer: how to take it down, and how to put the keyboard in it. */
+type PanelHandle = { unmount?: () => unknown, focus?: () => unknown };
+/** Draws a surface into the panel's body. */
+type PanelMount = (el: HTMLElement) => PanelHandle | void;
+
 // What is in it: `{ id, handle }`, or null while it is closed.
-let panelNow = null;
+let panelNow: { id: string, handle: PanelHandle | null } | null = null;
 
 function unmountPanel() {
   const now = panelNow;
@@ -407,7 +413,7 @@ function unmountPanel() {
   if (panelBody) panelBody.textContent = '';
 }
 
-function showPanel(open) {
+function showPanel(open: boolean) {
   if (!panelEl) return;
   panelEl.hidden = !open;
   if (panelRs) panelRs.hidden = !open;
@@ -421,29 +427,24 @@ function showPanel(open) {
  */
 export const panel = {
   /**
-   * Put `mount`'s surface in the panel, replacing what was there, and open it.
-   * @param {string} id
-   * @param {(el: HTMLElement) => ({unmount?: Function, focus?: Function}|void)} mount
-   * @param {{title?: string}} [opts]
+   * Put `mount`'s surface in the panel, replacing what was there, and open it. The title and
+   * the body are built with the panel, so they are there whenever `panelEl` is.
    */
-  open(id, mount, { title } = {}) {
+  open(id: string, mount: PanelMount, { title }: { title?: string } = {}) {
     if (!panelEl || !id || typeof mount !== 'function') return;
     unmountPanel();
-    panelTitle.textContent = title || '';
+    panelTitle!.textContent = title || '';
     panelEl.setAttribute('aria-label', title || id);
     panelEl.dataset.id = id;
     showPanel(true);
-    let handle = null;
-    try { handle = mount(panelBody) || null; } catch (e) { console.error('[shell] panel mount', e); }
+    let handle: PanelHandle | null = null;
+    try { handle = mount(panelBody!) || null; } catch (e) { console.error('[shell] panel mount', e); }
     panelNow = { id, handle };
     patchPanel({ open: true, id });
     panel.focus();
   },
-  /**
-   * Close the panel, if `id` is what it holds (no id: whatever it holds).
-   * @param {string} [id]
-   */
-  close(id) {
+  /** Close the panel, if `id` is what it holds (no id: whatever it holds). */
+  close(id?: string) {
     if (!panelNow || (id && panelNow.id !== id)) return;
     const had = !!panelEl && panelEl.contains(document.activeElement);
     unmountPanel();
@@ -454,23 +455,16 @@ export const panel = {
     if (had) focusPage();
   },
   /**
-   * Open it with `mount` unless `id` is already open, in which case close it.
-   * @param {string} id
-   * @param {(el: HTMLElement) => ({unmount?: Function, focus?: Function}|void)} mount
-   * @param {{title?: string}} [opts]
-   * @returns {boolean} whether the panel is open now
+   * Open it with `mount` unless `id` is already open, in which case close it. Answers whether
+   * the panel is open now.
    */
-  toggle(id, mount, opts) {
+  toggle(id: string, mount: PanelMount, opts?: { title?: string }): boolean {
     if (panel.isOpen(id)) { panel.close(id); return false; }
     panel.open(id, mount, opts);
     return true;
   },
-  /**
-   * Whether the panel is open (holding `id`, when one is given).
-   * @param {string} [id]
-   * @returns {boolean}
-   */
-  isOpen(id) { return !!panelNow && (!id || panelNow.id === id); },
+  /** Whether the panel is open (holding `id`, when one is given). */
+  isOpen(id?: string): boolean { return !!panelNow && (!id || panelNow.id === id); },
   /** Put the keyboard in the panel: the mount's own `focus`, else its first control. */
   focus() {
     if (!panelNow || !panelEl) return;
@@ -478,18 +472,20 @@ export const panel = {
     if (h && typeof h.focus === 'function') {
       try { h.focus(); return; } catch (e) { console.error('[shell] panel focus', e); }
     }
-    const first = panelBody.querySelector('input, textarea, button, [tabindex]:not([tabindex="-1"])');
-    (first || panelBody).focus({ preventScroll: true });
+    const body = panelBody!;
+    const first = body.querySelector<HTMLElement>('input, textarea, button, [tabindex]:not([tabindex="-1"])');
+    (first || body).focus({ preventScroll: true });
   },
 };
 
+// Called by `mountShell` once the shell's markup is written, so every part below is in it.
 function buildPanel() {
-  panelEl = shell.querySelector('.sidepanel');
-  panelRs = shell.querySelector('.rs-panel');
-  panelTitle = panelEl.querySelector('.sp-title');
-  panelBody = panelEl.querySelector('.sp-body');
+  panelEl = shell!.querySelector('.sidepanel') as HTMLElement;
+  panelRs = shell!.querySelector('.rs-panel') as HTMLElement;
+  panelTitle = panelEl.querySelector('.sp-title') as HTMLElement;
+  panelBody = panelEl.querySelector('.sp-body') as HTMLElement;
   panelBody.tabIndex = -1;
-  const x = panelEl.querySelector('.sp-close');
+  const x = panelEl.querySelector('.sp-close') as HTMLElement;
   x.innerHTML = icon('close');
   x.addEventListener('click', () => panel.close());
   makeResizer(panelRs, {
@@ -505,10 +501,8 @@ function buildPanel() {
 /**
  * Build the shell into `rootEl` and answer its parts. Nothing is navigated to yet: `boot.js`
  * calls this, then hands `els.main` to `ose.init`.
- * @param {HTMLElement} rootEl
- * @returns {{titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, statusbar: HTMLElement, panel: HTMLElement}}
  */
-export function mountShell(rootEl) {
+export function mountShell(rootEl: HTMLElement): { titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, statusbar: HTMLElement, panel: HTMLElement } {
   sidebarState = ose.local('sidebar');
   panelState = ose.local('panel');
   const saved = sidebarState.get() || {};
@@ -540,7 +534,7 @@ export function mountShell(rootEl) {
   // The tab strip sits above the page column and outside it: the router clears `.main` on
   // every navigation, so anything that has to survive one lives in the column around it.
   // all of them are in the markup just written
-  const part = (sel) => /** @type {HTMLElement} */ (shell.querySelector(sel));
+  const part = (sel: string) => shell!.querySelector(sel) as HTMLElement;
   const els = {
     titlebar: part('.titlebar'),
     sidebar: part('.sidebar'),
@@ -614,7 +608,7 @@ export function mountShell(rootEl) {
 
   window.addEventListener('resize', fit);
   window.addEventListener('beforeunload', () => {
-    try { sidebarState.flush?.(); panelState.flush?.(); } catch (e) { console.warn('[shell] flush', e); }
+    try { sidebarState!.flush?.(); panelState!.flush?.(); } catch (e) { console.warn('[shell] flush', e); }
   });
   fit();
 

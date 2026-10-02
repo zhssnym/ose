@@ -23,36 +23,24 @@ export const segments = (p) => clean(p).split('/').filter(Boolean);
 /** The prefix of a path outside the vault (X7). */
 export const ABS = 'abs:';
 
-/**
- * True for an `abs:` path: a file outside the vault, opened in a tab marked so.
- * @param {unknown} p
- * @returns {boolean}
- */
-export const isOutside = (p) => typeof p === 'string' && p.startsWith(ABS);
+/** True for an `abs:` path: a file outside the vault, opened in a tab marked so. */
+export const isOutside = (p: unknown): boolean => typeof p === 'string' && p.startsWith(ABS);
 
 /**
  * What the chrome shows for an `abs:` path: the absolute path without the prefix. A vault
  * path comes back as it was.
- * @param {string} p
- * @returns {string}
  */
-export const outsideLabel = (p) => (isOutside(p) ? p.slice(ABS.length) : p);
+export const outsideLabel = (p: string): string => (isOutside(p) ? p.slice(ABS.length) : p);
 
-/**
- * The vault's name as the chrome says it, or `fallback` while the core has none.
- * @param {string} [fallback]
- * @returns {string}
- */
-export const vaultName = (fallback = 'Vault') => (ose.vault && ose.vault.name) || fallback;
+/** The vault's name as the chrome says it, or `fallback` while the core has none. */
+export const vaultName = (fallback = 'Vault'): string => (ose.vault && ose.vault.name) || fallback;
 
 /**
  * A `[code] message` string, or an Error with a code, as `{ code, message }`. The code is the
  * error's own when it carries one (`HostError`), else the bracketed prefix of its message, else
  * null; the message never keeps the prefix.
- * @param {unknown} e
- * @returns {{code: string|null, message: string}}
  */
-export function errorOf(e) {
+export function errorOf(e: unknown): { code: string | null, message: string } {
   const text = String((e && typeof e === 'object' && 'message' in e ? e.message : e) ?? '');
   const m = /^\[(\w+)\]\s*(.*)$/s.exec(text);
   const own = e && typeof e === 'object' && 'code' in e && e.code ? String(e.code) : null;
@@ -62,19 +50,16 @@ export function errorOf(e) {
 /**
  * One string per place, the way the core's router keys a route: `view:<name>` for a view,
  * `<type>:<path>` for a page or a folder. Two routes to the same place have the same key.
- * @param {{type: string, name?: string, path?: string}|null|undefined} r
- * @returns {string}
  */
-export const keyOf = (r) => (!r ? '' : r.type === 'view' ? 'view:' + r.name : `${r.type}:${clean(r.path)}`);
+export const keyOf = (r: { type: string, name?: string, path?: string } | null | undefined): string => (!r ? '' : r.type === 'view' ? 'view:' + r.name : `${r.type}:${clean(r.path)}`);
 
 /**
  * The name the chrome shows for a path (W8, H20): the real file name with its extension,
  * `.md` stripped only when the machine setting `hideMdExt` asks (`ose.names.display`). The
- * same rule for every file, in the tree, the tabs, the title bar and the palette.
- * @param {string} p a vault path
- * @returns {string}
+ * same rule for every file, in the tree, the tabs, the title bar and the palette. `p` is a
+ * vault path.
  */
-export const titleOf = (p) => {
+export const titleOf = (p: string): string => {
   try { return ose.names.display(clean(p)); } catch { /* the plain name below */ }
   return baseName(p);
 };

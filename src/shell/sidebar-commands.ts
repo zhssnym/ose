@@ -3,25 +3,27 @@
 
 import { ose } from 'ose:core';
 import { contextMenu, copyText, focusOrigin, icon, toast } from 'ose:ui';
-import { baseName, clean } from './paths.js';
+import { baseName, clean } from './paths.ts';
 import {
   DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,
-} from './drag.js';
-import { openSearch } from './search.js';
-import { openInNewTab } from './tabs.js';
+} from './drag.ts';
+import { openSearch } from './search.ts';
+import { openInNewTab } from './tabs.ts';
 import {
   canMoveInto, clipboard, copy, cut, duplicatePath, movePaths, newFile, newFolder, paste,
   renamePath, trashPaths,
-} from './fileops.js';
-import { visibleEntries } from './folder-model.js';
+} from './fileops.ts';
+import type { Target } from './fileops.ts';
+import { visibleEntries } from './folder-model.ts';
 import {
   commands, currentRoute, getFocus, ic, messageOf, relativeHref, setFocus, shortcutFor,
   showHidden, state,
-} from './sidebar-state.js';
-import { findNode, persistExpanded, render, scratchNode, vaultName } from './sidebar-tree.js';
+} from './sidebar-state.ts';
+import type { TreeNode } from './sidebar-state.ts';
+import { findNode, persistExpanded, render, scratchNode, vaultName } from './sidebar-tree.ts';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
-} from './sidebar-select.js';
+} from './sidebar-select.ts';
 
 /* ------------------------------------------------------------- drag and drop */
 
@@ -31,8 +33,8 @@ import {
 // to decide whether the row may light up at all. A drop from Explorer or Finder is copied in,
 // folders and all, through drag.js `importDropped`.
 
-let dragPaths = null;
-let dropEl = null;
+let dragPaths: string[] | null = null;
+let dropEl: Element | null = null;
 
 /** The list an internal payload holds. A bare path (an older build's payload) is a list of one. */
 function parseDrag(data) {
@@ -54,7 +56,7 @@ function dropTargetOf(node) {
 // Into itself, under itself, or where it already is: no. The same rule Move to… uses.
 const canDropInto = (from, dir) => canMoveInto(from, dir);
 
-function setDropEl(node) {
+function setDropEl(node: Element | null) {
   if (dropEl === node) return;
   if (dropEl) dropEl.classList.remove('drop-on');
   dropEl = node;
@@ -145,13 +147,12 @@ async function copyLink(path, kind) {
  * The thing a tree command acts on (D3): `{ path, kind }` for the focused tree row (the row
  * focus will return to, while a palette or menu is up: see focusOrigin), else the route on
  * screen (a page, or a folder), else null. The root row is `{ path: '', kind: 'dir' }`.
- * @returns {import('./fileops.js').Target | null}
  */
-export function treeTarget() {
+export function treeTarget(): Target | null {
   const o = focusOrigin();
   const row = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-row[data-path]') : null;
   // A tree row carries its path and its kind, `file` or `dir`.
-  if (row instanceof HTMLElement) return /** @type {import('./fileops.js').Target} */ ({ path: row.dataset.path, kind: row.dataset.kind });
+  if (row instanceof HTMLElement) return { path: row.dataset.path, kind: row.dataset.kind } as Target;
   const r = currentRoute();
   if (r && r.type === 'page') return { path: r.path, kind: 'file' };
   if (r && r.type === 'folder') return { path: clean(r.path || ''), kind: 'dir' };
@@ -163,8 +164,8 @@ export function treeTarget() {
 function setAllExpanded(open) {
   if (!open) { state.expanded = new Set(); }
   else {
-    const all = new Set();
-    const walk = (n) => {
+    const all = new Set<string>();
+    const walk = (n: TreeNode) => {
       for (const c of visibleEntries(n.children || [], { showHidden: showHidden() })) {
         if (c.kind !== 'dir' || c.link) continue;
         all.add(c.path);
@@ -279,7 +280,7 @@ const MENU = [
  * command's `when`, which knows only the focused row, and right-click never focused one (H21).
  * The menu has asked `applies(target)` of this very row before offering it.
  */
-function menuItem(id, target, label) {
+function menuItem(id, target, label?: string): MenuRow | null {
   const c = commands.get(id);
   if (!c) return null;
   const local = TREE_COMMANDS.find((x) => x.id === id);
@@ -298,12 +299,15 @@ function menuItem(id, target, label) {
   };
 }
 
+/** A row of the context menu (ose:ui `contextMenu`): a command, or a separator. */
+type MenuRow = { label?: string, iconSvg?: string, shortcut?: string, danger?: boolean, sep?: boolean, run?: () => void };
+
 /** No two separators in a row and none at either end, whatever was filtered out between. */
-const tidy = (items) => items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1].sep));
+const tidy = (items: MenuRow[]) => items.filter((it, i, all) => !it.sep || (i > 0 && i < all.length - 1 && !all[i - 1]!.sep));
 
 function menuFor(path, kind) {
   const target = { path: clean(path || ''), kind: path ? kind : 'dir' };
-  const items = [];
+  const items: MenuRow[] = [];
   for (const entry of MENU) {
     if (entry === null) { items.push({ sep: true }); continue; }
     const id = typeof entry === 'string' ? entry : entry.id;
@@ -321,7 +325,7 @@ const MULTI_MENU = ['file.cut', 'file.copy', 'file.move', null, 'file.trash'];
 
 function multiMenu(batch) {
   const target = batch[0];
-  const items = [];
+  const items: MenuRow[] = [];
   for (const id of MULTI_MENU) {
     if (id === null) { items.push({ sep: true }); continue; }
     const local = TREE_COMMANDS.find((x) => x.id === id);
@@ -340,7 +344,7 @@ function multiMenu(batch) {
 export function menuItemsForRow(row) {
   // Both callers hand a row with a path: openMenuAt checks it, and the right-click leaves out
   // the view rows, the only ones without.
-  const target = /** @type {{path: string, kind: string}} */ (targetOf(row));
+  const target = targetOf(row) as Target;
   const batch = isSelectable(row) ? batchFor(target) : null;
   if (!batch && isSelectable(row)) clearSelection();
   return batch ? multiMenu(batch) : menuFor(target.path, target.kind);
@@ -370,6 +374,6 @@ export function emptyMenu() {
     { sep: true },
     { label: 'Collapse all folders', iconSvg: icon(ic('chevron', 'dot')), run: () => commands.run('tree.collapse-all') },
     { label: showHidden() ? 'Hide hidden items' : 'Show hidden items', iconSvg: icon(ic(showHidden() ? 'eyeOff' : 'eye', 'dot')), run: () => commands.run('view.toggle-hidden') },
-  ].filter(Boolean));
+  ].filter((it): it is MenuRow => !!it));
 }
 

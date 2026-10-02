@@ -1,29 +1,33 @@
 // Part of the sidebar (./sidebar.js). The selection: the rows the tree commands act on.
 
 import { toast } from 'ose:ui';
-import { dirName } from './paths.js';
-import { openInNewTab } from './tabs.js';
+import { dirName } from './paths.ts';
+import { openInNewTab } from './tabs.ts';
 import {
   clearClipboard, clipboard, copy, cut, paste, renamePath, trashPaths, undo,
-} from './fileops.js';
-import { focusPage } from './layout.js';
-import { files, navigate, state } from './sidebar-state.js';
+} from './fileops.ts';
+import type { Target } from './fileops.ts';
+import { focusPage } from './layout.ts';
+import { files, navigate, state } from './sidebar-state.ts';
 import {
   currentOf, focusRow, isOpen, persistExpanded, render, rovingRow, rowByKey, rowFor, rowKey,
   setRoving, treeRows,
-} from './sidebar-tree.js';
-import { openMenuAt } from './sidebar-commands.js';
+} from './sidebar-tree.ts';
+import { openMenuAt } from './sidebar-commands.ts';
 
 /* -------------------------------------------------------------- selection (C17) */
 
 export const isSelectable = (row) => !!row && row.dataset.path !== undefined && row.dataset.root !== '1';
 
-/** The rows that can be part of a selection: tree rows with a path, so no root, no views. */
+/**
+ * The rows that can be part of a selection: tree rows with a path, so no root, no views. Each
+ * one's `dataset.path` is therefore set.
+ */
 function selectableRows() { return treeRows().filter(isSelectable); }
 
 function paintSelection() {
   for (const r of selectableRows()) {
-    const on = state.selected.has(r.dataset.path);
+    const on = state.selected.has(r.dataset.path!);
     r.classList.toggle('selected', on);
     r.setAttribute('aria-selected', String(on));
   }
@@ -52,9 +56,10 @@ export function selectRange(row) {
   const rows = selectableRows();
   const b = rows.indexOf(row);
   if (b < 0) return;
-  const a0 = rows.indexOf(rowByKey(state.anchor));
+  const anchorRow = rowByKey(state.anchor);
+  const a0 = anchorRow ? rows.indexOf(anchorRow) : -1;
   const a = a0 < 0 ? b : a0;
-  state.selected = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((r) => r.dataset.path));
+  state.selected = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((r) => r.dataset.path!));
   paintSelection();
 }
 
@@ -63,9 +68,9 @@ export function selectRange(row) {
  * selected row, in tree order, as `{ path, kind }`. Null when the target is not part of a
  * selection of two or more, in which case the command keeps its single-target behaviour.
  */
-export function batchFor(t) {
+export function batchFor(t): Target[] | null {
   if (!t || !t.path || state.selected.size < 2 || !state.selected.has(t.path)) return null;
-  return selectableRows().filter((r) => state.selected.has(r.dataset.path)).map((r) => ({ path: r.dataset.path, kind: r.dataset.kind }));
+  return selectableRows().filter((r) => state.selected.has(r.dataset.path!)).map((r) => ({ path: r.dataset.path!, kind: r.dataset.kind as Target['kind'] }));
 }
 
 /** Fold or unfold a tree folder row. */
@@ -141,7 +146,7 @@ function typeAhead(list, at, ch) {
 const rowOf = (e) => (e.target && e.target.closest && e.target.closest('.sb-row'))
   || (document.activeElement && document.activeElement.closest ? document.activeElement.closest('.sb-row') : null);
 
-export const targetOf = (row) => (row && row.dataset.path !== undefined ? { path: row.dataset.path, kind: row.dataset.kind } : null);
+export const targetOf = (row): Target | null => (row && row.dataset.path !== undefined ? { path: row.dataset.path, kind: row.dataset.kind } : null);
 export const folderOf = (t) => (!t ? '' : t.kind === 'dir' ? t.path : dirName(t.path));
 
 /**
@@ -190,7 +195,7 @@ export function onTreeKey(e) {
   const inTree = isSelectable(row) || row.dataset.root === '1';
   const target = targetOf(row);
   const k = e.key;
-  let next = null;
+  let next: HTMLElement | null | undefined = null;
 
   if (k === 'ArrowDown') next = list[Math.min(list.length - 1, at + 1)];
   else if (k === 'ArrowUp') next = list[Math.max(0, at - 1)];

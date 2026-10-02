@@ -26,9 +26,8 @@ export function initHome() {
 /**
  * Where the boot ends. The router was mounted with `start: false`, so the column is blank until
  * this runs. Something that has already navigated somewhere keeps the window it asked for.
- * @returns {Promise<void>}
  */
-export async function startSurface() {
+export async function startSurface(): Promise<void> {
   if (ose.route.current()) return;
   await ose.route.navigate(HOME);
 }

@@ -30,8 +30,8 @@
 
 import { ose } from 'ose:core';
 import { icon, toast, esc } from 'ose:ui';
-import { baseName, extOf, isOutside, outsideLabel } from './paths.js';
-import { typeLabel, sizeLabel, dateLabel } from './folder-model.js';
+import { baseName, extOf, isOutside, outsideLabel } from './paths.ts';
+import { typeLabel, sizeLabel, dateLabel } from './folder-model.ts';
 
 /** The extensions this file claims. `page.js` asks; nothing else needs to know. */
 export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico']);
@@ -40,13 +40,31 @@ export const isPdfFile = (p) => extOf(p) === 'pdf';
 export const isMediaFile = (p) => isPdfFile(p) || isImageFile(p);
 
 /**
+ * The handle both pages here answer: the page host's one shape (`markdownPage`'s), with `media`
+ * set so the page seam can tell it from an editor's, and `path` a function rather than a getter.
+ */
+export interface MediaPage {
+  path: () => string;
+  kind: string;
+  media: true;
+  readonly ready: Promise<void>;
+  focus: () => void;
+  canLeave: (reason?: string) => Promise<boolean>;
+  stay(): void;
+  release(): void;
+  close(): Promise<boolean>;
+  goToLine: (line?: number, col?: number) => boolean;
+  selection: () => null;
+}
+
+/**
  * The core's "page not found" box, re-lettered for a file the user cannot write by typing
  * (QA-5 finding 4). `mediaMissingPage` below fills a `.miss` box with it, so the page keeps
  * the core's own shape and place in the column and has no button — a `.pdf` that is not
  * there is not a page to create, and a stub would be a markdown file wearing a media
  * extension.
  */
-export function mediaMiss(box, path) {
+export function mediaMiss(box: Element | null, path: string): boolean {
   if (!box) return false;
   // `.miss-title` and `.miss-path` are the core's own, so the box keeps its shape and its
   // place; the third line is ours and quiet, because a missing attachment is a fact to state,
@@ -65,10 +83,9 @@ export function mediaMiss(box, path) {
  * this draws the core's own `.miss` box, re-lettered by `mediaMiss`, in the core's own
  * place in the column. It answers the same handle as a real media page.
  *
- * @param {HTMLElement} el   the router's `.page-host`
- * @param {string} path      a vault path that does not exist
+ * `el` is the router's `.page-host`, `path` a vault path that does not exist.
  */
-export function mediaMissingPage(el, path) {
+export function mediaMissingPage(el: HTMLElement, path: string): MediaPage {
   const col = document.createElement('div');
   col.className = 'page-col';
   const box = document.createElement('div');
@@ -100,11 +117,10 @@ export function mediaMissingPage(el, path) {
  * the platform's own app for it, and its folder in the platform's file manager. Nothing reads
  * its bytes.
  *
- * @param {HTMLElement} el   the router's `.page-host`
- * @param {string} path      a vault path that exists and is not text
- * @returns a page-host handle: { path, kind, ready, focus, close, goToLine, selection }
+ * `el` is the router's `.page-host`, `path` a vault path that exists and is not text. Answers
+ * a page-host handle: { path, kind, ready, focus, close, goToLine, selection }.
  */
-export function binaryPage(el, path) {
+export function binaryPage(el: HTMLElement, path: string): MediaPage {
   let closed = false;
   const name = baseName(path);
   const col = document.createElement('div');
@@ -125,15 +141,15 @@ export function binaryPage(el, path) {
       <div class="binary-actions"></div>
     </div>`;
   // Drawn just above.
-  const actions = /** @type {HTMLElement} */ (col.querySelector('.binary-actions'));
-  const button = (label, iconName, run, primary = false) => {
+  const actions = col.querySelector('.binary-actions') as HTMLElement;
+  const button = (label: string, iconName: string, run: () => unknown, primary = false) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'btn' + (primary ? ' primary' : '');
     b.innerHTML = `${icon(iconName)}<span>${esc(label)}</span>`;
     b.addEventListener('click', () => {
       try {
-        const out = run();
+        const out = run() as Promise<unknown> | null | undefined;
         if (out && typeof out.catch === 'function') out.catch((err) => toast(err.message || String(err), 'err', 0));
       } catch (err) { toast(String((err && typeof err === 'object' && 'message' in err && err.message) || err), 'err', 0); }
     });
@@ -148,7 +164,7 @@ export function binaryPage(el, path) {
   el.appendChild(col);
 
   const ready = (async () => {
-    let st = null;
+    let st: Awaited<ReturnType<typeof ose.files.stat>> | null = null;
     try { st = await ose.files.stat(path); } catch { st = null; }
     if (closed) return;
     const size = col.querySelector('.binary-size');

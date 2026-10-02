@@ -1,37 +1,37 @@
 // Part of the sidebar (./sidebar.js). Putting the sidebar up.
 
 import { contextMenu } from 'ose:ui';
-import { onClipboard, setContext } from './fileops.js';
-import { toggleSidebar } from './layout.js';
-import { bus, commands, debounce, ic, showHidden, slot, state } from './sidebar-state.js';
+import { onClipboard, setContext } from './fileops.ts';
+import { toggleSidebar } from './layout.ts';
+import { bus, commands, debounce, ic, showHidden, slot, state } from './sidebar-state.ts';
 import {
   currentOf, expandAncestors, focusRow, focusTree, render, rowByKey, rowKey, setRoving,
-} from './sidebar-tree.js';
+} from './sidebar-tree.ts';
 import {
   activateRow, batchFor, clearSelection, isSelectable, onTreeKey, openRowAside, scrollToCurrent,
   selectRange, toggleDir, toggleSelected,
-} from './sidebar-select.js';
+} from './sidebar-select.ts';
 import {
   askAboutRenames, onArrived, onFsRenames, onFsTree, onMoved, onMoving, onReveal, onTrashed,
   refreshTree,
-} from './sidebar-load.js';
+} from './sidebar-load.ts';
 import {
   bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget,
-} from './sidebar-commands.js';
+} from './sidebar-commands.ts';
 
 /* ------------------------------------------------------------------ init */
 
 /**
  * Draw the sidebar into `node` and wire it: the tool strip, the tree, its keys, menus, drag and
  * drop, and the events it follows. Called once by the layout.
- * @param {HTMLElement} node
  */
-export function initSidebar(node) {
+export function initSidebar(node: HTMLElement) {
   state.el = node;
-  state.el.className = 'sidebar';
-  state.el.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
+  node.className = 'sidebar';
+  node.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
   // Drawn just above.
-  state.scrollEl = /** @type {HTMLElement} */ (state.el.querySelector('.sb-scroll'));
+  const scrollEl = node.querySelector('.sb-scroll') as HTMLElement;
+  state.scrollEl = scrollEl;
 
   const saved = slot('sidebar').get() || {};
   if (Array.isArray(saved.expanded)) state.expanded = new Set(saved.expanded.filter((p) => typeof p === 'string' && p));
@@ -43,7 +43,7 @@ export function initSidebar(node) {
   // stop, so Tab back into the sidebar returns to where the mouse left off (D2). A click on a
   // folder's chevron folds it and goes nowhere. Ctrl+click toggles a tree row in the
   // selection and Shift+click selects the run from the anchor to it (C17).
-  state.scrollEl.addEventListener('click', (e) => {
+  scrollEl.addEventListener('click', (e) => {
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row');
     if (!(row instanceof HTMLElement)) return;
@@ -76,7 +76,7 @@ export function initSidebar(node) {
   });
 
   // A double click on a folder also folds it, as a file manager's tree does.
-  state.scrollEl.addEventListener('dblclick', (e) => {
+  scrollEl.addEventListener('dblclick', (e) => {
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row.dir');
     if (!row || e.target.closest('.tw') || row.getAttribute('aria-expanded') === null) return;
@@ -84,7 +84,7 @@ export function initSidebar(node) {
   });
 
   // The middle button opens a row in a tab of its own, in the tree.
-  state.scrollEl.addEventListener('auxclick', (e) => {
+  scrollEl.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row');
@@ -93,11 +93,11 @@ export function initSidebar(node) {
     openRowAside(row);
   });
   // Firefox and Chromium both start an autoscroll on a middle press unless it is refused.
-  state.scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target instanceof Element && e.target.closest('.sb-row')) e.preventDefault(); });
+  scrollEl.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target instanceof Element && e.target.closest('.sb-row')) e.preventDefault(); });
 
   // A name the column cut gets the whole path on hover, and a name that fits gets nothing
   // (R21). Measured on the row under the pointer, one row at a time.
-  state.scrollEl.addEventListener('mouseover', (e) => {
+  scrollEl.addEventListener('mouseover', (e) => {
     const name = e.target instanceof Element && e.target.closest('.sb-row > .grow');
     if (!(name instanceof HTMLElement)) return;
     const cut = name.scrollWidth > name.clientWidth;
@@ -105,17 +105,17 @@ export function initSidebar(node) {
     else name.removeAttribute('title');
   });
 
-  state.scrollEl.addEventListener('keydown', onTreeKey);
+  scrollEl.addEventListener('keydown', onTreeKey);
   // However a row got the keyboard (a click, an arrow, a dialog handing focus back), it is the
   // tab stop and the row a rename or move follows to its new name.
-  state.scrollEl.addEventListener('focusin', (e) => {
+  scrollEl.addEventListener('focusin', (e) => {
     const row = e.target instanceof Element && e.target.closest('.sb-row');
     if (row && rowKey(row) !== state.roving) setRoving(row);
   });
 
   // Right-click inside a selection of several opens the menu for all of them; outside it,
   // the selection is dropped first.
-  state.scrollEl.addEventListener('contextmenu', (e) => {
+  scrollEl.addEventListener('contextmenu', (e) => {
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest('.sb-row:not(.sb-view)');
     e.preventDefault();
@@ -126,7 +126,7 @@ export function initSidebar(node) {
     contextMenu(e.clientX, e.clientY, menuItemsForRow(row));
   });
 
-  bindDnd(state.scrollEl);
+  bindDnd(scrollEl);
 
   // What "here" is for the file commands run from the palette or a chord (shell/fileops.js):
   // the focused row, else the route on screen; and the selection that row is part of.

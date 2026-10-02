@@ -14,28 +14,35 @@
 
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
-import { HOME } from './start.js';
-import { DRAG_TYPE, dragged, isInternal } from './drag.js';
-import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.js';
+import { HOME } from './start.ts';
+import { DRAG_TYPE, dragged, isInternal } from './drag.ts';
+import { clean, baseName, titleOf, keyOf, vaultName, isOutside, outsideLabel } from './paths.ts';
 
 const { bus, commands } = ose;
 
-let strip = null;
+/** A tab as the core lists it (`ose.tabs.list()`). */
+interface TabView {
+  id: string;
+  route: { type: string, path?: string, name?: string } | null;
+  canBack: boolean;
+  canForward: boolean;
+}
+
+let strip: HTMLElement | null = null;
 // The page column: the strip's `tabpanel`, so a reader can be told which tab names what is on
 // screen. The router owns everything inside it; only the two aria attributes are ours.
-let panelEl = null;
+let panelEl: HTMLElement | null = null;
 // The last snapshot the core sent: `{ tabs: Tab[], active: id|null }`.
-/** @type {{tabs: Array<{id: string, route: {type: string, path?: string, name?: string} | null, canBack: boolean, canForward: boolean}>, active: string|null}} */
-let snap = { tabs: [], active: null };
+let snap: { tabs: TabView[], active: string | null } = { tabs: [], active: null };
 // Paths whose page has unsaved changes, from the editor's own `doc:dirty` / `doc:state`.
-const dirty = new Set();
+const dirty = new Set<string>();
 // Paths whose page could not be written, or is gone from disk, from `doc:state` (H8):
 // `{ status, message }` for `not-saved`, `conflict` and `deleted`.
-const trouble = new Map();
+const trouble = new Map<string, { status: string, message: string }>();
 // Where the keyboard goes once a tab closed with Delete has been drawn away: the place in the
 // strip that tab held. Set by the Delete key and spent by the next draw.
 let refocusAt = -1;
-let refocusTimer = null;
+let refocusTimer: ReturnType<typeof setTimeout> | undefined;
 
 const api = ose.tabs;
 const isHome = (r) => keyOf(r) === keyOf(HOME);
@@ -71,10 +78,8 @@ function tipOf(r) {
 /**
  * Open a route in a tab of its own: the one way a tab is made on purpose. A route that already
  * has a tab brings that tab forward instead of a second one. Answers whether it is on screen.
- * @param {object} route
- * @returns {Promise<boolean>}
  */
-export function openInNewTab(route) {
+export function openInNewTab(route: object): Promise<boolean> {
   if (!route) return Promise.resolve(false);
   return Promise.resolve(api.open(route))
     .then((r) => !!r && r.shown !== false, (e) => { console.error('[shell] open tab', e); return false; });
@@ -154,10 +159,11 @@ function render() {
         el.insertBefore(m, name);
       }
     }
-    const at = strip.children[i];
-    if (at !== el) strip.insertBefore(el, at || null);
+    // `strip` is checked above; nothing in this loop lets go of it.
+    const at = strip!.children[i];
+    if (at !== el) strip!.insertBefore(el, at || null);
   });
-  if (!activeDom && strip.firstElementChild) strip.firstElementChild.tabIndex = 0;
+  if (!activeDom && strip.firstElementChild instanceof HTMLElement) strip.firstElementChild.tabIndex = 0;
   if (panelEl) {
     if (activeDom && !strip.hidden) panelEl.setAttribute('aria-labelledby', activeDom);
     else panelEl.removeAttribute('aria-labelledby');
@@ -172,7 +178,7 @@ function render() {
 }
 
 /** An attribute written only when it differs: a draw that changes nothing touches nothing. */
-function setAttr(el, name, value) {
+function setAttr(el: Element | null, name: string, value: string) {
   if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
 }
 
@@ -185,7 +191,7 @@ function refocusAfterClose(at) {
 function clearRefocus() {
   refocusAt = -1;
   clearTimeout(refocusTimer);
-  refocusTimer = null;
+  refocusTimer = undefined;
 }
 
 /* ------------------------------------------------------------------ acting */
@@ -198,9 +204,8 @@ function activate(id) {
 /**
  * Close one tab. The core asks its page first: a page that cannot be saved refuses (C1, H8),
  * the answer is false, its banner says why, and nothing on the strip changes.
- * @returns {Promise<boolean>}
  */
-async function closeTab(id) {
+async function closeTab(id): Promise<boolean> {
   if (!id) return false;
   // The last tab, already empty, cannot go: the window always has one. It says so with a shake.
   const tabs = snap.tabs || [];
@@ -227,13 +232,13 @@ function nope(id) {
 // A tab dragged along the strip moves there; a file dragged from the sidebar onto the strip
 // opens in a new tab. The tab's own drag carries its id under a private type.
 const TAB_TYPE = 'application/x-ose-tab';
-let draggingTab = null;
+let draggingTab: string | null = null;
 
 /** The index a drop at `x` lands on: before the first tab whose middle is right of it. */
 function dropIndex(x) {
   const els = tabEls();
   for (let i = 0; i < els.length; i++) {
-    const r = els[i].getBoundingClientRect();
+    const r = els[i]!.getBoundingClientRect();
     if (x < r.left + r.width / 2) return i;
   }
   return els.length;
@@ -241,8 +246,8 @@ function dropIndex(x) {
 
 // While a file from the sidebar is over the title bar: a ghost tab, faint and dashed, with the
 // file's name, where the new tab will open. It follows the pointer between the tabs.
-let ghost = null;
-function showGhost(x) {
+let ghost: HTMLDivElement | null = null;
+function showGhost(x: number) {
   const paths = dragged() || [];
   if (!ghost) {
     ghost = document.createElement('div');
@@ -252,13 +257,14 @@ function showGhost(x) {
   const first = paths[0] ? baseName(paths[0]) : 'Open here';
   ghost.textContent = paths.length > 1 ? `${first} +${paths.length - 1}` : first;
   const at = tabEls()[dropIndex(x)] || null;
-  if (ghost.nextSibling !== at || ghost.parentNode !== strip) strip.insertBefore(ghost, at);
+  // Only while a drag is over the strip, which is mounted by then.
+  if (ghost.nextSibling !== at || ghost.parentNode !== strip) strip!.insertBefore(ghost, at);
 }
 function hideGhost() { if (ghost) { ghost.remove(); ghost = null; } }
 
-function wireDrag() {
+function wireDrag(strip: HTMLElement) {
   // The whole title bar takes a drop, not only the tabs: anywhere up there opens a new tab.
-  const zone = strip.closest('.titlebar') || strip;
+  const zone = strip.closest<HTMLElement>('.titlebar') || strip;
   strip.addEventListener('dragstart', (e) => {
     const el = e.target instanceof Element ? e.target.closest('.tab') : null;
     if (!(el instanceof HTMLElement) || !e.dataTransfer) return;
@@ -297,7 +303,7 @@ function wireDrag() {
     }
     if (!isInternal(dt)) return;
     e.preventDefault();
-    let paths = dragged();
+    let paths: unknown[] | null = dragged();
     if (!paths) { try { paths = JSON.parse(dt.getData(DRAG_TYPE) || '[]'); } catch { paths = []; } }
     // Where the ghost stood: the new tabs open there, in order.
     let at = dropIndex(e.clientX);
@@ -321,9 +327,9 @@ const activeTab = () => (snap.tabs || []).find((t) => t.id === snap.active) || n
 
 /* -------------------------------------------------------------- the keyboard */
 
-function tabEls() { return strip ? [...strip.querySelectorAll('.tab')] : []; }
+function tabEls(): HTMLElement[] { return strip ? [...strip.querySelectorAll<HTMLElement>('.tab')] : []; }
 
-function focusTab(el) {
+function focusTab(el: HTMLElement | null | undefined) {
   if (!el) return;
   for (const t of tabEls()) t.tabIndex = t === el ? 0 : -1;
   el.focus({ preventScroll: true });
@@ -340,7 +346,7 @@ function onKey(e) {
     // Ctrl+Shift+Arrow carries the tab along the strip: the keyboard's drag.
     e.preventDefault();
     const to = Math.max(0, Math.min(list.length - 1, at + (k === 'ArrowRight' ? 1 : -1)));
-    if (to !== at) { api.move(el.dataset.id, to); requestAnimationFrame(() => focusTab(strip.querySelector(`.tab[data-id="${CSS.escape(el.dataset.id)}"]`))); }
+    if (to !== at) { api.move(el.dataset.id, to); requestAnimationFrame(() => focusTab(strip?.querySelector<HTMLElement>(`.tab[data-id="${CSS.escape(el.dataset.id)}"]`))); }
   } else if (k === 'ArrowRight' || k === 'ArrowLeft') {
     const next = list[(at + (k === 'ArrowRight' ? 1 : -1) + list.length) % list.length];
     e.preventDefault();
@@ -363,10 +369,8 @@ function onKey(e) {
 /**
  * Build the strip into `node` and register the tab commands. `panel` is the page column, which
  * the strip names as its tabpanel. Before `ose.init`, so the first tab event is heard.
- * @param {HTMLElement} node
- * @param {HTMLElement} [panel]
  */
-export function initTabs(node, panel) {
+export function initTabs(node: HTMLElement, panel?: HTMLElement) {
   strip = node;
   panelEl = panel || null;
   strip.className = 'tabs mono';
@@ -391,7 +395,7 @@ export function initTabs(node, panel) {
     void closeTab(el.dataset.id);
   });
   strip.addEventListener('keydown', onKey);
-  wireDrag();
+  wireDrag(strip);
 
   api.on((d) => {
     snap = { tabs: (d && d.tabs) || api.list(), active: d && d.active !== undefined ? d.active : (api.active() || {}).id || null };
@@ -473,6 +477,6 @@ export function initTabs(node, panel) {
     id: 'tab.focus', title: 'Focus tabs', group: 'navigate',
     hint: 'arrows walk the strip, Enter opens, Delete closes',
     when: () => !!strip && !strip.hidden,
-    run: () => { const on = strip && (strip.querySelector('.tab.on') || strip.querySelector('.tab')); focusTab(on); },
+    run: () => { const on = strip && (strip.querySelector<HTMLElement>('.tab.on') || strip.querySelector<HTMLElement>('.tab')); focusTab(on); },
   });
 }

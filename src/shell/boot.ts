@@ -18,17 +18,17 @@
 
 import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
-import { mountShell } from './layout.js';
-import { mountVaultChooser } from './vault.js';
-import { initPageHost, loadEditor } from './page.js';
-import { initPalette } from './palette.js';
-import { initSearch } from './search.js';
-import { initSettings } from './settings.js';
-import { initHome, startSurface } from './start.js';
-import { initTabs } from './tabs.js';
-import { initFileOps } from './fileops.js';
-import { initRecover, offerRecovered } from './recover.js';
-import { showBootError } from './boot-error.js';
+import { mountShell } from './layout.ts';
+import { mountVaultChooser } from './vault.ts';
+import { initPageHost, loadEditor } from './page.ts';
+import { initPalette } from './palette.ts';
+import { initSearch } from './search.ts';
+import { initSettings } from './settings.ts';
+import { initHome, startSurface } from './start.ts';
+import { initTabs } from './tabs.ts';
+import { initFileOps } from './fileops.ts';
+import { initRecover, offerRecovered } from './recover.ts';
+import { showBootError } from './boot-error.ts';
 import KEYS from './keys.json';
 
 /** `keys.json`: the chords the shell adds over the core's window map. */
@@ -54,11 +54,8 @@ async function loadPlanner() {
   }
 }
 
-/**
- * Start the app. Called once by `main.js`; a vault change boots again through a reload.
- * @returns {Promise<void>}
- */
-export async function boot() {
+/** Start the app. Called once by `main.js`; a vault change boots again through a reload. */
+export async function boot(): Promise<void> {
   // The editor is the biggest bundle the window loads, and nothing in the core's own start
   // needs it: its download starts now and `initPageHost` waits for it below.
   void loadEditor();
@@ -82,7 +79,7 @@ export async function boot() {
     ose.settings.apply();
 
     // `#app` is in index.html.
-    const app = /** @type {HTMLElement} */ (document.getElementById('app'));
+    const app = document.getElementById('app') as HTMLElement;
     if (!ose.vault.root) {
       await mountVaultChooser(app);
       return;
