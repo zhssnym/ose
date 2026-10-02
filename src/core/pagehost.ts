@@ -43,13 +43,6 @@
 // `kind` is 'rename' | 'move' | 'trash' | 'copy'; `to` is null for a trash. Every method but
 // `open` is optional, and a missing one means "yes" or "nothing to do".
 //
-//   setFolderHost({ open(el, path, { select, scrollTop }) -> Promise<FolderHandle> })
-//   FolderHandle = { unmount(), refresh(), selection() -> string | null }
-//
-// The router treats a folder handle as it treats a view's: `unmount` is awaited on the way out,
-// `refresh` runs on a watcher change (debounced) and on `settings`, and `selection()` is
-// remembered per tab and handed back as `select` when the folder is shown again.
-//
 // Only one of each at a time; each call answers a function that removes it again.
 
 import { headingSlug } from './href.ts';
@@ -63,17 +56,6 @@ export function setPageHost(next) {
 }
 
 export function pageHost() { return host; }
-
-let folders: any = null;
-
-/** `ose.setFolderHost(host)`: whoever draws a folder route (H15). Answers the unregister. */
-export function setFolderHost(next) {
-  folders = next && typeof next.open === 'function' ? next : null;
-  const mine = folders;
-  return () => { if (folders === mine) folders = null; };
-}
-
-export function folderHost() { return folders; }
 
 /**
  * The third seam: which markdown pages the page picker and the editor's `[[` menu offer. The list belongs to whatever draws the tree — the sidebar narrows it to the focused

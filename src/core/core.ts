@@ -27,7 +27,7 @@ import { patchState, stateCache, loadState, flushState } from './state.ts';
 import { themePref, setTheme, resolvedTheme, initTheme } from './theme.ts';
 import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from './keys.ts';
 import { watch } from './watch.ts';
-import { setPageHost, setFolderHost, setPageList, pageList } from './pagehost.ts';
+import { setPageHost, setPageList, pageList } from './pagehost.ts';
 import * as tabs from './tabs.ts';
 import { local, loadLocal, flushLocal, migrateLocal } from './local.ts';
 import * as journal from './journal.ts';
@@ -696,7 +696,6 @@ export const ose = {
   /* The seams the shell fills: whoever draws a file, whoever draws a folder, and whoever knows
      the page list. All three are documented in ./pagehost.js; each is the shell's to call once. */
   setPageHost,
-  setFolderHost,
   setPageList,
 
   /**

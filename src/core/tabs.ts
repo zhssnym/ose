@@ -9,10 +9,9 @@
 // close, navigate, back — is the router's (./router.js), which changes the model here under a
 // snapshot and rolls it back when the page on screen refuses to be left (C1).
 //
-// A record is `{ id, stack: Route[], index, scroll: Map<routeKey, px>, select: Map<routeKey,
-// name> }`. The route objects in `stack` are the router's: the entry on screen is the same
-// object as the router's current route. `scroll` and `select` are per tab, so two tabs on one
-// folder remember two places in it.
+// A record is `{ id, stack: Route[], index, scroll: Map<routeKey, px> }`. The route objects in
+// `stack` are the router's: the entry on screen is the same object as the router's current
+// route. `scroll` is per tab, so two tabs on one page remember two places in it.
 
 import { bus, uid } from './registry.ts';
 import * as router from './router.ts';
@@ -21,7 +20,7 @@ import * as router from './router.ts';
 export const MAX_CLOSED = 20;
 /** How many entries one tab's history keeps. */
 export const MAX_HISTORY = 100;
-/** Scroll and selection memories kept per tab. */
+/** Scroll memories kept per tab. */
 export const MAX_MEMORY = 50;
 
 let tabs: any[] = [];          // records, in strip order
@@ -51,7 +50,6 @@ export function newRecord(route: any | null) {
     stack: route ? [route] : [],
     index: route ? 0 : -1,
     scroll: new Map(),
-    select: new Map(),
   };
 }
 
@@ -172,7 +170,7 @@ export function mapRoutes(fn) {
   }
 }
 
-/** Remember a scroll offset or a folder selection in `rec`, oldest out past MAX_MEMORY. */
+/** Remember a scroll offset in `rec`, oldest out past MAX_MEMORY. */
 export function remember(map, key, value) {
   map.delete(key);
   if (value === undefined || value === null) return;
@@ -219,11 +217,10 @@ export const homeRoute = () => home;
 
 /* ------------------------------------------------------------------------------ public */
 
-/** A route as a tab or a session names it: its identity fields, nothing spent. */
+/** A route as a tab names it: its identity fields, nothing spent. */
 export function identity(r) {
   if (!r) return null;
   if (r.type === 'page') return { type: 'page', path: r.path };
-  if (r.type === 'folder') return { type: 'folder', path: r.path };
   if (r.type === 'view') return { type: 'view', name: r.name };
   return null;
 }

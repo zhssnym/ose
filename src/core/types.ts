@@ -18,11 +18,10 @@ export interface PageRoute {
   selection?: { from: number, to: number };
 }
 
-/** A folder route: `path` '' is the vault root; `select` the child to put the selection on. */
+/** A request to show a folder in the sidebar (`path` '' is the vault root); never a history entry. */
 export interface FolderRoute {
   type: 'folder';
   path: string;
-  select?: string;
 }
 
 /** A view route: a registered view by name; `arg` what it is asked to show. */
@@ -34,16 +33,12 @@ export interface ViewRoute {
 
 export type Route = PageRoute | FolderRoute | ViewRoute;
 
-/**
- * One tab: its history (`stack`, `index` the entry on screen), and per route key the scroll
- * offset and a folder's selected child.
- */
+/** One tab: its history (`stack`, `index` the entry on screen), and per route key the scroll offset. */
 export interface TabRecord {
   id: string;
   stack: Route[];
   index: number;
   scroll: Map<string, number>;
-  select: Map<string, string | null>;
 }
 
 /** A status bar field as it is set (`ose.status.set(key, field)`, docs/CORE.md). */
@@ -131,17 +126,6 @@ export interface PageHost {
   afterPathChange?: (change: { kind: string, from: string, to: string | null, ok: boolean, rewritten?: Record<string, string> }) => Promise<unknown>;
   claims?: (path: string) => boolean;
   problems?: () => (string | { path: string })[];
-}
-
-/** The folder host the shell registers (./pagehost.js). */
-export interface FolderHost {
-  open: (el: HTMLElement, path: string, opts: { select?: string, scrollTop?: number }) => Promise<FolderHandle | null | undefined>;
-}
-
-export interface FolderHandle {
-  unmount?: () => unknown;
-  refresh?: () => void;
-  selection?: () => string | null;
 }
 
 export {};

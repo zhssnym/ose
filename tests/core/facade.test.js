@@ -96,7 +96,6 @@ describe('the wave-2 facade (CONTRACT §4)', () => {
     expect(typeof ose.names.display).toBe('function');
     expect(typeof ose.links.planRewrite).toBe('function');
     expect(typeof ose.route.setHome).toBe('function');
-    expect(typeof ose.setFolderHost).toBe('function');
   });
 
   it('the plugin runtime is gone (W2)', () => {

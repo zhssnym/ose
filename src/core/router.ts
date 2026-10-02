@@ -1,13 +1,15 @@
-// Router. Three route shapes:
+// Router. Two route shapes:
 //
 //   { type: 'page',   path, line?, col?, heading?, query?, selection? }
-//   { type: 'folder', path /* '' = the vault root */, select? }
 //   { type: 'view',   name, arg? }
+//
+// A folder is not a place of its own: `{ type: 'folder', path }` handed to navigate or
+// tabs.open is a request to show that folder in the sidebar, and it never enters a history.
 //
 // `line` is a 1-based line of the file to land on (C7): a search hit, a task row. `col` is the
 // 1-based column inside it (N36), `heading` a `#fragment` the router turns into a line before
-// the page mounts (N3), and `query` the search text the editor opens find with. `select` is the
-// name of a child a folder view puts the selection on, and `arg` what a view is asked to show
+// the page mounts (N3), and `query` the search text the editor opens find with, and `arg` what
+// a view is asked to show
 // (a settings section). None of them is part of a route's identity, and all of them are spent
 // once the route has been shown, so two routes to one page are the same page.
 //
@@ -18,9 +20,9 @@
 // comes forward is parked instead, buffer and undo kept (M12, M24).
 import { bus, store, views, commands, debounce, esc } from './registry.ts';
 import { bridge } from './bridge/index.ts';
-// The editor is a separate bundle (`ose:editor`) and the folder view is the shell's; the core
-// imports neither. The shell registers them through ./pagehost.js.
-import { pageHost, folderHost, headingLineIn } from './pagehost.ts';
+// The editor is a separate bundle (`ose:editor`); the core does not import it. The shell
+// registers it through ./pagehost.js.
+import { pageHost, headingLineIn } from './pagehost.ts';
 import { flushState } from './state.ts';
 import { local } from './local.ts';
 import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.ts';
@@ -47,7 +49,7 @@ let mainEl: HTMLElement | null = null;
 let scrollEl: HTMLElement | null = null;
 let current: any = null;       // the route on screen: the same object as its tab's entry
 let mountedTab: any = null;    // the record that route belongs to
-let mountedView: any = null;   // a view's merged handle, or a folder handle
+let mountedView: any = null;   // a view's merged handle
 let seq = 0;
 // The edit the show in flight made to its own tab (a navigate's new entry, a back or forward's
 // move), so a newer show that overtakes it can take it back: `{ my, rec, before, after, route }`.
@@ -63,19 +65,17 @@ const caretMemory = new Map();
 
 export function currentRoute() { return current; }
 
-/** 'page:<path>' | 'folder:<path>' | 'view:<name>'. */
+/** 'page:<path>' | 'view:<name>'. */
 export function routeKey(r) {
   if (!r) return '';
   if (r.type === 'page') return 'page:' + clean(r.path);
-  if (r.type === 'folder') return 'folder:' + clean(r.path);
   return 'view:' + r.name;
 }
 
-/** What a toast calls a route: the path, the folder (or `/` for the root), or the view's title. */
+/** What a toast calls a route: the path, or the view's title. */
 export function routeLabel(r) {
   if (!r) return '';
   if (r.type === 'page') return isOutside(r.path) ? outsideLabel(r.path) : clean(r.path);
-  if (r.type === 'folder') return clean(r.path) || '/';
   const v = views.get(r.name);
   return (v && v.title) || r.name;
 }
@@ -100,7 +100,6 @@ export function normalize(route: any): Route | null {
   }
   if (route.type === 'folder' && typeof route.path === 'string') {
     const r: import('./types.ts').FolderRoute = { type: 'folder', path: clean(route.path) };
-    if (typeof route.select === 'string' && route.select) r.select = route.select;
     return r;
   }
   if (route.type === 'view' && route.name) {
@@ -114,7 +113,6 @@ export function normalize(route: any): Route | null {
 /** True when a route carries something that says where *this* show lands. */
 const carriesSpent = (r) => !!r && (
   (r.type === 'page' && !!(r.line || r.heading))
-  || (r.type === 'folder' && !!r.select)
   || (r.type === 'view' && !!r.arg));
 
 /**
@@ -126,7 +124,6 @@ const carriesSpent = (r) => !!r && (
 function spend(route) {
   if (!route) return;
   if (route.type === 'page') { delete route.line; delete route.col; delete route.heading; }
-  else if (route.type === 'folder') delete route.select;
   else if (route.type === 'view') delete route.arg;
 }
 
@@ -176,7 +173,7 @@ export function initRouter(el, { start = true } = {}) {
   mainEl = el;
 
   // On close the editor's own subscriber returns its final save (and may veto); the router
-  // unmounts the view or folder on screen and then writes the state file. Returning the
+  // unmounts the view on screen and then writes the state file. Returning the
   // promise is what lets the adapter await it rather than trusting a timer.
   bridge.on('window', (d) => {
     if (d && d.closing) return unmountOnUnload().then(flushState);
@@ -187,8 +184,7 @@ export function initRouter(el, { start = true } = {}) {
   // where nothing can be awaited, so the unmount's synchronous half is what banks.
   window.addEventListener('pagehide', () => { void unmountOnUnload().then(flushState); });
 
-  // A view or a folder re-reads what it shows after the watcher says something changed, and a
-  // folder after a setting changed (Show hidden, `.md` in names).
+  // A view re-reads what it shows after the watcher says something changed.
   const refresh = debounce(() => {
     if (mountedView && typeof mountedView.refresh === 'function') {
       try { mountedView.refresh(); } catch (e) { console.error('[router] refresh', e); }
@@ -196,12 +192,10 @@ export function initRouter(el, { start = true } = {}) {
   }, 300);
   bus.on('fs', refresh);
   bus.on('settings', () => {
-    if (current && current.type === 'folder') refresh();
     if (current) setWindowTitle(current);
   });
 
-  // A trashed file or folder: every tab showing it, or something under it, shows the folder
-  // that held it instead, with the selection where it was (4.3 "Trash follow-up").
+  // A trashed file or folder: every tab showing it, or something under it, goes Home.
   bus.on('paths:trashed', (d) => { void followTrash(d && Array.isArray(d.paths) ? d.paths : []); });
 
   // Mouse buttons 4 and 5 are back and forward everywhere else on Windows, and the webview
@@ -232,7 +226,7 @@ export function initRouter(el, { start = true } = {}) {
 
 /**
  * Where typing should go once something is on the page column: the editor body, else the
- * title, else a view's or a folder's root, else the first recent row of the empty surface.
+ * title, else a view's root, else the first recent row of the empty surface.
  * Every open path ends here, so the user is never left having to click before typing (B3).
  * `preventScroll` because the scroll position has just been put back and a focus jump would
  * undo it.
@@ -264,18 +258,13 @@ function settleFocus(scroll) {
 }
 
 /**
- * The route on screen is about to go: its scroll offset goes into its tab's memory, a folder's
- * selection too, and a page's caret into the caret memory.
+ * The route on screen is about to go: its scroll offset goes into its tab's memory, and a
+ * page's caret into the caret memory.
  */
 function rememberScroll() {
   if (!current || !mountedTab) return;
   const key = routeKey(current);
   if (scrollEl) T.remember(mountedTab.scroll, key, scrollEl.scrollTop);
-  if (current.type === 'folder' && mountedView && typeof mountedView.selection === 'function') {
-    let sel: any = null;
-    try { sel = mountedView.selection(); } catch (e) { console.warn('[router] folder selection', e); }
-    T.remember(mountedTab.select, key, typeof sel === 'string' && sel ? sel : null);
-  }
   const host = pageHost();
   if (current.type !== 'page' || !host || typeof host.selection !== 'function') return;
   let sel: any = null;
@@ -286,7 +275,7 @@ function rememberScroll() {
 }
 
 /**
- * Put the scroll back after the editor, the folder or the view has mounted. One frame later,
+ * Put the scroll back after the editor or the view has mounted. One frame later,
  * because a view lays itself out on mount and the editor's node views settle after `open`
  * resolves; the height has to exist before scrollTop can take it (C16).
  */
@@ -508,40 +497,6 @@ async function mountPage(scroll, route, my) {
   }
 }
 
-/** Mount a folder route through the shell's folder host (H15). */
-async function renderFolder(scroll, route, my, rec) {
-  const fh = folderHost();
-  if (!fh) {
-    scroll.appendChild(emptyState(`
-      <div class="miss">
-        <div class="miss-title">No folder view</div>
-        <div class="miss-path mono">${esc(route.path || '/')}</div>
-      </div>`));
-    return;
-  }
-  const el = document.createElement('div');
-  el.className = 'page-host folder-host';
-  scroll.appendChild(el);
-  const key = routeKey(route);
-  try {
-    const handle = await fh.open(el, route.path, {
-      select: route.select || (rec && rec.select.get(key)) || undefined,
-      scrollTop: (rec && rec.scroll.get(key)) || 0,
-    });
-    if (my !== seq) {
-      // Superseded while it opened: nobody will ever unmount it but us.
-      if (handle && typeof handle.unmount === 'function') { try { await handle.unmount(); } catch (e) { console.error('[router] folder unmount', e); } }
-      return;
-    }
-    mountedView = handle && typeof handle === 'object' ? handle : null;
-  } catch (err) {
-    const e = (err as { code?: string, message?: string });
-    console.error('[router] folder open', route.path, e);
-    if (my !== seq) return;
-    scroll.appendChild(emptyState(`<div class="miss"><div class="miss-title">Could not show this folder</div><div class="miss-path mono">${esc(e.message || e)}</div></div>`));
-  }
-}
-
 async function renderView(scroll, route, my) {
   const v = views.get(route.name);
   if (!v) {
@@ -618,8 +573,7 @@ async function renderStart(scroll, my, opts) {
 }
 
 /**
- * The window title (S13, W8): `<file name> · <vault>`, `<folder name> · <vault>` (the vault's
- * name at the root), `<view title> · <vault>`, or the vault's name alone on the empty surface.
+ * The window title (S13, W8): `<file name> · <vault>`, `<view title> · <vault>`, or the vault's name alone on the empty surface.
  * A page is named by its file, never by its H1 (M13).
  */
 function setWindowTitle(route) {
@@ -630,8 +584,6 @@ function setWindowTitle(route) {
     text = `${display(route.path)} — outside vault`;
   } else if (route && route.type === 'page') {
     text = `${display(route.path)} · ${vault}`;
-  } else if (route && route.type === 'folder') {
-    text = `${route.path ? baseName(route.path) : vault} · ${vault}`;
   } else if (route && route.type === 'view') {
     const v = views.get(route.name);
     text = `${(v && v.title) || route.name} · ${vault}`;
@@ -822,8 +774,6 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
   if (next.type === 'page') {
     pushRecent(next.path);
     await renderPage(scroll, next, my);
-  } else if (next.type === 'folder') {
-    await renderFolder(scroll, next, my, tab);
   } else {
     await renderView(scroll, next, my);
   }
@@ -839,6 +789,14 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
 /* -------------------------------------------------------------------- navigating in a tab */
 
 /**
+ * A folder is not a place of its own: the sidebar is where folders are. Asking for one shows it
+ * there, unfolded and selected, and the page on screen stays.
+ */
+function revealFolder(path: string) {
+  bus.emit('tree:reveal', { path, focus: true, open: true });
+}
+
+/**
  * `ose.route.navigate(route, { replace, force, focus, tab })` -> Promise<boolean>. Pushes onto
  * the active tab's history (M23). `tab`: 'current' (the default), 'new' (a tab of its own, as
  * `tabs.open(route, { reuse: false })`), or a tab id, which is brought forward and navigated.
@@ -849,12 +807,7 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
 export function navigate(route, opts: any = {}) {
   const r = normalize(route);
   if (!r) return Promise.resolve(false);
-  // A folder is not a place of its own: the sidebar is where folders are. Going to one shows it
-  // there, unfolded and selected, and the page on screen stays.
-  if (r.type === 'folder') {
-    bus.emit('tree:reveal', { path: r.path, focus: true, open: true });
-    return Promise.resolve(false);
-  }
+  if (r.type === 'folder') { revealFolder(r.path); return Promise.resolve(false); }
   const where = opts.tab;
   if (where === 'new') return openTab(r, { reuse: false, focus: opts.focus }).then((x) => x.shown);
   if (where && where !== 'current') {
@@ -901,8 +854,7 @@ export function navigate(route, opts: any = {}) {
       return shown;
     })();
   }
-  // The same folder with a child to select, or the same view with an argument: shown again in
-  // place of the entry, so the selection or the section lands.
+  // The same view with an argument: shown again in place of the entry, so the section lands.
   if (same && !opts.force && carriesSpent(r)) {
     T.beginChange();
     rec.stack[rec.index] = r;
@@ -980,6 +932,7 @@ function onlyHome(rec) {
 export async function openTab(route: unknown, { activate = true, index, reuse = true, focus }: { activate?: boolean; index?: number; reuse?: boolean; focus?: boolean; } = {}): Promise<{ id: string | null; shown: boolean; }> {
   const r = normalize(route);
   if (!r) return { id: null, shown: false };
+  if (r.type === 'folder') { revealFolder(r.path); return { id: null, shown: false }; }
   if (reuse) {
     const key = routeKey(r);
     const hit = T.records().find((rec) => routeKey(T.currentOf(rec)) === key);
@@ -1112,7 +1065,7 @@ function mapPath(path, moves) {
 function mapKey(key, moves) {
   const at = key.indexOf(':');
   const kind = key.slice(0, at);
-  if (kind !== 'page' && kind !== 'folder') return key;
+  if (kind !== 'page') return key;
   const next = mapPath(key.slice(at + 1), moves);
   return next === null ? key : `${kind}:${next}`;
 }
@@ -1125,13 +1078,13 @@ function rekey(map, moves) {
 }
 
 /**
- * A file or a folder moved on disk and the page that shows it followed it (C6): every page and
- * folder route at `from`, or under `from/`, now says `to` — in every tab, its whole history,
+ * A file or a folder moved on disk and the page that shows it followed it (C6): every page
+ * route at `from`, or under `from/`, now says `to` — in every tab, its whole history,
  * the closed tabs and a pending snapshot. Nothing is unmounted and nothing is mounted, so the
  * editor keeps its buffer and its undo history, and no `route` event goes out;
  * `route:repointed` `{ moves, current }` and `tabs` do.
  *
- * Also updates the recent list, the scroll, selection and caret memories, the store's `route`
+ * Also updates the recent list, the scroll and caret memories, the store's `route`
  * and the window title.
  */
 export function repoint(moves: Array<{ from: string; to: string; }>) {
@@ -1144,7 +1097,7 @@ export function repoint(moves: Array<{ from: string; to: string; }>) {
   // holds the routes it shows) stays the same object after.
   const seen = new Map();
   const remap = (r) => {
-    if (!r || (r.type !== 'page' && r.type !== 'folder')) return r;
+    if (!r || r.type !== 'page') return r;
     if (seen.has(r)) return seen.get(r);
     const to = r.path ? mapPath(r.path, list) : null;
     const next = to === null ? r : { ...r, path: to };
@@ -1157,7 +1110,6 @@ export function repoint(moves: Array<{ from: string; to: string; }>) {
   T.mapRoutes(remap);
   for (const rec of [...T.records(), ...T.closedRecords().map((e) => e.rec)]) {
     rekey(rec.scroll, list);
-    rekey(rec.select, list);
   }
   rekey(caretMemory, list);
 
@@ -1178,8 +1130,8 @@ export function repoint(moves: Array<{ from: string; to: string; }>) {
 }
 
 /**
- * After a trash (4.3): every tab whose current entry is at or under a trashed path shows the
- * folder that held it, with that name selected. History entries are left alone. A background
+ * After a trash (4.3): every tab whose current entry is at or under a trashed path goes Home.
+ * History entries are left alone. A background
  * tab's parked page is released (the editor has marked it clean: nothing is written); the
  * active tab is shown again, and a page that still refuses keeps its entry.
  */
@@ -1187,11 +1139,11 @@ async function followTrash(paths) {
   const gone = paths.map(clean).filter(Boolean);
   if (!gone.length) return;
   const hit = (r) => {
-    if (!r || (r.type !== 'page' && r.type !== 'folder') || !r.path) return null;
+    if (!r || r.type !== 'page' || !r.path) return null;
     const p = clean(r.path);
     return gone.find((g) => p === g || p.startsWith(g + '/')) || null;
   };
-  let activeHit: { rec: any; to: { type: string; path: string; select: string; }; } | null = null;
+  let activeHit: { rec: any; to: Route; } | null = null;
   let changed = false;
   for (const rec of T.records()) {
     const r = T.currentOf(rec);
