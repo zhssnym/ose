@@ -24,7 +24,7 @@ import { ose } from 'ose:core';
 import { toast } from 'ose:ui';
 import { allPages } from './sidebar.js';
 import { clean } from './paths.js';
-import { isMediaFile, mediaPage, mediaMissingPage, binaryPage } from './media.js';
+import { isMediaFile, mediaMissingPage, binaryPage } from './media.js';
 
 let editorLoad = null;
 let editor = null;
@@ -67,8 +67,8 @@ async function isText(path) {
 
 /** The page host (docs/SHELL.md "The page seam"). Every method but `open` is optional to the router. */
 const host = {
-  // A PDF and an image are drawn by `media.js`; a file whose bytes are not text by
-  // `binaryPage`; everything else by `markdownPage`, which reattaches a parked instance of the
+  // A picture, a PDF or any file whose bytes are not text gets `binaryPage`, the card with the
+  // ways out; everything else `markdownPage`, which reattaches a parked instance of the
   // same file when there is one. All three answer the same handle, so the calls below do not
   // know which they are holding.
   async open(el, path, opts) {
@@ -78,7 +78,7 @@ const host = {
       // the stat is ours: a missing file gets our box, never the core's "Create it".
       let there = true;
       try { there = !!(await ose.files.exists(path)); } catch { there = true; }
-      page = there ? mediaPage(el, path) : mediaMissingPage(el, path);
+      page = there ? binaryPage(el, path) : mediaMissingPage(el, path);
       return page.ready;
     }
     if (!(await isText(path))) {

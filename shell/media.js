@@ -30,7 +30,7 @@
 
 import { ose } from 'ose:core';
 import { icon, toast, esc } from 'ose:ui';
-import { baseName, dirName, extOf, isOutside, outsideLabel } from './paths.js';
+import { baseName, extOf, isOutside, outsideLabel } from './paths.js';
 import { typeLabel, sizeLabel, dateLabel } from './folder-model.js';
 
 /** The extensions this file claims. `page.js` asks; nothing else needs to know. */
@@ -48,15 +48,6 @@ function addStyles() {
   sheet.rel = 'stylesheet';
   sheet.href = new URL('./media.css', import.meta.url).href;
   document.head.appendChild(sheet);
-}
-
-/** `412 KB`, `1.2 MB` — the status bar's voice, not a table's. */
-function sizeText(bytes) {
-  const n = Number(bytes);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -77,318 +68,6 @@ export function mediaMiss(box, path) {
         <div class="miss-path mono">${esc(outsideLabel(path))}</div>
         <div class="media-gone mono">nothing here can create a ${esc(extOf(path))} · put the file back, or fix the link that pointed at it</div>`;
   return true;
-}
-
-/**
- * Is what the vault origin serves for this path actually a PDF?
- *
- * An `<iframe>` fires no `error` for a payload it cannot parse — it loads the web view's own
- * viewer, which then draws its own modal in its own language and colours over our page (QA-5
- * finding 13). So the bytes are asked for first, one chunk, and the reader is cancelled the
- * moment it answers: `%PDF-` must be in the first kilobyte, which is where the format says it
- * is and where every viewer looks for it.
- *
- * `connect-src` already names the vault origin in the host's CSP, so this costs one request
- * and no permission anywhere.
- * On anything unexpected it answers `true`: the frame is still the better guess than our own
- * error line, and a viewer that disagrees will say so.
- */
-async function looksLikePdf(url) {
-  try {
-    const r = await fetch(url, { headers: { Range: 'bytes=0-1023' } });
-    if (!r.ok && r.status !== 206) return false;
-    const type = (r.headers.get('content-type') || '').toLowerCase();
-    if (type && !type.startsWith('application/pdf')) return false;
-    if (!r.body || !r.body.getReader) return true;
-    const reader = r.body.getReader();
-    const first = await reader.read();
-    try { await reader.cancel(); } catch { /* the body is already done */ }
-    const bytes = first && first.value ? first.value.subarray(0, 1024) : null;
-    if (!bytes || !bytes.length) return false;
-    let text = '';
-    for (const b of bytes) text += String.fromCharCode(b);
-    return text.includes('%PDF-');
-  } catch (e) {
-    console.warn('[media] could not read the head of', url, e);
-    return true;
-  }
-}
-
-/**
- * Mount a media page into `el`.
- *
- * @param {HTMLElement} el   the router's `.page-host`
- * @param {string} path      a vault path, already known to exist
- * @returns a page-host handle: { path, kind, ready, focus, close, goToLine, selection }
- */
-export function mediaPage(el, path) {
-  addStyles();
-
-  let closed = false;
-  const kind = isPdfFile(path) ? 'pdf' : 'image';
-  const name = baseName(path);
-
-  const root = document.createElement('div');
-  root.className = 'media-page';
-  root.dataset.kind = kind;
-
-  // ---- the header: the name, then the actions, on one 32px line (docs/DESIGN.md).
-  const head = document.createElement('div');
-  head.className = 'media-head';
-  const title = document.createElement('span');
-  title.className = 'media-name grow mono';
-  title.textContent = name;
-  title.title = outsideLabel(path);
-  head.appendChild(title);
-
-  /**
-   * The way out of the viewer, and the only control here that comes and goes: it is shown
-   * exactly while the frame holds the keyboard, because that is the one moment the app's own
-   * chords do not work and the user needs to be told what does (QA-5 finding 5).
-   */
-  let leaveBtn = null;
-  if (kind === 'pdf') {
-    leaveBtn = document.createElement('button');
-    leaveBtn.type = 'button';
-    leaveBtn.className = 'btn sm media-leave';
-    leaveBtn.hidden = true;
-    leaveBtn.textContent = 'leave the viewer';
-    leaveBtn.title = 'the PDF viewer has the keyboard; Shift+Tab does this too';
-    leaveBtn.addEventListener('click', () => leaveFrame());
-    head.appendChild(leaveBtn);
-  }
-
-  /** The fit / actual toggle, images only. Fitted is the state a page opens in. */
-  let fitted = true;
-  let zoomBtn = null;
-  if (kind === 'image') {
-    zoomBtn = document.createElement('button');
-    zoomBtn.type = 'button';
-    zoomBtn.className = 'btn sm';
-    zoomBtn.addEventListener('click', () => setFit(!fitted));
-    head.appendChild(zoomBtn);
-  }
-
-  const openBtn = document.createElement('button');
-  openBtn.type = 'button';
-  openBtn.className = 'btn sm';
-  openBtn.innerHTML = `${icon('reveal')}<span>open with default app</span>`;
-  // N10: a host that refuses (an executable, a path outside the vault) says so out loud.
-  openBtn.addEventListener('click', () => {
-    ose.files.open(path).catch((err) => toast(err.message || String(err), 'err'));
-  });
-  head.appendChild(openBtn);
-  // The file selected in Explorer, Finder or the file manager.
-  const revealBtn = document.createElement('button');
-  revealBtn.type = 'button';
-  revealBtn.className = 'btn sm';
-  revealBtn.innerHTML = `${icon('folder')}<span>show in ${esc(ose.files.fileManager())}</span>`;
-  revealBtn.addEventListener('click', () => {
-    ose.files.reveal(path).catch((err) => toast(err.message || String(err), 'err'));
-  });
-  head.appendChild(revealBtn);
-  // A click on the header — the name, the gap, anywhere that is not one of the buttons — is
-  // also a way back out of the frame, because it is the nearest thing to "click off it".
-  head.addEventListener('mousedown', (e) => {
-    if (e.target instanceof Element && e.target.closest('button')) return;
-    e.preventDefault();
-    leaveFrame();
-  });
-  root.appendChild(head);
-
-  // ---- the body: one frame, or one picture.
-  const body = document.createElement('div');
-  body.className = 'media-body';
-  root.appendChild(body);
-
-  let frame = null;
-  let img = null;
-  let zoomWrap = null;
-  const src = ose.files.assetUrl(path);
-
-  if (kind === 'pdf') {
-    frame = document.createElement('iframe');
-    frame.className = 'media-frame';
-    frame.title = name;
-    // No `sandbox`: the built-in viewer is the web view's own document, and a sandbox without
-    // `allow-scripts` stops it drawing at all. The CSP is what bounds this frame, and it lets
-    // the vault origin and nothing else in.
-    frame.setAttribute('referrerpolicy', 'no-referrer');
-    // Out of the tab sequence: the keyboard must never land in a document where none of the
-    // app's chords reach (QA-5 finding 5). `src` is set below, once the bytes have answered.
-    frame.tabIndex = -1;
-    body.appendChild(frame);
-  } else {
-    zoomWrap = document.createElement('button');
-    zoomWrap.type = 'button';
-    zoomWrap.className = 'media-zoom';
-    zoomWrap.addEventListener('click', () => setFit(!fitted));
-    img = document.createElement('img');
-    img.className = 'media-img';
-    img.alt = name;
-    img.decoding = 'async';
-    img.src = src;
-    zoomWrap.appendChild(img);
-    body.appendChild(zoomWrap);
-  }
-
-  const missing = document.createElement('div');
-  missing.className = 'media-miss empty mono';
-  missing.hidden = true;
-  body.appendChild(missing);
-
-  /**
-   * Fit caps the picture to the column; actual size draws it at its own pixels and lets the
-   * body scroll. An image smaller than the column looks the same either way, so the toggle
-   * stays and simply does nothing visible — one rule, no special case.
-   */
-  function setFit(next) {
-    fitted = !!next;
-    root.dataset.fit = fitted ? 'fit' : 'actual';
-    if (!zoomBtn) return;
-    zoomBtn.textContent = fitted ? 'actual size' : 'fit';
-    zoomBtn.title = fitted ? 'draw the image at its own size' : 'cap the image to the column';
-    if (zoomWrap) zoomWrap.title = zoomBtn.title;
-  }
-  setFit(true);
-
-  // ---- the frame and the keyboard ------------------------------------------------------
-  //
-  // While the frame has focus the window is blurred and every chord the app binds is the
-  // viewer's, not ours. We cannot see into it and we must not steal focus back mid-scroll, so
-  // the page does the two things it can: it says so, and it offers one press and one click
-  // that end it.
-
-  /** Focus back on the page itself, which is where the app's keys work again. */
-  function leaveFrame() {
-    if (closed) return;
-    root.focus({ preventScroll: true });
-    setFrameFocus(false);
-  }
-
-  function setFrameFocus(inFrame) {
-    if (closed) return;
-    root.dataset.frame = inFrame ? 'in' : 'out';
-    if (leaveBtn) leaveBtn.hidden = !inFrame;
-  }
-  setFrameFocus(false);
-
-  // The window blurs when the frame takes the keyboard, and `document.activeElement` is the
-  // iframe element itself — the one thing about the frame this document can still see.
-  const onWindowBlur = () => {
-    if (closed || !frame) return;
-    if (document.activeElement === frame) setFrameFocus(true);
-  };
-  // Anything focused back in our own document means the frame let go.
-  const onFocusIn = () => { if (!closed && document.activeElement !== frame) setFrameFocus(false); };
-  window.addEventListener('blur', onWindowBlur);
-  document.addEventListener('focusin', onFocusIn);
-
-  // Esc inside the page (on a header button, or on the page itself) lands focus back on the
-  // column, the same "one step out" Esc means everywhere else. It cannot reach the frame —
-  // nothing can — which is what the `leave the viewer` button and Shift+Tab are for.
-  root.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
-    if (document.activeElement === root) return;
-    e.preventDefault();
-    root.focus({ preventScroll: true });
-  });
-
-  // ---- the status bar: one line about the file. The editor's fields are its own and are
-  // already cleared by the close that preceded this mount. The path is the title bar's.
-  function status(field, text) { try { ose.status.set(field, text); } catch { /* no bar */ } }
-
-  let docTail = '';
-  const ready = (async () => {
-    let size = 0;
-    try { size = (await ose.files.stat(path)).size || 0; } catch { size = 0; }
-    if (closed) return;
-    const tail = sizeText(size);
-    docTail = tail;
-    if (kind === 'pdf') {
-      status('doc', tail ? `pdf · ${tail}` : 'pdf');
-      // The bytes decide whether the viewer is asked at all. Until they answer the frame has
-      // no `src`, so the web view never gets the chance to draw its own error over the page.
-      const ok = await looksLikePdf(src);
-      if (closed || !frame) return;
-      if (ok) frame.src = src;
-      else failed(frame, 'is not a PDF');
-    } else {
-      // The placeholder first, then the pixels: the other way round, an image the browser had
-      // already decoded had its dimensions written and immediately overwritten (QA-5 finding 8).
-      status('doc', tail ? `image · ${tail}` : 'image');
-      const say = () => {
-        if (closed) return;
-        const dims = img && img.naturalWidth ? `${img.naturalWidth} × ${img.naturalHeight}` : '';
-        status('doc', [dims, tail].filter(Boolean).join(' · ') || 'image');
-      };
-      if (img && img.complete && img.naturalWidth) say();
-      else if (img) img.addEventListener('load', say, { once: true });
-    }
-  })();
-
-  // A file that will not draw says so where the page is, in the page's own voice and the
-  // page's own colours: a moved file, an image with a broken byte, a `.pdf` that is not one.
-  function failed(what, why) {
-    if (closed) return;
-    missing.hidden = false;
-    missing.textContent = `${name} could not be drawn here · try open with default app`;
-    if (what) what.classList.add('media-dead');
-    if (leaveBtn) leaveBtn.hidden = true;
-    const said = [kind, docTail, why].filter(Boolean).join(' · ');
-    status('doc', said ? `${said} · could not be drawn` : 'could not be drawn');
-  }
-  if (img) img.addEventListener('error', () => failed(zoomWrap, null), { once: true });
-
-  // The router's `.page-host` is `min-height: 100%`, which is tall enough but not a *definite*
-  // height, so a percentage height inside it would collapse. One class while the page is
-  // mounted, taken away on close, and the frame can fill the column (media.css).
-  el.classList.add('media-host');
-  el.appendChild(root);
-  // Focusable but not in the tab order: the header buttons are the tab stops, and this is what
-  // the arrow keys scroll, exactly as a markdown page leaves the column. The router's
-  // `settleFocus` lands here, never in the frame.
-  root.tabIndex = -1;
-
-  return {
-    path: () => path,
-    kind,
-    media: true,
-    get ready() { return ready; },
-    focus: () => root.focus({ preventScroll: true }),
-    // Nothing here is ever unsaved, so the page is always free to go (docs/SHELL.md "The page
-    // seam"): the same three answers the editor gives, with nothing behind them.
-    canLeave: async () => true,
-    stay() {},
-    /**
-     * Let go of the file without tearing the page down: a rename, a move or a trash of it is
-     * about to happen, and a PDF viewer left attached keeps the file open on Windows, where
-     * the host call would then fail. The page host mounts it again afterwards, at whichever
-     * path the file ended up at.
-     */
-    release() {
-      if (frame) frame.removeAttribute('src');
-      if (img) img.removeAttribute('src');
-    },
-    async close() {
-      if (closed) return true;
-      closed = true;
-      window.removeEventListener('blur', onWindowBlur);
-      document.removeEventListener('focusin', onFocusIn);
-      // Drop the frame before the node goes: a PDF viewer left attached keeps the file open
-      // on Windows, and the next rename of it would fail.
-      if (frame) { frame.removeAttribute('src'); frame.remove(); frame = null; }
-      if (img) { img.removeAttribute('src'); img.remove(); img = null; }
-      root.remove();
-      el.classList.remove('media-host');
-      status('doc', null);
-      return true;
-    },
-    // No lines, no caret: the page host contract says a host may answer "not me", and the
-    // router then scrolls the column instead of jumping inside the page.
-    goToLine: () => false,
-    selection: () => null,
-  };
 }
 
 /**
@@ -429,11 +108,10 @@ export function mediaMissingPage(el, path) {
 }
 
 /**
- * A file that is not text and that the app cannot draw: a spreadsheet, an archive, a font.
- * It still opens in the app (H17) — as a box that says what it is (name, type, size, when it
- * changed) and the three ways out: the platform's own app for it, its folder in the app, and
- * its folder in the platform's file manager. Nothing reads its bytes. It answers the same
- * handle as a media page.
+ * A file that is not text: a picture, a PDF, a spreadsheet, an archive. It still opens in the
+ * app (H17), as a box that says what it is (name, type, size, when it changed) and the ways out:
+ * the platform's own app for it, and its folder in the platform's file manager. Nothing reads
+ * its bytes.
  *
  * @param {HTMLElement} el   the router's `.page-host`
  * @param {string} path      a vault path that exists and is not text
@@ -457,7 +135,7 @@ export function binaryPage(el, path) {
         <dt>Size</dt><dd class="binary-size mono">…</dd>
         <dt>Modified</dt><dd class="binary-date">…</dd>
       </dl>
-      <p class="binary-why">This file is not text, so it is not shown here.</p>
+      <p class="binary-why">Ose shows text files. This one opens in its own app.</p>
       <div class="binary-actions"></div>
     </div>`;
   // Drawn just above.
@@ -477,10 +155,9 @@ export function binaryPage(el, path) {
     return b;
   };
   const first = button('Open with default app', 'reveal', () => ose.files.open(path), true);
-  // A file outside the vault (X7) has no folder in the app: the copy into it is the way in.
+  // A file outside the vault (X7): the copy into it is the way in.
   if (isOutside(path)) button('Copy into the vault…', 'copy', () => ose.commands.run('file.copy-into-vault', path));
-  else button('Show in folder', 'folder', () => ose.route.navigate({ type: 'folder', path: dirName(path), select: name }));
-  button(`Show in ${ose.files.fileManager()}`, 'folder', () => ose.files.reveal(path));
+  button('Open containing folder', 'folder', () => ose.files.reveal(path));
 
   el.appendChild(col);
 

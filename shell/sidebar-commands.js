@@ -228,7 +228,7 @@ const TREE_COMMANDS = [
     applies: (t) => !!t.path && t.kind !== 'dir', run: (t) => openWith(t.path) },
   // Every row, folders included: selected in Explorer, Finder or the file manager. The title is
   // the platform's, read when the commands are registered, after the host has said which.
-  { id: 'tree.reveal', get title() { return `Show in ${ose.files.fileManager()}`; }, icon: 'folder', group: 'tree',
+  { id: 'tree.reveal', title: 'Open containing folder', icon: 'folder', group: 'tree',
     applies: (t) => !!t.path, run: (t) => revealIn(t.path) },
   // Search, already narrowed to the folder (N38).
   { id: 'tree.search-here', title: 'Search in folder', icon: 'search', group: 'tree',

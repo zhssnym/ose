@@ -137,7 +137,7 @@ export function log(text: unknown, level: 'error' | 'warn' | 'info' | 'debug' = 
 }
 
 /** `Show in Explorer`, `Show in Finder` or `Show in the file manager`: the reveal's title. */
-export const revealTitle = () => `Show in ${ose.files.fileManager()}`;
+export const revealTitle = () => 'Open containing folder';
 
 /** The chord a command answers to, as the menus print it. The key engine is the core's. */
 export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
