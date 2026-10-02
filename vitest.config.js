@@ -5,7 +5,7 @@
 // Node host, the vault resolution and the shell root with it; none of that belongs in a test,
 // and no test ever reads a vault (tests/fixtures holds the corpus).
 //
-// `ose:planner` is the real entry (src/planner): the planner tests import its pure modules by
+// `ose:views` is the real entry (src/views): the views tests import its pure modules by
 // path, and a test that wants the entry wants the real one.
 //
 // The core's three library specifiers resolve to small stubs: the editor sources import
@@ -31,7 +31,7 @@ export default defineConfig({
     alias: [
       { find: /^ose:core$/, replacement: here('tests/stubs/core.js') },
       { find: /^ose:ui$/, replacement: here('tests/stubs/ui.js') },
-      { find: /^ose:planner$/, replacement: here('src/planner/index.ts') },
+      { find: /^ose:views$/, replacement: here('src/views/index.ts') },
       { find: /^@milkdown\/crepe$/, replacement: here('tests/stubs/crepe.js') },
       { find: /^.+\.css(\?.*)?$/, replacement: here('tests/stubs/empty.js') },
     ],

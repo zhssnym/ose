@@ -10,10 +10,10 @@
 import { esc, loadingLine, toast } from 'ose:ui';
 import {
   blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays,
-} from './dates.ts';
-import { lanes, parseTimetable, TIMETABLE } from './timetable.ts';
-import { bindLinks, detectedHtml, goneHtml, missingHtml } from './nav.ts';
-import { q1Of } from './settings.ts';
+} from '../shared/dates.ts';
+import { lanes, parseTimetable, TIMETABLE } from '../shared/timetable.ts';
+import { bindLinks, detectedHtml, goneHtml, missingHtml } from '../shared/nav.ts';
+import { q1Of } from '../shared/settings.ts';
 
 const { START, END, HOUR_H, WORK_KINDS } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;

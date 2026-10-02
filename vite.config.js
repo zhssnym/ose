@@ -9,17 +9,17 @@
 //                     verbatim beside them.
 //
 //   dist/index.html  dist/main.js  dist/boot.js  ...          the shell, copied from shell/
-//   dist/ose/core.js  editor.js  planner.js  ui.js  chunks/  the four bundles the import map names
-//   dist/ose/ui.css  editor.css  planner.css                   the three stylesheets the shell links
+//   dist/ose/core.js  editor.js  views.js  ui.js  chunks/  the four bundles the import map names
+//   dist/ose/ui.css  editor.css  views.css                   the three stylesheets the shell links
 //
 // The bundles are libraries, not an app build: the entry file names are part of the contract
 // (the import map in shell/index.html spells them literally), so nothing but the chunks is
 // hashed. Who imports whom: `ose:core` is the base and bundles everything with state in it
 // (the registries, the bridge, the router, the tabs, the key engine, the dialogs: one overlay
 // stack in a running Ose, not two). `ose:ui` is a facade that names those again from
-// `ose:core`; `ose:editor` imports `ose:core` and `ose:ui`; `ose:planner` imports `ose:ui`
+// `ose:core`; `ose:editor` imports `ose:core` and `ose:ui`; `ose:views` imports `ose:ui`
 // and, lazily, `ose:editor`, and is handed `ose` by the shell. So every `ose:*` specifier is
-// external in every bundle, and nothing is bundled twice. date-fns is bundled into planner.js,
+// external in every bundle, and nothing is bundled twice. date-fns is bundled into views.js,
 // tree-shaken to what the planner uses.
 //
 // The tests (vitest.config.js) stand alone and do not load this file.
@@ -38,7 +38,7 @@ const ALIAS = {
   'ose:core': here('src/core/core.ts'),
   'ose:ui': here('src/ui/index.ts'),
   'ose:editor': here('src/editor/lib.ts'),
-  'ose:planner': here('src/planner/index.ts'),
+  'ose:views': here('src/views/index.ts'),
 };
 
 // See src/editor/katex-absent.ts: Crepe's unused Latex feature would drag KaTeX in.
@@ -49,7 +49,7 @@ const ENTRIES = {
   core: here('src/core/core.ts'),
   ui: here('src/ui/index.ts'),
   editor: here('src/editor/lib.ts'),
-  planner: here('src/planner/index.ts'),
+  views: here('src/views/index.ts'),
   'ui.css': here('src/ui/ui.css'),
 };
 
@@ -103,9 +103,9 @@ function shellIntoTheBuild() {
 /* ------------------------------------------------------------------------- the dev server */
 
 // The three core stylesheets, at the paths the shell's links name: `/ose/ui.css`,
-// `/ose/editor.css` and `/ose/planner.css` (shell/index.html). Vite's SPA fallback would answer
+// `/ose/editor.css` and `/ose/views.css` (shell/index.html). Vite's SPA fallback would answer
 // the page for any unknown path, so the three are answered here as text/css: ui.css and
-// planner.css from their sources with their relative `@import`s inlined, editor.css as a list of
+// views.css from their sources with their relative `@import`s inlined, editor.css as a list of
 // `@import`s of every stylesheet the editor's modules import, in the order they run, each one
 // through Vite's own CSS pipeline (`?direct`, which resolves bare `@import`s and answers the
 // stylesheet itself). The editor's JS injects the same rules in dev anyway, so the link only has
@@ -143,7 +143,7 @@ function kernelStylesheets() {
   };
   const sheet = async (name) => {
     if (name === 'ui.css') return inlineImports(readFileSync(here('src/ui/ui.css'), 'utf8'), 'src/ui/');
-    if (name === 'planner.css') return inlineImports(readFileSync(here('src/planner/planner.css'), 'utf8'), 'src/planner/');
+    if (name === 'views.css') return inlineImports(readFileSync(here('src/views/views.css'), 'utf8'), 'src/views/');
     if (name === 'editor.css') return editorSheets();
     return null;
   };
@@ -185,7 +185,7 @@ export default defineConfig(({ command }) => {
       // the first page opened, where the late optimisation reloads the window under the user
       // (and under a no-loss scenario).
       optimizeDeps: {
-        entries: ['index.html', '../src/editor/lib.ts', '../src/planner/index.ts'],
+        entries: ['index.html', '../src/editor/lib.ts', '../src/views/index.ts'],
       },
       server: {
         port: 5173,
@@ -233,7 +233,7 @@ export default defineConfig(({ command }) => {
           format: 'es',
           entryFileNames: `${BUNDLES}/[name].js`,
           chunkFileNames: `${BUNDLES}/chunks/[name]-[hash].js`,
-          // `ui.css`, `editor.css` and `planner.css` are named in the shell's links, so no hash
+          // `ui.css`, `editor.css` and `views.css` are named in the shell's links, so no hash
           // here either. Fonts and images, if a stylesheet ever pulls one in, go under assets/.
           assetFileNames: (info) => {
             const name = info.names ? info.names[0] : info.name;

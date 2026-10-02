@@ -13,17 +13,17 @@
 import { esc, loadingLine, toast } from 'ose:ui';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, startOfDay, ymd,
-} from './dates.ts';
-import { lanes, parseTimetable, TIMETABLE } from './timetable.ts';
+} from '../shared/dates.ts';
+import { lanes, parseTimetable, TIMETABLE } from '../shared/timetable.ts';
 import {
   applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
-} from './plans.ts';
-import { groupsForDay, PRIORITY_RANK, taskDepth } from './tasks.ts';
-import { createTodoIndex } from './todo.ts';
+} from '../shared/plans.ts';
+import { groupsForDay, PRIORITY_RANK, taskDepth } from '../shared/tasks.ts';
+import { createTodoIndex } from '../shared/todo.ts';
 import {
   bindLinks, bindNav, detectedHtml, displayName, goneHtml, missingHtml, navHtml,
-} from './nav.ts';
-import { q1Of } from './settings.ts';
+} from '../shared/nav.ts';
+import { q1Of } from '../shared/settings.ts';
 
 const { START, END, HOUR_H } = TIMETABLE;
 const BODY_H = (END - START) * HOUR_H;
@@ -76,7 +76,7 @@ export function createDayView(ose: any, store: any): any {
   function mount(host) {
     const todo = createTodoIndex(ose);
     const st: {
-      cursor: Date; events: import('./timetable.ts').TimetableEvent[];
+      cursor: Date; events: import('../shared/timetable.ts').TimetableEvent[];
       systems: Array<{ name: string; days: Set<number>; }>;
       log: { done: Map<string, boolean>; first: Map<string, string>; names: string[]; };
       planFile: string; planMissing: boolean; calMissing: boolean; logFile: string;

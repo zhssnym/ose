@@ -27,8 +27,8 @@
       "ose:editor": [
         "./src/editor/lib.ts"
       ],
-      "ose:planner": [
-        "./src/planner/index.ts"
+      "ose:views": [
+        "./src/views/index.ts"
       ]
     }
   },

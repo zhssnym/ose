@@ -8,7 +8,7 @@
 // reaches the page editor and the folder view through `./pagehost.ts`, so that `ose:editor`
 // stays a separate bundle and the shell's folder view stays the shell's.
 //
-// There are no plugins any more (W2): Day, Week, Month and Journal are `ose:planner`, a module
+// There are no plugins any more (W2): Day, Week, Month and Journal are `ose:views`, a module
 // built into the app that registers through the same seams the shell does (views, commands,
 // settings sections).
 

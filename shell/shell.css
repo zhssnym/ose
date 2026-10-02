@@ -287,7 +287,7 @@
 /* ------------------------------------------------------------------ the shell's views */
 
 /* Home, Settings and Trash are views: the root they mount into, and a path that navigates when
-   it is clicked. The planner keeps its own furniture (src/planner/planner.css). */
+   it is clicked. The planner keeps its own furniture (src/views/views.css). */
 
 /* The shell's .main-scroll is the scroller; a view must not open a second one. */
 .view-root { min-height: 100%; }

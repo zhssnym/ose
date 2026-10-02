@@ -2,11 +2,11 @@
 // and the (Q1)/(Q2) blocks, overnight blocks, the Day title, the journal file of a day.
 // Dates are built with the local constructor, as the views build them from `new Date()`.
 //
-// Depends on: planner (src/planner/dates.ts). Skipped until that file exists.
+// Depends on: views (src/views/shared/dates.ts). Skipped until that file exists.
 
 import { describe, expect, it } from 'vitest';
 
-const d = await import('../../src/planner/dates.ts');
+const d = await import('../../src/views/shared/dates.ts');
 
 const day = (y, m, dd) => new Date(y, m - 1, dd);
 

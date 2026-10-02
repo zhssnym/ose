@@ -9,7 +9,7 @@
 // The app opens on Home, an empty page (shell/start.js). With no vault open the shell is not built at
 // all: one surface asks for a folder and the shell starts again on the answer.
 //
-// The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:planner`
+// The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:views`
 // that ships inside the executable. It is loaded here, after the shell's own surfaces, so a
 // planner that fails costs its own views and one toast, never the window.
 //
@@ -46,14 +46,14 @@ async function loadKeys() {
 }
 
 /**
- * Day, Week, Month and Journal (`ose:planner`, src/planner). One import and one call; the
+ * Day, Week, Month and Journal (`ose:views`, src/views). One import and one call; the
  * planner registers its views, commands and its section of Settings itself. A planner that
  * does not load is logged and said once, and the rest of the app carries on without it.
  */
 async function loadPlanner() {
   try {
-    const m = await import('ose:planner');
-    await m.initPlanner(ose);
+    const m = await import('ose:views');
+    await m.initViews(ose);
   } catch (e) {
     console.error('[shell] planner', e);
     toast('The planner could not be loaded: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e), 'err');

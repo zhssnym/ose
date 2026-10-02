@@ -18,9 +18,9 @@
 import { esc, loadingLine, toast } from 'ose:ui';
 import {
   clock, dateFromName, daysBetween, journalFileName, journalHeading, shortDate, weekdayName, ymd,
-} from './dates.ts';
-import { naturalCompare } from './plans.ts';
-import { bindLinks, detectedHtml, missingHtml, openPlannerSettings } from './nav.ts';
+} from '../shared/dates.ts';
+import { naturalCompare } from '../shared/plans.ts';
+import { bindLinks, detectedHtml, missingHtml, openPlannerSettings } from '../shared/nav.ts';
 
 const CHUNK = 30;            // days rendered per pass
 const MODES = ['full', 'compact'];

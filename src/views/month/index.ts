@@ -9,11 +9,11 @@
 // in plans.ts, the same one the tests read.
 
 import { esc, loadingLine, toast } from 'ose:ui';
-import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from './dates.ts';
+import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from '../shared/dates.ts';
 import {
   dayVerdict, isGapLine, logPath, parseMonthlyPlan, parseSystemsLog, percentages, resolvePlanPath, systemsFor,
-} from './plans.ts';
-import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from './nav.ts';
+} from '../shared/plans.ts';
+import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from '../shared/nav.ts';
 
 /** `12 done · 2 lost · 16 open`. */
 const tallyText = (t) => `${t.done} done · ${t.lost} lost · ${t.open} open`;

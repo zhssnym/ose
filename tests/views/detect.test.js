@@ -3,12 +3,12 @@
 // shallowest wins, every `*todo*.md` is a todo file, hidden entries and links never proposed.
 // Also the one-time migration from the old plugin settings, which copies and never deletes.
 //
-// Depends on: planner (src/planner/detect.ts, settings.js). Skipped until they exist.
+// Depends on: views (src/views/shared/detect.ts, settings.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
 
-const { detectPaths } = await import('../../src/planner/detect.ts');
-const settings = await import('../../src/planner/settings.ts');
+const { detectPaths } = await import('../../src/views/shared/detect.ts');
+const settings = await import('../../src/views/shared/settings.ts');
 
 /** A tree from `{ 'a/b.md': '', 'a/c/': '' }`: every folder on the way made, names kept. */
 function tree(paths, extra = {}) {

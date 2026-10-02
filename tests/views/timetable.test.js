@@ -3,12 +3,12 @@
 // line under a weekday that tries to be a block and does not parse is reported, with its line
 // number, instead of vanishing.
 //
-// Depends on: planner (src/planner/timetable.ts, dates.js). Skipped until they exist.
+// Depends on: views (src/views/shared/timetable.ts, dates.js). Skipped until they exist.
 
 import { describe, expect, it } from 'vitest';
 
-const { parseTimetable } = await import('../../src/planner/timetable.ts');
-const { blockApplies, blockMinutes } = await import('../../src/planner/dates.ts');
+const { parseTimetable } = await import('../../src/views/shared/timetable.ts');
+const { blockApplies, blockMinutes } = await import('../../src/views/shared/dates.ts');
 
 // Synthetic: the shape of a school timetable, none of anyone's real one.
 const CAL = [
