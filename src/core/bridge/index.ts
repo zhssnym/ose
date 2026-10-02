@@ -191,6 +191,8 @@ export const bridge = {
   // The host's own description of itself: {os, version, exe, exeDir, root, logPath, build}.
   // The chooser names `exeDir` as its suggestion.
   platformInfo: (): Promise<PlatformInfo> => as(call('platform')),
+  // Every window closes through its own save path, as the close button does.
+  quit: (): Promise<null> => as(call('quit')),
   // Listings (docs/HOST.md "The hide rule"): `opts { hidden }` lists hidden entries too
   // (a dotfile, or the OS hidden attribute); what is excluded (`.ose`, `.git`, the exe, temp
   // files) is never listed. The facade passes the user's Show hidden setting when the caller

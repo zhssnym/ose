@@ -233,6 +233,7 @@
 .set-help-label + .set-lead { margin-top: var(--sp-1); }
 
 /* The keys, read only: the core's table component, the chord in its key cap. */
+.set-keys { max-width: 64ch; }
 .set-keys td { font-size: var(--fs-ui); }
 .set-keys .kbd { white-space: nowrap; }
 .set-keys-keys { white-space: nowrap; }

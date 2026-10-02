@@ -186,6 +186,13 @@ bridge.on('window', (d) => (d && d.closing ? leaveWindow('close') : undefined));
 
 let abandoning = false;
 
+// Ctrl+Q: every window of the app closes, each through its own leave gate, so nothing typed is
+// lost; a window that cannot save says so and stays.
+commands.register({
+  id: 'app.quit', title: 'Quit Ose', group: 'app',
+  run: () => bridge.quit().catch((e) => console.error('[core] quit', e)),
+});
+
 commands.register({
   id: 'app.close-anyway', title: 'Close window without saving', group: 'app',
   hint: 'unsaved text stays in the recovered changes',

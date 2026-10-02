@@ -557,7 +557,7 @@ export function registerCommands(a) {
   // between Source and the mode the page was in before it (wave 3, §4.5).
   commands.register({
     id: 'page.source-toggle',
-    title: 'Switch between source (raw markdown) and the editing view',
+    title: 'Switch Rich / Source',
     group: 'page',
     shortcut: 'Ctrl+E',
     // `hasPage` only: a file that is not markdown has one mode, and `toggleSource` says so in
