@@ -9,9 +9,6 @@
     "includes": [
       "src/**/*.js",
       "src/**/*.ts",
-      "shell/**/*.js",
-      "dev/**/*.mjs",
-      "scripts/**/*.mjs",
       "tests/**/*.js",
       "*.js",
       "*.mjs"

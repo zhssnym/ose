@@ -29,17 +29,11 @@ import { initTabs } from './tabs.js';
 import { initFileOps } from './fileops.js';
 import { initRecover, offerRecovered } from './recover.js';
 import { showBootError } from './boot-error.js';
+import KEYS from './keys.json';
 
 /** `keys.json`: the chords the shell adds over the core's window map. */
-async function loadKeys() {
-  let map = null;
-  try {
-    const res = await fetch(new URL('./keys.json', import.meta.url), { cache: 'no-store' });
-    if (!res.ok) return;
-    map = await res.json();
-  } catch (e) { console.warn('[shell] keys.json', e); return; }
-  if (!map || typeof map !== 'object') return;
-  for (const [combo, id] of Object.entries(map)) {
+function loadKeys() {
+  for (const [combo, id] of Object.entries(KEYS)) {
     if (typeof id !== 'string' || !id) continue;
     try { ose.keys.bind(combo, id); } catch (e) { console.warn('[shell] keys.json', combo, e); }
   }

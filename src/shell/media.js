@@ -39,17 +39,6 @@ export const isImageFile = (p) => IMAGE_EXTS.has(extOf(p));
 export const isPdfFile = (p) => extOf(p) === 'pdf';
 export const isMediaFile = (p) => isPdfFile(p) || isImageFile(p);
 
-// The stylesheet is a <link> this file adds, resolved against itself, so no line of the shell
-// spells an origin. The shell lives as long as the window, so it is added once and left.
-let sheet = null;
-function addStyles() {
-  if (sheet) return;
-  sheet = document.createElement('link');
-  sheet.rel = 'stylesheet';
-  sheet.href = new URL('./media.css', import.meta.url).href;
-  document.head.appendChild(sheet);
-}
-
 /**
  * The core's "page not found" box, re-lettered for a file the user cannot write by typing
  * (QA-5 finding 4). `mediaMissingPage` below fills a `.miss` box with it, so the page keeps
@@ -59,7 +48,6 @@ function addStyles() {
  */
 export function mediaMiss(box, path) {
   if (!box) return false;
-  addStyles();
   // `.miss-title` and `.miss-path` are the core's own, so the box keeps its shape and its
   // place; the third line is ours and quiet, because a missing attachment is a fact to state,
   // not an error to shout (`.miss-why` is the red the core keeps for a bridge fault).
@@ -81,7 +69,6 @@ export function mediaMiss(box, path) {
  * @param {string} path      a vault path that does not exist
  */
 export function mediaMissingPage(el, path) {
-  addStyles();
   const col = document.createElement('div');
   col.className = 'page-col';
   const box = document.createElement('div');
@@ -118,7 +105,6 @@ export function mediaMissingPage(el, path) {
  * @returns a page-host handle: { path, kind, ready, focus, close, goToLine, selection }
  */
 export function binaryPage(el, path) {
-  addStyles();
   let closed = false;
   const name = baseName(path);
   const col = document.createElement('div');

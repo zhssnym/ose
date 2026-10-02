@@ -9,6 +9,7 @@
 import { ose } from 'ose:core';
 import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault } from './vault.js';
+import KEYS from './keys.json';
 
 const { bus, commands, store } = ose;
 
@@ -367,11 +368,8 @@ const normCombo = (c) => String(c || '').toLowerCase().split('+').map((p) => p.t
  * the editor while the caret is there, and says so in the last column.
  */
 async function keysHtml() {
-  let shellMap = {};
-  try {
-    const res = await fetch(new URL('./keys.json', import.meta.url), { cache: 'no-store' });
-    if (res.ok) shellMap = (await res.json()) || {};
-  } catch { shellMap = {}; }
+  /** @type {Record<string, string>} */
+  const shellMap = KEYS;
   const mac = document.documentElement.dataset.os === 'mac';
   const win = new Map();
   const body = [];

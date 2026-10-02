@@ -6,6 +6,14 @@
 // takes this file down with it and nothing would be left to say so. `boot-error.js` imports
 // nothing, for the same reason.
 
+// The stylesheets, in the order they win: the kit, then the shell's own, then theme.css, whose
+// token overrides win over everything. The editor's and the views' come with their code.
+import '../ui/ui.css';
+import './shell.css';
+import './tree.css';
+import './places.css';
+import './media.css';
+import './theme.css';
 import { showBootError } from './boot-error.js';
 
 import('./boot.js')

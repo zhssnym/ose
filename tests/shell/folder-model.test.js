@@ -1,11 +1,11 @@
 // The folder view model (CONTRACT §6.2, H15, M22): pure sort, filter and label functions the
 // folder view and the tree share. No DOM, no `ose:*`: the module is imported as it is.
 //
-// Depends on: shell-places (shell/folder-model.js). Skipped until that file exists.
+// Depends on: shell-places (src/shell/folder-model.js).
 
 import { describe, expect, it } from 'vitest';
 
-const m = await import('../../shell/folder-model.js');
+const m = await import('../../src/shell/folder-model.js');
 
 const file = (name, over = {}) => {
   const dot = name.lastIndexOf('.');

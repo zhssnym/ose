@@ -15,6 +15,7 @@
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitAny": false,
     "paths": {
@@ -34,7 +35,6 @@
   },
   "include": [
     "src/**/*.js",
-    "src/**/*.ts",
-    "shell/**/*.js"
+    "src/**/*.ts"
   ]
 }
