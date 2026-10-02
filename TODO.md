@@ -45,3 +45,5 @@ Wave 2 (2026-10-02):
 - [ ] Files outside the vault (Open file…): cut or keep.
 - [ ] Drag files in from Explorer/Finder: cut or keep.
 - [ ] Snap Layouts on hover of the maximise button (Windows), if missed.
+- [ ] The shell in TypeScript: one language for the whole page (shell/ is JS with JSDoc types
+      from the user-editable-shell days); one branch, file by file, typecheck green at each step.
