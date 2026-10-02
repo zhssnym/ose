@@ -303,8 +303,9 @@ function guideHtml() {
       + "the versions of your files and any unsaved drafts are kept in the app's own folder. "
       + 'Settings › Vault changes which folder is open.'],
     ['The sidebar',
-      'Views holds Day, Week, Month and Journal, pages drawn from ordinary files in the vault whose '
-      + 'paths are set in Settings › Views. Vault lists your folders and files under their real '
+      'Views holds Today, Planner and Journal, pages drawn from ordinary files in the vault whose '
+      + 'paths are set in Settings › Views; in them, ← and → move a day, a week, a month or a year, '
+      + 'and t comes back to today. Vault lists your folders and files under their real '
       + 'names; a folder opens and closes in place. Right-click a row for what can be done with it, '
       + 'or the empty space below for New file, New folder, Collapse all folders and Show hidden '
       + `items. ${kbd('mod+\\')} hides or shows the sidebar, ${kbd('mod+shift+e')} moves the keyboard into it, `

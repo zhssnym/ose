@@ -1,44 +1,38 @@
 # File formats
 
-Ose keeps no database. Every note is a plain file, and the planner (Day, Week, Month, Year and
-Journal) builds its views out of a handful of ordinary markdown and JSONL files. This document
+Ose keeps no database. Every note is a plain file, and the views (Today, Planner and Journal)
+are built out of a handful of ordinary markdown and JSONL files. This document
 is the contract for those files. An agent such as Claude Code, run on the vault from outside,
 reads it to know how to write a file that the app will read, and what the app writes back.
 
-The code is in `src/views/`: one folder per view (`day/`, `week/`, `month/`, `year/`,
-`journal/`) and `shared/` for the readers they share, named for what they hold: `timetable.ts`
-(the calendar format, and a month's `# Timetable`), `tasks.ts` and `todo.ts` (todo lines),
+The code is in `src/views/`: one folder per view (`today/`, `planner/` with its year, month and
+week pages, `journal/`) and `shared/` for the readers they share, named for what they hold:
+`timetable.ts` (a month's `# Timetable`), `tasks.ts` and `todo.ts` (todo lines),
 `plans.ts` (the plannings: year and month files, and `systems.jsonl`),
 `settings.ts` and `detect.ts` (where the files are). The journal's format is read in
 `journal/index.ts`.
 
 ## Where the files are
 
-Settings › Views holds four paths. They are stored under `planner` in the vault's state, which
+Settings › Views holds two paths. They are stored under `planner` in the vault's state, which
 the app keeps on this machine (`<app data>/vaults/<vaultKey>/state.json`, see docs/HOST.md), not
 in the vault. A vault that still has a `.ose/state.json` from an older Ose is read from there
 until the app first writes its state:
 
 | Setting | Stored as | Kind | Read by |
 |---|---|---|---|
-| Plannings folder | `reports` | a folder | Day, Week, Month, Year |
-| Calendar (for months with no timetable) | `calendar` | a markdown file | Day, Week |
-| Todo files | `todo` | one or more markdown files | Day |
+| Planner folder | `reports` | a folder | Today, Planner |
 | Journal folder | `journal` | a folder | Journal |
 
-The plannings folder is stored under its old key, `reports`, so a vault's stored choice keeps
-working.
+The planner folder holds everything about planning: the year and month files, `todo.md` (the one
+todo list) and `systems.jsonl`. It is stored under its old key, `reports`, so a vault's stored
+choice keeps working. There is no separate calendar file: a month carries its own timetable.
 
 The first time the app opens a vault, it looks for these by name and shows what it found:
 
 - names are compared without case and without a leading number, so `4-journal` is a journal
   folder and `1-general-todo.md` is a todo file;
-- the calendar is a markdown file named `calendar`, `calendrier`, `timetable`, `schedule`,
-  `emploi du temps` (or `emploi-du-temps`) or `edt`;
-- a markdown file with `todo` or `todos` as a word of its name is a todo file (`todo.md`,
-  `1-general-todo.md`, `School TODO.md`); inside a word it does not count, so `Mastodon.md`
-  is not one;
-- the plannings folder is the folder that holds `systems.jsonl`, or else one named
+- the planner folder is the folder that holds `systems.jsonl`, or else one named `planner`,
   `plannings`, `planning`, `plans`, `reports`, `report`, `monthly plans` (or `monthly-plans`)
   or `execution`;
 - the journal folder is one named `journal`, `journals`, `journaling` or `diary`;
@@ -59,11 +53,11 @@ stored as `q1Anchor`, the Monday of a week that is a Q1 week, written by "This w
 in Settings › Views; the weeks alternate from it. A vault that had the older `q1Parity` (odd
 or even ISO weeks) has it turned into an anchor once, on the week the app first reads it.
 
-## Calendar
+## Timetable
 
 The timetable of a month is the `# Timetable` section of its file (see "Plannings"). A month
-whose file has none, or that has no file, uses the calendar file from Settings instead. Both
-are written the same way: one H1 per weekday, then one line per block.
+whose file has none draws no timetable. It is written as one H1 per weekday, then one line per
+block.
 
 ```markdown
 # Lundi
@@ -155,7 +149,8 @@ not set_)` written as plain words is just part of the task's text.
   - Done turns `[ ]` into `[x]` and adds `✅ <today>` when the line has no done marker.
   - Undone reverses both.
   - The file's line endings are kept.
-- **A new task** from the Day view's foot line is appended to the first todo file as
+- **A new task** from Today's foot line is appended to `<planner>/todo.md` (made with `# Todo` the
+  first time) as
   `- [ ] <text>`, exactly as typed, markers included. It is written with
   `ose.files.appendLine`, and the host adds the line break the file needs.
 
@@ -260,13 +255,13 @@ _gap: written at the end of the year_
   optional `# Goals`.
 - `# Yearly Review` (or `# Review`) is prose, written at the end of the year; until then a
   `_gap: …_` line. The app shows it and never writes it.
-- The Year view lists the twelve months, each a link to the Month view, with the share of its
+- The Planner's Year page lists the twelve months, each a link to the Planner's Month page, with the share of its
   systems' due days that were done (as Month counts them) once the month has begun.
 
 ### Starting a month or a year
 
-A plan file is written by the app in one case only: "Start <month>" in the Month view, or
-"Start <year>" in the Year view, for a month or a year that has no file. It is an exclusive
+A plan file is written by the app in one case only: "Start <month>" in the Planner's Month page, or
+"Start <year>" in the Planner's Year page, for a month or a year that has no file. It is an exclusive
 create (`ose.fileops.create`) and never overwrites anything.
 
 - **A month** is made from the last month before it that has a file (looking back two years),

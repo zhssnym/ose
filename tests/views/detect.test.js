@@ -90,15 +90,16 @@ describe('planner settings: migration and normalising', () => {
     expect(settings.normalize(undefined)).toEqual({
       v: 1, calendar: null, todo: [], reports: null, journal: null, q1Parity: null, journalMode: 'full', confirmed: false,
     });
-    const n = settings.normalize({ todo: 'a.md', q1Parity: 'odd', journal: '/j/', confirmed: true });
-    expect(n).toMatchObject({ todo: ['a.md'], q1Parity: 'odd', journal: 'j', confirmed: true });
+    const n = settings.normalize({ todo: 'a.md', calendar: 'c.md', reports: 'planner', q1Parity: 'odd', journal: '/j/', confirmed: true });
+    // the todo list is always the planner folder's todo.md, and there is no calendar file
+    expect(n).toMatchObject({ todo: ['planner/todo.md'], calendar: null, q1Parity: 'odd', journal: 'j', confirmed: true });
     expect(settings.normalize({ q1Parity: 'sometimes' }).q1Parity).toBe(null);
   });
 
   it('detection only fills what is missing', () => {
-    const s = settings.normalize({ calendar: 'mine.md' });
-    const f = settings.fillMissing(s, { calendar: 'found.md', todo: ['t.md'], reports: 'r', journal: null });
-    expect(f).toMatchObject({ calendar: 'mine.md', todo: ['t.md'], reports: 'r', journal: null });
+    const s = settings.normalize({ journal: 'mine' });
+    const f = settings.fillMissing(s, { calendar: 'found.md', todo: ['t.md'], reports: 'r', journal: 'found' });
+    expect(f).toMatchObject({ journal: 'mine', todo: ['r/todo.md'], reports: 'r', calendar: null });
   });
 });
 

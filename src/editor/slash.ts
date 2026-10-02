@@ -210,9 +210,8 @@ const GROUPS = [
   },
   {
     key: 'planner', label: 'views', items: [
-      { key: 'month', label: 'Month', icon: I.month, aliases: ['month'], cmd: 'view.month' },
-      { key: 'week', label: 'Week', icon: I.week, aliases: ['week'], cmd: 'view.week' },
-      { key: 'day', label: 'Day', icon: I.day, aliases: ['day'], cmd: 'view.day' },
+      { key: 'today', label: 'Today', icon: I.day, aliases: ['today', 'day'], cmd: 'view.today' },
+      { key: 'planner', label: 'Planner', icon: I.month, aliases: ['planner', 'month', 'week', 'year'], cmd: 'view.planner' },
       { key: 'journal', label: 'Journal', icon: I.journal, aliases: ['journal'], cmd: 'view.journal' },
       { key: 'journal-today', label: "Today's journal", icon: I.journalNew, aliases: ['journal', 'today', 'entry'], cmd: 'journal.today' },
     ],

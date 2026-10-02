@@ -196,7 +196,7 @@ export function createYearView(ose: any, store: any): any {
       const t = ev.target.closest ? ev.target.closest('[data-act], [data-month]') : null;
       if (!t || !root.contains(t)) return;
       if (t.dataset.month) {
-        const r = { type: 'view', name: 'month', arg: t.dataset.month };
+        const r = { type: 'view', name: 'planner', arg: `month:${t.dataset.month}` };
         if ((ev.ctrlKey || ev.metaKey) && ose.tabs && ose.tabs.open) ose.tabs.open(r, { reuse: false });
         else ose.route.navigate(r);
         return;

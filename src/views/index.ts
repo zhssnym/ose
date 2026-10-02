@@ -1,5 +1,5 @@
-// The views (src/views): the pages of their own in the sidebar's Views section, Day, Week, Month,
-// Year and Journal, one folder each. `src/shell/boot.ts` imports this module after `ose.init` and calls
+// The views (src/views): the pages of their own in the sidebar's Views section, Today, Planner
+// and Journal, one folder each. `src/shell/boot.ts` imports this module after `ose.init` and calls
 // `initViews(ose)` once; everything the views add to the app is registered here.
 //
 // A view, and how to add one (copy `journal/`, the fullest example):
@@ -23,19 +23,15 @@
 
 import './views.css';
 import { createStore, renderSettings } from './shared/settings.ts';
-import { createDayView } from './day/index.ts';
-import { createWeekView } from './week/index.ts';
-import { createMonthView } from './month/index.ts';
-import { createYearView } from './year/index.ts';
+import { createTodayView } from './today/index.ts';
+import { createPlannerView } from './planner/index.ts';
 import { createJournalView, openToday } from './journal/index.ts';
 import { openPlannerSettings } from './shared/nav.ts';
 
 /** Every view, by the name in its route. */
 const VIEWS = {
-  day: createDayView,
-  week: createWeekView,
-  month: createMonthView,
-  year: createYearView,
+  today: createTodayView,
+  planner: createPlannerView,
   journal: createJournalView,
 };
 

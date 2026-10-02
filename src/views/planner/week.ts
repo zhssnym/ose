@@ -1,4 +1,4 @@
-// Week: the timetable's grid for the current ISO week, a "Now / Next" box, and the personal work
+// Week: the timetable's grid for one ISO week (this one, or the Monday `route.arg` names), a "Now / Next" box, and the personal work
 // each day holds. Read-only. Each day's blocks come from its own month's file (`# Timetable`),
 // else from the calendar file, so a week across two months draws each half from its month.
 //
@@ -10,11 +10,12 @@
 
 import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
-  blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays, ym,
+  addDays, blockApplies, dayIndex, DAY_SHORT, dur, hhmm, isSameDay, minutesOf, parseYmd, shortDate, until,
+  weekDays, ym, ymd,
 } from '../shared/dates.ts';
 import { chooseTimetable, lanes, TIMETABLE, type TimetableSource } from '../shared/timetable.ts';
 import { resolvePlanPath } from '../shared/plans.ts';
-import { bindLinks, detectedHtml, goneHtml, missingHtml } from '../shared/nav.ts';
+import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from '../shared/nav.ts';
 import { q1Of } from '../shared/settings.ts';
 
 const { START, END, HOUR_H, WORK_KINDS } = TIMETABLE;
@@ -34,8 +35,10 @@ const qLabel = (e) => (e.q ? `${e.q} · ` : '') + e.t;
 export function createWeekView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
 
-  function mount(host) {
+  function mount(host, route) {
     let alive = true, lastDay = -1, seq = 0;
+    // The week on screen: any day of it. `route.arg` is a day (`2026-10-05`).
+    let cursor = parseYmd(route && route.arg) || new Date();
     /** One source per month the week touches, and which one each day (0 = Monday) reads. */
     let sources: TimetableSource[] = [], srcOf: number[] = [];
     const daySource = (i) => sources[srcOf[i] ?? -1] || null;
@@ -43,13 +46,18 @@ export function createWeekView(ose: any, store: any): any {
     const blockCount = () => uniq().reduce((n, src) => n + src.events.length, 0);
     const offs: any[] = [];
     /** The seven days, Monday first: always seven, so `w[0]` to `w[6]` are there. */
-    const days = () => (weekDays(new Date()) as [Date, Date, Date, Date, Date, Date, Date]);
+    const days = () => (weekDays(cursor) as [Date, Date, Date, Date, Date, Date, Date]);
+    /** Today's column, or -1 when the week on screen is another one. */
+    const todayIndex = () => days().findIndex((d) => isSameDay(d, new Date()));
     const settings = () => store.get();
 
     host.innerHTML = `
 <div class="view-root" tabindex="-1">
   <div class="page-col">
-    <h1 class="page-title view-title">Week</h1>
+    <div class="v-head">
+      <h1 class="page-title view-title" data-el="title">Week</h1>
+      ${navHtml('week')}
+    </div>
     <div class="page-meta" data-el="meta">&nbsp;</div>
     <div data-el="detected"></div>
     <div class="wk-now">
@@ -87,6 +95,7 @@ export function createWeekView(ose: any, store: any): any {
         parts.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(src.path)}" data-line="${src.unknown[0]?.line}" title="${esc(src.path)} lines ${esc(where)}">${n} line${n === 1 ? '' : 's'} not understood</button>`);
       }
       $('meta').innerHTML = parts.join('');
+      $('title').textContent = `Week of ${shortDate(w[0])}`;
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
     }
 
@@ -96,19 +105,20 @@ export function createWeekView(ose: any, store: any): any {
       renderMeta();
       if (!sources.some((src) => src.from && src.exists)) {
         grid.classList.add('is-empty');
-        const gone = sources.find((src) => src.from === 'calendar' && !src.exists);
-        grid.innerHTML = gone && gone.path ? goneHtml(gone.path) : missingHtml('calendar');
+        grid.innerHTML = settings().reports
+          ? '<div class="pl-quiet">No timetable for this week: its month file has no # Timetable.</div>'
+          : missingHtml('reports');
         $('sum').innerHTML = '&nbsp;';
         tick();
         return;
       }
       grid.classList.remove('is-empty');
-      const ti = dayIndex(new Date());
-      lastDay = ti;
+      const ti = todayIndex();
+      lastDay = dayIndex(new Date());
       const w = days();
       const out = ['<div class="wk-hd wk-corner"></div>'];
       DAY_SHORT.forEach((d, i) => {
-        out.push(`<div class="wk-hd${i === ti ? ' today' : ''}"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String((w[i] as Date).getDate()).padStart(2, '0')}</span></div>`);
+        out.push(`<button type="button" class="wk-hd${i === ti ? ' today' : ''}" data-day="${ymd(w[i] as Date)}" title="Open this day"><span class="wk-hd-d">${d}</span><span class="wk-hd-n mono-sm">${String((w[i] as Date).getDate()).padStart(2, '0')}</span></button>`);
       });
       let times = '<div class="wk-times">';
       for (let h = Math.ceil(START); h <= Math.floor(END); h++) {
@@ -164,7 +174,11 @@ export function createWeekView(ose: any, store: any): any {
 
     function tick() {
       if (!alive) return;
-      const m = minutesOf(), ti = dayIndex(new Date());
+      const m = minutesOf(), ti = todayIndex();
+      // Now and Next are about today: shown only while the week on screen holds it.
+      const box = host.querySelector('.wk-now');
+      if (box instanceof HTMLElement) box.hidden = ti < 0;
+      if (ti < 0) return;
       const line = $('nowline');
       if (line) {
         const y = (m / 60 - START) * HOUR_H;
@@ -195,7 +209,7 @@ export function createWeekView(ose: any, store: any): any {
       await store.ready;
       const my = ++seq;
       const s = settings();
-      if (!s.calendar && !s.reports) { sources = []; srcOf = []; build(); return; }
+      if (!s.reports) { sources = []; srcOf = []; build(); return; }
       const stop = loadingLine($('grid'));
       try {
         const w = days();
@@ -234,6 +248,12 @@ export function createWeekView(ose: any, store: any): any {
     }
 
     offs.push(bindLinks(root, ose));
+    offs.push(bindNav(root, {
+      prev: () => { cursor = addDays(cursor, -7); load(); },
+      next: () => { cursor = addDays(cursor, 7); load(); },
+      today: () => { cursor = new Date(); load(); },
+    }));
+
     offs.push(store.on(() => load()));
     offs.push(ose.watch((d) => {
       const { calendar: p, reports: r } = settings();
@@ -263,7 +283,7 @@ export function createWeekView(ose: any, store: any): any {
     order: 20,
     icon: 'week',
     section: 'planner',
-    mount: (el) => mount(el),
+    mount: (el, route) => mount(el, route),
     unmount: () => live && live.unmount(),
     refresh: () => live && live.refresh(),
   };

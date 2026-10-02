@@ -23,7 +23,6 @@
 .v-nav { display: flex; align-items: center; flex: none; margin-top: var(--sp-2); }
 /* adjacent buttons share one border: the overlap is the border width, not spacing */
 .v-nav .btn + .btn { margin-left: -1px; }
-.v-keys { color: var(--fg-3); margin-right: var(--sp-3); white-space: nowrap; }
 
 /* a source path in .page-meta, or any path that navigates when clicked: a button that reads
    as the text around it, so it is in the tab order and lights up on focus like any control */
@@ -224,6 +223,8 @@
   border-bottom: 1px solid var(--border); border-left: 1px solid var(--border);
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
 }
+button.wk-hd { background: none; border-top: 0; border-right: 0; padding: 0; cursor: pointer; }
+button.wk-hd:hover { color: var(--fg); background: var(--bg-2); }
 .wk-corner { border-left: 0; }
 .wk-hd-n { color: var(--fg-3); }
 .wk-hd.today { color: var(--accent-ink); background: var(--accent-soft); }
@@ -285,6 +286,8 @@
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   white-space: nowrap; line-height: 1.2;
 }
+button.mo-dh { background: none; border: 0; padding: 0; font: inherit; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); cursor: pointer; }
+button.mo-dh:hover { color: var(--fg); }
 .mo-dh.today { color: var(--accent-ink); }
 .mo-dh.today::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--accent);
@@ -499,3 +502,12 @@
 .pl-set-foot { display: flex; gap: var(--sp-2); padding-top: var(--sp-2); }
 .pl-set > .pl-quiet { padding-top: 0; }
 .pl-set-value .seg { display: inline-flex; }
+
+/* --------------------------------------------------------------------------- Planner */
+
+/* The zoom, as plain words: the one in front bright, the others dim, the status bar's grammar. */
+.pn-zoom { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-2); font-size: var(--fs-ui); color: var(--fg-3); }
+.pn-zoom-b { padding: 0; border: 0; background: none; font: inherit; color: var(--fg-3); cursor: pointer; }
+.pn-zoom-b + .pn-zoom-b::before { content: '·'; display: inline-block; margin-right: var(--sp-1); color: var(--fg-3); }
+.pn-zoom-b:hover { color: var(--fg-2); }
+.pn-zoom-b.on { color: var(--fg); cursor: default; }

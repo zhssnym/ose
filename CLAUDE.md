@@ -19,7 +19,7 @@ system's Recycle Bin or Trash.
 It is a file manager as much as an editor: the sidebar is the vault as it is on disk (Views,
 Vault, Scratchpad), every file listed under its real name and openable, nothing hidden by name.
 A folder is not a page: opening one shows it in the sidebar. Files Ose does not show open in their
-own app. Day, Week, Month and Journal are built-in views (`src/views`): they read ordinary files
+own app. Today, Planner and Journal are built-in views (`src/views`): they read ordinary files
 (a timetable, todo lists, a monthly plan, `systems.jsonl`, the journal) whose paths are chosen in
 Settings › Views, and write back only one appended or replaced line, or a new `YYYY-MM-DD.md`.
 There are no plugins and no loader: Ose is extended by forking it (`docs/VIEWS.md`). An agent
@@ -52,7 +52,7 @@ src/                TypeScript, built by Vite into one app (dist/); imports are 
   editor/           Rich and Source (Crepe, CodeMirror, marked), one live instance per open file,
                     the 3-way merge of changes made on disk; page/ the parts of one page's life
                     (open, modes, save, merge, drafts, leave…); stringify/ the serializer
-  views/            Day, Week, Month, Journal, one folder each, and shared/; index.ts registers
+  views/            Today, Planner (year, month, week), Journal, and shared/; index.ts registers
                     them and holds the view contract (docs/VIEWS.md)
   shell/            the interface: layout, title bar and tabs, sidebar (sidebar*.ts, one shared
                     state), status bar, Home, page seam and media card, palette, search, settings,

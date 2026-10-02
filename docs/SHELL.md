@@ -4,7 +4,7 @@ The shell is the whole interface: the title bar with the tabs, the sidebar, the 
 status bar, the palette, search, Settings and the vault chooser. It is `src/shell/`, TypeScript
 like the rest of `src/`, bundled by Vite with everything else. It draws and calls `ose`
 (docs/CORE.md) like any other client; the core never draws. Imports are plain relative paths
-(`'../core/core.ts'`, `'../ui/index.ts'`). The views (Day, Week, Month, Journal) are `src/views`,
+(`'../core/core.ts'`, `'../ui/index.ts'`). The views (Today, Planner, Journal) are `src/views`,
 loaded by the boot; their file formats are docs/FORMATS.md.
 
 ## Files

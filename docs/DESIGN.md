@@ -5,7 +5,7 @@ made by one hand.
 
 **Vocabulary.** The **shell** is the interface: title bar and tabs, sidebar, status bar,
 palette, search, Settings (docs/SHELL.md). A **view** is a page of the app's own rather than a
-file: Home, Settings, Day, Week, Month, Journal. A **page** is a file open in the editor.
+file: Home, Settings, Today, Planner, Journal. A **page** is a file open in the editor.
 
 ## The brief
 

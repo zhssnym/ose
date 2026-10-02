@@ -1,7 +1,7 @@
 # Views
 
-A view is a page of its own in the sidebar's **Views** section: Day, Week, Month, Year and
-Journal are the five that ship. A view is not a file: it reads ordinary files of the vault and draws them
+A view is a page of its own in the sidebar's **Views** section: Today, Planner and
+Journal are the three that ship. A view is not a file: it reads ordinary files of the vault and draws them
 its own way, the way the Journal turns a folder of `YYYY-MM-DD.md` files into one record. This
 is how Ose is extended. There is no plugin system; you fork Ose and add a folder.
 
@@ -11,10 +11,9 @@ is how Ose is extended. There is no plugin system; you fork Ose and add a folder
 src/views/
   index.ts      registers every view (the VIEWS list) and Settings › Views
   views.css     the views' styles, tokens only
-  day/          one folder per view, index.ts its entry
-  week/
-  month/        a month's file: goals, systems, its timetable, the review
-  year/         a year's file and its twelve months
+  today/        one folder per view, index.ts its entry: the day's timetable, systems, todos
+  planner/      Year · Month · Week over the planner folder (index.ts holds the switch;
+                year.ts, month.ts, week.ts are the three pages)
   journal/      the fullest one: the example to copy
   shared/       what views share: dates, tasks and todo files, the timetable, the
                 plannings (year and month files, the check log), prose, the settings

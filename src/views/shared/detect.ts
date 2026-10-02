@@ -14,7 +14,7 @@
 //     name says nothing (`3-execution`), because that file is what the plannings folder is for.
 
 const CALENDAR = ['calendar', 'calendrier', 'timetable', 'schedule', 'emploi du temps', 'emploi-du-temps', 'edt'];
-const REPORTS = ['plannings', 'planning', 'reports', 'report', 'plans', 'monthly plans', 'monthly-plans', 'execution'];
+const REPORTS = ['planner', 'plannings', 'planning', 'reports', 'report', 'plans', 'monthly plans', 'monthly-plans', 'execution'];
 const JOURNAL = ['journal', 'journals', 'journaling', 'diary'];
 
 const lower = (s) => String(s ?? '').normalize('NFC').toLowerCase();

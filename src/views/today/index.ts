@@ -1,19 +1,18 @@
-// Day: one day, side by side. Left, the timetable's blocks for that weekday, 07:00 to 23:30:
-// the month file's `# Timetable` when it has one, else the calendar file.
-// Right, the systems due that day (from the month's plan and the check log) and the tasks that
-// belong on it, file by file (M34).
+// Today: one day, side by side, all from the planner folder. Left, the day's blocks from its
+// month file's `# Timetable`, 07:00 to 23:30. Right, the systems due that day (from the month's
+// plan and the check log) and the tasks of `todo.md` that belong on it.
 //
-// It always opens on today (M32): a check lands on the day in front of you, never on the last
-// day someone navigated to, and left open overnight it moves to the new today with the date.
-// The arrows and `t` move and come back; nothing is remembered.
+// It opens on today (M32), or on the day `route.arg` names (`2026-10-05`, from the Planner): a
+// check lands on the day in front of you, and left open overnight it moves to the new today with
+// the date. The arrows and `t` move and come back; nothing is remembered.
 //
 // Writes, one line each: a system check is appended to `<plannings>/systems.jsonl` with
 // `appendLine` (M30); a task toggle replaces its one line with `replaceLine`, only if the line
-// still reads what was shown (M31); a new task is appended to the first todo file.
+// still reads what was shown (M31); a new task is appended to todo.md.
 
 import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
-  addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, startOfDay, ymd,
+  addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, monthTitle, parseYmd, startOfDay, ym, ymd,
 } from '../shared/dates.ts';
 import { chooseTimetable, lanes, TIMETABLE } from '../shared/timetable.ts';
 import {
@@ -22,7 +21,7 @@ import {
 import { groupsForDay, PRIORITY_RANK, taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
 import {
-  bindLinks, bindNav, detectedHtml, displayName, goneHtml, missingHtml, navHtml,
+  bindLinks, bindNav, detectedHtml, displayName, missingHtml, navHtml,
 } from '../shared/nav.ts';
 import { q1Of } from '../shared/settings.ts';
 
@@ -71,11 +70,12 @@ function taskRow(t) {
  * @param store the planner settings store
  * @returns the view definition
  */
-export function createDayView(ose: any, store: any): any {
+export function createTodayView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
 
-  function mount(host) {
+  function mount(host, route) {
     const todo = createTodoIndex(ose);
+    const asked = parseYmd(route && route.arg);
     const st: {
       cursor: Date; events: import('../shared/timetable.ts').TimetableEvent[];
       systems: Array<{ name: string; days: Set<number>; }>;
@@ -85,7 +85,7 @@ export function createDayView(ose: any, store: any): any {
       unknown: Array<{ line: number; text: string; }>; expanded: Set<string>; busy: boolean;
       seq: number; taskNote: string; shown: Map<string, any>;
     } = {
-      cursor: startOfDay(new Date()),
+      cursor: startOfDay(asked || new Date()),
       events: [], systems: [], log: { done: new Map(), first: new Map(), names: [] },
       planFile: '', planMissing: false, calMissing: false, logFile: '', ttFrom: null, ttPath: '',
       unknown: [], expanded: new Set<any>(), busy: false, seq: 0, taskNote: '', shown: new Map(),
@@ -127,8 +127,13 @@ export function createDayView(ose: any, store: any): any {
       const box = $('tl');
       if (!box) return;
       const s = settings();
-      if (!st.ttFrom) { box.classList.add('is-empty'); box.innerHTML = missingHtml('calendar'); return; }
-      if (st.calMissing) { box.classList.add('is-empty'); box.innerHTML = goneHtml(st.ttPath); return; }
+      if (!st.ttFrom) {
+        box.classList.add('is-empty');
+        box.innerHTML = !settings().reports ? missingHtml('reports')
+          : st.planMissing ? `<div class="pl-quiet">No timetable: ${esc(monthTitle(st.cursor))} has no file yet. <button type="button" class="v-link" data-start-month>Start it</button> in the Planner.</div>`
+          : `<div class="pl-quiet">No timetable: ${esc(monthTitle(st.cursor))}'s file has no # Timetable.</div>`;
+        return;
+      }
       box.classList.remove('is-empty');
       const d = dayIndex(st.cursor);
       const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s)));
@@ -286,7 +291,14 @@ export function createDayView(ose: any, store: any): any {
       st.busy = true;
       input.value = '';                       // a second Enter on a slow write sends nothing twice
       try {
-        if (await todo.add(target, text) === 'missing') {
+        let r = await todo.add(target, text);
+        if (r === 'missing') {
+          // The planner folder has no todo.md yet: the first task makes it (never over a file).
+          const cut = target.lastIndexOf('/');
+          try { await ose.fileops.create(cut < 0 ? '' : target.slice(0, cut), target.slice(cut + 1), { text: '# Todo\n\n' }); } catch { /* there after all */ }
+          r = await todo.add(target, text);
+        }
+        if (r === 'missing') {
           input.value = text;
           toast(`Nothing to add to at ${target}`, 'warn');
         }
@@ -428,6 +440,14 @@ export function createDayView(ose: any, store: any): any {
     offs.push(() => host.removeEventListener('keydown', onKeydown));
     offs.push(bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) }));
     offs.push(bindLinks(root, ose));
+    // "Start it": the Planner's month page, where the Start button is.
+    const onStart = (ev) => {
+      if (ev.target instanceof Element && ev.target.closest('[data-start-month]')) {
+        ose.route.navigate({ type: 'view', name: 'planner', arg: `month:${ym(st.cursor)}` });
+      }
+    };
+    root.addEventListener('click', onStart);
+    offs.push(() => root.removeEventListener('click', onStart));
     offs.push(store.on(() => load()));
     // one of the files this day reads changed on disk: read again; anything else is not ours
     offs.push(ose.watch((d) => {
@@ -479,11 +499,11 @@ export function createDayView(ose: any, store: any): any {
   }
 
   return {
-    title: 'Day',
+    title: 'Today',
     order: 10,
     icon: 'day',
     section: 'planner',
-    mount: (el) => mount(el),
+    mount: (el, route) => mount(el, route),
     unmount: () => live && live.unmount(),
     refresh: () => live && live.refresh(),
   };

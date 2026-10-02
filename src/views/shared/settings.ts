@@ -30,14 +30,16 @@ const clean = (p) => (typeof p === 'string' && p.trim() ? p.replace(/\\/g, '/').
  */
 export function normalize(raw: any): PlannerSettings {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const todo: string[] = (Array.isArray(r.todo) ? r.todo : typeof r.todo === 'string' ? [r.todo] : [])
-    .map(clean).filter((p): p is string => !!p);
   const anchor = parseYmd(r.q1Anchor);
+  // The planner folder holds everything planning: the year and month files, systems.jsonl and
+  // the one todo list, `todo.md`. `calendar` and `todo` are derived, never chosen: no separate
+  // calendar (a month carries its timetable), and the todo list is always the folder's.
+  const reports = clean(r.reports);
   const out: PlannerSettings = {
     v: 1,
-    calendar: clean(r.calendar),
-    todo: [...new Set(todo)],
-    reports: clean(r.reports),
+    calendar: null,
+    todo: reports ? [`${reports}/todo.md`] : [],
+    reports,
     journal: clean(r.journal),
     q1Parity: r.q1Parity === 'odd' || r.q1Parity === 'even' ? r.q1Parity : null,
     journalMode: r.journalMode === 'compact' ? 'compact' : 'full',
@@ -177,8 +179,7 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
 /* -------------------------------------------------------------------- Settings › Views */
 
 const ROWS = [
-  { key: 'calendar', name: 'Calendar (for months with no timetable)', kind: 'file', note: 'One heading per weekday and one line per block. Day and Week draw it for a month whose file has no # Timetable.' },
-  { key: 'reports', name: 'Plannings folder', kind: 'folder', note: 'Holds YYYY.md, the year, YYYY-MM.md, each month (goals, systems, timetable, review), flat or in a year folder, and systems.jsonl, the checks. Day, Week, Month and Year read it.' },
+  { key: 'reports', name: 'Planner folder', kind: 'folder', note: 'Holds YYYY.md, each year, YYYY-MM.md, each month (goals, systems, timetable, review), todo.md and systems.jsonl. Today and Planner read it.' },
   { key: 'journal', name: 'Journal folder', kind: 'folder', note: 'One file per day, named YYYY-MM-DD.md.' },
 ];
 
@@ -212,31 +213,17 @@ function html(s) {
       <div class="pl-set-note">${esc(r.note)}</div>
     </div>`);
 
-  const todo = `
-    <div class="pl-set-row" data-key="todo">
-      <div class="pl-set-name">Todo files</div>
-      <div class="pl-set-value">${s.todo.length
-        ? `<ul class="pl-set-list">${s.todo.map((p, i) => `<li><span class="pl-set-path mono-sm text-select">${esc(p)}</span>
-            <button type="button" class="btn sm" data-act="remove-todo" data-i="${i}" aria-label="Remove ${esc(p)}">Remove</button></li>`).join('')}</ul>`
-        : pathValue(null, 'file')}</div>
-      <div class="pl-set-act">
-        <button type="button" class="btn sm" data-act="add-todo">Add a file…</button>
-      </div>
-      <div class="pl-set-note">Markdown files of <code>- [ ]</code> lines. Day lists what is late, due and undated, file by file.</div>
-    </div>`;
 
   return `
     <div class="pl-set">
       ${s.confirmed ? '' : '<div class="pl-quiet">These were found automatically. Check them, then confirm.</div>'}
-      ${rows.slice(0, 1).join('')}
-      ${todo}
-      ${rows.slice(1).join('')}
+      ${rows.join('')}
       <div class="pl-set-row">
         <div class="pl-set-name">This week is</div>
         <div class="pl-set-value">${seg('q1', [
           { value: 'q1', label: 'Q1' }, { value: 'q2', label: 'Q2' }, { value: 'unknown', label: "Don't know" },
         ], thisWeek(s))}</div>
-        <div class="pl-set-note">Which of the calendar's (Q1) and (Q2) blocks apply this week. The weeks alternate from here, year ends included; after a break that restarts the count, set it again. Not knowing draws both, side by side.</div>
+        <div class="pl-set-note">Which of the timetable's (Q1) and (Q2) blocks apply this week. The weeks alternate from here, year ends included; after a break that restarts the count, set it again. Not knowing draws both, side by side.</div>
       </div>
       <div class="pl-set-row">
         <div class="pl-set-name">Journal</div>
@@ -251,8 +238,7 @@ function html(s) {
 }
 
 const TITLES = {
-  calendar: 'Choose the calendar file…',
-  reports: 'Choose the plannings folder…',
+  reports: 'Choose the planner folder…',
   journal: 'Choose the journal folder…',
 };
 
@@ -300,16 +286,6 @@ export function renderSettings(el: HTMLElement, store: ReturnType<typeof createS
         break;
       }
       case 'clear': store.set({ [key]: null }); break;
-      case 'add-todo': {
-        const picked = await store.pick.file({ title: 'Add a todo file…', ext: 'md' });
-        if (picked && alive) store.set({ todo: [...store.get().todo, picked] });
-        break;
-      }
-      case 'remove-todo': {
-        const i = Number(b.dataset.i);
-        store.set({ todo: store.get().todo.filter((_, j) => j !== i) });
-        break;
-      }
       case 'confirm': store.set({ confirmed: true }); break;
       case 'detect': {
         const before = JSON.stringify(store.get());

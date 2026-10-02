@@ -5,14 +5,13 @@
 import { esc } from '../../ui/index.ts';
 
 /**
- * The period navigation, laid out by `.v-nav`: the key hint in mono, then the three buttons.
+ * The period navigation, laid out by `.v-nav`: the three buttons (the keys are in Settings › Help).
  * They carry `data-nav` so `bindNav` drives them without ids; `unit` names the period for the
  * screen reader ("Previous day").
  * @returns HTML
  */
 export function navHtml(unit: string): string {
   return `<div class="v-nav">
-    <span class="v-keys mono-sm" aria-hidden="true">&larr; &rarr; &middot; t</span>
     <button type="button" class="btn sm" data-nav="prev" aria-label="Previous ${esc(unit)}">&lsaquo;</button>
     <button type="button" class="btn sm" data-nav="today">Today</button>
     <button type="button" class="btn sm" data-nav="next" aria-label="Next ${esc(unit)}">&rsaquo;</button>
@@ -57,8 +56,8 @@ export function bindNav(root: HTMLElement, { prev, next, today }: { prev: Functi
 
 const WHAT = {
   calendar: 'No calendar file chosen.',
-  todo: 'No todo file chosen.',
-  reports: 'No plannings folder chosen.',
+  todo: 'No planner folder chosen, so no todo.md.',
+  reports: 'No planner folder chosen.',
   journal: 'No journal folder chosen.',
 };
 

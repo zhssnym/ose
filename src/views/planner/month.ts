@@ -14,7 +14,7 @@
 
 import { esc, icon, loadingLine, toast } from '../../ui/index.ts';
 import {
-  addMonths, DAY_SHORT, ddmm, hhmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth, ym,
+  addMonths, DAY_SHORT, ddmm, hhmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth, ym, ymd,
 } from '../shared/dates.ts';
 import {
   dayVerdict, listPlannings, logPath, newMonthText, parseMonthlyPlan, parseSystemsLog, percentages,
@@ -119,7 +119,7 @@ export function createMonthView(ose: any, store: any): any {
       box.style.setProperty('--mo-days', String(days.length));
       const out = ['<div class="mo-corner"></div>'];
       for (const d of days) {
-        out.push(`<div class="mo-dh mono-sm${isSameDay(d, today) ? ' today' : ''}"><span>${String(d.getDate()).padStart(2, '0')}</span></div>`);
+        out.push(`<button type="button" class="mo-dh mono-sm${isSameDay(d, today) ? ' today' : ''}" data-day="${ymd(d)}" title="Open this day"><span>${String(d.getDate()).padStart(2, '0')}</span></button>`);
       }
       out.push('<div class="mo-corner"></div>');
       const month = { done: 0, lost: 0, open: 0 };
@@ -271,7 +271,7 @@ export function createMonthView(ose: any, store: any): any {
     function onClick(ev) {
       const t = ev.target.closest ? ev.target.closest('[data-act], [data-year]') : null;
       if (!t || !root.contains(t)) return;
-      if (t.dataset.year) { ose.route.navigate({ type: 'view', name: 'year', arg: t.dataset.year }); return; }
+      if (t.dataset.year) { ose.route.navigate({ type: 'view', name: 'planner', arg: `year:${t.dataset.year}` }); return; }
       if (t.dataset.act === 'start') { void start(); return; }
       if (t.dataset.act === 'fold') { ttOpen = !ttOpen; ttWrite(ttOpen); renderTimetable(); }
     }
