@@ -514,11 +514,10 @@ button.mo-dh:hover { color: var(--fg); }
 
 /* --------------------------------------------------------------------------- Today */
 
-/* One quiet column, read top to bottom: now and next, the day's schedule, the systems, the
-   tasks. No boxes: whitespace groups, rows are plain lines, the accent only says late and now. */
-.td-col { max-width: 44rem; }
+/* Now and next, the day as one horizontal strip, then two boxes side by side: the tasks and the
+   systems. Whitespace groups; the accent says now, the live block and late. */
+.td-col { max-width: 64rem; }
 .td-col .page-meta:empty { display: none; }
-.td > .label { margin-top: var(--sp-6); }
 .td-count { margin-left: var(--sp-2); color: var(--fg-3); font-family: var(--font-mono); }
 .td-count.ok { color: var(--ok-ink); }
 .td-meta { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
@@ -526,24 +525,37 @@ button.mo-dh:hover { color: var(--fg); }
 .td-due { color: var(--fg-2); font-size: var(--fs-chrome-sm); }
 
 .td-now {
-  display: grid; gap: var(--sp-1); margin-top: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4); background: var(--bg-2); border-radius: var(--radius);
+  display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-6); margin-top: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4); background: var(--bg-2); border-radius: var(--radius);
 }
-.td-now-row { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-ui); }
-.td-now-k { width: 3rem; flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }
+.td-now-row { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-ui); }
+.td-now-k { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
 .td-now-v { color: var(--fg); }
 
-.td-ev {
-  display: flex; align-items: baseline; gap: var(--sp-3);
-  padding: var(--sp-1) 0; font-size: var(--fs-ui); color: var(--fg);
+/* The strip: hour labels above, the track under them, blocks in the timetable's colours. */
+.td-strip { margin-top: var(--sp-5); }
+.ts-hours { position: relative; height: 16px; }
+.ts-h { position: absolute; top: 0; transform: translateX(-50%); color: var(--fg-3); }
+.ts-h:first-child { transform: none; }
+.ts-track {
+  position: relative; height: 64px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
 }
-.td-ev .wk-dot { align-self: center; }
-.td-time { width: 7.5rem; flex: none; color: var(--fg-3); }
-.td-name { min-width: 0; }
-.td-sub { color: var(--fg-3); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.td-ev.past { opacity: .45; }
-.td-ev.live .td-name { font-weight: 600; }
-.td-ev.live .td-time { color: var(--accent-ink); }
+.ts-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.ts-ev.wk-ev {
+  top: calc(var(--sp-half) + (100% - var(--sp-half) * 2) * var(--lane) / var(--lanes));
+  height: calc((100% - var(--sp-half) * 2) / var(--lanes));
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-2);
+  justify-content: center;
+}
+.ts-n { font-size: var(--fs-chrome-sm); font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-ev.past { opacity: .4; }
+.ts-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
+.ts-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 3; }
+
+.td-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: var(--sp-4); margin-top: var(--sp-5); align-items: start; }
+.td-box { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
+.td-box > .label { margin-top: 0; }
 
 .td .dy-sys-row, .td .tk-row { padding-left: 0; background: none; }
 .td .dy-sys-row:hover, .td .tk-row:hover { background: none; }

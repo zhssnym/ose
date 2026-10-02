@@ -14,7 +14,10 @@ import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, monthTitle, parseYmd, startOfDay, ym, ymd,
 } from '../shared/dates.ts';
-import { chooseTimetable } from '../shared/timetable.ts';
+import { chooseTimetable, lanes } from '../shared/timetable.ts';
+
+/** The strip's span: 07h to midnight, in minutes. */
+const STRIP_FROM = 7 * 60, STRIP_TO = 24 * 60;
 import {
   applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
@@ -98,12 +101,17 @@ export function createTodayView(ose: any, store: any): any {
     <div data-el="detected"></div>
     <div class="td">
       <div class="td-now" data-el="nowbox" hidden></div>
-      <div class="label">Schedule</div>
-      <div class="td-list" data-el="tl"></div>
-      <div class="label">Systems <span class="td-count" data-el="syscount"></span></div>
-      <div class="td-list" data-el="sys"></div>
-      <div class="label">Tasks</div>
-      <div class="td-list td-tasks" data-el="tasks"></div>
+      <div class="td-strip" data-el="tl"></div>
+      <div class="td-boxes">
+        <section class="td-box">
+          <div class="label">Tasks</div>
+          <div class="td-list td-tasks" data-el="tasks"></div>
+        </section>
+        <section class="td-box">
+          <div class="label">Systems <span class="td-count" data-el="syscount"></span></div>
+          <div class="td-list" data-el="sys"></div>
+        </section>
+      </div>
     </div>
   </div>
 </div>`;
@@ -128,13 +136,25 @@ export function createTodayView(ose: any, store: any): any {
       box.classList.remove('is-empty');
       const d = dayIndex(st.cursor);
       const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s))).sort((a, b) => a.sm - b.sm);
-      box.innerHTML = list.length
-        ? list.map((e) => `<div class="td-ev" data-s="${e.sm}" data-e="${e.em}">
-            <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
-            <span class="wk-dot t-${e.type}"></span>
-            <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
-          </div>`).join('')
-        : note('Nothing in the timetable for this day');
+      if (!list.length) { box.innerHTML = note('Nothing in the timetable for this day'); tick(); return; }
+      // The day from 07h to midnight as one strip: a block sits where its hours are, as wide as
+      // they are long. Two blocks at once (Q1 and Q2 while the week is unknown) share the height.
+      const pct = (min) => `${(Math.max(STRIP_FROM, Math.min(STRIP_TO, min)) - STRIP_FROM) / (STRIP_TO - STRIP_FROM) * 100}%`;
+      const out = ['<div class="ts-hours">'];
+      for (let h = STRIP_FROM / 60; h < STRIP_TO / 60; h += 1) {
+        out.push(`<span class="ts-h mono-sm" style="left:${pct(h * 60)}">${String(h).padStart(2, '0')}</span>`);
+      }
+      out.push('</div><div class="ts-track">');
+      for (let h = STRIP_FROM / 60 + 1; h < STRIP_TO / 60; h += 1) out.push(`<div class="ts-tick" style="left:${pct(h * 60)}"></div>`);
+      for (const { e, lane, lanes: n } of lanes(list)) {
+        const end = Math.min(e.em, STRIP_TO);
+        if (end <= STRIP_FROM) continue;
+        const width = `calc(${pct(end)} - ${pct(e.sm)})`;
+        const title = `${e.q ? `${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em % 1440)}`;
+        out.push(`<div class="ts-ev wk-ev t-${e.type}" data-s="${e.sm}" data-e="${e.em}" style="left:${pct(e.sm)};width:${width};--lane:${lane};--lanes:${n}" title="${esc(title)}"><span class="ts-n">${esc(e.t)}</span></div>`);
+      }
+      out.push('<div class="ts-now" data-el="now" hidden></div></div>');
+      box.innerHTML = out.join('');
       tick();
     }
 
@@ -143,7 +163,12 @@ export function createTodayView(ose: any, store: any): any {
       const box = $('nowbox');
       const today = isSameDay(st.cursor, new Date());
       const m = minutesOf();
-      for (const node of host.querySelectorAll('.td-ev')) {
+      const line = $('now');
+      if (line) {
+        line.hidden = !today || m < STRIP_FROM || m > STRIP_TO;
+        line.style.left = `${(m - STRIP_FROM) / (STRIP_TO - STRIP_FROM) * 100}%`;
+      }
+      for (const node of host.querySelectorAll('.ts-ev')) {
         const s = +node.dataset.s, e = +node.dataset.e;
         node.classList.toggle('past', today && e <= m);
         node.classList.toggle('live', today && s <= m && m < e);
