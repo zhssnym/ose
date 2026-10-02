@@ -5,13 +5,13 @@ import { ose } from 'ose:core';
 import { esc, focusOrigin, hasIcon, icon, overlayCount, retargetFocusOrigin } from 'ose:ui';
 import { byViewOrder } from './order.js';
 import {
-  clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,
+  baseName, clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,
 } from './paths.js';
 import { clipboard } from './fileops.js';
 import { DEFAULT_SORT, iconName, sortEntries, visibleEntries } from './folder-model.js';
 import { setSidebarOpen, sidebarVisible } from './layout.js';
 import {
-  currentRoute, getFocus, ic, isUnderFocus, showHidden, slot, state,
+  currentRoute, exitFocus, getFocus, ic, isUnderFocus, showHidden, slot, state,
 } from './sidebar-state.js';
 import { pruneSelection } from './sidebar-select.js';
 import { loadChildren, movedKey } from './sidebar-load.js';
@@ -134,6 +134,27 @@ function emptyLine(text, depth) {
  * One tree per section rather than one for the whole sidebar: the sections are separate lists
  * with separate names, and claiming otherwise would make a reader announce wrong positions.
  */
+/**
+ * In focus mode the Vault heading is replaced by this one: same row, same baseline, same padding
+ * as every other heading, reading `Focus <folder>` with the way out on the right.
+ */
+function focusLabel(focus) {
+  const d = document.createElement('div');
+  d.className = 'section-label sb-focus-label';
+  d.dataset.drop = focus;
+  d.innerHTML = `<span class="sb-focus-key">Focus</span>`
+    + `<span class="sb-focus-path" title="${esc(focus)}">${esc(baseName(focus))}</span>`;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'sb-focus-exit';
+  b.innerHTML = icon('close');
+  b.title = 'Leave focus mode';
+  b.setAttribute('aria-label', 'Leave focus mode');
+  b.addEventListener('click', (e) => { e.stopPropagation(); exitFocus(); });
+  d.appendChild(b);
+  return d;
+}
+
 /** A section's heading: "Views", "Vault". */
 function heading(frag, text) {
   const d = document.createElement('div');
@@ -223,9 +244,10 @@ function renderTree() {
   }
 
   // Vault: what is in the vault folder, directly; the folder itself has no row. In focus mode
-  // the focus folder simply is the vault here: the same heading, no label, nothing to say so.
-  // Leaving it is `app.focus-exit`, in the palette and the tree's menu.
-  heading(frag, 'Vault');
+  // the heading *is* the indicator: `Focus  <folder>` with the way out on the right, in place
+  // of "Vault", so focus mode costs no extra line.
+  if (focus) frag.appendChild(focusLabel(focus));
+  else heading(frag, 'Vault');
   const box = treeBox(frag, 'Vault', true);
   box.classList.add('sb-files');
   if (!state.tree) {
