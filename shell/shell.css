@@ -362,11 +362,11 @@
 .st-left .st-item.accent { color: var(--accent); }
 .st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
 /* The editing mode as a small two-way toggle: the current one lit, the other a click away. */
-.st-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; vertical-align: middle; }
-.st-seg-b { padding: 0 var(--sp-2); line-height: 1.125rem; color: var(--fg-3); background: transparent; font: inherit; }
-.st-seg-b + .st-seg-b { border-left: 1px solid var(--border); }
-.st-seg-b:hover { color: var(--fg); }
-.st-seg-b.on { color: var(--fg); background: var(--bg-3); }
+.st-seg { display: inline-flex; align-items: baseline; gap: var(--sp-1); vertical-align: baseline; }
+.st-seg-b { padding: 0; color: var(--fg-3); background: transparent; border: 0; font: inherit; cursor: pointer; text-underline-offset: 3px; }
+.st-seg-b + .st-seg-b::before { content: '|'; color: var(--fg-3); opacity: 0.5; margin-right: var(--sp-1); text-decoration: none; display: inline-block; }
+.st-seg-b:hover { color: var(--fg-2); }
+.st-seg-b.on { color: var(--fg); text-decoration: underline; cursor: default; }
 
 /* ------------------------------------------------------------------ status field with choices */
 
