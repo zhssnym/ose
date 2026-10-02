@@ -84,7 +84,9 @@ export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolv
     // The batch-12 modules (extensions.ts) merge their own feature options over these.
     featureConfigs: extensionFeatureConfigs(o, {
       [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
-      [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: true },
+      // `virtual: false`: Crepe's drawn caret measures the text itself and ran ahead of it on
+      // Windows fonts; the system's own caret is always where the text is.
+      [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: false },
       [CrepeFeature.LinkTooltip]: { inputPlaceholder: 'Paste or type a link' },
       // Crepe's CodeMirror feature installs One Dark as its theme, and One Dark is not only a
       // ground and a caret: it carries a highlight style of its own, with hard-coded hexes, that
