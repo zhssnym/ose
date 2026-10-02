@@ -1,8 +1,7 @@
-// Journal: the whole record, newest first, and one way to write: "Write today" opens today's
-// file in the editor (H23). The composer and its localStorage draft are gone; the editor has
-// drafts, versions and the leave gate, and a journal entry is a page like any other. Text the
-// old composer kept unsaved in localStorage (`os.journal.draft`) is offered once per start until
-// it is added to today's entry or discarded on purpose (`recoverOldDraft`); never dropped quietly.
+// Journal: write once at the top, read the whole record underneath. The writing box grows with
+// its text; Save (or Ctrl+Enter) appends it to today's file after a `---` separator, line by
+// line (`addToToday`), and never edits what is there. Text not saved yet is kept on this machine
+// (localStorage `os.journal.draft`) and comes back in the box at the next start.
 //
 // The folder is `journal` in Settings › Planner. An entry is any `YYYY-MM-DD*.md` in it; the date
 // comes from the file name, never from the heading. Today's file is `YYYY-MM-DD.md`, created with
@@ -16,7 +15,7 @@
 // drawn with `ose:editor`'s `render` when it is there, so maths and links read as on the page,
 // and a link in an entry opens what it points at, with the mouse or with Enter.
 
-import { confirm, esc, loadingLine, toast } from 'ose:ui';
+import { esc, loadingLine, toast } from 'ose:ui';
 import {
   clock, dateFromName, daysBetween, journalFileName, journalHeading, shortDate, weekdayName, ymd,
 } from './dates.ts';
@@ -192,43 +191,6 @@ async function addToToday(ose, store, text): Promise<string> {
   return path ? write(path) : '';
 }
 
-/**
- * Once per start: when the old Journal left unsaved text in this machine's localStorage, offer
- * it (a sticky toast, and a palette command while it is there). The key goes only after the
- * text is written to today's entry, or on a confirmed "Discard".
- * @param store the planner settings store
- * @returns removes the command
- */
-export function recoverOldDraft(ose: any, store: any): () => void {
-  if (!oldDraft().trim()) return () => {};
-  const add = async () => {
-    const text = oldDraft();
-    if (!text.trim()) return;
-    try { await addToToday(ose, store, text); } catch (err) {
-      const e = (err as { code?: string, message?: string });
-      console.error('[planner] journal draft', e);
-      toast(`The text was not added: ${(e && e.message) || e}. It is kept for next time.`, 'err', 0);
-    }
-  };
-  const offer = () => {
-    if (!oldDraft().trim()) return;
-    toast('The old Journal kept text that was never saved.', 'warn', 0, {
-      actions: [{ label: "Add to today's journal", run: add }, { label: 'Discard…', run: discard }],
-    });
-  };
-  const discard = async () => {
-    const ok = await confirm({ title: 'Discard the unsaved journal text?', body: oldDraft(), ok: 'Discard', danger: true });
-    if (ok) dropOldDraft(); else offer();
-  };
-  const off = ose.commands.register({
-    id: 'journal.recoverDraft', title: 'Recover unsaved journal text', group: 'planner',
-    when: () => !!oldDraft().trim(),
-    run: offer,
-  });
-  offer();
-  return off;
-}
-
 /* ------------------------------------------------------------------ the view */
 
 /**
@@ -257,10 +219,15 @@ export function createJournalView(ose: any, store: any): any {
       <span class="jr-gap" data-el="gap">&nbsp;</span>
     </div>
     <div data-el="detected"></div>
-    <div class="jr-bar">
-      <div class="jr-write">
-        <button type="button" class="btn primary" data-act="today">Write today</button>
+    <div class="jr-compose">
+      <textarea class="input jr-input view-prose text-select" data-el="text" rows="6"
+        placeholder="Today. Write it as it comes; the file keeps your wording."></textarea>
+      <div class="jr-foot">
+        <button type="button" class="btn primary" data-act="save" disabled>Save</button>
       </div>
+    </div>
+    <div class="jr-bar">
+      <span></span>
       <div class="jr-mode seg" role="group" aria-label="Record" data-el="mode">
         <button type="button" class="seg-b" data-mode="full">Full</button>
         <button type="button" class="seg-b" data-mode="compact">Compact</button>
@@ -273,6 +240,50 @@ export function createJournalView(ose: any, store: any): any {
   </div>
 </div>`;
     const root = host.querySelector('.view-root');
+
+    // The writing box: as tall as its text (six lines empty), its draft kept as it is typed.
+    const ta = host.querySelector('[data-el="text"]') as HTMLTextAreaElement;
+    const saveBtn = host.querySelector('[data-act="save"]') as HTMLButtonElement;
+    let draftTimer: any = 0;
+    function grow() {
+      const cs = getComputedStyle(ta);
+      const lh = parseFloat(cs.lineHeight) || 26;
+      const borders = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      const min = Math.round(lh * 6 + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + borders);
+      ta.style.overflowY = 'hidden';
+      if (!ta.value) { ta.style.height = `${min}px`; return; }
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.max(min, ta.scrollHeight + borders)}px`;
+    }
+    const syncSave = () => { saveBtn.disabled = !ta.value.trim(); };
+    const keepDraft = () => {
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => { try { localStorage.setItem(OLD_DRAFT, ta.value); } catch { /* not kept */ } }, 250);
+    };
+    async function saveText() {
+      const text = ta.value.trim();
+      if (!text) return;
+      saveBtn.disabled = true;
+      try {
+        await addToToday(ose, store, text);
+        clearTimeout(draftTimer);
+        ta.value = '';
+        dropOldDraft();
+        grow();
+        load();
+      } catch (err) {
+        const e = (err as { message?: string });
+        console.error('[planner] journal save', e);
+        toast(`The text was not saved: ${(e && e.message) || e}. It is still in the box.`, 'err', 0);
+      }
+      syncSave();
+    }
+    ta.value = oldDraft();
+    ta.addEventListener('input', () => { grow(); syncSave(); keepDraft(); });
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void saveText(); }
+    });
+    requestAnimationFrame(() => { grow(); syncSave(); });
     const $ = (name) => host.querySelector(`[data-el="${name}"]`);
 
     function gapLine() {
@@ -484,7 +495,7 @@ export function createJournalView(ose: any, store: any): any {
         return;
       }
       const act = ev.target.closest('[data-act]');
-      if (act && act.dataset.act === 'today') { openToday(ose, store); return; }
+      if (act && act.dataset.act === 'save') { void saveText(); return; }
       if (act && act.dataset.act === 'more') { renderMore(); return; }
       const m = ev.target.closest('[data-mode]');
       if (m) { store.set({ journalMode: m.dataset.mode === 'compact' ? 'compact' : 'full' }); return; }

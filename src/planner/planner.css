@@ -338,7 +338,12 @@
 .jr-meta > span + span::before { content: "·"; margin: 0 var(--sp-2); color: var(--fg-3); }
 .jr-meta .jr-gap { color: var(--fg-2); }
 
-/* "Write today" on the left, the record's mode on the right, one row above the record */
+/* The writing box under the date: as tall as its text, Save under it on the right. */
+.jr-compose { margin: var(--sp-4) 0 var(--sp-3); }
+.jr-input { width: 100%; resize: none; display: block; }
+.jr-foot { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
+
+/* The record's mode on the right, one row above the record */
 .jr-bar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   margin: var(--sp-3) 0 var(--sp-5);

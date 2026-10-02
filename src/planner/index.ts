@@ -15,7 +15,7 @@ import { createStore, renderSettings } from './settings.ts';
 import { createDayView } from './day.ts';
 import { createWeekView } from './week.ts';
 import { createMonthView } from './month.ts';
-import { createJournalView, openToday, recoverOldDraft } from './journal.ts';
+import { createJournalView, openToday } from './journal.ts';
 import { openPlannerSettings } from './nav.ts';
 
 /**
@@ -25,7 +25,6 @@ import { openPlannerSettings } from './nav.ts';
 export function initPlanner(ose: any): { dispose: () => void; store: any; } {
   const store = createStore(ose);
   const offs: any[] = [];
-  let disposed = false;
   const add = (off) => { if (typeof off === 'function') offs.push(off); };
 
   const views = {
@@ -53,7 +52,6 @@ export function initPlanner(ose: any): { dispose: () => void; store: any; } {
   }));
 
   // the old Journal's unsent composer text, if this machine has any: offered, never dropped
-  store.ready.then(() => { if (!disposed) add(recoverOldDraft(ose, store)); }).catch((e) => console.error('[planner] journal draft', e));
 
   add(ose.settings.section({
     id: 'planner', title: 'Planner', order: 40,
@@ -63,7 +61,6 @@ export function initPlanner(ose: any): { dispose: () => void; store: any; } {
   return {
     store,
     dispose() {
-      disposed = true;
       for (const off of offs.splice(0)) { try { off(); } catch { /* already gone */ } }
       store.dispose();
     },
