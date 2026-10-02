@@ -532,34 +532,35 @@ button.mo-dh:hover { color: var(--fg); }
 .td-now-k { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
 .td-now-v { color: var(--fg); }
 
-/* The strip: hour labels above, the track under them, blocks in the timetable's colours. */
-.td-strip { margin-top: var(--sp-5); }
-.ts-hours { position: relative; height: 16px; }
-.ts-h { position: absolute; top: 0; transform: translateX(-50%); color: var(--fg-3); }
-.ts-h:first-child { transform: none; }
-.ts-track {
-  position: relative; height: 64px;
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+/* The day: its blocks as a checklist, each with its time, its colour and its room. */
+.td-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--sp-5); margin-top: var(--sp-5); align-items: start; }
+@media (max-width: 1100px) { .td-grid { grid-template-columns: minmax(0, 1fr); } }
+.td-side { display: grid; gap: var(--sp-4); }
+.td-day > .label, .td-box > .label { margin-top: 0; }
+.td-blk {
+  --c: var(--c-rest);
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) 0; border: 0; border-bottom: 1px solid var(--border);
+  background: none; font: inherit; font-size: var(--fs-ui); color: var(--fg); text-align: left; cursor: pointer;
 }
-.ts-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.ts-ev.wk-ev {
-  top: calc(var(--sp-half) + (100% - var(--sp-half) * 2) * var(--lane) / var(--lanes));
-  height: calc((100% - var(--sp-half) * 2) / var(--lanes));
-  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-2);
-  justify-content: center;
-}
-.ts-n { font-size: var(--fs-chrome-sm); font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-button.ts-ev { border-top: 0; border-right: 0; border-bottom: 0; font: inherit; text-align: left; cursor: pointer; }
-.ts-ev:hover { background: color-mix(in srgb, var(--c) 28%, var(--bg)); }
-/* Done: the block filled with its colour, a check before its name. */
-.ts-ev.done { background: color-mix(in srgb, var(--c) 55%, var(--bg)); }
-.ts-ev.past:not(.done) { opacity: .45; }
-.ts-ev.live { box-shadow: inset 0 0 0 1px var(--accent); }
-.ts-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 3; }
+.td-blk:last-child { border-bottom: 0; }
+.td-blk.t-class { --c: var(--c-class); } .td-blk.t-maths { --c: var(--c-maths); } .td-blk.t-nsi { --c: var(--c-nsi); }
+.td-blk.t-hum { --c: var(--c-hum); } .td-blk.t-bilan { --c: var(--c-bilan); } .td-blk.t-lunch { --c: var(--c-lunch); }
+.td-blk.t-work { --c: var(--c-work); } .td-blk.t-sleep { --c: var(--c-sleep); }
+.td-blk:hover .td-name { color: var(--fg); }
+.td-blk:hover .check { border-color: var(--accent); }
+.td-bar { flex: none; width: 3px; height: 1.1em; background: var(--c); border-radius: 1px; }
+.td-time { width: 7.5rem; flex: none; color: var(--fg-3); }
+.td-name { min-width: 0; }
+.td-sub { color: var(--fg-3); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-nowtag { display: none; margin-left: auto; color: var(--accent-ink); font-size: var(--fs-chrome-sm); }
+.td-blk.live .td-nowtag { display: inline; }
+.td-blk.live .td-name { font-weight: 600; }
+.td-blk.live .td-time { color: var(--accent-ink); }
+.td-blk.past:not(.done) { opacity: .5; }
+.td-blk.done .td-name { color: var(--fg-3); text-decoration: line-through; }
 
-.td-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: var(--sp-4); margin-top: var(--sp-5); align-items: start; }
 .td-box { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
-.td-box > .label { margin-top: 0; }
 
 .td .dy-sys-row, .td .tk-row { padding-left: 0; background: none; }
 .td .dy-sys-row:hover, .td .tk-row:hover { background: none; }
