@@ -13,7 +13,7 @@
 // owner registers (`page.show-problem`).
 
 import { bus, commands } from './registry.ts';
-import { toast } from './dialog.ts';
+import { toast } from '../ui/toast.ts';
 import { unmountOnUnload, reopenCurrent, currentRoute, openTab } from './router.ts';
 import { pageHost } from './pagehost.ts';
 import { records, currentOf } from './tabs.ts';

@@ -27,8 +27,8 @@ import { flushState } from './state.ts';
 import { local } from './local.ts';
 import { clean, dirName, baseName, isOutside, outsideLabel } from './paths.ts';
 import { display } from './names.ts';
-import { toast } from './dialog.ts';
-import { loadingOverlay } from './loading.ts';
+import { toast } from '../ui/toast.ts';
+import { loadingOverlay } from '../ui/loading.ts';
 import * as T from './tabs.ts';
 // "Create it" is a file operation like any other (H12, M4): exclusive, any extension, never a
 // markdown heading written into a `.json`. Circular with ./fileops.js, which re-points the

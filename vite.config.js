@@ -36,7 +36,7 @@ const posix = (p) => p.split('\\').join('/');
 /** The four `ose:*` specifiers, as the import map in shell/index.html names them. */
 const ALIAS = {
   'ose:core': here('src/core/core.ts'),
-  'ose:ui': here('src/core/ui.ts'),
+  'ose:ui': here('src/ui/index.ts'),
   'ose:editor': here('src/editor/lib.ts'),
   'ose:planner': here('src/planner/index.ts'),
 };
@@ -47,10 +47,10 @@ const KATEX = { katex: here('src/editor/katex-absent.ts') };
 /** The build's library entries: a missing source fails the build. */
 const ENTRIES = {
   core: here('src/core/core.ts'),
-  ui: here('src/core/ui.ts'),
+  ui: here('src/ui/index.ts'),
   editor: here('src/editor/lib.ts'),
   planner: here('src/planner/index.ts'),
-  'ui.css': here('src/core/ui.css'),
+  'ui.css': here('src/ui/ui.css'),
 };
 
 /** The folder of the bundles inside the output; the shell must not have one. */
@@ -142,7 +142,7 @@ function kernelStylesheets() {
     return sheets.map((id) => `@import url("/@fs/${posix(id).replace(/^\/+/, '').split('?')[0]}?direct");`).join('\n');
   };
   const sheet = async (name) => {
-    if (name === 'ui.css') return inlineImports(readFileSync(here('src/core/ui.css'), 'utf8'), 'src/core/');
+    if (name === 'ui.css') return inlineImports(readFileSync(here('src/ui/ui.css'), 'utf8'), 'src/ui/');
     if (name === 'planner.css') return inlineImports(readFileSync(here('src/planner/planner.css'), 'utf8'), 'src/planner/');
     if (name === 'editor.css') return editorSheets();
     return null;

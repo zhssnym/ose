@@ -7,21 +7,20 @@
 // icon set in a running Ose. Two copies would mean Esc closing an overlay that is not the
 // newest, which is the kind of bug a bundler makes in silence.
 //
-// Everything here was once the shell's own dialog, icon and fuzzy modules. The stylesheet is
-// `ui.css` (tokens.css + base.css); nothing here writes a colour.
+// The bricks are in src/ui; the stylesheet is src/ui/ui.css (tokens.css + base.css).
 
 export {
   openOverlay, closeTopOverlay, overlayCount, overlayHasInputFocus,
   focusOrigin, retargetFocusOrigin, focusField,
   prompt, confirm, choose,
-  pickPage, pickFolder, pickFile,
   contextMenu,
-  toast, dismissToast,
-  copyText,
-  pageTitle,
-} from './dialog.ts';
-
-export { icon, hasIcon, glyph } from './icons.ts';
-export { fuzzy, highlight, pageItems } from './fuzzy.ts';
-export { loadingLine, loadingOverlay, LOADING_DELAY } from './loading.ts';
-export { esc } from './registry.ts';
+} from '../ui/overlay.ts';
+export { toast, dismissToast } from '../ui/toast.ts';
+export { copyText } from '../ui/clipboard.ts';
+export { icon, hasIcon, glyph } from '../ui/icons.ts';
+export { fuzzy, highlight } from '../ui/fuzzy.ts';
+export { loadingLine, loadingOverlay, LOADING_DELAY } from '../ui/loading.ts';
+export { esc } from '../ui/html.ts';
+// The vault pickers are the core's (they read the vault), offered through `ose:ui` all the same.
+export { pickPage, pickFolder, pickFile, pageTitle } from './pickers.ts';
+export { pageItems } from './page-items.ts';

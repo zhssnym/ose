@@ -4,7 +4,7 @@
 // this machine is in the per-machine store (./local.js).
 // Merge is shallow at the top level: pass the whole sub-object for a key you own.
 import { bridge } from './bridge/index.ts';
-import { toast } from './dialog.ts';
+import { toast } from '../ui/toast.ts';
 import { logLine } from './log.ts';
 
 let cache: Record<string, any> = {};

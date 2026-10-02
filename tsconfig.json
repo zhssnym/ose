@@ -22,7 +22,7 @@
         "./src/core/core.ts"
       ],
       "ose:ui": [
-        "./src/core/ui.ts"
+        "./src/ui/index.ts"
       ],
       "ose:editor": [
         "./src/editor/lib.ts"

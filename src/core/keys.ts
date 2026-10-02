@@ -11,7 +11,8 @@
 // reads the list and binds it inside a ProseMirror keymap, where a chord can stand down for a
 // code block or a table.
 import { commands, allCommands, commandsRevision } from './registry.ts';
-import { overlayCount, closeTopOverlay, overlayHasInputFocus, toast, dismissToast } from './dialog.ts';
+import { overlayCount, closeTopOverlay, overlayHasInputFocus } from '../ui/overlay.ts';
+import { toast, dismissToast } from '../ui/toast.ts';
 
 /** Cmd on macOS, Ctrl elsewhere. Read live: the shell sets `data-os` after the bridge answers. */
 export function isMac() {

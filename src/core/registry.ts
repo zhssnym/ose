@@ -151,4 +151,4 @@ export const status = {
 // small shared helpers
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c));
+export { esc } from '../ui/html.ts';

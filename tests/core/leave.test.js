@@ -15,7 +15,7 @@ vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
 
 let L;       // src/core/leave.ts
 let K;       // src/core/registry.ts
-let D;       // src/core/dialog.ts
+let D;       // src/ui/overlay.ts and toast.ts
 let events;
 let ran;
 
@@ -25,7 +25,7 @@ beforeEach(async () => {
   fake.reset();
   K = await import('../../src/core/registry.ts');
   L = await import('../../src/core/leave.ts');
-  D = await import('../../src/core/dialog.ts');
+  D = { ...(await import('../../src/ui/overlay.ts')), ...(await import('../../src/ui/toast.ts')) };
   document.body.innerHTML = '';
   events = [];
   for (const ev of ['window:refused', 'window:leaving', 'window:stay']) K.bus.on(ev, (d) => events.push([ev, d]));

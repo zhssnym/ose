@@ -15,7 +15,7 @@ import { bus } from './registry.ts';
 import { bridge } from './bridge/index.ts';
 import { openTab } from './router.ts';
 import { logLine } from './log.ts';
-import { toast } from './dialog.ts';
+import { toast } from '../ui/toast.ts';
 import { baseName, isOutside, outsideLabel } from './paths.ts';
 
 export type OpenRequest = import('./bridge/commands.ts').OpenRequest;

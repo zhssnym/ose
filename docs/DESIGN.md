@@ -57,7 +57,7 @@ chrome talks about the machinery; it talks about the files.
 
 ## Tokens
 
-All colours, fonts, and sizes come from `src/core/styles/tokens.css`, served as part of
+All colours, fonts, and sizes come from `src/ui/styles/tokens.css`, served as part of
 `ui.css`. Never write a hex colour in any other stylesheet; the shell's `theme.css` is the one
 place a token is overridden. Light is on `:root`; dark is `:root[data-theme="dark"]`. The theme
 attribute is set by `first-paint.js` before the first frame and by the core after it. The
