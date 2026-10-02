@@ -32,6 +32,9 @@ const setZoom = (pct) => ose.settings.setZoom(pct);
  */
 const messageOf = (e) => (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e);
 
+/** The zoom as the status bar says it, or null at 100 %. */
+export const zoomLabel = () => (zoom() === 100 ? null : `${zoom()}%`);
+
 /** One step in or out, clamped at the ends rather than wrapping. */
 function stepZoom(dir) {
   const at = ZOOM_STEPS.indexOf(zoom());

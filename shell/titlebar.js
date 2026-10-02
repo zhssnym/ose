@@ -20,7 +20,8 @@ const currentRoute = () => route.current();
 
 let el = null;
 let addrEl = null;
-let dirtyEl = null;
+/** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
+const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let foldEl = null;
 let navEls = null;
 let focusEl = null;
@@ -116,7 +117,6 @@ export function initTitlebar(node) {
     <div class="tb-addr" data-tauri-drag-region>
       <nav class="tb-crumbs" aria-label="Location" data-tauri-drag-region></nav>
     </div>
-    <span class="tb-dirty" role="img" aria-label="unsaved changes" title="unsaved changes" hidden></span>
     <button class="tb-focus mono" type="button" hidden></button>
     <span class="tb-space" data-tauri-drag-region></span>
     ${windowButtons()}`;
@@ -135,7 +135,6 @@ export function initTitlebar(node) {
   bus.on('sidebar', setSidebarShown);
 
   addrEl = /** @type {HTMLElement} */ (el.querySelector('.tb-addr'));
-  dirtyEl = /** @type {HTMLElement} */ (el.querySelector('.tb-dirty'));
 
   // A folder segment opens its folder.
   addrEl.addEventListener('click', (e) => {
@@ -226,6 +225,7 @@ function renderFocus() {
  * tooltip. `null` is a page just opened, which is clean until the editor says otherwise.
  */
 function setState(d) {
+  const dirtyEl = dot();
   if (!dirtyEl) return;
   const bad = !!d && (d.status === 'not-saved' || d.status === 'conflict' || (d.status === 'deleted' && d.dirty));
   dirtyEl.classList.toggle('err', bad);
@@ -249,6 +249,7 @@ function setSidebarShown(shown) {
  * @param {boolean} v
  */
 export function setDirty(v) {
+  const dirtyEl = dot();
   if (!dirtyEl || dirtyEl.classList.contains('err')) return;
   dirtyEl.hidden = !v;
 }

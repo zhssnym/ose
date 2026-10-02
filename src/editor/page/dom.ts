@@ -59,39 +59,11 @@ export function installDom(ctx: PageCtx) {
       col.append(wrap);
     }
 
-    const meta = document.createElement('div');
-    meta.className = 'page-meta';
-    const metaText = document.createElement('span');
-    metaText.className = 'ed-meta-text';
-    meta.append(metaText);
-    p.metaEl = meta;
-    p.metaText = metaText;
+    // The page's facts (its mode, its counts, when it was changed, whether it is saved) are in
+    // the status bar at the foot of the window: the column holds the page and nothing else.
+    p.metaEl = null;
+    p.metaText = null;
     p.modeEl = null;
-    // H14, X1: which mode this is, on screen. Two buttons, one pressed; Tab reaches them and
-    // they run the same commands the palette lists (`page.mode-rich`, `page.mode-source`).
-    if (!p.plain) {
-      const sw = document.createElement('span');
-      sw.className = 'ed-mode';
-      sw.setAttribute('role', 'group');
-      sw.setAttribute('aria-label', 'Editing mode');
-      for (const [mode, label, title] of ([
-        ['rich', 'Rich', 'Edit as rich text'],
-        ['source', 'Source', 'Edit as source (raw markdown text)'],
-      ] as Array<[string, string, string]>)) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'ed-mode-btn';
-        b.dataset.mode = mode;
-        b.textContent = label;
-        b.title = title;
-        b.setAttribute('aria-pressed', String(ctx.publicMode(p) === mode));
-        b.addEventListener('click', () => { void ctx.setMode(mode); });
-        sw.append(b);
-      }
-      meta.append(sw);
-      p.modeEl = sw;
-    }
-    col.append(meta);
 
     const body = document.createElement('div');
     body.className = 'ed-body';

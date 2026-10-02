@@ -10,6 +10,7 @@ import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';
 import { initTitlebar } from './titlebar.js';
+import { initStatusbar } from './statusbar.js';
 import { initSidebar } from './sidebar.js';
 import { vaultLost, vaultFound, vaultRequested } from './vault.js';
 
@@ -471,7 +472,7 @@ function buildPanel() {
  * Build the shell into `rootEl` and answer its parts. Nothing is navigated to yet: `boot.js`
  * calls this, then hands `els.main` to `ose.init`.
  * @param {HTMLElement} rootEl
- * @returns {{titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, panel: HTMLElement}}
+ * @returns {{titlebar: HTMLElement, sidebar: HTMLElement, tabs: HTMLElement, main: HTMLElement, statusbar: HTMLElement, panel: HTMLElement}}
  */
 export function mountShell(rootEl) {
   sidebarState = ose.local('sidebar');
@@ -498,7 +499,8 @@ export function mountShell(rootEl) {
         <div class="panel-head sp-head"><span class="grow sp-title"></span><button type="button" class="sp-close" title="Close panel" aria-label="Close panel"></button></div>
         <div class="sp-body"></div>
       </aside>
-    </div>`;
+    </div>
+    <footer class="statusbar"></footer>`;
   rootEl.appendChild(shell);
 
   // The tab strip sits above the page column and outside it: the router clears `.main` on
@@ -510,6 +512,7 @@ export function mountShell(rootEl) {
     sidebar: part('.sidebar'),
     tabs: part('.tabs'),
     main: part('.main'),
+    statusbar: part('.statusbar'),
     panel: part('.sidepanel'),
   };
   mainEl = els.main;
@@ -536,6 +539,7 @@ export function mountShell(rootEl) {
 
   initTitlebar(els.titlebar);
   initSidebar(els.sidebar);
+  initStatusbar(els.statusbar);
   guardWindowDrops();
   guardBrowserKeys();
   guardContextMenu();

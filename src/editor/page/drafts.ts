@@ -159,7 +159,7 @@ export function installDrafts(ctx: PageCtx) {
    * recount on the same debounce as the save.
    */
   function updateMeta(p, recount = false) {
-    if (!p.metaText) return;
+    if (!p) return;
     if (recount) {
       const text = pageText(p);
       p.words = countWords(text);
@@ -183,8 +183,8 @@ export function installDrafts(ctx: PageCtx) {
     if (p.deleted) bits.push('(deleted)');
     if (p.dirty) bits.push('unsaved');
     else if (p.savedAt) bits.push('saved ' + p.savedAt);
-    p.metaText.textContent = bits.join('  ·  ');
-    ctx.setStatus('doc', `${n(p.words)} word${p.words === 1 ? '' : 's'}`);
+    if (p.metaText) p.metaText.textContent = bits.join('  ·  ');
+    ctx.setStatus('doc', bits.join('  ·  '));
   }
 
   /**
