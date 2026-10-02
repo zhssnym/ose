@@ -1,35 +1,35 @@
 # Ose
 
-Ose is a markdown editor in the spirit of Obsidian, built around a small, opinionated set of features. It runs in Chrome over a folder on your own machine, works offline, and keeps everything as plain files.
+Ose is a small desktop markdown editor for a folder of plain files on your own machine. It is built for working alongside AI agents like Claude Code: your notes stay ordinary markdown files that an agent can read and edit directly, and Ose shows the changes as they happen.
 
 ## Why
 
-AI agents like Claude Code work best with plain local files: they can read and edit markdown directly, with no API, export or plugin in between. Plain files alone are not enough for daily use, though. You still want an app over them that renders pages as documents and builds views from them, the way Obsidian does.
-
-That app is usually a desktop program, which brings its own maintenance: a build per operating system, code signing, releases to download and install, and platform-specific bugs. Ose avoids all of that by being a website that behaves like a local app. It opens a folder on your machine through Chrome's File System Access API, reads and writes the files in place, and works offline after the first visit. There is one build for every computer, and an update is simply a new deploy, picked up automatically. Your files never leave your machine: the site only serves the app's own code.
+Agents work best with plain local files, with no API, export or plugin in between. Plain files alone are not enough for daily use, though: you still want an app that shows pages as documents and lets you move through folders comfortably. Ose is that app, and nothing more. It is deliberately minimal, with no plugins, no sync and no accounts.
 
 ## Features
 
-**The editor.** Markdown pages look like printed documents rather than web pages: Cambria, a ruled title box, compact justified text and square corners. Formulas between dollar signs render as real maths, and code files get syntax highlighting. A page can be read as one scrolling column or as the A4 sheets it prints on, and exported to PDF. Each page can be edited in Rich, Live or Source mode, and line endings and formatting are always preserved.
+**The editor.** Pages look like printed documents rather than web pages. Each page is edited in one of two modes: **Rich**, where you write as in a word processor, or **Source**, the raw markdown as in a code editor. Formulas between dollar signs render as real maths, tables and code blocks are drawn properly, and a page can be laid out as A4 sheets and exported to PDF. Line endings and formatting are always preserved: Ose never rewrites a part of a file you did not edit.
 
-**The file manager.** One tree for the whole folder, a view for every folder, and every file listed under its real name. Nothing is hidden by name.
+**The file manager.** Every folder is a page of its own, listing what is in it, like Explorer or Finder. Folders come first, then everything by name. Tabs, back and forward, Go to file (Ctrl+P), the command palette (Ctrl+Shift+P) and full-text search get you anywhere quickly.
 
-**Built-in views.** Day (timetable and tasks), Week, Month (goals and review) and Journal read ordinary files whose paths are chosen once in the settings. They write back one line at a time, so the files stay readable and editable by anything else.
+**Nothing typed is lost.** Unsaved text is kept as a draft until it reaches the file. When an agent or another program changes a file you have open, Ose merges the change into your page line by line, and asks only when you both changed the same lines.
 
-## The folder is the database
+**Journal, systems and monthly view.** Built-in views over ordinary files whose paths you choose once in the settings. They write back one line at a time, so the files stay readable and editable by anything else.
 
-Everything lives in the folder as plain files. Ose keeps no database, no index and no second copy of anything. Vault settings, pins and file versions go in `.ose/` inside the folder; per-machine state (open tabs, recent files, unsaved drafts) stays in the browser. The folder can be synced with Google Drive, OneDrive or anything else that syncs a folder, and an AI agent can work in it while Ose is open: changes made on disk show up as they happen.
+## Your folder stays yours
 
-## Getting started
+Ose writes nothing into your folder except your own pages. Its settings, the history of your files and any unsaved drafts live in the app's own folder on your machine. A deleted file goes to the Recycle Bin or Trash. The folder can be synced with Google Drive, OneDrive or anything else, and opened from several computers.
 
-Open the site in Chrome, choose a folder, and pick "Allow on every visit" so it opens again without asking. From Chrome's menu, Ose can be installed as an app with its own window.
+## Install
 
-To run it from source:
+Download the latest release from the [releases page](https://github.com/zhssnym/ose/releases/latest): `Ose_<version>_x64-setup.exe` for Windows, `Ose_<version>_aarch64.dmg` for a Mac with Apple silicon. The builds are not signed with a paid certificate, so the first launch asks once: on Windows click **More info › Run anyway**, on a Mac open **System Settings › Privacy & Security › Open Anyway**. After that, Ose updates itself: when a new version is out, it downloads it and offers to restart.
+
+## From source
 
 ```
 npm install
-npm run dev      # http://localhost:5173
-npm test
+npm run app          # the app, from its sources (needs Rust)
+npm test             # the unit tests
 ```
 
 How it is built and how each part works is documented in `docs/`.
