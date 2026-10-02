@@ -7,7 +7,7 @@
 // only draws them, and draws the sections other parts of the app register through
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
 import { ose } from 'ose:core';
-import { esc, pickFolder, pickPage, toast } from 'ose:ui';
+import { esc, pickFolder, toast } from 'ose:ui';
 import { chooseVault, switchVault } from './vault.js';
 
 const { bus, commands, store } = ose;
@@ -80,7 +80,6 @@ function currentValues() {
     titlesync: onOff(s.titleSync === true),
     mode: MODES.some((m) => m.value === s.editorMode) ? s.editorMode : 'rich',
     attach: s.attachments === 'beside' || s.attachments === undefined ? 'beside' : 'folder',
-    start: s.startPage === 'journal' ? 'journal' : (typeof s.startPage === 'string' && s.startPage && s.startPage !== 'empty' ? 'page' : 'empty'),
     hidden: onOff(s.showHidden === true),
     mdext: onOff(s.hideMdExt === true),
   };
@@ -99,7 +98,6 @@ function applySeg(group, v, box) {
   else if (group === 'titlesync') save({ titleSync: v === 'on' });
   else if (group === 'mode') save({ editorMode: v });
   else if (group === 'attach') void chooseAttachments(v, box);
-  else if (group === 'start') void chooseStart(v, box);
   else if (group === 'hidden') save({ showHidden: v === 'on' });
   else if (group === 'mdext') save({ hideMdExt: v === 'on' });
 }
@@ -118,7 +116,6 @@ function syncControls(box) {
     });
   }
   paintAttachments(box);
-  paintStart(box);
 }
 
 /* ------------------------------------------------------------------ sections */
@@ -167,11 +164,7 @@ function editorHtml() {
 
 function filesHtml() {
   const v = currentValues();
-  return row('Open at start',
-    seg('start', [{ value: 'empty', label: 'Nothing' }, { value: 'journal', label: "Today's journal" }, { value: 'page', label: 'A page…' }], v.start),
-    'What the app shows when it opens. Nothing is an empty page; the vault name in the path bar always goes back to it.',
-    '<div class="set-extra set-start-path mono-sm text-select" hidden></div>')
-    + row('Attachments go to',
+  return row('Attachments go to',
       seg('attach', [{ value: 'beside', label: 'Beside the page' }, { value: 'folder', label: 'A folder…' }], v.attach),
       "A file dropped on a page is copied here, then linked. Beside the page means <code>attachments/</code> in the page's own folder.",
       '<div class="set-extra set-attach-path mono-sm text-select" hidden></div>')
@@ -244,24 +237,6 @@ function paintVaultInfo(box) {
       if (log && log.isConnected) { log.textContent = (v && v.logPath) || '—'; log.title = (v && v.logPath) || ''; }
     })
     .catch((e) => { if (src.isConnected) src.textContent = String(e.message || e); });
-}
-
-/** The start row's second line: the page, while one is chosen. */
-function paintStart(box) {
-  const el = box && box.querySelector('.set-start-path');
-  if (!el) return;
-  const s = settings().startPage;
-  const page = typeof s === 'string' && s && s !== 'empty' && s !== 'journal';
-  el.hidden = !page;
-  if (page) { el.textContent = s; el.title = s; }
-}
-
-/** `Open at start`: a page… opens the page picker; cancelling leaves the setting as it was. */
-async function chooseStart(which, box) {
-  if (which !== 'page') { save({ startPage: which }); syncControls(box); return; }
-  const picked = await pickPage({ title: 'Open at start…' });
-  if (typeof picked === 'string' && picked) save({ startPage: picked });
-  syncControls(box);
 }
 
 /** The attachments row's second line: the folder, or nothing while it is beside the page. */
