@@ -92,6 +92,10 @@ cargo test --manifest-path src-tauri/Cargo.toml   # the host
 `npm run app` opens the vault the app remembers: point it at a throwaway copy of a vault, never
 a real one, before trying anything that writes.
 
+**`main` is sacred: every merge into it is a public release.** All work goes to the `dev`
+branch (small PRs into `dev` are fine, they release nothing), is tested locally in the app on a
+throwaway vault, and reaches `main` only as one PR from `dev` once Hassan has accepted the batch.
+
 Shipping is pushing: every push to `main` builds Windows and macOS in GitHub Actions
 (`.github/workflows/release.yml`) and publishes a release with `latest.json`; an installed Ose
 downloads it and offers a restart. The updater's private key is the repository secret
