@@ -38,7 +38,7 @@ export const DEFAULTS = {
   zoom: 100,
   spellcheck: true,
   showHidden: false,
-  restoreSession: true,
+  restoreSession: false,
   hideMdExt: false,
   attachments: 'beside',
   trash: 'system',

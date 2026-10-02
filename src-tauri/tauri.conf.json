@@ -1,0 +1,86 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Ose",
+  "mainBinaryName": "ose",
+  "version": "../package.json",
+  "identifier": "com.zhssnym.ose",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' vault: http://vault.localhost data: blob:",
+        "font-src": "'self' data:",
+        "media-src": "'self' vault: http://vault.localhost blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost vault: http://vault.localhost",
+        "worker-src": "'self' blob:",
+        "frame-src": "vault: http://vault.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "mimeType": "text/markdown",
+        "rank": "Default"
+      },
+      {
+        "ext": [
+          "txt"
+        ],
+        "name": "Plain text",
+        "description": "Plain text",
+        "role": "Editor",
+        "mimeType": "text/plain",
+        "rank": "Alternate"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZBMUM0RTMyMTc0MkY5ODkKUldTSitVSVhNazRjYXNoSG1FZWRVdm9iRHBKVVI3KzJONFZNMGtybGhBclFuZkNEaG9ZL3E3TnAK",
+      "endpoints": [
+        "https://github.com/zhssnym/ose/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

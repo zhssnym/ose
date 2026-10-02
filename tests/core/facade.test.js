@@ -102,7 +102,7 @@ describe('the wave-2 facade (CONTRACT §4)', () => {
 
   it('the settings have their wave-2 keys and defaults (W5, W7, W8)', () => {
     const s = ose.settings.get();
-    expect(s).toMatchObject({ showHidden: false, restoreSession: true, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
+    expect(s).toMatchObject({ showHidden: false, restoreSession: false, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
     expect('newPages' in s).toBe(false);
   });
 

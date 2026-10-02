@@ -1,27 +1,16 @@
-// The one Vite config of Ose Web (docs/HOST.md): the app in Chrome over a folder on this machine,
-// an installable offline PWA. The browser is the only host; src/host/adapter.ts answers every
-// host command over the File System Access API.
+// The one Vite config of Ose: the page Tauri shows (src-tauri). The Rust host answers every
+// host command.
 //
 //   npm run dev       `vite`: the shell served as plain files from `shell/`, the four `ose:*`
-//                     specifiers aliased to their sources, the core stylesheets, the service
-//                     worker (with no precache: dev stays on the network), the manifest and the
-//                     icons, on http://localhost:5173. Chrome allows the File System Access API
-//                     on localhost, so no certificate. `vite --port <n>` picks another port.
-//   npm run build     `vite build`: the deployable site in `dist/`. The core's four library
-//                     bundles into `dist/ose/`, the shell copied verbatim beside them, the web's
-//                     public files (`web/`: the manifest and the icons), a `<link rel="manifest">`
-//                     and the Content-Security-Policy `<meta>` added to `dist/index.html` (the
-//                     shell's own index.html is not edited), and last `dist/sw.js`, src/host/sw.js
-//                     with the precache list and the build id written into it.
-//   npm run preview   `vite preview`: `dist/` as a static host serves it.
-//
-// Hosting `dist/` on any static HTTPS origin is the whole deployment (Vercel builds and serves
-// it, vercel.json). Every URL in it is relative, so it works under a subpath too.
+//                     specifiers aliased to their sources and the core stylesheets, on
+//                     http://127.0.0.1:5173, which `npm run tauri dev` opens in the app window.
+//   npm run build     `vite build`: the page in `dist/`, which `tauri build` bundles into the
+//                     app. The core's four library bundles into `dist/ose/`, the shell copied
+//                     verbatim beside them.
 //
 //   dist/index.html  dist/main.js  dist/boot.js  ...          the shell, copied from shell/
 //   dist/ose/core.js  editor.js  planner.js  ui.js  chunks/  the four bundles the import map names
 //   dist/ose/ui.css  editor.css  planner.css                   the three stylesheets the shell links
-//   dist/manifest.webmanifest  dist/icons/  dist/sw.js          the PWA
 //
 // The bundles are libraries, not an app build: the entry file names are part of the contract
 // (the import map in shell/index.html spells them literally), so nothing but the chunks is
@@ -33,12 +22,10 @@
 // external in every bundle, and nothing is bundled twice. date-fns is bundled into planner.js,
 // tree-shaken to what the planner uses.
 //
-// The tests (vitest.config.js) stand alone and do not load this file, except for the pure
-// helpers exported below (tests/host/adapter.test.js).
+// The tests (vitest.config.js) stand alone and do not load this file.
 
 import { execSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defineConfig } from 'vite';
@@ -69,9 +56,6 @@ const ENTRIES = {
 /** The folder of the bundles inside the output; the shell must not have one. */
 const BUNDLES = 'ose';
 
-/** The web's public files (the manifest, the icons): served in dev, copied into the build. */
-const PUBLIC = here('web');
-
 const FLAGS = {
   __VUE_OPTIONS_API__: 'false',
   __VUE_PROD_DEVTOOLS__: 'false',
@@ -90,111 +74,29 @@ function stamp() {
   return { version: pkg.version, sha, short: sha.slice(0, 7), date };
 }
 
-/* ------------------------------------------------------------------ the web build's helpers */
-
-/** The marker line in src/host/sw.js the build fills in. */
-const MARKER = /\/\* @ose-manifest \*\/ const MANIFEST = null;/;
-
-/** Every file under `dir`, relative, with forward slashes. @param {string} dir @returns {string[]} */
-function filesUnder(dir, at = '') {
-  const out = [];
-  for (const name of readdirSync(path.join(dir, at)).sort()) {
-    const rel = at ? `${at}/${name}` : name;
-    if (statSync(path.join(dir, rel)).isDirectory()) out.push(...filesUnder(dir, rel));
-    else out.push(rel);
-  }
-  return out;
-}
-
-/**
- * The worker with its precache list and build id: the id is a hash of every file it caches, so
- * any change to the app is a new cache, and an unchanged build keeps the one it has.
- * @param {string[]} files @param {string} outDir
- */
-export function workerSource(files, outDir) {
-  const h = createHash('sha256');
-  for (const f of files) { h.update(f); h.update('\0'); h.update(readFileSync(path.join(outDir, f))); }
-  const build = h.digest('hex').slice(0, 16);
-  const src = readFileSync(here('src/host/sw.js'), 'utf8');
-  if (!MARKER.test(src)) throw new Error('src/host/sw.js has lost its `/* @ose-manifest */` line');
-  return { build, source: src.replace(MARKER, `const MANIFEST = ${JSON.stringify({ build, files })};`) };
-}
-
-/** `<link rel="manifest">` into the page, once, before `</head>`. @param {string} html */
-export function withManifestLink(html) {
-  if (/rel="manifest"/.test(html)) return html;
-  return html.replace('</head>', '<link rel="manifest" href="./manifest.webmanifest">\n</head>');
-}
-
-/**
- * The page's policy, as a `<meta>` (a static host sends no header). `vault/` is on this origin,
- * so `'self'` holds it; the one inline script, the import map, is allowed by its hash. No host
- * but this one is named anywhere: the page reaches no network of its own.
- * @param {string[]} inlineHashes `'sha256-…'` of every inline script
- */
-export function webCsp(inlineHashes) {
-  return [
-    "default-src 'self'",
-    `script-src 'self' ${inlineHashes.join(' ')}`.trim(),
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "font-src 'self' data:",
-    "media-src 'self' blob:",
-    "connect-src 'self' data: blob:",
-    "worker-src 'self' blob:",
-    "frame-src 'self' blob:",
-    "manifest-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-  ].join('; ');
-}
-
-/** The policy into the built page, first thing in `<head>` after the charset, so it covers the
- *  import map; once. @param {string} html */
-export function withCsp(html) {
-  if (/http-equiv="Content-Security-Policy"/i.test(html)) return html;
-  const hashes = [];
-  for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
-    hashes.push(`'sha256-${createHash('sha256').update(m[1] || '').digest('base64')}'`);
-  }
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${webCsp(hashes)}">`;
-  const charset = /<meta charset="[^"]*">\n?/i.exec(html);
-  if (charset) return html.replace(charset[0], `${charset[0].replace(/\n?$/, '\n')}${meta}\n`);
-  return html.replace('<head>', `<head>\n${meta}`);
-}
+/* ------------------------------------------------------------------ the build */
 
 /**
  * `shell/` into `outDir`, verbatim: nothing bundled, hashed or rewritten on the way. A shell
- * file that would shadow the bundles, the worker or a public file is refused.
+ * file that would shadow the bundles is refused.
  * @param {string} outDir
  */
 export function copyShell(outDir) {
   const from = here('shell');
-  const reserved = [BUNDLES, 'sw.js', ...readdirSync(PUBLIC)];
-  for (const name of reserved) {
+  for (const name of [BUNDLES]) {
     if (existsSync(path.join(from, name))) throw new Error(`shell/${name} would shadow ${name} in ${outDir}`);
   }
   cpSync(from, outDir, { recursive: true });
 }
 
-/** After the bundles: the shell, the page's manifest link and policy, then the worker. */
-function webIntoTheBuild() {
+/** After the bundles: the shell beside them. */
+function shellIntoTheBuild() {
   let outDir = here('dist');
   return {
-    name: 'ose-web-build',
-    // The directory this build really writes (`--outDir` on the command line included), so a
-    // check build somewhere else never rewrites the real output.
+    name: 'ose-shell-build',
+    // The directory this build really writes (`--outDir` on the command line included).
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
-    closeBundle() {
-      copyShell(outDir);
-      const page = path.join(outDir, 'index.html');
-      writeFileSync(page, withCsp(withManifestLink(readFileSync(page, 'utf8'))));
-      const files = filesUnder(outDir).filter((f) => f !== 'sw.js');
-      const { build, source } = workerSource(files, outDir);
-      writeFileSync(path.join(outDir, 'sw.js'), source);
-      console.log(`ose web: ${files.length} files precached, build ${build}, in ${outDir}`);
-    },
+    closeBundle() { copyShell(outDir); },
   };
 }
 
@@ -303,35 +205,17 @@ function repoPages() {
   };
 }
 
-/** The worker in dev, as its source (no precache), and the manifest link into the page. */
-function webDevAssets() {
-  return {
-    name: 'ose-web-dev',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url || '').split('?')[0];
-        if (url !== '/sw.js') return next();
-        res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Service-Worker-Allowed', '/');
-        res.end(readFileSync(here('src/host/sw.js')));
-      });
-    },
-    transformIndexHtml(html) { return withManifestLink(html); },
-  };
-}
-
 /* ---------------------------------------------------------------------------- the config */
 
-export default defineConfig(({ command, isPreview }) => {
-  if (command === 'serve' && !isPreview) {
+export default defineConfig(({ command }) => {
+  if (command === 'serve') {
     return {
       base: './',
       root: here('shell'),
-      publicDir: PUBLIC,
+      publicDir: false,
       resolve: { alias: { ...ALIAS, ...KATEX } },
       define: { ...FLAGS },
-      plugins: [kernelStylesheets(), repoPages(), webDevAssets()],
+      plugins: [kernelStylesheets(), repoPages()],
       // The editor and the planner load by dynamic import, from outside the root: named here so
       // Vite's dependency scan finds Milkdown, CodeMirror and date-fns at startup, instead of on
       // the first page opened, where the late optimisation reloads the window under the user
@@ -342,24 +226,20 @@ export default defineConfig(({ command, isPreview }) => {
       server: {
         port: 5173,
         strictPort: true,
-        host: 'localhost',
-        // An end-to-end scenario (OSE_E2E=1) drives pages that must not be reloaded under it
-        // because someone saved a source file meanwhile.
-        ...(process.env.OSE_E2E ? { hmr: false } : {}),
+        host: '127.0.0.1',
         // The core sources the shell imports, which are outside the root by definition.
         fs: { allow: [here('.')] },
-        watch: { ignored: ['**/node_modules/**', '**/dist/**', '**/work/**', '**/test-results/**', '**/.trash/**'] },
+        watch: { ignored: ['**/node_modules/**', '**/dist/**', '**/work/**', '**/src-tauri/**'] },
       },
     };
   }
 
-  // `vite build`, and `vite preview`, which serves what the build wrote (`build.outDir`).
+  // `vite build`.
   const s = stamp();
   return {
-    // Relative: the page must not care which origin, or which subpath, serves it.
     base: './',
     root: here('.'),
-    publicDir: PUBLIC,
+    publicDir: false,
     define: {
       __OSE_VERSION__: JSON.stringify(s.version),
       __OSE_SHA__: JSON.stringify(s.sha),
@@ -367,9 +247,8 @@ export default defineConfig(({ command, isPreview }) => {
       __OSE_DATE__: JSON.stringify(s.date),
       ...FLAGS,
     },
-    plugins: [webIntoTheBuild()],
+    plugins: [shellIntoTheBuild()],
     resolve: { alias: KATEX },
-    preview: { port: 4173, strictPort: true, host: 'localhost' },
     build: {
       outDir: 'dist',
       emptyOutDir: true,

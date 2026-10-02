@@ -6,6 +6,8 @@
 // A vault can open in a browser tab of its own: Shift+Enter on a row of either list, or the
 // "Open in new tab" button (`ose.windows.open`). There is never a second tab on one vault: the
 // adapter holds one lock per vault, and says so. See docs/HOST.md.
+import { LOGO } from './logo.js';
+import { windowButtons, wireWindowButtons } from './titlebar.js';
 import { ose } from 'ose:core';
 import { esc, openOverlay, confirm, toast } from 'ose:ui';
 import { onVaultChangeRequested } from './host.js';
@@ -466,10 +468,11 @@ export async function mountVaultChooser(rootEl) {
   requestAnimationFrame(() => pick.focus());
 }
 
-/** The chooser's top row: the app's toolbar with the mark alone. The window's frame is the OS's. */
+/** The chooser's top row: the app's toolbar with the mark and the window buttons. */
 function toolbar() {
   const el = document.createElement('header');
   el.className = 'titlebar';
-  el.innerHTML = `<div class="tb-mark" title="Ose"><img src="logo.png" alt="" width="18" height="18"></div>`;
+  el.innerHTML = `<div class="tb-mark" title="Ose" data-tauri-drag-region>${LOGO}</div><span class="tb-space" data-tauri-drag-region></span>${windowButtons()}`;
+  wireWindowButtons(el);
   return el;
 }
