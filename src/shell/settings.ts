@@ -7,7 +7,7 @@
 // only draws them, and draws the sections other parts of the app register through
 // `ose.settings.section()` — the planner's among them — each into a box of its own.
 import { ose } from '../core/core.ts';
-import { copyText, esc, toast } from '../ui/index.ts';
+import { esc, toast } from '../ui/index.ts';
 import { pickFolder } from '../core/core.ts';
 import { chooseVault, switchVault } from './vault.ts';
 import KEYS from './keys.json';
@@ -16,6 +16,8 @@ const { bus, commands, store } = ose;
 
 // The steps a person can pick between are the page's, because they are what it draws. The
 // core validates against its own copy, so a step it does not know simply gets the default.
+const FONT_SIZES = [14, 15, 16, 17];
+const LINE_HEIGHTS = [1.25, 1.35, 1.5];
 const ZOOM_STEPS = [90, 100, 110, 125, 150];
 const ON_OFF = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
 // The editing modes a markdown file can open in (X1), in the switch's own order and words.
@@ -48,13 +50,15 @@ function seg(name, options, value) {
 }
 
 /**
- * One settings row: the name and its control on the right. `tip` is a short sentence on the
- * name's tooltip, for the few rows that need one; `extra` is HTML written in this file.
+ * One settings row: the name, its control on the right, and one sentence underneath saying
+ * what the choice does (DESIGN.md's settings pattern). `note` and `extra` are HTML, written in
+ * this file: anything that comes from elsewhere is escaped before it gets here.
  */
-function row(label, control, tip = '', extra = '') {
+function row(label, control, note = '', extra = '') {
   return `<div class="set-row">
-      <div class="set-name"${tip ? ` title="${esc(tip)}"` : ''}>${esc(label)}</div>
-      <div class="set-ctl">${control}</div>${extra}
+      <div class="set-name">${esc(label)}</div>
+      <div class="set-ctl">${control}</div>
+      <div class="set-note">${note}</div>${extra}
     </div>`;
 }
 
@@ -65,24 +69,36 @@ function currentValues() {
   const s = settings();
   return {
     theme: ose.theme.get() || 'system',
+    zoom: zoom(),
+    font: s.fontSize,
+    lh: s.lineHeight,
+    face: s.pageFace === 'plain' ? 'plain' : 'document',
     layout: s.layout === 'pages' ? 'pages' : 'scroll',
     full: onOff(s.readableWidth === false),
     spell: onOff(s.spellcheck !== false),
+    titlesync: onOff(s.titleSync === true),
     mode: MODES.some((m) => m.value === s.editorMode) ? s.editorMode : 'rich',
     attach: s.attachments === 'beside' || s.attachments === undefined ? 'beside' : 'folder',
     hidden: onOff(s.showHidden === true),
+    mdext: onOff(s.hideMdExt === true),
   };
 }
 
 /** A click on a segment, written through to the core. */
 function applySeg(group, v, box) {
   if (group === 'theme') ose.theme.set(v);
+  else if (group === 'zoom') setZoom(+v);
+  else if (group === 'font') save({ fontSize: +v });
+  else if (group === 'lh') save({ lineHeight: +v });
+  else if (group === 'face') save({ pageFace: v });
   else if (group === 'layout') save({ layout: v });
   else if (group === 'full') save({ readableWidth: v !== 'on' });
   else if (group === 'spell') save({ spellcheck: v === 'on' });
+  else if (group === 'titlesync') save({ titleSync: v === 'on' });
   else if (group === 'mode') save({ editorMode: v });
   else if (group === 'attach') void chooseAttachments(v, box);
   else if (group === 'hidden') save({ showHidden: v === 'on' });
+  else if (group === 'mdext') save({ hideMdExt: v === 'on' });
 }
 
 /** Every segmented control on the page, lit to match what the core now says. */
@@ -103,33 +119,70 @@ function syncControls(box) {
 
 /* ------------------------------------------------------------------ sections */
 
-function generalHtml() {
+function appearanceHtml() {
   const v = currentValues();
   return row('Theme',
-    seg('theme', [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], v.theme))
+    seg('theme', [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], v.theme),
+    'System follows the light or dark setting of the computer, and changes when it does.')
+    + row('Zoom',
+      seg('zoom', ZOOM_STEPS.map((n) => ({ value: n, label: n + '%' })), v.zoom),
+      'The size of everything in the window.')
+    + row('Text size',
+      seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), v.font),
+      "The size of a page's own text. The chrome around it keeps its size.")
+    + row('Line height',
+      seg('lh', LINE_HEIGHTS.map((n) => ({ value: n, label: String(n) })), v.lh),
+      'How much air there is between the lines of a page.')
+    + row('Page face',
+      seg('face', [{ value: 'document', label: 'Document' }, { value: 'plain', label: 'Plain' }], v.face),
+      'The face a page is set in: the document serif, or the face the interface uses. Printing follows it.')
     + row('Page layout',
       seg('layout', [{ value: 'scroll', label: 'Scroll' }, { value: 'pages', label: 'Pages' }], v.layout),
-      'Pages shows the A4 sheets a page prints on.')
-    + row('Full width', seg('full', ON_OFF, v.full))
-    + row('Open markdown in', seg('mode', MODES, v.mode),
-      'How a markdown file opens the first time. A file keeps the mode it was left in.')
-    + row('Spellcheck', seg('spell', ON_OFF, v.spell))
-    + row('Show hidden items', seg('hidden', ON_OFF, v.hidden))
-    + row('Attachments go to',
-      seg('attach', [{ value: 'beside', label: 'Beside the page' }, { value: 'folder', label: 'A folder…' }], v.attach),
-      "A file dropped on a page is copied here and linked. Beside the page is attachments/ in the page's folder.",
-      '<div class="set-extra set-attach-path mono-sm text-select" hidden></div>');
+      'Scroll is one continuous column. Pages is the A4 sheet the page prints on, so every line breaks where it will on paper.')
+    + row('Full width',
+      seg('full', ON_OFF, v.full),
+      'Off, a page is a readable column in the middle of the window. On, it fills the window.');
 }
 
-/** About: the vault, the version with its update check, and the log. */
-function aboutHtml() {
-  const root = store.get('root') || {};
+function editorHtml() {
+  const v = currentValues();
+  return row('Open markdown files in',
+    seg('mode', MODES, v.mode),
+    'The mode a markdown file opens in the first time. Rich edits the page as a document, Source is '
+    + 'the plain text. A file you '
+    + 'switch keeps its mode; plain text files always open as source.')
+    + row('Spellcheck',
+    seg('spell', ON_OFF, v.spell),
+    "The web view's own checker, in the display language of the system.")
+    + row('Name new pages after their heading',
+      seg('titlesync', ON_OFF, v.titlesync),
+      'On, a new page still called Untitled takes the name of the first heading you type in it. '
+      + 'Off, a file keeps the name it was given until you rename it.');
+}
+
+function filesHtml() {
+  const v = currentValues();
+  return row('Attachments go to',
+      seg('attach', [{ value: 'beside', label: 'Beside the page' }, { value: 'folder', label: 'A folder…' }], v.attach),
+      "A file dropped on a page is copied here, then linked. Beside the page means <code>attachments/</code> in the page's own folder.",
+      '<div class="set-extra set-attach-path mono-sm text-select" hidden></div>')
+    + row('Show hidden items',
+      seg('hidden', ON_OFF, v.hidden),
+      'Names that start with a dot, and files the system marks as hidden, greyed in the tree and in folders. .ose and .git are never listed.')
+    + row('Hide .md in names',
+      seg('mdext', ON_OFF, v.mdext),
+      'On, the .md at the end of a page\'s name is left out in the tree, the tabs and the title bar. The file keeps its name.');
+}
+
+/** Updates: the version running, and a button that checks now (the app also checks at start). */
+function updatesHtml() {
   return `<div class="set-info mono-sm text-select">
-      <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
-      <div><span>Version</span><i class="set-app-version">—</i><button type="button" class="btn sm" data-act="update">Check for updates</button></div>
-      <div><span>Log</span><button type="button" class="set-log set-copy" title="Copy the path">—</button></div>
+      <div><span>Version</span><i class="set-app-version">—</i></div>
     </div>
-    <div class="set-update"><span class="set-update-note mono-sm" role="status"></span></div>`;
+    <div class="set-update">
+      <button type="button" class="btn sm" data-act="update">Check for updates</button>
+      <span class="set-update-note mono-sm" role="status"></span>
+    </div>`;
 }
 
 /** The running version, once Tauri has said. */
@@ -142,7 +195,7 @@ async function paintUpdates(box) {
 
 /** Check now: none, one ready to install (with Restart), or why it could not. */
 async function checkNow(button) {
-  const box = button.closest('.set-body');
+  const box = button.closest('.set-update');
   const note = box && box.querySelector('.set-update-note');
   if (!(note instanceof HTMLElement)) return;
   button.disabled = true;
@@ -161,13 +214,27 @@ async function checkNow(button) {
   note.append(restart);
 }
 
-/** Where the log is, in the host's words; asked each time. */
-function paintLog(box) {
+function vaultHtml() {
+  const root = store.get('root') || {};
+  return `<div class="set-info mono-sm text-select">
+      <div><span>Vault</span><i title="${esc(root.root || '')}">${esc(root.root || '—')}</i><button type="button" class="btn sm" data-act="vault">Change vault…</button></div>
+      <div><span>From</span><i class="set-vault-src">—</i></div>
+      <div><span>Version</span><i>${esc(`${ose.version.core} · ${ose.platform}`)}</i></div>
+      <div><span>Log</span><i class="set-log">—</i></div>
+    </div>`;
+}
+
+/** Where the root came from and where the log is, in the host's words; asked each time. */
+function paintVaultInfo(box) {
+  const src = box.querySelector('.set-vault-src');
   const log = box.querySelector('.set-log');
-  if (!(log instanceof HTMLElement)) return;
+  if (!src) return;
   ose.vault.info()
-    .then((v) => { if (log.isConnected) { log.textContent = (v && v.logPath) || '—'; log.dataset.path = (v && v.logPath) || ''; } })
-    .catch(() => {});
+    .then((v) => {
+      if (src.isConnected) src.textContent = v && v.source ? `${v.source}${v.remembered ? ', remembered' : ''}` : '—';
+      if (log && log.isConnected) { log.textContent = (v && v.logPath) || '—'; log.title = (v && v.logPath) || ''; }
+    })
+    .catch((e) => { if (src.isConnected) src.textContent = String(e.message || e); });
 }
 
 /** The attachments row's second line: the folder, or nothing while it is beside the page. */
@@ -234,7 +301,7 @@ function guideHtml() {
       'A vault is a folder of plain markdown files on this computer. Ose opens the files where they '
       + 'are and edits them in place. Nothing of the app is written into the folder: its settings, '
       + "the versions of your files and any unsaved drafts are kept in the app's own folder. "
-      + 'Settings › About changes which folder is open.'],
+      + 'Settings › Vault changes which folder is open.'],
     ['The sidebar',
       'Views holds Day, Week, Month and Journal, pages drawn from ordinary files in the vault whose '
       + 'paths are set in Settings › Views. Vault lists your folders and files under their real '
@@ -270,7 +337,7 @@ function guideHtml() {
       "A deleted file or folder goes to the system's Recycle Bin or Trash, from where it can be "
       + 'restored.'],
     ['Updates',
-      'Ose checks for a new version when it starts. Settings › About shows the version running '
+      'Ose checks for a new version when it starts. Settings › Updates shows the version running '
       + 'and checks again on demand; when a new one is ready, Restart to update installs it.'],
   ];
   return '<h2 class="label set-help-label">Using Ose</h2>'
@@ -355,10 +422,13 @@ async function helpHtml() {
  * TAIL. Help is last: it is the one section that sets nothing, read rather than changed.
  */
 const HEAD = [
-  { id: 'general', title: 'General', html: generalHtml },
+  { id: 'appearance', title: 'Appearance', html: appearanceHtml },
+  { id: 'editor', title: 'Editor', html: editorHtml },
+  { id: 'files', title: 'Files', html: filesHtml },
 ];
 const TAIL = [
-  { id: 'about', title: 'About', html: aboutHtml },
+  { id: 'updates', title: 'Updates', html: updatesHtml },
+  { id: 'vault', title: 'Vault', html: vaultHtml },
   { id: 'help', title: 'Help', html: helpHtml },
 ];
 
@@ -445,7 +515,8 @@ function mountPage(el: HTMLElement, route: { arg?: string } = {}) {
     if (my !== seq || unmounted) return;
     body.innerHTML = html;
     syncControls(body);
-    if (sec.id === 'about') { paintLog(body); void paintUpdates(body); }
+    if (sec.id === 'vault') paintVaultInfo(body);
+    if (sec.id === 'updates') void paintUpdates(body);
   }
 
   nav.addEventListener('click', (e) => {
@@ -474,11 +545,6 @@ function mountPage(el: HTMLElement, route: { arg?: string } = {}) {
     const act = e.target.closest('[data-act]');
     if (act instanceof HTMLElement && act.dataset.act === 'vault') { void commands.run('app.vault-change'); return; }
     if (act instanceof HTMLButtonElement && act.dataset.act === 'update') { void checkNow(act); return; }
-    const log = e.target.closest('.set-log');
-    if (log instanceof HTMLElement && log.dataset.path) {
-      void copyText(log.dataset.path).then((ok) => toast(ok ? 'Path copied' : 'Could not copy the path', ok ? 'info' : 'err', 1800));
-      return;
-    }
     const b = e.target.closest('.seg-b');
     if (!(b instanceof HTMLElement)) return;
     const seg = b.closest('.seg');
@@ -531,7 +597,7 @@ const view = {
 
 /**
  * Open Settings in a tab, or bring its tab forward, showing section `arg` when one is named:
- * 'general', 'about', 'help', or a registered section's id.
+ * 'appearance', 'editor', 'files', 'updates', 'vault', 'help', or a registered section's id.
  */
 export async function openSettings(arg?: string): Promise<void> {
   const route: { type: 'view', name: string, arg?: string } = { type: 'view', name: 'settings' };
@@ -546,7 +612,7 @@ export function initSettings() {
   ose.settings.apply();
   ose.views.register('settings', view);
   commands.register({ id: 'app.settings', title: 'Settings', group: 'app', run: () => openSettings() });
-  commands.register({ id: 'app.update', title: 'Check for updates', group: 'app', hint: 'Settings, About', run: () => openSettings('about') });
+  commands.register({ id: 'app.update', title: 'Check for updates', group: 'app', hint: 'Settings, Updates', run: () => openSettings('updates') });
   commands.register({ id: 'app.help', title: 'Help', group: 'app', hint: 'Settings, Help', run: () => openSettings('help') });
   commands.register({ id: 'app.keys', title: 'Keyboard shortcuts', group: 'app', hint: 'Settings, Help', run: () => openSettings('help') });
   const root = store.get('root') || {};

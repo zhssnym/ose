@@ -10,6 +10,17 @@ import { bus } from './registry.ts';
 import { patchState, stateCache } from './state.ts';
 import { local } from './local.ts';
 
+export const FONT_SIZES = [14, 15, 16, 17];
+// A document's leading, not a web page's. 1.35 is what Word gives a 12pt Cambria body at
+// "1.15 line spacing", which is the teacher's page; 1.25 is tighter still and 1.5 is the
+// loosest a page of prose stays a page. A value saved before this list (1.65, 1.8) is not in
+// it and falls back to the default, below.
+export const LINE_HEIGHTS = [1.25, 1.35, 1.5];
+// The face a page's own text is set in. `document` is the serif of a printed handout, which is
+// what a page has always been here; `plain` is the interface face, for a reader who would
+// rather not have a serif. Only the family moves: the sizes, the leading, the rhythm and the
+// frames are the document's either way (tokens.css, `:root[data-face="plain"]`).
+export const PAGE_FACES = ['document', 'plain'];
 // How a page is laid out on screen. `scroll` is one continuous column; `pages` is the A4 sheet
 // it prints on, at the print size, with a rule where each sheet ends (src/editor/sheets.ts).
 export const LAYOUTS = ['scroll', 'pages'];
@@ -19,13 +30,18 @@ export const EDITOR_MODES = ['rich', 'source'];
 export const ZOOM_STEPS = [90, 100, 110, 125, 150];
 
 export const DEFAULTS = {
+  fontSize: 16,
+  lineHeight: 1.35,
+  pageFace: 'document',
   layout: 'scroll',
   readableWidth: true,
   zoom: 100,
   spellcheck: true,
   showHidden: false,
+  hideMdExt: false,
   attachments: 'beside',
   trash: 'system',
+  titleSync: false,
   // How a markdown file opens the first time (X1): 'rich' or 'source'. A file the user
   // left in another mode remembers it (`src/editor/modes.ts`); a plain text file is Source.
   editorMode: 'rich',
@@ -36,11 +52,12 @@ export const DEFAULTS = {
  * one a built-in module invents, is the vault's and goes to the vault's state.
  */
 export const MACHINE_KEYS = new Set([
-  'layout', 'readableWidth', 'zoom', 'spellcheck', 'showHidden', 'editorMode',
+  'fontSize', 'lineHeight', 'pageFace', 'layout', 'readableWidth', 'zoom', 'spellcheck',
+  'showHidden', 'hideMdExt', 'editorMode',
 ]);
 
 // Settings an older build wrote that mean nothing now: never answered, never written back.
-const RETIRED = new Set(['newPages', 'restoreSession', 'fontSize', 'lineHeight', 'pageFace', 'hideMdExt', 'titleSync']);
+const RETIRED = new Set(['newPages', 'restoreSession']);
 
 const machine = () => local.app('settings');
 
@@ -153,6 +170,12 @@ export function stepZoom(dir) {
   setZoom(ZOOM_STEPS[next]);
 }
 
+/** `document` or `plain`: the face a page's own text is set in. */
+export function pageFace() {
+  const f = settings().pageFace;
+  return PAGE_FACES.includes(f) ? f : DEFAULTS.pageFace;
+}
+
 /** `scroll` or `pages`: how a page is laid out on screen. */
 export function layout() {
   const l = settings().layout;
@@ -198,6 +221,18 @@ export function applySettings() {
   const s = settings();
   const root = document.documentElement;
 
+  const size = FONT_SIZES.includes(+s.fontSize) ? +s.fontSize : DEFAULTS.fontSize;
+  // rem, not px: the zoom factor lives in the root font size (tokens.css), and a body size in
+  // px would be the one text in the app that refused to zoom.
+  root.style.setProperty('--fs-body', `${size / 16}rem`);
+
+  const lh = LINE_HEIGHTS.includes(+s.lineHeight) ? +s.lineHeight : DEFAULTS.lineHeight;
+  root.style.setProperty('--lh-body', String(lh));
+
+  // One attribute, read by one rule in tokens.css: `--font-doc` becomes `--font-ui` for
+  // `plain`. Everything that wears the document face — the page column, the title strip,
+  // `render()`, paper — follows it in the same frame, because they all read that token.
+  root.dataset.face = pageFace();
   root.dataset.layout = layout();
 
   root.style.setProperty('--zoom', String(zoom() / 100));

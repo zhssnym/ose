@@ -105,12 +105,11 @@ describe('the wave-2 facade (CONTRACT §4)', () => {
 
   it('the settings have their wave-2 keys and defaults (W5, W7, W8)', () => {
     const s = ose.settings.get();
-    expect(s).toMatchObject({ showHidden: false, trash: 'system', attachments: 'beside' });
-    for (const k of ['hideMdExt', 'titleSync', 'fontSize', 'lineHeight', 'pageFace']) expect(k in s, k).toBe(false);
+    expect(s).toMatchObject({ showHidden: false, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
     expect('newPages' in s).toBe(false);
   });
 
-  it('names.display shows the full name, extension included', () => {
+  it('names.display shows the full name; .md is stripped only when asked', () => {
     expect(ose.names.display('notes/a.md')).toBe('a.md');
     expect(ose.names.display('notes/script.py')).toBe('script.py');
     expect(ose.names.display('README')).toBe('README');

@@ -81,7 +81,7 @@ export const rewriteInbound = (from, to) => ose.links.rewriteMoved([[from, to]])
 
 /**
  * `path/to/a-page.md` -> `a-page.md`: the file's name as every surface shows it (W8, M20),
- * through `ose.names.display`. The backlinks
+ * through `ose.names.display`, which strips `.md` only when `hideMdExt` is on. The backlinks
  * box labels a row with it.
  */
 export const titleOf = (p) => {
@@ -149,6 +149,12 @@ export const shortcutFor = (commandId) => ose.keys.shortcutFor(commandId);
 
 /** `spellcheck` on the body, on by default (S36). */
 export const spellcheckOn = () => ose.settings.get().spellcheck !== false;
+
+/**
+ * `titleSync` (wave 2, M13): a page still named `Untitled` takes its H1 as its file name when
+ * the title is left. Off by default: a file has one name, and it is the one on disk.
+ */
+export const titleSyncOn = () => ose.settings.get().titleSync === true;
 
 /**
  * `editorMode` (wave 3, X1): the mode a markdown file opens in when it remembers none of its

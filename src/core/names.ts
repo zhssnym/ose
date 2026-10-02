@@ -8,6 +8,7 @@
 
 import { bridge } from './bridge/index.ts';
 import { clean, join, baseName } from './paths.ts';
+import { settings } from './settings-core.ts';
 
 // Windows refuses these as a whole name and as the part before the first dot (`con.txt`).
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -79,11 +80,14 @@ export async function free(folder: string, name: string, { dir: isDir = false }:
 
 /**
  * The name the chrome shows for a path (W8, H20): the file's real name with its extension,
- * everywhere, the same for every file. '' for the vault root: the caller says the vault's
- * name there.
+ * everywhere, the same for every file. Only the machine setting `hideMdExt` strips a `.md`,
+ * and only for display. '' for the vault root: the caller says the vault's name there.
  */
 export function display(path: string): string {
-  return baseName(path) || '';
+  const name = baseName(path);
+  if (!name) return '';
+  if (settings().hideMdExt === true && /\.md$/i.test(name) && name.length > 3) return name.slice(0, -3);
+  return name;
 }
 
 /**

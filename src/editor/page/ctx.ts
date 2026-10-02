@@ -159,6 +159,7 @@ export interface PageFns {
   // actions.ts
   outlinePage: () => Promise<void>;
   linkPage: () => Promise<void>;
+  renameUntitledFromTitle: (p: any) => Promise<boolean>;
   copyMarkdown: () => Promise<void>;
   saveAs: () => Promise<boolean>;
   discardChanges: () => Promise<boolean>;

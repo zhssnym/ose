@@ -4,7 +4,7 @@
 // adds its own with `installActions(ctx)`, and reaches the rest through `ctx`.
 
 import {
-  copyText, log, names, navigate, pageFiles, repointRoute,
+  copyText, fileops, log, names, navigate, pageFiles, repointRoute, titleSyncOn,
 } from '../host.ts';
 import { confirm, prompt, toast } from '../deps.ts';
 import { insertPageLink } from '../link.ts';
@@ -13,8 +13,8 @@ import { rememberMode } from '../modes.ts';
 import { compareTexts } from '../compare.ts';
 import * as P from '../paths.ts';
 import {
-  editorView, errCode, errText, isUtf8, nextRev, PUBLIC, recoveredModeOf,
-  whenLabel,
+  cleanStem, editorView, errCode, errText, isUtf8, nextRev, PUBLIC, recoveredModeOf, reportLinks,
+  UNTITLED, whenLabel,
 } from './shared.ts';
 import type { PageCtx } from './ctx.ts';
 
@@ -47,6 +47,35 @@ export function installActions(ctx: PageCtx) {
     if (!view) return;
     view.focus();
     await insertPageLink(view);
+  }
+
+  /**
+   * A new page is `Untitled.md` until it has a title (C12): once the H1 is edited and left, the
+   * file takes the title as its name, through the one rename there is (`ose.fileops`, H13). The
+   * page keeps its own extension; only files still named `Untitled*` are renamed this way. One
+   * name per file (M13): this runs only when the vault setting `titleSync` asks for it.
+   */
+  async function renameUntitledFromTitle(p) {
+    if (!titleSyncOn() || p.outside) return false;
+    if (p !== ctx.page || p.deleted || p.trashed || !p.doc || p.doc.titleLine === null) return false;
+    if (!UNTITLED.test(P.stem(p.path))) return false;
+    const title = cleanStem(p.title);
+    if (!title || UNTITLED.test(title)) return false;
+    const ext = P.extname(p.path);
+    const name = ext ? `${title}.${ext}` : title;
+    if (name === P.basename(p.path)) return false;
+    const ops = fileops();
+    if (!ops || typeof ops.rename !== 'function') return false;
+    try {
+      const r = await ops.rename(p.path, name);
+      reportLinks(r && r.links);
+      return true;
+    } catch (e) {
+      // The title stays as typed either way; only the file name is at stake.
+      if (errCode(e) === 'exists') toast(`${name} already exists; the file keeps its name`, 'warn');
+      else if (errCode(e) !== 'not_saved') toast(`could not rename the file: ${errText(e)}`, 'err');
+      return false;
+    }
   }
 
   /** The file text as a save would write it, on the clipboard (C14). */
@@ -326,6 +355,7 @@ export function installActions(ctx: PageCtx) {
   return {
     outlinePage,
     linkPage,
+    renameUntitledFromTitle,
     copyMarkdown,
     saveAs,
     discardChanges,

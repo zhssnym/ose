@@ -122,9 +122,9 @@
   --fs-chrome-sm: 0.6875rem;    /* 11 */
   --fs-ui: 0.8125rem;           /* 13 */
   --fs-content: 0.9375rem;      /* 15 — content-sized inputs: the palette query, a dialog title */
-  --fs-body: 1rem;              /* 16 */
+  --fs-body: 1rem;              /* 16 — settings' `Body text` overrides this, also in rem */
   --fs-title: 2.125rem;         /* 34 — the chrome's page title: home, a view's heading */
-  --lh-body: 1.35;
+  --lh-body: 1.35;              /* settings' `Line height`: 1.25 / 1.35 / 1.5 */
 
   /* The document scale. A typed handout has no 2x headings: the title is barely larger than
      the body and a section heading is the body size made bold, so the page reads as one
@@ -205,6 +205,14 @@
   --font-math: "STIX Two Math", "Cambria Math", "Latin Modern Math", math;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Settings › Reading, `Page face`. `document` is the serif above and is the default; `plain`
+   sets a page in the interface face, for a reader who would rather not have a serif. One family
+   moves and nothing else does: the sizes, the leading, the rhythm, the frames and the rules are
+   the document's either way, formulas keep the maths face, and paper reads this same token, so a
+   printed page follows the choice. Written after the mac block, which has the same specificity,
+   so it wins on both platforms. */
+:root[data-face="plain"] { --font-doc: var(--font-ui); }
 
 :root[data-theme="dark"] {
   color-scheme: dark;

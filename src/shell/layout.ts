@@ -592,7 +592,7 @@ export function mountShell(rootEl: HTMLElement): { titlebar: HTMLElement, sideba
     run: () => reloadApp(),
   });
   // L5: the page column as wide as the window, or back to the readable measure. The same
-  // setting Settings › General shows as Full width, flipped in one command.
+  // setting Settings › Appearance shows as Full width, flipped in one command.
   commands.register({
     id: 'app.full-width', title: 'Toggle full width', group: 'app',
     hint: 'the page column as wide as the window',
