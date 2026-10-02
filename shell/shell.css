@@ -29,24 +29,6 @@
 
 /* ------------------------------------------------------------------ the empty and miss boxes */
 
-/* The empty surface (D7): a `recent` label, its rows, and one line of chords. The label sits
-   at the top of the column, where the page air is its gap; the rows are pulled left by their
-   own bar and padding (base.css .row: --sp-3 all told) so their text starts under the label. */
-.start .section-label { padding: 0 0 var(--sp-1); }
-.start-row {
-  width: calc(100% + var(--sp-3)); margin-left: calc(-1 * var(--sp-3));
-  text-align: left; cursor: default;
-  color: var(--fg-2);
-}
-.start-row:hover, .start-row:focus-visible { color: var(--fg); }
-.start-row .hint { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
-.start-keys {
-  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-  margin-top: var(--sp-6); color: var(--fg-3);
-}
-.start-recent:empty + .start-keys { margin-top: 0; }
-.start-keys .kbd { height: 1rem; padding: 0 var(--sp-1); border-bottom-width: 1px; margin-right: var(--sp-1); }
-.start-dot { color: var(--fg-3); }
 
 /* A page that is not there, a view that failed: a heading in the chrome voice, the path, the
    reason, one button. The heading is its own thing (E3): a label would bring a section gap. */

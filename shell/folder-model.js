@@ -21,7 +21,6 @@ const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', '
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 const DAY_MS = 86400000;
 
-const clean = (p) => String(p ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 const pad = (n) => String(n).padStart(2, '0');
 const isDir = (e) => !!e && e.kind === 'dir';
 
@@ -186,33 +185,4 @@ export function iconName(entry) {
   if (TEXT_EXTS.has(ext)) return 'fileText';
   if (CODE_EXTS.has(ext)) return 'fileCode';
   return 'file';
-}
-
-/**
- * The file drawn under a folder's list: the first of `README.md`, `readme.md`, `index.md`, in
- * that order of preference and whatever their case.
- * @param {object[]} entries
- * @returns {object|null}
- */
-export function readmeOf(entries) {
-  const files = (Array.isArray(entries) ? entries : []).filter((e) => e && e.kind === 'file' && !e.link);
-  for (const want of ['readme.md', 'index.md']) {
-    const hits = files.filter((e) => String(e.name || '').toLowerCase() === want);
-    if (!hits.length) continue;
-    // `README.md` before `readme.md` when a case-sensitive volume holds both.
-    return hits.find((e) => e.name === want.toUpperCase().replace('.MD', '.md')) || hits[0];
-  }
-  return null;
-}
-
-/**
- * The folder above `path`: `''` for a top-level entry, null at the vault root.
- * @param {string} path
- * @returns {string|null}
- */
-export function parentOf(path) {
-  const p = clean(path);
-  if (!p) return null;
-  const i = p.lastIndexOf('/');
-  return i < 0 ? '' : p.slice(0, i);
 }

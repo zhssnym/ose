@@ -36,8 +36,6 @@ import * as T from './tabs.ts';
 import { create as createFile } from './fileops.ts';
 
 const MAX_RECENT = 40;
-// How many recent pages the empty surface lists (D7). Enough to find yesterday, not a dashboard.
-const START_RECENT = 8;
 // Caret positions kept per route key (N44). The caret belongs to the file, not to a tab.
 const MAX_CARET_MEMORY = 50;
 
@@ -226,7 +224,7 @@ export function initRouter(el, { start = true } = {}) {
 
 /**
  * Where typing should go once something is on the page column: the editor body, else the
- * title, else a view's root, else the first recent row of the empty surface.
+ * title, else a view's root.
  * Every open path ends here, so the user is never left having to click before typing (B3).
  * `preventScroll` because the scroll position has just been put back and a focus jump would
  * undo it.
@@ -240,7 +238,6 @@ export function focusMain() {
     || mainEl.querySelector('.cm-content')
     || (title instanceof HTMLElement && title.isContentEditable ? title : null)
     || mainEl.querySelector('.view-root')
-    || mainEl.querySelector('.start-row')
     || mainEl.querySelector('.miss .btn');   // "Create it" / "Retry": Enter should reach it
   if (!(found instanceof HTMLElement)) return false;
   const pick = found;
@@ -526,53 +523,6 @@ async function renderView(scroll, route, my) {
 }
 
 /**
- * The empty surface (D7): what shows when there is no tab and no home. A "Recent" label with
- * the last pages opened.
- */
-async function renderStart(scroll, my, opts) {
-  const box = document.createElement('div');
-  box.className = 'page-col start';
-  box.innerHTML = `<div class="start-recent"></div>`;
-  scroll.appendChild(box);
-
-  const candidates = recentFiles().slice(0, START_RECENT * 2);
-  // A file outside the vault is not asked about: the host answers only for a file this window
-  // registered, and registering one just to list it would open its folder to the media origin.
-  const alive = await Promise.all(candidates.map((p) => (isOutside(p) ? true : bridge.exists(p).catch(() => false))));
-  if (my !== seq) return;
-  const list = candidates.filter((_, i) => alive[i]).slice(0, START_RECENT);
-  if (!list.length) return;
-
-  const host = box.querySelector('.start-recent');
-  if (!(host instanceof HTMLElement)) return;
-  const label = document.createElement('div');
-  label.className = 'section-label';
-  label.textContent = 'Recent';
-  host.appendChild(label);
-  for (const p of list) {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'row start-row';
-    row.dataset.path = p;
-    const where = isOutside(p) ? `outside vault · ${outsideLabel(dirName(p))}` : dirName(p);
-    row.innerHTML = `<span class="grow">${esc(display(p))}</span>` + (where ? `<span class="hint">${esc(where)}</span>` : '');
-    row.addEventListener('click', () => navigate({ type: 'page', path: p }));
-    host.appendChild(row);
-  }
-  // Up/Down walk the list so Enter opens without a Tab per row.
-  host.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const rows = [...host.querySelectorAll('.start-row')].filter((n) => n instanceof HTMLElement);
-    const at = rows.findIndex((n) => n === document.activeElement);
-    if (at < 0) return;
-    e.preventDefault();
-    const to = rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
-    if (to instanceof HTMLElement) to.focus();
-  });
-  if (opts.focus !== false) settleFocus(scroll);
-}
-
-/**
  * The window title (S13, W8): `<file name> · <vault>`, `<view title> · <vault>`, or the vault's name alone on the empty surface.
  * A page is named by its file, never by its H1 (M13).
  */
@@ -766,10 +716,8 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
   T.emitTabs(opts.reason || 'route');
   bus.emit('route', next);
 
-  if (!next) {
-    await renderStart(scroll, my, opts);
-    return true;
-  }
+  // No tab and no home: an empty column.
+  if (!next) return true;
 
   if (next.type === 'page') {
     pushRecent(next.path);

@@ -19,9 +19,8 @@
 // vault's own `.trash` — rather than a generic "trash" (M18).
 //
 // Every function takes an optional target `{ path, kind }` (a list, for the ones that act on a
-// selection). Without one, a command acts on what the context says: the list that has the
-// keyboard (`addContext`, the folder view), else the focused tree row, else the page on screen
-// (`setContext`, which the sidebar fills in).
+// selection). Without one, a command acts on what the context says: the focused tree row, else
+// the page on screen (`setContext`, which the sidebar fills in).
 
 import { ose } from 'ose:core';
 import { prompt, confirm, pickFolder, toast, focusOrigin } from 'ose:ui';
@@ -35,28 +34,18 @@ const under = (p, folder) => p === folder || p.startsWith(folder + '/');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const countOf = (items) => plural(items.length, 'item');
 
-/** The page on screen as a target, or null on a view, a folder or Home. */
+/** The page on screen as a target, or null on a view or Home. */
 function openPageTarget() {
   const r = route.current();
   return r && r.type === 'page' && r.path ? { path: clean(r.path), kind: 'file' } : null;
 }
 
-/** The folder on screen as a target (a folder route), or null. */
-function openFolderTarget() {
-  const r = route.current();
-  return r && r.type === 'folder' ? { path: clean(r.path || ''), kind: 'dir' } : null;
-}
-
 // What a command acts on when it is not handed a target. The sidebar replaces both: `target`
 // is the focused row (else the open page), `batch` the selection that row is part of.
 let context = {
-  target: () => openPageTarget() || openFolderTarget(),
+  target: () => openPageTarget(),
   batch: () => { const t = openPageTarget(); return t ? [t] : []; },
 };
-
-// Lists that answer for "here" only while they have the keyboard (the folder view): the newest
-// one whose `active()` says yes wins over the sidebar's context.
-const providers = [];
 
 /**
  * The sidebar says what "here" is: `{ target, batch }`, two functions answering a Target and a
@@ -70,26 +59,6 @@ export function setContext(c) {
   };
 }
 
-/**
- * Another list that answers for "here" while it has the keyboard: the folder view, whose
- * selected rows are what Cut, Copy, Rename and the trash act on when it holds focus. `folder`
- * is where Paste and New folder land from it.
- * @param {{active: () => boolean, target?: () => Target|null, batch?: () => Target[], folder?: () => string}} c
- * @returns {() => void} removes it
- */
-export function addContext(c) {
-  if (!c || typeof c.active !== 'function') return () => {};
-  providers.push(c);
-  return () => { const i = providers.indexOf(c); if (i >= 0) providers.splice(i, 1); };
-}
-
-function activeProvider() {
-  for (let i = providers.length - 1; i >= 0; i--) {
-    try { if (providers[i].active()) return providers[i]; } catch { /* a gone view answers nothing */ }
-  }
-  return null;
-}
-
 const isTarget = (t) => !!t && typeof t === 'object' && !(t instanceof Event) && typeof t.path === 'string';
 /** @returns {Target} */
 const norm = (t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' : 'file' });
@@ -101,8 +70,7 @@ const norm = (t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' : 'fi
 function one(arg) {
   if (isTarget(arg)) return norm(arg);
   if (Array.isArray(arg)) return arg.length && isTarget(arg[0]) ? norm(arg[0]) : null;
-  const p = activeProvider();
-  const t = p && typeof p.target === 'function' ? p.target() : context.target();
+  const t = context.target();
   return isTarget(t) ? norm(t) : null;
 }
 
@@ -113,8 +81,7 @@ function one(arg) {
 function many(arg) {
   if (Array.isArray(arg)) return arg.filter(isTarget).map(norm);
   if (isTarget(arg)) return [norm(arg)];
-  const p = activeProvider();
-  const list = p && typeof p.batch === 'function' ? p.batch() : context.batch();
+  const list = context.batch();
   return (list || []).filter(isTarget).map(norm);
 }
 
@@ -207,12 +174,8 @@ function fromSidebar() {
  */
 function folderFor(target) {
   if (isTarget(target)) return target.kind === 'dir' ? clean(target.path) : dirName(target.path);
-  const p = activeProvider();
-  if (p && typeof p.folder === 'function') return clean(p.folder() || '');
   const page = openPageTarget();
   if (page) return dirName(page.path);
-  const folder = openFolderTarget();
-  if (folder) return folder.path;
   try { return clean(ose.focus.defaultNewFolder() || ''); } catch { return ''; }
 }
 

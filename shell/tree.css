@@ -95,7 +95,7 @@
 .sb-tail { margin-top: var(--sp-3); }
 /* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
    anything drawn outside it, which is where the base 2px offset would put it. */
-.sb-row:focus-visible, .start-row:focus-visible { outline-offset: -1px; }
+.sb-row:focus-visible { outline-offset: -1px; }
 /* Empty lines start where the name of a depth-0 row does (E9). One size for both, from `.empty`. */
 .sb-empty {
   padding: var(--sp-1) var(--sp-3) var(--sp-1) calc(var(--tree-inset) + var(--d, 0) * 0.875rem);

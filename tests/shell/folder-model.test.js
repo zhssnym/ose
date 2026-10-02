@@ -101,19 +101,4 @@ describe('folder-model', () => {
     expect(m.dateLabel(new Date(2026, 8, 25, 9, 10).getTime(), now)).toBe('Yesterday 09:10');
     expect(m.dateLabel(new Date(2026, 8, 12, 9, 10).getTime(), now)).toBe('12 Sept 2026');
   });
-
-  it('finds the README, readme or index to render below', () => {
-    expect(m.readmeOf([file('a.md'), file('README.md')])?.name).toBe('README.md');
-    expect(m.readmeOf([file('readme.md')])?.name).toBe('readme.md');
-    expect(m.readmeOf([file('Index.md')])?.name).toBe('Index.md');
-    expect(m.readmeOf([file('index.md'), file('README.md')])?.name).toBe('README.md');
-    expect(m.readmeOf([file('a.md'), dir('README.md')])).toBe(null);
-    expect(m.readmeOf([])).toBe(null);
-  });
-
-  it('knows the parent of a folder, and that the root has none', () => {
-    expect(m.parentOf('a/b/c')).toBe('a/b');
-    expect(m.parentOf('a')).toBe('');
-    expect(m.parentOf('')).toBe(null);
-  });
 });
