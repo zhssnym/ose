@@ -10,8 +10,8 @@
    Screen only: paper is print.css's, and there the sheet is the paper itself. */
 
 @media screen {
-  /* The desk the sheet lies on. */
-  :root[data-layout="pages"] .main-scroll:has(.page-col.ed) { background: var(--bg-3); }
+  /* The desk the sheet lies on: the sidebar's surface, so the chrome around the sheet is one. */
+  :root[data-layout="pages"] .main-scroll:has(.page-col.ed) { background: var(--bg-2); }
 
   :root[data-layout="pages"] .page-col.ed {
     position: relative;
