@@ -1,4 +1,5 @@
-// The calendar format: one H1 per weekday, one line per block. Day and Week both draw it.
+// The calendar format: one H1 per weekday, one line per block. Day, Week and Month draw it,
+// from a month file's `# Timetable` section when it has one, else from the calendar file.
 // Pure: text in, data out; no DOM, no `ose`, no vault path (docs/FORMATS.md "Calendar").
 //
 //   # Lundi
@@ -136,4 +137,49 @@ export function lanes(list: any[]): Array<{ e: any; lane: number; lanes: number;
   }
   close();
   return out;
+}
+
+/**
+ * The `# Timetable` section of a month file, ready for `parseTimetable`: everything after the
+ * `# Timetable` heading up to the next H1 that is not a weekday (`# Monthly Review`, `# Review`,
+ * any other). The lines outside it are blanked, not removed, so the line numbers
+ * `parseTimetable` answers are the month file's own.
+ * -> `{ found, text }`; `found` is false when the file has no `# Timetable` heading.
+ */
+export function timetableSection(text: string): { found: boolean; text: string; } {
+  const lines = String(text ?? '').replace(/^﻿/, '').split(/\r?\n/);
+  const out = lines.map(() => '');
+  let inside = false, found = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = (lines[i] as string).trim();
+    if (/^#\s/.test(l)) {
+      const head = l.slice(2).trim();
+      if (/^timetable$/i.test(head)) { inside = true; found = true; continue; }
+      if (inside && dayOfHeading(head) === null) inside = false;
+    }
+    if (inside) out[i] = lines[i] as string;
+  }
+  return { found, text: out.join('\n') };
+}
+
+/** Where a day's blocks come from: the month file's `# Timetable`, else the calendar file. */
+export type TimetableSource = {
+  from: 'month' | 'calendar' | null; path: string | null; exists: boolean;
+  events: TimetableEvent[]; unknown: Array<{ line: number; text: string; }>;
+};
+
+/**
+ * Pick the timetable for a month: its own `# Timetable` when the month file has one, else the
+ * calendar file (`calendar.exists` false: chosen but not on disk), else nothing.
+ * @param month the month file, when there is one
+ * @param calendar the calendar setting, when there is one
+ */
+export function chooseTimetable(
+  month: { path: string; text: string; } | null,
+  calendar: { path: string; exists: boolean; text: string; } | null,
+): TimetableSource {
+  const sec = month ? timetableSection(month.text) : null;
+  if (month && sec && sec.found) return { from: 'month', path: month.path, exists: true, ...parseTimetable(sec.text) };
+  if (calendar) return { from: 'calendar', path: calendar.path, exists: calendar.exists, ...(calendar.exists ? parseTimetable(calendar.text) : { events: [], unknown: [] }) };
+  return { from: null, path: null, exists: false, events: [], unknown: [] };
 }

@@ -1,5 +1,6 @@
-// Week: the calendar's grid for the current ISO week, a "Now / Next" box, and the personal work
-// each day holds. Read-only; the calendar file is the only thing it reads.
+// Week: the timetable's grid for the current ISO week, a "Now / Next" box, and the personal work
+// each day holds. Read-only. Each day's blocks come from its own month's file (`# Timetable`),
+// else from the calendar file, so a week across two months draws each half from its month.
 //
 // M33: the (Q1)/(Q2) blocks follow the Q1 anchor from Settings › Views (weeks alternate from
 // a Monday, never by ISO week number); while it is unknown both are drawn side by side, each with its marker. A block
@@ -9,9 +10,10 @@
 
 import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
-  blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays,
+  blockApplies, dayIndex, DAY_SHORT, dur, hhmm, minutesOf, shortDate, until, weekDays, ym,
 } from '../shared/dates.ts';
-import { lanes, parseTimetable, TIMETABLE } from '../shared/timetable.ts';
+import { chooseTimetable, lanes, TIMETABLE, type TimetableSource } from '../shared/timetable.ts';
+import { resolvePlanPath } from '../shared/plans.ts';
 import { bindLinks, detectedHtml, goneHtml, missingHtml } from '../shared/nav.ts';
 import { q1Of } from '../shared/settings.ts';
 
@@ -33,7 +35,12 @@ export function createWeekView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
 
   function mount(host) {
-    let alive = true, events: any[] = [], unknown: any[] = [], calMissing = false, lastDay = -1, seq = 0;
+    let alive = true, lastDay = -1, seq = 0;
+    /** One source per month the week touches, and which one each day (0 = Monday) reads. */
+    let sources: TimetableSource[] = [], srcOf: number[] = [];
+    const daySource = (i) => sources[srcOf[i] ?? -1] || null;
+    const uniq = () => [...new Set(sources)];
+    const blockCount = () => uniq().reduce((n, src) => n + src.events.length, 0);
     const offs: any[] = [];
     /** The seven days, Monday first: always seven, so `w[0]` to `w[6]` are there. */
     const days = () => (weekDays(new Date()) as [Date, Date, Date, Date, Date, Date, Date]);
@@ -59,20 +66,25 @@ export function createWeekView(ose: any, store: any): any {
     /** The blocks drawn on day `i` (0 = Monday) of this week: parity applied. */
     const blocksOn = (i) => {
       const date = (days()[i] as Date);
-      return events.filter((e) => e.d === i && blockApplies(e, date, q1Of(settings())));
+      const src = daySource(i);
+      return src ? src.events.filter((e) => e.d === i && blockApplies(e, date, q1Of(settings()))) : [];
     };
 
     function renderMeta() {
       const s = settings();
       const w = days();
       const parts: any[] = [];
-      if (s.calendar && !calMissing) parts.push(`<button type="button" class="v-link" data-path="${esc(s.calendar)}">${esc(s.calendar)}</button>`);
+      const shown = uniq().filter((src) => src.from && src.exists && src.path);
+      for (const src of shown) parts.push(`<button type="button" class="v-link" data-path="${esc(src.path)}">${esc(src.path)}</button>`);
       parts.push(`<span>${esc(shortDate(w[0]))} to ${esc(shortDate(w[6]))}</span>`);
-      if (s.calendar && !calMissing) parts.push(`<span>${events.length} block${events.length === 1 ? '' : 's'}</span>`);
+      if (shown.length) parts.push(`<span>${blockCount()} block${blockCount() === 1 ? '' : 's'}</span>`);
       if (q1Of(s)) parts.push(`<span>${blockApplies({ q: 'Q1' }, w[0], q1Of(s)) ? 'Q1' : 'Q2'} week</span>`);
-      if (unknown.length) {
-        const where = unknown.map((u) => u.line).join(', ');
-        parts.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(s.calendar)}" data-line="${unknown[0].line}" title="Calendar lines ${esc(where)}">${unknown.length} line${unknown.length === 1 ? '' : 's'} not understood</button>`);
+      // "N lines not understood", once per file it was read from
+      for (const src of shown) {
+        if (!src.unknown.length) continue;
+        const where = src.unknown.map((u) => u.line).join(', ');
+        const n = src.unknown.length;
+        parts.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(src.path)}" data-line="${src.unknown[0]?.line}" title="${esc(src.path)} lines ${esc(where)}">${n} line${n === 1 ? '' : 's'} not understood</button>`);
       }
       $('meta').innerHTML = parts.join('');
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
@@ -81,11 +93,11 @@ export function createWeekView(ose: any, store: any): any {
     function build() {
       const grid = $('grid');
       if (!grid) return;
-      const s = settings();
       renderMeta();
-      if (!s.calendar || calMissing) {
+      if (!sources.some((src) => src.from && src.exists)) {
         grid.classList.add('is-empty');
-        grid.innerHTML = s.calendar ? goneHtml(s.calendar) : missingHtml('calendar');
+        const gone = sources.find((src) => src.from === 'calendar' && !src.exists);
+        grid.innerHTML = gone && gone.path ? goneHtml(gone.path) : missingHtml('calendar');
         $('sum').innerHTML = '&nbsp;';
         tick();
         return;
@@ -146,7 +158,7 @@ export function createWeekView(ose: any, store: any): any {
       const parts = WORK_KINDS.filter(([k]) => sums[k]).map(([k, label]) => `${label} ${dur(sums[k])}`);
       const total = WORK_KINDS.reduce((a, [k]) => a + (sums[k] || 0), 0);
       $('sum').textContent = parts.length ? `Personal work this week · ${parts.join(' · ')} · total ${dur(total)}` : ' ';
-      if (!events.length) $('sum').textContent = 'No blocks read from the calendar';
+      if (!blockCount()) $('sum').textContent = 'No blocks read from the timetable';
       tick();
     }
 
@@ -160,7 +172,7 @@ export function createWeekView(ose: any, store: any): any {
         line.style.top = `${y}px`;
       }
       const now = $('now'), next = $('next');
-      if (!events.length) { now.innerHTML = '&nbsp;'; next.innerHTML = '&nbsp;'; return; }
+      if (!blockCount()) { now.innerHTML = '&nbsp;'; next.innerHTML = '&nbsp;'; return; }
       const today = blocksOn(ti);
       // last night's overnight block is still on this morning
       const yesterday = blocksOn((ti + 6) % 7).filter((e) => e.em > 1440 && m < e.em - 1440);
@@ -183,14 +195,32 @@ export function createWeekView(ose: any, store: any): any {
       await store.ready;
       const my = ++seq;
       const s = settings();
-      if (!s.calendar) { events = []; unknown = []; calMissing = false; build(); return; }
+      if (!s.calendar && !s.reports) { sources = []; srcOf = []; build(); return; }
       const stop = loadingLine($('grid'));
       try {
-        const exists = await ose.files.exists(s.calendar);
-        const text = exists ? await ose.files.read(s.calendar) : '';
+        const w = days();
+        const months = [...new Set(w.map(ym))];
+        const firstOf = months.map((m) => w.find((d) => ym(d) === m) as Date);
+        const calExists = s.calendar ? await ose.files.exists(s.calendar) : false;
+        const [calText, plans] = await Promise.all([
+          calExists ? ose.files.read(s.calendar) : '',
+          Promise.all(firstOf.map(async (d) => {
+            if (!s.reports) return null;
+            const found = await resolvePlanPath((f) => ose.files.list(f), d, s.reports);
+            return found.exists ? { path: found.path, text: await ose.files.read(found.path) } : null;
+          })),
+        ]);
         if (my !== seq || !alive) return;
-        calMissing = !exists;
-        ({ events, unknown } = parseTimetable(text));
+        const calendar = s.calendar ? { path: s.calendar, exists: calExists, text: calText } : null;
+        // two months that both fall back on the calendar share one source
+        const byPath = new Map<string, TimetableSource>();
+        sources = plans.map((plan) => {
+          const src = chooseTimetable(plan, calendar);
+          const key = src.path ?? '';
+          if (!byPath.has(key)) byPath.set(key, src);
+          return byPath.get(key) as TimetableSource;
+        });
+        srcOf = w.map((d) => months.indexOf(ym(d)));
         stop();
         build();
       } catch (err) {
@@ -206,8 +236,9 @@ export function createWeekView(ose: any, store: any): any {
     offs.push(bindLinks(root, ose));
     offs.push(store.on(() => load()));
     offs.push(ose.watch((d) => {
-      const p = settings().calendar;
-      if (!d || d.lost || d.rescan || (d.changes || []).some((c) => c && p && (c.path === p || c.to === p))) load();
+      const { calendar: p, reports: r } = settings();
+      const mine = (x) => !!x && ((!!p && x === p) || (!!r && (x === r || x.startsWith(`${r}/`))));
+      if (!d || d.lost || d.rescan || (d.changes || []).some((c) => c && (mine(c.path) || mine(c.to)))) load();
     }));
     const tickTimer = setInterval(tick, 30000);
     const dayTimer = setInterval(() => { if (dayIndex(new Date()) !== lastDay) build(); }, 60000);

@@ -1,13 +1,14 @@
 # File formats
 
-Ose keeps no database. Every note is a plain file, and the planner (Day, Week, Month and
+Ose keeps no database. Every note is a plain file, and the planner (Day, Week, Month, Year and
 Journal) builds its views out of a handful of ordinary markdown and JSONL files. This document
 is the contract for those files. An agent such as Claude Code, run on the vault from outside,
 reads it to know how to write a file that the app will read, and what the app writes back.
 
-The code is in `src/views/`: one folder per view (`day/`, `week/`, `month/`, `journal/`) and
-`shared/` for the readers they share, named for what they hold: `timetable.ts` (the calendar),
-`tasks.ts` and `todo.ts` (todo lines), `plans.ts` (monthly plans and `systems.jsonl`),
+The code is in `src/views/`: one folder per view (`day/`, `week/`, `month/`, `year/`,
+`journal/`) and `shared/` for the readers they share, named for what they hold: `timetable.ts`
+(the calendar format, and a month's `# Timetable`), `tasks.ts` and `todo.ts` (todo lines),
+`plans.ts` (the plannings: year and month files, and `systems.jsonl`),
 `settings.ts` and `detect.ts` (where the files are). The journal's format is read in
 `journal/index.ts`.
 
@@ -18,12 +19,15 @@ the app keeps on this machine (`<app data>/vaults/<vaultKey>/state.json`, see do
 in the vault. A vault that still has a `.ose/state.json` from an older Ose is read from there
 until the app first writes its state:
 
-| Setting | Kind | Read by |
-|---|---|---|
-| Calendar | a markdown file | Day, Week |
-| Todo files | one or more markdown files | Day |
-| Reports folder | a folder | Day, Month |
-| Journal folder | a folder | Journal |
+| Setting | Stored as | Kind | Read by |
+|---|---|---|---|
+| Plannings folder | `reports` | a folder | Day, Week, Month, Year |
+| Calendar (for months with no timetable) | `calendar` | a markdown file | Day, Week |
+| Todo files | `todo` | one or more markdown files | Day |
+| Journal folder | `journal` | a folder | Journal |
+
+The plannings folder is stored under its old key, `reports`, so a vault's stored choice keeps
+working.
 
 The first time the app opens a vault, it looks for these by name and shows what it found:
 
@@ -34,8 +38,9 @@ The first time the app opens a vault, it looks for these by name and shows what 
 - a markdown file with `todo` or `todos` as a word of its name is a todo file (`todo.md`,
   `1-general-todo.md`, `School TODO.md`); inside a word it does not count, so `Mastodon.md`
   is not one;
-- the reports folder is the folder that holds `systems.jsonl`, or else one named `reports`,
-  `report`, `plans`, `monthly plans` (or `monthly-plans`) or `execution`;
+- the plannings folder is the folder that holds `systems.jsonl`, or else one named
+  `plannings`, `planning`, `plans`, `reports`, `report`, `monthly plans` (or `monthly-plans`)
+  or `execution`;
 - the journal folder is one named `journal`, `journals`, `journaling` or `diary`;
 - when several match, the shallowest wins.
 
@@ -56,7 +61,9 @@ or even ISO weeks) has it turned into an anchor once, on the week the app first 
 
 ## Calendar
 
-One H1 per weekday, then one line per block.
+The timetable of a month is the `# Timetable` section of its file (see "Plannings"). A month
+whose file has none, or that has no file, uses the calendar file from Settings instead. Both
+are written the same way: one H1 per weekday, then one line per block.
 
 ```markdown
 # Lundi
@@ -100,10 +107,14 @@ One H1 per weekday, then one line per block.
   negative length.
 
 A line under a weekday that looks like a block but cannot be read is not dropped silently.
-Such a line is a bullet, or opens on a time. Week and Day say "N lines not understood", and
-the tooltip gives the line numbers.
+Such a line is a bullet, or opens on a time. Week and Day say "N lines not understood", once for
+each file the week's blocks came from, and the tooltip gives the line numbers in that file.
 
-The app never writes to the calendar.
+**Which timetable a day uses.** A day's blocks come from its own month: Day reads the month of
+the day on screen, and a week across two months draws each day from its month's file (or the
+calendar, for a month without a `# Timetable`).
+
+The app never writes to the calendar or to a `# Timetable` section.
 
 ## Todo lines
 
@@ -148,18 +159,42 @@ not set_)` written as plain words is just part of the task's text.
   `- [ ] <text>`, exactly as typed, markers included. It is written with
   `ose.files.appendLine`, and the host adds the line break the file needs.
 
-## Monthly plan
+## Plannings
 
-One file per month in the reports folder: `<reports>/<year>/<YYYY-MM>.md`. Any name starting
-with the month counts (`2026-09 Monthly Plan.md`), and the exact `2026-09.md` wins when there
-are several.
+The plannings folder holds one file per year, one per month, and the check log:
+
+```
+<plannings>/
+  YYYY.md          one per year:  # YYYY Yearly Plan (intro, goal labels and bullets)  ·  # Yearly Review
+  YYYY-MM.md       one per month: # YYYY-MM Monthly Plan (intro, optional # Goals, labels and bullets)
+                                  · # Systems · # Timetable · # Monthly Review
+  systems.jsonl    the check log
+```
+
+H1 headings and body text only, `-` bullets; no H2.
+
+**Where a file is found**
+
+- Flat in the plannings folder (`plannings/2026-09.md`), or in a year folder
+  (`plannings/2026/2026-09.md`). Flat is looked at first and wins.
+- A month is any `.md` name starting with the month (`2026-09 Monthly Plan.md`); a digit right
+  after it is another date, so `2026-09-12.md` is not September. The exact `2026-09.md` wins
+  when there are several.
+- A year is `2026.md`, or a name starting with the year and a space (`2026 Yearly Plan.md`), or
+  with the year, a dash and `year` (`2026-yearly-plan.md`). `2026-goals.md`, `2026-review.md`
+  and every month are not the year file.
+
+### A month: `YYYY-MM.md`
 
 ```markdown
 # 2026-09 Monthly Plan
 
 Why this month matters, in a paragraph or two.
 
+# Goals
+
 Educational
+
 - Finish chapter 3 of the maths course
 
 # Systems
@@ -168,9 +203,15 @@ Educational
 - Reading before bed (sam, dim)
 - Bed by 23h00
 
+# Timetable
+
+# Lundi
+
+- 08h20 à 09h15 Maths · salle 333 [maths]
+
 # Monthly Review
 
-Written at the end of the month.
+_gap: written at the end of the month_
 ```
 
 **The title section**
@@ -190,15 +231,58 @@ Written at the end of the month.
 - With no day list, the system is due every day.
 - A month with no `# Systems` section shows the systems that were checked that month.
 
+**`# Timetable`** is the month's calendar: everything after `# Timetable` up to the next H1
+that is not a weekday (`# Monthly Review`, `# Review`, or any other) is read exactly as the
+calendar format below: weekday H1s, block lines, types, (Q1) and (Q2). Day and Week draw it for
+the days of that month, and Month shows it as a small week, folded until opened.
+
 **`# Monthly Review`** (or `# Review`) is prose. The app shows it and never writes it.
 
 A `_gap: …_` line marks a hole that is known and not filled. It is shown as such.
 
-The app never creates or edits a plan file.
+### A year: `YYYY.md`
+
+```markdown
+# 2026 Yearly Plan
+
+What this year is for.
+
+Educational
+
+- Pass the bac
+
+# Yearly Review
+
+_gap: written at the end of the year_
+```
+
+- The title section reads exactly as a month's: intro, goal labels with their bullets, an
+  optional `# Goals`.
+- `# Yearly Review` (or `# Review`) is prose, written at the end of the year; until then a
+  `_gap: …_` line. The app shows it and never writes it.
+- The Year view lists the twelve months, each a link to the Month view, with the share of its
+  systems' due days that were done (as Month counts them) once the month has begun.
+
+### Starting a month or a year
+
+A plan file is written by the app in one case only: "Start <month>" in the Month view, or
+"Start <year>" in the Year view, for a month or a year that has no file. It is an exclusive
+create (`ose.fileops.create`) and never overwrites anything.
+
+- **A month** is made from the last month before it that has a file (looking back two years),
+  in the same layout: flat when that month is flat, otherwise in the year folder. Its text is
+  that file with the title replaced by `# YYYY-MM Monthly Plan`, the title's intro prose removed
+  (goal labels and their bullets stay), `# Goals`, `# Systems` and `# Timetable` kept as they
+  were, and the `# Monthly Review` body replaced by `_gap: written at the end of the month_`
+  (the section is added when the previous month had none). With no previous month it is
+  `# YYYY-MM Monthly Plan`, `# Systems`, `# Timetable` and `# Monthly Review` with the gap line.
+- **A year** is `YYYY.md`: `# YYYY Yearly Plan`, the previous year's goal labels (the labels
+  alone, no bullets), then `# Yearly Review` and `_gap: written at the end of the year_`. It goes
+  where the previous year's file is (flat, or in its year folder); flat when there is none.
 
 ## systems.jsonl
 
-The check log: `<reports>/systems.jsonl`, one JSON object per line.
+The check log: `<plannings>/systems.jsonl`, one JSON object per line.
 
 ```json
 {"date":"2026-09-26","system":"Maths session","done":true,"at":"2026-09-26T18:02:11.000Z"}
@@ -273,12 +357,14 @@ already has something written, then the text. "Discard…" asks first.
 
 | File | How | When |
 |---|---|---|
-| `<reports>/systems.jsonl` | `appendLine`: one record at the end | a system ticked or unticked in Day |
+| `<plannings>/systems.jsonl` | `appendLine`: one record at the end | a system ticked or unticked in Day |
+| `<plannings>/YYYY-MM.md` (or in `<plannings>/YYYY/`) | exclusive create, never an overwrite | "Start <month>" in Month, for a month with no file |
+| `<plannings>/YYYY.md` (or in `<plannings>/YYYY/`) | exclusive create, never an overwrite | "Start <year>" in Year, for a year with no file |
 | a todo file | `replaceLine`: one line, only if it still reads what was shown | a task ticked or unticked in Day |
 | the first todo file | `appendLine`: `- [ ] <text>` at the end | a task added in Day |
 | `<journal>/YYYY-MM-DD.md` | exclusive create, never an overwrite | "Write today" when today has no file |
 | today's journal file | `appendLine`, line by line: `---` and a blank line when the day has text, then the text | "Add to today's journal" on the old composer's unsaved text |
 | the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Views; a chosen file or folder renamed or moved |
 
-Every other planner file is read and never written. The calendar, the plans and the journal
-entries change only when you edit them, in the editor or anywhere else.
+Every other planner file is read and never written. The calendar, the plans once they exist
+and the journal entries change only when you edit them, in the editor or anywhere else.

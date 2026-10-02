@@ -10,11 +10,11 @@
 //   - hidden entries (a dot name, or `hidden: true`) and links are never walked or proposed;
 //   - a `.md` file with `todo` or `todos` as a word of its name is a todo file (`todo.md`,
 //     `1-general-todo.md`, `School TODO.md`), never as a part of one (`Mastodon.md`, `autodoc.md`);
-//   - a folder holding `systems.jsonl` is the reports folder even when its name says nothing
-//     (`3-execution`), because that file is what the reports folder is for.
+//   - a folder holding `systems.jsonl` is the plannings folder (the `reports` key) even when its
+//     name says nothing (`3-execution`), because that file is what the plannings folder is for.
 
 const CALENDAR = ['calendar', 'calendrier', 'timetable', 'schedule', 'emploi du temps', 'emploi-du-temps', 'edt'];
-const REPORTS = ['reports', 'report', 'plans', 'monthly plans', 'monthly-plans', 'execution'];
+const REPORTS = ['plannings', 'planning', 'reports', 'report', 'plans', 'monthly plans', 'monthly-plans', 'execution'];
 const JOURNAL = ['journal', 'journals', 'journaling', 'diary'];
 
 const lower = (s) => String(s ?? '').normalize('NFC').toLowerCase();

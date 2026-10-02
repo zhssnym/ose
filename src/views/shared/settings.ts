@@ -1,4 +1,5 @@
-// The planner's settings: four paths, the (Q1) week anchor and the journal mode, kept in the
+// The planner's settings: four paths (`reports` is the plannings folder, under its old key so
+// stored settings keep working), the (Q1) week anchor and the journal mode, kept in the
 // vault's state (`ose.state`, on this machine, outside the vault) under `planner`. Nothing
 // else in the planner spells a path; the views ask the store.
 //
@@ -176,8 +177,8 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
 /* -------------------------------------------------------------------- Settings › Views */
 
 const ROWS = [
-  { key: 'calendar', name: 'Calendar', kind: 'file', note: 'One heading per weekday and one line per block. Day and Week draw it.' },
-  { key: 'reports', name: 'Reports folder', kind: 'folder', note: 'Holds <year>/<YYYY-MM>.md, the monthly plans, and systems.jsonl, the checks. Day and Month read it.' },
+  { key: 'calendar', name: 'Calendar (for months with no timetable)', kind: 'file', note: 'One heading per weekday and one line per block. Day and Week draw it for a month whose file has no # Timetable.' },
+  { key: 'reports', name: 'Plannings folder', kind: 'folder', note: 'Holds YYYY.md, the year, YYYY-MM.md, each month (goals, systems, timetable, review), flat or in a year folder, and systems.jsonl, the checks. Day, Week, Month and Year read it.' },
   { key: 'journal', name: 'Journal folder', kind: 'folder', note: 'One file per day, named YYYY-MM-DD.md.' },
 ];
 
@@ -251,7 +252,7 @@ function html(s) {
 
 const TITLES = {
   calendar: 'Choose the calendar file…',
-  reports: 'Choose the reports folder…',
+  reports: 'Choose the plannings folder…',
   journal: 'Choose the journal folder…',
 };
 

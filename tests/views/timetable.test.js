@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-const { parseTimetable } = await import('../../src/views/shared/timetable.ts');
+const { chooseTimetable, parseTimetable, timetableSection } = await import('../../src/views/shared/timetable.ts');
 const { blockApplies, blockMinutes } = await import('../../src/views/shared/dates.ts');
 
 // Synthetic: the shape of a school timetable, none of anyone's real one.
@@ -76,5 +76,39 @@ describe('parseTimetable', () => {
   it('an empty or missing file is an empty week', () => {
     expect(parseTimetable('')).toEqual({ events: [], unknown: [] });
     expect(parseTimetable(undefined)).toEqual({ events: [], unknown: [] });
+  });
+});
+
+describe('the # Timetable section of a month file', () => {
+  const month = [
+    '# 2026-09 Monthly Plan',              // 1
+    '',
+    '- 08h00 à 09h00 Not a block [maths]', // 3: the title section, never read
+    '# Timetable',                          // 4
+    '',
+    '# Lundi',                              // 6
+    '- 08h20 à 09h15 Maths [maths]',        // 7
+    '- 25h00 nonsense',                     // 8
+    '# Mardi',                              // 9
+    '- 10h20 à 12h10 NSI [cours] (Q1)',     // 10
+    '# Monthly Review',                     // 11
+    '- 13h00 à 14h00 After the end [maths]',
+  ].join('\n');
+
+  it("holds the weekdays under it and stops at the review, with the file's line numbers", () => {
+    const sec = timetableSection(month);
+    expect(sec.found).toBe(true);
+    const { events, unknown } = parseTimetable(sec.text);
+    expect(events.map((e) => [e.d, e.t, e.line, e.q])).toEqual([[0, 'Maths', 7, null], [1, 'NSI', 10, 'Q1']]);
+    expect(unknown.map((u) => u.line)).toEqual([8]);
+  });
+
+  it("is the month's when it has one, else the calendar's", () => {
+    const cal = { path: 'calendar.md', exists: true, text: '# Lundi\n- 07h00 à 08h00 Run [off]\n' };
+    expect(chooseTimetable({ path: 'p/2026-09.md', text: month }, cal)).toMatchObject({ from: 'month', path: 'p/2026-09.md' });
+    const none = chooseTimetable({ path: 'p/2026-01.md', text: '# 2026-01 Monthly Plan\n' }, cal);
+    expect(none.from).toBe('calendar');
+    expect(none.events.map((e) => e.t)).toEqual(['Run']);
+    expect(timetableSection('# Lundi\n- 08h00 à 09h00 X [maths]\n').found).toBe(false);
   });
 });

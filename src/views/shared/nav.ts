@@ -58,7 +58,7 @@ export function bindNav(root: HTMLElement, { prev, next, today }: { prev: Functi
 const WHAT = {
   calendar: 'No calendar file chosen.',
   todo: 'No todo file chosen.',
-  reports: 'No reports folder chosen.',
+  reports: 'No plannings folder chosen.',
   journal: 'No journal folder chosen.',
 };
 

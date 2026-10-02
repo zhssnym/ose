@@ -1,4 +1,5 @@
-// Day: one day, side by side. Left, the calendar's blocks for that weekday, 07:00 to 23:30.
+// Day: one day, side by side. Left, the timetable's blocks for that weekday, 07:00 to 23:30:
+// the month file's `# Timetable` when it has one, else the calendar file.
 // Right, the systems due that day (from the month's plan and the check log) and the tasks that
 // belong on it, file by file (M34).
 //
@@ -6,7 +7,7 @@
 // day someone navigated to, and left open overnight it moves to the new today with the date.
 // The arrows and `t` move and come back; nothing is remembered.
 //
-// Writes, one line each: a system check is appended to `<reports>/systems.jsonl` with
+// Writes, one line each: a system check is appended to `<plannings>/systems.jsonl` with
 // `appendLine` (M30); a task toggle replaces its one line with `replaceLine`, only if the line
 // still reads what was shown (M31); a new task is appended to the first todo file.
 
@@ -14,7 +15,7 @@ import { esc, loadingLine, toast } from '../../ui/index.ts';
 import {
   addDays, blockApplies, dayIndex, dayTitle, ddmm, hhmm, isSameDay, minutesOf, startOfDay, ymd,
 } from '../shared/dates.ts';
-import { lanes, parseTimetable, TIMETABLE } from '../shared/timetable.ts';
+import { chooseTimetable, lanes, TIMETABLE } from '../shared/timetable.ts';
 import {
   applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
@@ -80,12 +81,13 @@ export function createDayView(ose: any, store: any): any {
       systems: Array<{ name: string; days: Set<number>; }>;
       log: { done: Map<string, boolean>; first: Map<string, string>; names: string[]; };
       planFile: string; planMissing: boolean; calMissing: boolean; logFile: string;
+      ttFrom: 'month' | 'calendar' | null; ttPath: string;
       unknown: Array<{ line: number; text: string; }>; expanded: Set<string>; busy: boolean;
       seq: number; taskNote: string; shown: Map<string, any>;
     } = {
       cursor: startOfDay(new Date()),
       events: [], systems: [], log: { done: new Map(), first: new Map(), names: [] },
-      planFile: '', planMissing: false, calMissing: false, logFile: '',
+      planFile: '', planMissing: false, calMissing: false, logFile: '', ttFrom: null, ttPath: '',
       unknown: [], expanded: new Set<any>(), busy: false, seq: 0, taskNote: '', shown: new Map(),
     };
     const offs: any[] = [];
@@ -125,8 +127,8 @@ export function createDayView(ose: any, store: any): any {
       const box = $('tl');
       if (!box) return;
       const s = settings();
-      if (!s.calendar) { box.classList.add('is-empty'); box.innerHTML = missingHtml('calendar'); return; }
-      if (st.calMissing) { box.classList.add('is-empty'); box.innerHTML = goneHtml(s.calendar); return; }
+      if (!st.ttFrom) { box.classList.add('is-empty'); box.innerHTML = missingHtml('calendar'); return; }
+      if (st.calMissing) { box.classList.add('is-empty'); box.innerHTML = goneHtml(st.ttPath); return; }
       box.classList.remove('is-empty');
       const d = dayIndex(st.cursor);
       const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s)));
@@ -150,7 +152,7 @@ export function createDayView(ose: any, store: any): any {
       }
       out.push('<div class="dy-now" data-el="now" hidden><span class="dy-now-dot"></span></div></div>');
       box.innerHTML = out.join('');
-      if (!list.length) box.insertAdjacentHTML('beforeend', '<div class="dy-tl-empty empty">Nothing in the calendar for this day</div>');
+      if (!list.length) box.insertAdjacentHTML('beforeend', '<div class="dy-tl-empty empty">Nothing in the timetable for this day</div>');
       tick();
     }
 
@@ -323,11 +325,11 @@ export function createDayView(ose: any, store: any): any {
       const box = $('meta');
       if (!box) return;
       const s = settings();
-      const files = [s.calendar && !st.calMissing ? s.calendar : '', st.planMissing ? '' : st.planFile, st.logFile, ...s.todo];
+      const files = [st.ttFrom === 'calendar' && !st.calMissing ? st.ttPath : '', st.planMissing ? '' : st.planFile, st.logFile, ...s.todo];
       const links = files.filter(Boolean).map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`);
       if (st.unknown.length) {
         const where = st.unknown.map((u) => u.line).join(', ');
-        links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(s.calendar)}" data-line="${st.unknown[0]?.line}" title="Calendar lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
+        links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(st.ttPath)}" data-line="${st.unknown[0]?.line}" title="Timetable lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
       }
       box.innerHTML = links.join('') || '&nbsp;';
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
@@ -351,7 +353,7 @@ export function createDayView(ose: any, store: any): any {
       st.logFile = s.reports ? logPath(s.reports) : '';
       todo.setPaths(s.todo);
       const stops: [() => boolean, () => boolean, () => boolean] = [
-        loadingLine(s.calendar ? $('tl') : null),
+        loadingLine(s.calendar || s.reports ? $('tl') : null),
         loadingLine(s.reports ? $('sys') : null),
         loadingLine(s.todo.length ? $('tasks') : null),
       ];
@@ -369,8 +371,13 @@ export function createDayView(ose: any, store: any): any {
         ]);
         const planText = found.exists ? await ose.files.read(found.path) : '';
         if (my !== st.seq || !alive) return;
-        st.calMissing = !!s.calendar && !cal.exists;
-        const tt = parseTimetable(cal.text);
+        const tt = chooseTimetable(
+          found.exists ? { path: found.path, text: planText } : null,
+          s.calendar ? { path: s.calendar, exists: cal.exists, text: cal.text } : null,
+        );
+        st.ttFrom = tt.from;
+        st.ttPath = tt.path || '';
+        st.calMissing = tt.from === 'calendar' && !tt.exists;
         st.events = tt.events;
         st.unknown = tt.unknown;
         st.planFile = found.path;

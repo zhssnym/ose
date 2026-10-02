@@ -324,6 +324,57 @@
   font-style: italic; color: var(--fg-3);
 }
 
+/* The month's timetable: a fold under its label, closed by default, then seven small columns
+   of `08h20 Maths` rows, the type's colour as the dot. */
+.mo-fold {
+  display: flex; align-items: center; gap: var(--sp-1); width: 100%;
+  text-align: left; cursor: default; transition: color var(--t-fast);
+}
+.mo-fold:hover { color: var(--fg-2); }
+.mo-fold:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+.mo-fold svg {
+  width: 1em; height: 1em; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5;
+  stroke-linecap: round; stroke-linejoin: round; transition: transform var(--t-fast);
+}
+.mo-fold.open svg { transform: rotate(90deg); }
+.mo-tt-wrap { overflow-x: auto; margin: 0 0 var(--sp-5); padding-bottom: var(--sp-2); }
+.mo-tt {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--sp-2);
+  min-width: calc(7 * 7rem);
+}
+.mo-tt-col { min-width: 0; border: 1px solid var(--border); background: var(--bg-2); padding: var(--sp-2); }
+.mo-tt-d.label { padding-top: 0; }
+.mo-tt-row {
+  display: flex; align-items: baseline; gap: var(--sp-1); min-width: 0;
+  font-size: var(--fs-chrome-sm); line-height: 1.6; color: var(--fg-2);
+}
+.mo-tt-row .wk-dot { margin-right: 0; flex: none; }
+.mo-tt-t { flex: none; color: var(--fg-3); }
+.mo-tt-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-tt-q { flex: none; margin-left: auto; color: var(--accent-ink); }
+.mo-tt-wrap > .pl-unknown { display: inline-block; margin-top: var(--sp-2); color: var(--fg-3); }
+.mo-start { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+
+/* ================================================================== year === */
+
+/* The twelve months: one small box each, a link to that month; a month with a file is drawn
+   solid, its systems' completion under its name. */
+.yr-months {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: var(--sp-2); margin: 0 0 var(--sp-5);
+}
+.yr-m {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-half);
+  padding: var(--sp-2); text-align: left; cursor: default;
+  border: 1px dashed var(--border); color: var(--fg-3);
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.yr-m.has { border-style: solid; background: var(--bg-2); color: var(--fg); }
+.yr-m.now { border-color: var(--accent); }
+.yr-m:hover { color: var(--accent-ink); }
+.yr-m:focus-visible { outline: none; box-shadow: var(--focus); }
+.yr-m-p { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); min-height: 1.4em; }
+
 /* =============================================================== journal === */
 
 /* the layout answers to the width of the main column, not the window */

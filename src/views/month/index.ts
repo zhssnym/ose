@@ -1,31 +1,42 @@
-// Month: the month's goals, the systems matrix with the loss each system has taken and one
-// summary line under it, and the review. Read-only: checking a system is a Day action.
+// Month: one month's page, from its file in the plannings folder. The intro and the goals, the
+// systems matrix with the loss each system has taken and one summary line under it, the month's
+// timetable as a small week (folded by default), and the review. Read-only, but for one thing:
+// a month with no file can be started, which creates the file (never over one).
 //
-//   <reports>/<year>/<YYYY-MM>*.md   goals, `# Systems`, `# Monthly Review`
-//   <reports>/systems.jsonl          the check log
+//   <plannings>/YYYY-MM*.md     intro, goals, `# Systems`, `# Timetable`, `# Monthly Review`
+//                               (or in <plannings>/YYYY/; flat wins)
+//   <plannings>/systems.jsonl   the check log
 //
-// It always opens on this month (M32), and follows the date into the next one when it was on it. A day before a system's first record in the log is not a
-// loss, and a system nobody has checked yet has lost nothing (L16): the verdict is `dayVerdict`
-// in plans.ts, the same one the tests read.
+// It opens on this month (M32), or on the month `route.arg` names (`2026-09`, from the Year
+// view), and follows the date into the next one when it was on it. A day before a system's
+// first record in the log is not a loss, and a system nobody has checked yet has lost nothing
+// (L16): the verdict is `dayVerdict` in plans.ts, the same one the tests read.
 
-import { esc, loadingLine, toast } from '../../ui/index.ts';
-import { addMonths, ddmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth } from '../shared/dates.ts';
+import { esc, icon, loadingLine, toast } from '../../ui/index.ts';
 import {
-  dayVerdict, isGapLine, logPath, parseMonthlyPlan, parseSystemsLog, percentages, resolvePlanPath, systemsFor,
+  addMonths, DAY_SHORT, ddmm, hhmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth, ym,
+} from '../shared/dates.ts';
+import {
+  dayVerdict, listPlannings, logPath, newMonthText, parseMonthlyPlan, parseSystemsLog, percentages,
+  pickMonth, planDir, previousMonthFile, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
+import { parseTimetable, timetableSection, type TimetableEvent } from '../shared/timetable.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from '../shared/nav.ts';
+import { proseInto } from '../shared/prose.ts';
 
 /** `12 done · 2 lost · 16 open`. */
 const tallyText = (t) => `${t.done} done · ${t.lost} lost · ${t.open} open`;
 
-/** Prose, as the file has it: paragraphs, `_..._` as emphasis, gap lines flagged. */
-function prose(text) {
-  return text.split(/\n{2,}/).map((p) => {
-    const line = p.trim().replace(/\s*\n\s*/g, ' ');
-    const body = esc(line).replace(/_([^_]+)_/g, '<em>$1</em>');
-    return `<p${isGapLine(line) ? ' class="mo-gap"' : ''}>${body}</p>`;
-  }).join('');
+/** `2026-09` -> the 1st of that month; anything else -> null. */
+function monthOfArg(arg) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(arg ?? ''));
+  if (!m) return null;
+  const month = Number(m[2]);
+  return month >= 1 && month <= 12 ? new Date(Number(m[1]), month - 1, 1) : null;
 }
+
+/** The fold of the timetable, per machine and per vault. */
+const TT_KEY = 'views.month.timetable';
 
 /**
  * The Month view.
@@ -35,10 +46,16 @@ function prose(text) {
 export function createMonthView(ose: any, store: any): any {
   let live: { unmount(): void; refresh(): void; } | null = null;
 
-  function mount(host) {
-    let alive = true, seq = 0;
-    let cursor = startOfMonth(new Date());
-    let plan: { title: string | null; intro: string; sections: Array<{ label: string; items: string[]; }>; hasSystems: boolean; systems: Array<{ name: string; days: Set<number>; }>; review: string; } | null = null, path = '', planExists = false, systems: any[] = [];
+  const ttStore = () => { try { return ose.local(TT_KEY); } catch { return null; } };
+  const ttRead = () => { try { return ttStore()?.get() === true; } catch { return false; } };
+  const ttWrite = (open) => { try { ttStore()?.set(open); } catch { /* not kept */ } };
+
+  function mount(host, route) {
+    let alive = true, seq = 0, busy = false;
+    let cursor = monthOfArg(route && route.arg) || startOfMonth(new Date());
+    let plan: ReturnType<typeof parseMonthlyPlan> | null = null, path = '', planExists = false, systems: any[] = [];
+    let tt: { found: boolean; events: TimetableEvent[]; unknown: Array<{ line: number; text: string; }>; } = { found: false, events: [], unknown: [] };
+    let ttOpen = ttRead();
     let log = parseSystemsLog(''), logMissing = false, logFile = '';
     const offs: any[] = [];
     const settings = () => store.get();
@@ -56,6 +73,10 @@ export function createMonthView(ose: any, store: any): any {
     <div class="mo-goals" data-el="goals"></div>
     <div class="label">Systems</div>
     <div class="mo-matrix-wrap"><div class="mo-matrix" data-el="matrix"></div></div>
+    <div data-el="tt-part" hidden>
+      <button type="button" class="label mo-fold" data-act="fold" aria-expanded="false" aria-controls="mo-tt">${icon('chevron')}<span>Timetable</span></button>
+      <div class="mo-tt-wrap" id="mo-tt" data-el="tt" hidden></div>
+    </div>
     <div class="label">Review</div>
     <div class="mo-review view-prose" data-el="review"></div>
   </div>
@@ -66,15 +87,21 @@ export function createMonthView(ose: any, store: any): any {
     function renderGoals() {
       const box = $('goals');
       if (!settings().reports) { box.innerHTML = missingHtml('reports'); return; }
-      if (!plan) { box.innerHTML = `<div class="empty">No plan file for ${esc(monthTitle(cursor))} at ${esc(path)}</div>`; return; }
-      const intro = plan.intro ? `<div class="mo-intro view-prose">${prose(plan.intro)}</div>` : '';
+      if (!plan) {
+        const title = monthTitle(cursor);
+        box.innerHTML = `<div class="mo-start"><div class="empty">No file for ${esc(title)} at ${esc(path)}</div>
+          <button type="button" class="btn sm" data-act="start">Start ${esc(title)}</button></div>`;
+        return;
+      }
       const cards = plan.sections.filter((s) => s.items.length);
-      if (!cards.length) { box.innerHTML = intro || '<div class="empty">This plan has no goals</div>'; return; }
-      box.innerHTML = intro + cards.map((s) => `
+      box.innerHTML = (plan.intro ? '<div class="mo-intro view-prose" data-el="intro"></div>' : '')
+        + (cards.length ? cards.map((s) => `
         <div class="mo-card">
           <div class="label">${esc(s.label)}</div>
           <ul class="view-prose">${s.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
-        </div>`).join('');
+        </div>`).join('') : (plan.intro ? '' : '<div class="empty">This plan has no goals</div>'));
+      const intro = box.querySelector('[data-el="intro"]');
+      if (intro) proseInto(intro, plan.intro, path);
     }
 
     function renderMatrix() {
@@ -115,26 +142,54 @@ export function createMonthView(ose: any, store: any): any {
       box.innerHTML = out.join('');
     }
 
+    /** The month's own timetable as a small week: seven columns of `08h20 Maths` rows. */
+    function renderTimetable() {
+      const part = $('tt-part'), box = $('tt');
+      part.hidden = !plan || !tt.found;
+      const fold = host.querySelector('[data-act="fold"]');
+      fold.setAttribute('aria-expanded', String(ttOpen));
+      fold.classList.toggle('open', ttOpen);
+      box.hidden = !ttOpen;
+      if (part.hidden || !ttOpen) { box.innerHTML = ''; return; }
+      if (!tt.events.length) { box.innerHTML = '<div class="empty">No blocks under # Timetable</div>'; return; }
+      const cols = DAY_SHORT.map((name, d) => {
+        const rows = tt.events.filter((e) => e.d === d).map((e) => {
+          const title = `${e.q ? `${e.q} · ` : ''}${e.t}${e.sub ? ` · ${e.sub}` : ''} · ${hhmm(e.sm)} to ${hhmm(e.em)}`;
+          return `<div class="mo-tt-row" title="${esc(title)}"><span class="wk-dot t-${e.type}"></span><span class="mo-tt-t mono-sm">${hhmm(e.sm)}</span><span class="mo-tt-n">${esc(e.t)}</span>${e.q ? `<span class="mo-tt-q mono-sm">${e.q}</span>` : ''}</div>`;
+        }).join('');
+        return `<div class="mo-tt-col"><div class="mo-tt-d label">${name}</div>${rows || '<div class="mo-tt-row faint">–</div>'}</div>`;
+      }).join('');
+      const n = tt.unknown.length;
+      const bad = n
+        ? `<button type="button" class="v-link pl-unknown mono-sm" data-path="${esc(path)}" data-line="${tt.unknown[0]?.line}" title="Lines ${esc(tt.unknown.map((u) => u.line).join(', '))}">${n} line${n === 1 ? '' : 's'} not understood</button>`
+        : '';
+      box.innerHTML = `<div class="mo-tt">${cols}</div>${bad}`;
+    }
+
     function renderReview() {
       const box = $('review');
       if (!settings().reports) { box.innerHTML = ''; return; }
       const text = plan && plan.review;
-      box.innerHTML = text ? prose(text) : '<div class="empty">Not written yet</div>';
+      if (text) proseInto(box, text, path);
+      else box.innerHTML = plan ? '<div class="empty">Not written yet</div>' : '';
     }
 
     function render() {
       if (!alive) return;
       const s = settings();
       $('title').textContent = monthTitle(cursor);
+      const year = String(cursor.getFullYear());
       $('meta').innerHTML = [
         planExists ? `<button type="button" class="v-link" data-path="${esc(path)}">${esc(path)}</button>` : '',
         logFile && !logMissing ? `<button type="button" class="v-link" data-path="${esc(logFile)}">${esc(logFile)}</button>` : '',
         s.reports ? `<span>${systems.length} system${systems.length === 1 ? '' : 's'}</span>` : '',
+        s.reports ? `<button type="button" class="v-link" data-year="${year}" title="The year ${year}">${year}</button>` : '',
       ].filter(Boolean).join('') || '&nbsp;';
       $('detected').innerHTML = s.confirmed ? '' : detectedHtml();
       host.querySelector('[data-nav="today"]').hidden = isSameDay(startOfMonth(new Date()), cursor);
       renderGoals();
       renderMatrix();
+      renderTimetable();
       renderReview();
     }
 
@@ -146,6 +201,7 @@ export function createMonthView(ose: any, store: any): any {
       logFile = s.reports ? logPath(s.reports) : '';
       if (!s.reports) {
         plan = null; path = ''; planExists = false; systems = []; log = parseSystemsLog('');
+        tt = { found: false, events: [], unknown: [] };
         render();
         return;
       }
@@ -164,7 +220,9 @@ export function createMonthView(ose: any, store: any): any {
         path = found.path;
         planExists = found.exists;
         logMissing = !hasLog;
-        plan = planText ? parseMonthlyPlan(planText) : null;
+        plan = found.exists ? parseMonthlyPlan(planText) : null;
+        const sec = timetableSection(planText);
+        tt = sec.found ? { found: true, ...parseTimetable(sec.text) } : { found: false, events: [], unknown: [] };
         log = parseSystemsLog(logText);
         systems = systemsFor(plan, log, at);
         stop();
@@ -178,11 +236,48 @@ export function createMonthView(ose: any, store: any): any {
       }
     }
 
+    /**
+     * Create the month's file from the last month that has one (`newMonthText`), in the same
+     * layout: flat when that month is flat, else in this year's folder. Exclusive: an existing
+     * file is never touched.
+     */
+    async function start() {
+      const dir = settings().reports;
+      if (busy || !dir) return;
+      busy = true;
+      const at = cursor;
+      const list = (f) => ose.files.list(f);
+      try {
+        const prev = await previousMonthFile(list, at, dir);
+        const prevText = prev ? await ose.files.read(prev.path) : null;
+        const flat = prev ? prev.flat : pickMonth(await listPlannings(list, dir, at.getFullYear()), at).flat;
+        const folder = flat ? dir : planDir(at, dir);
+        await ose.fileops.create(folder, `${ym(at)}.md`, { text: newMonthText(at, prevText) });
+        toast(prev ? `Started ${monthTitle(at)} from ${prev.path}` : `Started ${monthTitle(at)}`, 'info', 3000);
+      } catch (err) {
+        const e = (err as { code?: string, message?: string });
+        if (!(e && e.code === 'exists')) toast(`The month could not be started: ${(e && e.message) || e}`, 'err');
+      } finally {
+        busy = false;
+        if (alive) load();
+      }
+    }
+
     function go(delta) {
       cursor = delta === 0 ? startOfMonth(new Date()) : startOfMonth(addMonths(cursor, delta));
       load();
     }
 
+    function onClick(ev) {
+      const t = ev.target.closest ? ev.target.closest('[data-act], [data-year]') : null;
+      if (!t || !root.contains(t)) return;
+      if (t.dataset.year) { ose.route.navigate({ type: 'view', name: 'year', arg: t.dataset.year }); return; }
+      if (t.dataset.act === 'start') { void start(); return; }
+      if (t.dataset.act === 'fold') { ttOpen = !ttOpen; ttWrite(ttOpen); renderTimetable(); }
+    }
+
+    root.addEventListener('click', onClick);
+    offs.push(() => root.removeEventListener('click', onClick));
     offs.push(bindNav(root, { prev: () => go(-1), next: () => go(1), today: () => go(0) }));
     offs.push(bindLinks(root, ose));
     offs.push(store.on(() => load()));
@@ -222,8 +317,9 @@ export function createMonthView(ose: any, store: any): any {
     order: 30,
     icon: 'month',
     section: 'planner',
-    mount: (el) => mount(el),
+    mount: (el, route) => mount(el, route),
     unmount: () => live && live.unmount(),
     refresh: () => live && live.refresh(),
   };
 }
+

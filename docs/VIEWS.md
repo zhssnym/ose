@@ -1,7 +1,7 @@
 # Views
 
-A view is a page of its own in the sidebar's **Views** section: Day, Week, Month and Journal are
-the four that ship. A view is not a file: it reads ordinary files of the vault and draws them
+A view is a page of its own in the sidebar's **Views** section: Day, Week, Month, Year and
+Journal are the five that ship. A view is not a file: it reads ordinary files of the vault and draws them
 its own way, the way the Journal turns a folder of `YYYY-MM-DD.md` files into one record. This
 is how Ose is extended. There is no plugin system; you fork Ose and add a folder.
 
@@ -13,10 +13,12 @@ src/views/
   views.css     the views' styles, tokens only
   day/          one folder per view, index.ts its entry
   week/
-  month/
+  month/        a month's file: goals, systems, its timetable, the review
+  year/         a year's file and its twelve months
   journal/      the fullest one: the example to copy
   shared/       what views share: dates, tasks and todo files, the timetable, the
-                monthly plan, the settings store (where each file is), path detection
+                plannings (year and month files, the check log), prose, the settings
+                store (where each file is), path detection
 ```
 
 ## Adding one
@@ -51,7 +53,7 @@ src/views/
 
 ## What a view gets
 
-`ose` is handed in; a view never imports the core or the shell. The parts the four views use:
+`ose` is handed in; a view never imports the core or the shell. The parts the built-in views use:
 
 | | |
 |---|---|
@@ -81,4 +83,7 @@ import of `src/editor/lib.ts`, as the Journal does.
   `ose.watch` are how it keeps up.
 - **Tokens only.** No colour, font or size of its own: both themes come for free.
 
-The formats the four built-in views read and exactly what they write are in `docs/FORMATS.md`.
+Month takes `route.arg` = 'YYYY-MM' and Year takes 'YYYY': `ose.route.navigate({ type: 'view',
+name: 'year', arg: '2026' })` opens that year, which is how the two link to each other.
+
+The formats the five built-in views read and exactly what they write are in `docs/FORMATS.md`.

@@ -1,11 +1,13 @@
-// The monthly plan and the systems check log. Day and Month both read them. Pure: text in,
+// The plannings: monthly and yearly plans and the systems check log. Day, Month and Year read them. Pure: text in,
 // data out; no DOM, no `ose` (docs/FORMATS.md "Monthly plan" and "systems.jsonl").
 //
-//   <reports>/<year>/<YYYY-MM>*.md   the plan: title section (goals), `# Systems`, `# Monthly Review`
-//   <reports>/systems.jsonl          one JSON record per check, appended, never rewritten
+//   <plannings>/YYYY-MM*.md     a month: title section (goals), `# Systems`, `# Timetable`, `# Monthly Review`
+//   <plannings>/YYYY.md         a year: title section (goals), `# Yearly Review`
+//   <plannings>/systems.jsonl   one JSON record per check, appended, never rewritten
+// The month and year files may also sit in a year folder, `<plannings>/2026/`; flat wins.
 //
-// `resolvePlanPath` is the one function that needs a listing; it takes the lister as an
-// argument, so this file still imports nothing that touches a vault.
+// The resolvers take the lister as an argument, so this file still imports nothing that
+// touches a vault.
 
 import { dayIndex, isSameDay, monthDays, parseYmd, startOfDay, startOfMonth, ym, ymd } from './dates.ts';
 
@@ -50,41 +52,105 @@ export function pickDatedFile(names: string[], prefix: string): string | null {
 /* ------------------------------------------------------------------ paths */
 
 const trimSlash = (dir) => String(dir ?? '').replace(/\/+$/, '');
+const join = (dir, name) => (trimSlash(dir) ? `${trimSlash(dir)}/${name}` : String(name));
 
 /**
- * The folder a month's plan lives in: `<reports>/2026`.
+ * The year subfolder of the plannings folder: `<plannings>/2026`. Plans are found flat in the
+ * plannings folder first, then here.
  */
-export const planDir = (date: Date, reportsDir: string): string => {
-  const dir = trimSlash(reportsDir);
-  return dir ? `${dir}/${date.getFullYear()}` : String(date.getFullYear());
-};
+export const planDir = (date: Date, dir: string): string => join(dir, String(date.getFullYear()));
 
 /**
- * The canonical plan path for a date: `<reports>/2026/2026-09.md`. The real file may be named
- * anything starting with `2026-09` (`resolvePlanPath`); this is the name a view prints when
- * nothing matches.
+ * The canonical plan path for a date, flat: `<plannings>/2026-09.md`. The real file may be
+ * named anything starting with `2026-09` and may sit in `<plannings>/2026/` (`resolvePlanPath`).
  */
-export const planPath = (date: Date, reportsDir: string): string => `${planDir(date, reportsDir)}/${ym(date)}.md`;
+export const planPath = (date: Date, dir: string): string => join(dir, `${ym(date)}.md`);
 
 /**
- * The check log's path: `<reports>/systems.jsonl`.
+ * The check log's path: `<plannings>/systems.jsonl`.
  */
-export const logPath = (reportsDir: string): string => (trimSlash(reportsDir) ? `${trimSlash(reportsDir)}/systems.jsonl` : 'systems.jsonl');
+export const logPath = (dir: string): string => join(dir, 'systems.jsonl');
 
 /**
- * The plan file of the month `date` falls in. `list(folder)` answers entries (`{name, kind}`)
- * or throws; the year folder is listed and `pickDatedFile` picks. When nothing matches, the
- * canonical path comes back with `exists: false`.
+ * The year file among a folder's names: `2026.md` wins, then a name that starts with the year
+ * and a space (`2026 Yearly Plan.md`), or with the year, a dash or underscore and `year`
+ * (`2026-yearly-plan.md`). `2026-09.md`, `2026-goals.md` and `2026-review.md` are not it.
  */
-export async function resolvePlanPath(list: (folder: string) => Promise<Array<{ name: string; kind: string; }>>, date: Date, reportsDir: string): Promise<{ path: string; dir: string; exists: boolean; }> {
-  const folder = planDir(date, reportsDir);
-  const fallback = planPath(date, reportsDir);
-  let names: string[] | null = null;
-  try {
-    names = (await list(folder)).filter((n) => n.kind === 'file').map((n) => n.name);
-  } catch { /* no year folder: the canonical path names what is missing */ }
-  const hit = names ? pickDatedFile(names, ym(date)) : null;
-  return hit ? { path: `${folder}/${hit}`, dir: folder, exists: true } : { path: fallback, dir: folder, exists: false };
+export function pickYearFile(names: string[], year: number | string): string | null {
+  const y = String(year);
+  const hits: string[] = [];
+  for (const n of names || []) {
+    const name = String(n);
+    if (!/\.md$/i.test(name) || !name.startsWith(y)) continue;
+    const rest = name.slice(y.length, -3);
+    if (rest === '') return name;
+    if (/^\s+\S/.test(rest) || /^[-_]\s*year/i.test(rest)) hits.push(name);
+  }
+  hits.sort(naturalCompare);
+  return hits[0] || null;
+}
+
+/** What `listPlannings` answers: the files of the plannings folder and of its year folder. */
+export type PlanListing = { dir: string; year: number; flat: string[]; inYear: string[] | null; };
+
+type Lister = (folder: string) => Promise<Array<{ name: string; kind: string; }>>;
+
+/**
+ * List the plannings folder and its year folder (`null` when there is none). `list(folder)`
+ * answers entries (`{name, kind}`) or throws.
+ */
+export async function listPlannings(list: Lister, dir: string, year: number): Promise<PlanListing> {
+  const files = async (folder) => {
+    try { return (await list(folder)).filter((n) => n.kind === 'file').map((n) => n.name); } catch { return null; }
+  };
+  const [flat, inYear] = await Promise.all([files(trimSlash(dir)), files(join(dir, String(year)))]);
+  return { dir: trimSlash(dir), year, flat: flat || [], inYear };
+}
+
+/** One resolved planning file: where it is, whether it is there, and whether it is flat. */
+export type PlanFile = { path: string; dir: string; exists: boolean; flat: boolean; };
+
+/**
+ * The month's plan in a listing: flat first, then the year folder. When nothing matches, the
+ * canonical name comes back with `exists: false`, in the year folder when there is one.
+ */
+export function pickMonth(listing: PlanListing, date: Date): PlanFile {
+  const yearDir = join(listing.dir, String(listing.year));
+  const flat = pickDatedFile(listing.flat, ym(date));
+  if (flat) return { path: join(listing.dir, flat), dir: listing.dir, exists: true, flat: true };
+  const nested = listing.inYear ? pickDatedFile(listing.inYear, ym(date)) : null;
+  if (nested) return { path: `${yearDir}/${nested}`, dir: yearDir, exists: true, flat: false };
+  return listing.inYear
+    ? { path: `${yearDir}/${ym(date)}.md`, dir: yearDir, exists: false, flat: false }
+    : { path: join(listing.dir, `${ym(date)}.md`), dir: listing.dir, exists: false, flat: true };
+}
+
+/**
+ * The year's file in a listing (`pickYearFile`): flat first, then the year folder; missing,
+ * the canonical `<plannings>/2026.md`.
+ */
+export function pickYear(listing: PlanListing): PlanFile {
+  const y = String(listing.year), yearDir = join(listing.dir, y);
+  const flat = pickYearFile(listing.flat, y);
+  if (flat) return { path: join(listing.dir, flat), dir: listing.dir, exists: true, flat: true };
+  const nested = listing.inYear ? pickYearFile(listing.inYear, y) : null;
+  if (nested) return { path: `${yearDir}/${nested}`, dir: yearDir, exists: true, flat: false };
+  return { path: join(listing.dir, `${y}.md`), dir: listing.dir, exists: false, flat: true };
+}
+
+/**
+ * The plan file of the month `date` falls in: `<plannings>/2026-09*.md`, else
+ * `<plannings>/2026/2026-09*.md`.
+ */
+export async function resolvePlanPath(list: Lister, date: Date, dir: string): Promise<PlanFile> {
+  return pickMonth(await listPlannings(list, dir, date.getFullYear()), date);
+}
+
+/**
+ * The year file: `<plannings>/2026.md` (or `2026 Yearly Plan.md`), else the same in `2026/`.
+ */
+export async function resolveYearPath(list: Lister, year: number, dir: string): Promise<PlanFile> {
+  return pickYear(await listPlannings(list, dir, year));
 }
 
 /* ----------------------------------------------------------- monthly plan */
@@ -145,6 +211,7 @@ function goalSections(lines) {
  *   `# YYYY-MM Monthly Plan`  intro prose, then label lines with bullets  -> title, intro, sections
  *   `# Goals`                 optional: read as more of the title section's body
  *   `# Systems`               one bullet per system                        -> systems, hasSystems
+ *   `# Timetable`             the month's calendar (`timetableSection` in timetable.ts)
  *   `# Monthly Review`        Hassan's prose, never written by the app     -> review (`# Review` too)
  */
 export function parseMonthlyPlan(text: string): { title: string | null; intro: string; sections: Array<{ label: string; items: string[]; }>; hasSystems: boolean; systems: Array<{ name: string; days: Set<number>; }>; review: string; } {
@@ -165,6 +232,99 @@ export function parseMonthlyPlan(text: string): { title: string | null; intro: s
     systems: sysSec ? parseSystems(sysSec.body.join('\n')) : [],
     review: revSec ? revSec.body.join('\n').trim() : '',
   };
+}
+
+/**
+ * A year file. The same title section as a month (intro, goal labels with bullets, an optional
+ * `# Goals`), then `# Yearly Review` (or `# Review`), prose written at the end of the year.
+ */
+export function parseYearlyPlan(text: string): { title: string | null; intro: string; sections: Array<{ label: string; items: string[]; }>; review: string; } {
+  const heads = h1Sections(text).filter((s) => s.head);
+  const titleSec = heads[0] || { head: null, body: [] };
+  const goalSec = heads.indexOf(titleSec) === 0 ? heads.find((s) => /^goals$/i.test(s.head ?? '')) : null;
+  const revSec = heads.find((s) => /^(?:yearly\s+)?review$/i.test(s.head ?? ''));
+  const head = goalSections(titleSec.body);
+  const extra = goalSec ? goalSections(goalSec.body) : { sections: [], intro: '' };
+  return {
+    title: titleSec.head,
+    intro: [head.intro, extra.intro].filter(Boolean).join('\n\n'),
+    sections: [...head.sections, ...extra.sections],
+    review: revSec ? revSec.body.join('\n').trim() : '',
+  };
+}
+
+/* ------------------------------------------------------------ a new month, a new year */
+
+export const MONTH_GAP = '_gap: written at the end of the month_';
+export const YEAR_GAP = '_gap: written at the end of the year_';
+
+/** Lines into blocks: runs of non-blank lines. */
+function blocks(lines: string[]): string[][] {
+  const out: string[][] = [];
+  let cur: string[] = [];
+  for (const l of lines) {
+    if (l.trim()) cur.push(l);
+    else if (cur.length) { out.push(cur); cur = []; }
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+/**
+ * The text of a new month's file, made from the last month that has one: the title becomes
+ * `# YYYY-MM Monthly Plan`, its intro prose goes (goal labels and their bullets stay), every
+ * other section (`# Goals`, `# Systems`, `# Timetable` and its weekdays) is kept as it was, and
+ * the review's body is the gap line. With no previous month, the four headings alone.
+ * Line endings follow the previous file; LF otherwise.
+ * @param prev the previous month's text, or null
+ */
+export function newMonthText(date: Date, prev: string | null): string {
+  const title = `# ${ym(date)} Monthly Plan`;
+  if (!prev || !prev.trim()) {
+    return [title, '', '# Systems', '', '# Timetable', '', '# Monthly Review', '', MONTH_GAP, ''].join('\n');
+  }
+  const eol = /\r\n/.test(prev) ? '\r\n' : '\n';
+  const secs = h1Sections(prev);
+  const heads = secs.filter((s) => s.head);
+  const out: string[] = [];
+  let review = false;
+  heads.forEach((sec, i) => {
+    if (i === 0) {
+      out.push(title, '');
+      const kept = blocks(sec.body).filter((b) => {
+        const first = (b[0] ?? '').trim();
+        return /^[-*+]\s/.test(first) || isGoalLabel(first);
+      });
+      for (const b of kept) out.push(...b, '');
+      return;
+    }
+    if (/^(?:monthly\s+)?review$/i.test(sec.head ?? '')) {
+      review = true;
+      out.push(`# ${sec.head}`, '', MONTH_GAP, '');
+      return;
+    }
+    out.push(`# ${sec.head}`, ...sec.body);
+  });
+  if (!review) {
+    while (out.length && !(out[out.length - 1] ?? '').trim()) out.pop();
+    out.push('', '# Monthly Review', '', MONTH_GAP, '');
+  }
+  while (out.length > 1 && !(out[out.length - 1] ?? '').trim() && !(out[out.length - 2] ?? '').trim()) out.pop();
+  if ((out[out.length - 1] ?? '').trim()) out.push('');
+  return out.join(eol);
+}
+
+/**
+ * The text of a new year's file: `# YYYY Yearly Plan`, the previous year's goal labels (just
+ * the labels), then `# Yearly Review` and the gap line.
+ * @param prev the previous year's text, or null
+ */
+export function newYearText(year: number, prev: string | null): string {
+  const labels = prev ? parseYearlyPlan(prev).sections.map((s) => s.label).filter((l) => l !== 'Notes') : [];
+  const out = [`# ${year} Yearly Plan`, ''];
+  for (const l of [...new Set(labels)]) out.push(l, '');
+  out.push('# Yearly Review', '', YEAR_GAP, '');
+  return out.join('\n');
 }
 
 /* ---------------------------------------------------------------- systems */
@@ -309,4 +469,36 @@ export function percentages(t: { done: number; lost: number; open: number; }): {
   if (!t.open) return { done, lost: 100 - done, open: 0 };
   const lost = Math.round((100 * t.lost) / all);
   return { done, lost, open: 100 - done - lost };
+}
+
+/**
+ * A month's tally over every system: due days done, lost and still open (the Year view's
+ * completion, the Month view's summary line).
+ * @param monthDate any day of the month
+ */
+export function monthTally(systems: Array<{ name: string; days: Set<number>; }>, monthDate: Date, log: { done: Map<string, boolean>; first: Map<string, string>; }, today: Date): { done: number; lost: number; open: number; } {
+  const t = { done: 0, lost: 0, open: 0 };
+  for (const s of systems) {
+    for (const d of monthDays(monthDate)) {
+      const v = dayVerdict(s, d, log, today).tally;
+      if (v) t[v]++;
+    }
+  }
+  return t;
+}
+
+/**
+ * The last month before `date` that has a file, looking back `back` months; null when none.
+ * Each year folder is listed once.
+ */
+export async function previousMonthFile(list: Lister, date: Date, dir: string, back = 24): Promise<PlanFile | null> {
+  const listings = new Map<number, PlanListing>();
+  for (let k = 1; k <= back; k++) {
+    const d = new Date(date.getFullYear(), date.getMonth() - k, 1);
+    const y = d.getFullYear();
+    if (!listings.has(y)) listings.set(y, await listPlannings(list, dir, y));
+    const hit = pickMonth(listings.get(y) as PlanListing, d);
+    if (hit.exists) return hit;
+  }
+  return null;
 }
