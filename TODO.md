@@ -45,5 +45,11 @@ Wave 2 (2026-10-02):
 - [ ] Files outside the vault (Open file…): cut or keep.
 - [ ] Drag files in from Explorer/Finder: cut or keep.
 - [ ] Snap Layouts on hover of the maximise button (Windows), if missed.
-- [ ] The shell in TypeScript: one language for the whole page (shell/ is JS with JSDoc types
-      from the user-editable-shell days); one branch, file by file, typecheck green at each step.
+- [ ] Tidy the house (one branch, after v1), so a forker finds one idea per folder:
+      - `shell/` in TypeScript, moved to `src/shell/` (JS with JSDoc types from the
+        user-editable-shell days); file by file, typecheck green at each step.
+      - `ose:ui` out of `src/core/` into its own `src/ui/` (dialogs, menus, toast, icons, tokens).
+      - `src/planner/` becomes `src/views/`: one folder per view (day, week, month, journal), each
+        one `register(ose)` and the planner's rules as the view contract (writes a line, never a
+        whole file). Customising Ose is forking it: a new view is a new folder. No runtime
+        plugin loader.
