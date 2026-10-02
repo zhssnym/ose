@@ -29,6 +29,27 @@ export function findNode(path) {
 }
 
 /** A folder's children as they are drawn: hidden ones only when asked for, in its sort. */
+/**
+ * The scratchpad: a folder named `scratchpad` at the top of the vault, for throwaway notes and
+ * ideas. It has its own section under the vault, drawn flat (its files as rows, its folders
+ * unfolding in place), and the empty-space menu creates there. No such folder, no section.
+ */
+export function scratchNode() {
+  const kids = (state.tree && state.tree.children) || [];
+  return kids.find((c) => c && c.kind === 'dir' && String(c.name).toLowerCase() === 'scratchpad') || null;
+}
+
+function renderScratch(frag, node, cur, cuts) {
+  heading(frag, 'Scratchpad');
+  const box = treeBox(frag, 'Scratchpad', true);
+  box.classList.add('sb-scratch');
+  box.dataset.drop = node.path;
+  if (!node.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(node.path); return; }
+  const kids = kidsOf(node);
+  if (!kids.length) box.appendChild(emptyLine('Nothing here', 0));
+  for (const c of kids) renderNode(c, 0, box, cur, cuts);
+}
+
 function kidsOf(node) {
   const list = visibleEntries((node && node.children) || [], { showHidden: showHidden() });
   return sortEntries(list, DEFAULT_SORT);
@@ -258,9 +279,12 @@ function renderTree() {
     else if (!root.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(root.path); }
     else for (const c of kidsOf(root)) renderNode(c, 0, box, cur, cuts);
   } else {
-    const kids = kidsOf(state.tree);
+    // The scratchpad has its own section below: it is never drawn twice.
+    const scratch = scratchNode();
+    const kids = kidsOf(state.tree).filter((c) => c !== scratch);
     if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 0));
     for (const c of kids) renderNode(c, 0, box, cur, cuts);
+    if (scratch) renderScratch(frag, scratch, cur, cuts);
   }
 
   // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,

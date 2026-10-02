@@ -18,7 +18,7 @@ import {
   commands, currentRoute, getFocus, ic, messageOf, relativeHref, setFocus, shortcutFor,
   showHidden, state,
 } from './sidebar-state.js';
-import { findNode, persistExpanded, render, vaultName } from './sidebar-tree.js';
+import { findNode, persistExpanded, render, scratchNode, vaultName } from './sidebar-tree.js';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
 } from './sidebar-select.js';
@@ -355,7 +355,8 @@ export function openMenuAt(row) {
 
 /** Right-click on the empty space under the tree: the vault root, or the focus folder. */
 export function emptyMenu() {
-  const dir = getFocus() || '';
+  const scratch = scratchNode();
+  const dir = getFocus() || (scratch ? scratch.path : '');
   const where = baseName(dir) || vaultName();
   const target = { path: dir, kind: 'dir' };
   return tidy([
