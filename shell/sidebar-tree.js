@@ -2,20 +2,19 @@
 // drawn, and the keys that walk it.
 
 import { ose } from 'ose:core';
-import { esc, focusOrigin, icon, overlayCount, retargetFocusOrigin } from 'ose:ui';
+import { esc, focusOrigin, hasIcon, icon, overlayCount, retargetFocusOrigin } from 'ose:ui';
+import { byViewOrder } from './order.js';
 import {
   baseName, clean, dirName, extOf, segments, titleOf, vaultName as nameOfVault,
 } from './paths.js';
 import { clipboard } from './fileops.js';
-import { iconName, sortEntries, visibleEntries } from './folder-model.js';
-import { sortSpec } from './folder.js';
+import { DEFAULT_SORT, iconName, sortEntries, visibleEntries } from './folder-model.js';
 import { setSidebarOpen, sidebarVisible } from './layout.js';
 import {
   currentRoute, exitFocus, getFocus, ic, isUnderFocus, showHidden, slot, state,
 } from './sidebar-state.js';
 import { pruneSelection } from './sidebar-select.js';
 import { loadChildren, movedKey } from './sidebar-load.js';
-import { paintHead } from './sidebar-commands.js';
 
 /* ------------------------------------------------------------------ tree data */
 
@@ -32,7 +31,7 @@ export function findNode(path) {
 /** A folder's children as they are drawn: hidden ones only when asked for, in its sort. */
 function kidsOf(node) {
   const list = visibleEntries((node && node.children) || [], { showHidden: showHidden() });
-  return sortEntries(list, sortSpec());
+  return sortEntries(list, DEFAULT_SORT);
 }
 
 const MD_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd']);
@@ -43,7 +42,7 @@ function walkFiles(keep) {
   const out = [];
   const walk = (n) => {
     if (!n || !n.children) return;
-    for (const c of sortEntries(n.children.filter((x) => !x.hidden), sortSpec())) {
+    for (const c of sortEntries(n.children.filter((x) => !x.hidden), DEFAULT_SORT)) {
       if (c.kind === 'dir') { if (!c.link) walk(c); } else if (keep(c)) out.push(c.path);
     }
   };
@@ -135,6 +134,17 @@ function emptyLine(text, depth) {
  * One tree per section rather than one for the whole sidebar: the sections are separate lists
  * with separate names, and claiming otherwise would make a reader announce wrong positions.
  */
+/** A section's heading: "Views", "Vault". */
+function heading(frag, text) {
+  const d = document.createElement('div');
+  d.className = 'section-label';
+  d.textContent = text;
+  frag.appendChild(d);
+}
+
+/** The planner's views, in their own order (order.js). */
+const plannerViews = () => ose.views.list().filter((v) => v && v.section === 'planner').sort(byViewOrder);
+
 function treeBox(frag, name, multi = false) {
   const box = document.createElement('div');
   box.className = 'sb-group';
@@ -218,8 +228,25 @@ function renderTree() {
   const focus = getFocus();
   const cuts = cutPaths();
 
+  // Views: the app's own pages over the vault's files (Journal, Month, …), one row each.
+  const views = focus ? [] : plannerViews();
+  if (views.length) {
+    heading(frag, 'Views');
+    const vbox = treeBox(frag, 'Views');
+    vbox.classList.add('sb-views');
+    for (const v of views) {
+      vbox.appendChild(rowEl({
+        cls: 'sb-view' + (cur.view === v.name ? ' current' : ''),
+        depth: 0, glyphHtml: icon(v.icon && hasIcon(v.icon) ? v.icon : 'calendar'), text: v.title || v.name,
+        data: { view: v.name },
+      }));
+    }
+  }
+
+  // Vault: what is in the vault folder, directly; the folder itself has no row.
   if (focus) frag.appendChild(focusLabel(focus));
-  const box = treeBox(frag, focus ? `Focus: ${baseName(focus)}` : 'Files', true);
+  else heading(frag, 'Vault');
+  const box = treeBox(frag, focus ? `Focus: ${baseName(focus)}` : 'Vault', true);
   box.classList.add('sb-files');
   if (!state.tree) {
     box.appendChild(emptyLine('Reading the vault…', 0));
@@ -229,18 +256,9 @@ function renderTree() {
     else if (!root.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(root.path); }
     else for (const c of kidsOf(root)) renderNode(c, 0, box, cur, cuts);
   } else {
-    // The root row: the vault by its name. It goes to the vault's own folder view, and folds.
-    box.appendChild(rowEl({
-      cls: 'dir sb-root' + (cur.folder === '' ? ' current' : ''),
-      depth: 0, chevron: state.rootOpen, glyphHtml: icon('folder'), text: vaultName(),
-      title: (ose.vault && ose.vault.root) || '',
-      data: { path: '', kind: 'dir', root: '1' },
-    }));
-    if (state.rootOpen) {
-      const kids = kidsOf(state.tree);
-      if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 1));
-      for (const c of kids) renderNode(c, 1, box, cur, cuts);
-    }
+    const kids = kidsOf(state.tree);
+    if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 0));
+    for (const c of kids) renderNode(c, 0, box, cur, cuts);
   }
 
   // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,
@@ -280,7 +298,6 @@ function renderTree() {
 export function render() {
   if (!state.scrollEl) return;
   renderTree();
-  paintHead();
 }
 
 export function rowFor(path) {

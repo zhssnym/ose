@@ -5,8 +5,7 @@
 // a page left for another tab is parked (kept alive, never asked), a page left for good is
 // asked and closed, a background tab's page is released before its tab goes and a release
 // that fails keeps the tab; plus per-tab back and forward, reopening a closed tab with its
-// whole history, the last tab falling back to Home, and a trashed file's tab turning into its
-// folder with the file selected.
+// whole history, the last tab falling back to Home, and a trashed file's tab going Home.
 //
 // Every test gets a fresh core (the router and the tab model keep module state).
 //
@@ -194,21 +193,12 @@ describe('tabs', () => {
     expect(host.log.length).toBe(mark);
   });
 
-  it('a trashed file\'s tab shows its folder with the file selected; history is left alone', async () => {
-    const P = await import('../../src/core/pagehost.ts');
-    const opened = [];
-    P.setFolderHost({
-      async open(_el, path, opts) {
-        opened.push({ path, select: opts && opts.select });
-        return { unmount() {}, refresh() {}, selection: () => null };
-      },
-    });
+  it('a trashed file\'s tab goes Home; history is left alone', async () => {
+    R.setHome({ type: 'view', name: 'home' });
     await R.navigate(page('a.md'));
     await R.navigate(page('notes/n.md'));
     K.bus.emit('paths:trashed', { paths: ['notes/n.md'], items: [] });
-    await vi.waitFor(() => expect(R.currentRoute()).toMatchObject({ type: 'folder', path: 'notes' }));
-    // `select` is spent by the show (CONTRACT §4.2): the folder host is what it reaches.
-    expect(opened.at(-1)).toEqual({ path: 'notes', select: 'n.md' });
+    await vi.waitFor(() => expect(R.currentRoute()).toMatchObject({ type: 'view', name: 'home' }));
     expect(R.canBack()).toBe(true);
   });
 

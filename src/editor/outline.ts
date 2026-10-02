@@ -58,9 +58,6 @@ export function pickHeading({ view, title, onTitle }: { view: any; title: string
       </div>
       <div class="pal-list" role="listbox"></div>
       <div class="pal-foot mono-sm">
-        <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-        <span><span class="kbd">Enter</span> go</span>
-        <span><span class="kbd">Esc</span> cancel</span>
         <span class="grow"></span>
         <span class="pal-mode">headings</span>
       </div>`;

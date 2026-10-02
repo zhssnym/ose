@@ -598,13 +598,11 @@
 
 /* ------------------------------------------------------- selected blocks (blocks.ts) */
 
-/* One or more whole blocks selected with Esc / Shift+arrows: DESIGN.md's current-row idiom,
-   `--accent-soft` behind the block and a 2px `--accent` bar on its left edge. The bar is an
-   inset shadow so selecting a block never moves the text by a pixel. */
+/* One or more whole blocks selected with Esc / Shift+arrows: `--accent-soft` behind the
+   block, and no bar. */
 .ed .milkdown .ProseMirror .os-block-sel,
 .ed .milkdown .ProseMirror > .ProseMirror-selectednode {
   background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 0 var(--accent);
   border-radius: var(--radius);
 }
 /* hr draws its own line; tint the space around it instead of painting over the rule */

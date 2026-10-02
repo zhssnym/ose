@@ -1,14 +1,11 @@
 // @vitest-environment happy-dom
 //
 // Body keys win (CONTRACT §4.9): a chord the editor body binds itself (Alt+Up moves the block)
-// falls through to the editor while the caret is in a page, and the `keys.json` binding of the
-// same chord (`folder.up`, "Go to parent folder") applies everywhere else: in the tree, in the
-// folder view, on the page chrome.
+// falls through to the editor while the caret is in a page, and a window binding of the same
+// chord applies everywhere else.
 //
-// Depends on: core (src/core/keys.ts, registry.js), shell-surfaces (shell/keys.json).
+// Depends on: core (src/core/keys.ts, registry.js).
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/core/bridge/index.ts', () => import('./fake-bridge.js'));
@@ -52,11 +49,5 @@ describe('body keys win', () => {
     ran.length = 0;
     expect(altUp(document.querySelector('.sb-row'))).toBe(false);
     expect(ran).toEqual(['folder.up']);
-  });
-
-  it('keys.json binds the chord to folder.up (CONTRACT §10)', () => {
-    const keys = JSON.parse(readFileSync(path.join(process.env.OSE_REPO || process.cwd(), 'shell', 'keys.json'), 'utf8'));
-    const map = keys.keys || keys;
-    expect(map['alt+arrowup']).toBe('folder.up');
   });
 });

@@ -1,16 +1,23 @@
-// Where the app opens: Home, the vault's root folder, every time. Nothing of the last session
+// Where the app opens: Home, an empty page, every time. Nothing of the last session
 // comes back.
 
 import { ose } from 'ose:core';
 
-/** Home: the vault root's folder view. A new tab starts here and the last closed tab falls back here. */
-export const HOME = { type: 'folder', path: '' };
+/**
+ * Home: an empty page, so the window is calm until something is opened from the sidebar. A new
+ * tab starts here and the last closed tab falls back here.
+ */
+export const HOME = { type: 'view', name: 'home' };
 
-/** The core's home route and `app.home`. Before `ose.init`, so it is there for the first navigation. */
+/** The Home view, the core's home route and `app.home`. Before `ose.init`, for the first navigation. */
 export function initHome() {
+  ose.views.register('home', {
+    title: 'Home',
+    mount(el) { el.innerHTML = '<div class="view-root home-empty" tabindex="-1"></div>'; },
+  });
   ose.route.setHome(HOME);
   ose.commands.register({
-    id: 'app.home', title: 'Home', group: 'navigate', hint: 'the vault folder',
+    id: 'app.home', title: 'Home', group: 'navigate', hint: 'an empty page',
     run: () => ose.route.navigate(HOME),
   });
 }

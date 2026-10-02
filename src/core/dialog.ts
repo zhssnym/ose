@@ -389,7 +389,7 @@ async function vaultFiles(exts) {
  * arrows to move, Enter to confirm, Esc to cancel. Resolves to a vault-relative path or `null`,
  * so callers must test `=== null`, not falsiness (the vault root is the empty string).
  */
-function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, empty }) {
+function pickPath({ title, all, current, iconName, mode, rootLabel, empty }) {
   return new Promise<any>((resolve) => {
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
@@ -401,9 +401,6 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
       </div>
       <div class="pal-list" role="listbox"></div>
       <div class="pal-foot mono-sm">
-        <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-        <span><span class="kbd">Enter</span> ${esc(enterLabel)}</span>
-        <span><span class="kbd">Esc</span> cancel</span>
         <span class="grow"></span>
         <span class="pal-mode">${esc(mode)}</span>
       </div>`;
@@ -481,13 +478,13 @@ function pickPath({ title, all, current, iconName, mode, enterLabel, rootLabel, 
  * for the vault root, or `null` when cancelled. `hide` drops a subtree from the list so a
  * folder cannot be moved into itself.
  */
-export async function pickFolder({ title = 'Move to…', current = null, hide = null, enterLabel = 'choose' }: { title?: string; current?: string | null; hide?: string | null; enterLabel?: string; } = {}): Promise<string | null> {
+export async function pickFolder({ title = 'Move to…', current = null, hide = null }: { title?: string; current?: string | null; hide?: string | null; enterLabel?: string; } = {}): Promise<string | null> {
   const all = (await vaultFolders()).filter((p) => !hide || (p !== hide && !p.startsWith(hide + '/')));
   return pickPath({
     // Only the caller knows what Enter does here: moving a file is a move, naming the folder the
     // planner reads is a choice, and the foot used to say "move here" for both.
     title, all, current,
-    iconName: 'folder', mode: 'folders', enterLabel,
+    iconName: 'folder', mode: 'folders',
     rootLabel: 'vault root', empty: 'no folder matches',
   });
 }
@@ -504,7 +501,7 @@ export async function pickFile({ title = 'Choose a file…', ext = null, current
   return pickPath({
     title, all, current,
     iconName: 'page', mode: exts.length ? exts.map((e) => '.' + e).join(' ') : 'files',
-    enterLabel: 'choose', rootLabel: 'vault root', empty: 'no file matches',
+    rootLabel: 'vault root', empty: 'no file matches',
   });
 }
 
@@ -543,9 +540,6 @@ export async function pickPage({ title = 'Link a page…', current = null } = {}
       </div>
       <div class="pal-list" role="listbox"></div>
       <div class="pal-foot mono-sm">
-        <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-        <span><span class="kbd">Enter</span> link</span>
-        <span><span class="kbd">Esc</span> cancel</span>
         <span class="grow"></span>
         <span class="pal-mode">pages</span>
       </div>`;
@@ -681,8 +675,8 @@ export function contextMenu(x, y, items) {
     row.type = 'button';
     row.setAttribute('role', 'menuitem');
     row.className = 'row menu-row' + (it.danger ? ' danger' : '');
-    row.innerHTML = `${it.iconSvg || ''}<span class="grow">${esc(it.label)}</span>`
-      + (it.shortcut ? `<span class="kbd">${esc(it.shortcut)}</span>` : '');
+    // No chord on the row: the shortcuts are listed in Settings › Keys, and nowhere else.
+    row.innerHTML = `${it.iconSvg || ''}<span class="grow">${esc(it.label)}</span>`;
     row.addEventListener('click', () => { ov.close(); Promise.resolve().then(() => it.run && it.run()); });
     frag.appendChild(row);
   }

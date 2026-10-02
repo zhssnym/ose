@@ -282,9 +282,6 @@ async function linkDialog({ value = '', canRemove = false } = {}) {
       </div>
       <div class="pal-list" role="listbox"></div>
       <div class="pal-foot mono-sm">
-        <span><span class="kbd">↑</span><span class="kbd">↓</span> move</span>
-        <span><span class="kbd">Enter</span> link</span>
-        <span><span class="kbd">Esc</span> cancel</span>
         <span class="grow"></span>
         ${canRemove ? '<button type="button" class="btn ed-link-remove">Remove link</button>' : '<span class="pal-mode">link</span>'}
       </div>`;

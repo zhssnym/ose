@@ -17,11 +17,11 @@ import { clean, baseName, dirName, titleOf, vaultName, isOutside, outsideLabel }
 
 const { bus, commands, route, focus } = ose;
 const currentRoute = () => route.current();
-const shortcutFor = (id) => ose.keys.shortcutFor(id);
 
 let el = null;
 let addrEl = null;
-let dirtyEl = null;
+/** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
+const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let foldEl = null;
 let navEls = null;
 let focusEl = null;
@@ -117,7 +117,6 @@ export function initTitlebar(node) {
     <div class="tb-addr" data-tauri-drag-region>
       <nav class="tb-crumbs" aria-label="Location" data-tauri-drag-region></nav>
     </div>
-    <span class="tb-dirty" role="img" aria-label="unsaved changes" title="unsaved changes" hidden></span>
     <button class="tb-focus mono" type="button" hidden></button>
     <span class="tb-space" data-tauri-drag-region></span>
     ${windowButtons()}`;
@@ -136,7 +135,6 @@ export function initTitlebar(node) {
   bus.on('sidebar', setSidebarShown);
 
   addrEl = /** @type {HTMLElement} */ (el.querySelector('.tb-addr'));
-  dirtyEl = /** @type {HTMLElement} */ (el.querySelector('.tb-dirty'));
 
   // A folder segment opens its folder.
   addrEl.addEventListener('click', (e) => {
@@ -157,7 +155,7 @@ export function initTitlebar(node) {
   });
 
   // Back and forward, where every browser and every file manager puts them (N45, L23): the
-  // tab in front's own history (M23). The chord is in the tooltip, not on a label.
+  // tab in front's own history (M23).
   navEls = {
     back: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="back"]')),
     forward: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="forward"]')),
@@ -165,9 +163,8 @@ export function initTitlebar(node) {
   const titleNav = () => {
     for (const name of ['back', 'forward']) {
       const b = navEls[name];
-      const chord = shortcutFor('app.' + name);
       const label = name === 'back' ? 'Back' : 'Forward';
-      b.title = chord ? `${label} (${chord})` : label;
+      b.title = label;
       b.setAttribute('aria-label', label);
     }
   };
@@ -180,10 +177,7 @@ export function initTitlebar(node) {
   // New file… (H12): the one toolbar button for it, beside back and forward. It runs the same
   // command Ctrl+Alt+N and the tree's menu run (shell/fileops.js), so there is one New file.
   const newBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-new'));
-  const titleNew = () => {
-    const chord = shortcutFor('file.new');
-    newBtn.title = chord ? `New file… (${chord})` : 'New file…';
-  };
+  const titleNew = () => { newBtn.title = 'New file…'; };
   titleNew();
   // The chords come from keys.json, which is read after the bar is built.
   bus.on('booted', () => { titleNew(); titleNav(); });
@@ -231,6 +225,7 @@ function renderFocus() {
  * tooltip. `null` is a page just opened, which is clean until the editor says otherwise.
  */
 function setState(d) {
+  const dirtyEl = dot();
   if (!dirtyEl) return;
   const bad = !!d && (d.status === 'not-saved' || d.status === 'conflict' || (d.status === 'deleted' && d.dirty));
   dirtyEl.classList.toggle('err', bad);
@@ -243,9 +238,8 @@ function setState(d) {
 /** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
 function setSidebarShown(shown) {
   if (!foldEl) return;
-  const chord = shortcutFor('app.sidebar');
   const what = shown ? 'Hide sidebar' : 'Show sidebar';
-  foldEl.title = chord ? `${what} (${chord})` : what;
+  foldEl.title = what;
   foldEl.setAttribute('aria-label', what);
   foldEl.setAttribute('aria-expanded', shown ? 'true' : 'false');
 }
@@ -255,6 +249,7 @@ function setSidebarShown(shown) {
  * @param {boolean} v
  */
 export function setDirty(v) {
+  const dirtyEl = dot();
   if (!dirtyEl || dirtyEl.classList.contains('err')) return;
   dirtyEl.hidden = !v;
 }

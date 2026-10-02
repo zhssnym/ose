@@ -279,8 +279,11 @@ export function onReveal(d) {
   const p = clean(d && d.path);
   if (!p) return;
   expandAncestors(p);
+  // A folder gone to on purpose (a link, the path bar) opens as well.
+  if (d.open) { state.expanded.add(p); void loadChildren(p); }
   persistExpanded();
   if (d.focus) state.focusAfterRender = 'path:' + p;
+  setSidebarOpen(true);
   schedulePatch([dirName(p)]);
 }
 

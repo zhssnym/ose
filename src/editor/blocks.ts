@@ -270,6 +270,12 @@ function busy(view, event) {
   return false;
 }
 
+/**
+ * Where Esc last let go of a block: the caret it left. The next Esc with the caret still there
+ * lets go of the editor itself instead of selecting the block again.
+ */
+const released = new WeakMap<object, number>();
+
 function handleKeyDown(view, event) {
   // An IME conversion is not a gesture: while a composition is running, Escape and the arrows
   // belong to the candidate window (E44).
@@ -300,8 +306,21 @@ function handleKeyDown(view, event) {
   // second reading is what makes Esc·Esc·Esc on a table end like Esc·Esc on a paragraph
   // instead of leaving the user stuck in the selection (QA defect 5).
   if (key === 'Escape') {
-    return held || view.state.selection instanceof NodeSelection ? collapse(view) : selectBlock(view);
+    if (held || view.state.selection instanceof NodeSelection) {
+      const done = collapse(view);
+      released.set(view, view.state.selection.head);
+      return done;
+    }
+    // Esc·Esc·Esc: the third one selects nothing. The editor lets go of the focus.
+    if (released.get(view) === view.state.selection.head && view.state.selection.empty) {
+      released.delete(view);
+      (view.dom as HTMLElement).blur();
+      return true;
+    }
+    released.delete(view);
+    return selectBlock(view);
   }
+  released.delete(view);
 
   const onNode = held || view.state.selection instanceof NodeSelection;
   if (!onNode) return false;

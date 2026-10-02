@@ -1,12 +1,12 @@
 // Boot. The only file that decides an order.
 //
 //   ose.ready -> settings.apply -> vault chooser | mountShell
-//             -> initPageHost -> initFolder -> initHome -> initTabs
+//             -> initPageHost -> initHome -> initTabs
 //             -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
 //             -> initRecover -> loadKeys
 //             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
 //
-// The app opens on Home, the vault folder (shell/start.js). With no vault open the shell is not built at
+// The app opens on Home, an empty page (shell/start.js). With no vault open the shell is not built at
 // all: one surface asks for a folder and the shell starts again on the answer.
 //
 // The planner (Day, Week, Month, Journal) is part of the app, in its own bundle `ose:planner`
@@ -21,7 +21,6 @@ import { toast } from 'ose:ui';
 import { mountShell } from './layout.js';
 import { mountVaultChooser } from './vault.js';
 import { initPageHost, loadEditor } from './page.js';
-import { initFolder } from './folder.js';
 import { initPalette } from './palette.js';
 import { initSearch } from './search.js';
 import { initSettings } from './settings.js';
@@ -99,7 +98,6 @@ export async function boot() {
     // Who draws a page and who draws a folder, before `ose.init`: the router mounts with the
     // shell, and the first thing it may be asked for is either.
     await initPageHost();
-    initFolder();
     // Home, and the strip that holds the tabs. Both before `ose.init`: Home has to be a
     // registered view (and the router's fallback) before anything navigates to it, and the
     // strip has to be listening before the first route event.

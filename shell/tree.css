@@ -17,27 +17,6 @@
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
 .sb-scroll > .sb-files:first-child { padding-top: var(--sp-2); }
 
-/* The tool strip over the tree: four icon buttons, right-aligned, one row high. It does not
-   scroll with the tree, and it is the only chrome the sidebar has of its own. */
-.sb-head {
-  flex: none;
-  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-half);
-  height: var(--row-h);
-  padding: 0 var(--sp-2);
-}
-.sb-tool {
-  width: var(--row-h); height: var(--row-h);
-  display: grid; place-items: center;
-  color: var(--fg-3); border-radius: var(--radius);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.sb-tool svg {
-  width: 0.875rem; height: 0.875rem;
-  stroke: currentColor; fill: none; stroke-width: 1.71; stroke-linecap: round; stroke-linejoin: round;
-}
-.sb-tool:hover { background: var(--bg-3); color: var(--fg); }
-.sb-tool:focus-visible { outline-offset: -1px; }
-.sb-tool.on { color: var(--accent); }
 .sb-tool-collapse svg { transform: rotate(-90deg); }
 
 

@@ -79,8 +79,10 @@ chardetng = "1"
 webview2-com = "0.39"
 windows-core = "0.62"
 
+# Thin LTO and parallel codegen: a release builds in a fraction of the time of a full LTO,
+# single-unit build, for a binary a little larger.
 [profile.release]
-lto = true
+lto = "thin"
 strip = true
-codegen-units = 1
+codegen-units = 16
 opt-level = "s"

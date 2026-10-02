@@ -5,6 +5,5 @@
   "mod+alt+n": "file.new",
   "f2": "file.rename",
   "mod+shift+j": "journal.today",
-  "alt+arrowup": "folder.up",
   "mod+t": "tab.new"
 }

@@ -16,7 +16,7 @@ import {
   refreshTree,
 } from './sidebar-load.js';
 import {
-  bindDnd, buildHead, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget,
+  bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget,
 } from './sidebar-commands.js';
 
 /* ------------------------------------------------------------------ init */
@@ -29,8 +29,7 @@ import {
 export function initSidebar(node) {
   state.el = node;
   state.el.className = 'sidebar';
-  state.el.innerHTML = '<div class="sb-head" role="toolbar" aria-label="Files"></div><div class="sb-scroll" tabindex="-1"></div>';
-  state.headEl = state.el.querySelector('.sb-head');
+  state.el.innerHTML = '<div class="sb-scroll" tabindex="-1"></div>';
   // Drawn just above.
   state.scrollEl = /** @type {HTMLElement} */ (state.el.querySelector('.sb-scroll'));
 
@@ -176,7 +175,8 @@ export function initSidebar(node) {
     run: () => toggleHidden(),
   });
   registerTreeCommands();
-  buildHead();
+  // The planner registers its views after the shell is built: the Views section draws them then.
+  bus.on('booted', () => render());
 
   void refreshTree();
 }
