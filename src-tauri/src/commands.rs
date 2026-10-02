@@ -1,6 +1,6 @@
 //! Every command the page can ask of the host (docs/HOST.md "Commands"), one `#[tauri::command]`
 //! each, with serde structs in and out and `HostError` for every refusal. The TypeScript the
-//! kernel imports (`src/kernel/bridge/bindings.ts`) is generated from these signatures
+//! core imports (`src/core/bridge/bindings.ts`) is generated from these signatures
 //! (bindings.rs); the JS name of each command is the camelCase of its Rust name.
 //!
 //! The conventions:
@@ -238,8 +238,6 @@ pub struct PlatformInfo {
     pub root: Option<String>,
     pub log_path: String,
     pub build: Option<BuildStamp>,
-    /// A PNG the host wrote for the drag-out image, or null.
-    pub drag_icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -782,13 +780,13 @@ pub async fn platform(window: WebviewWindow, host: State<'_, Host>) -> HostResul
     let win = win_of(&window, &host);
     Ok(PlatformInfo {
         os: platform::os_name().to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        // The app's version as built (package.json, or CI's `--config` overlay), never Cargo.toml's.
+        version: window.app_handle().package_info().version.to_string(),
         exe: std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         exe_dir: vault::exe_dir().map(|p| p.display().to_string()),
         root: win.root().map(|p| p.display().to_string()),
         log_path: crate::persistent_log_path().map(|p| p.display().to_string()).unwrap_or_default(),
         build: platform::build_info().map(|b| BuildStamp { sha: b.sha, short: b.short, date: b.date }),
-        drag_icon: host.drag_icon().map(|p| p.display().to_string()),
     })
 }
 

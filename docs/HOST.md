@@ -106,8 +106,8 @@ notice to its own subscribers, awaits every editor's last save, then destroys th
 A window's vault is any folder; it needs no marker. The first window's root is, in order:
 
 1. `--root <path>`, when it is a folder;
-2. a path the OS handed this launch: a folder, or a file inside an old vault that still has
-   `.ose/` (that vault);
+2. a path the OS handed this launch: a folder, or a file inside a vault (that vault, found as
+   OS opens find it, below);
 3. the nearest ancestor of the executable that looks like a vault (it has `.ose/` or a
    `CLAUDE.md`, and no `src-tauri/`), never a drive root;
 4. the `OSE_ROOT` environment variable;
@@ -130,8 +130,12 @@ with nothing saved opens 32 px down and right of the focused one.
 A second launch is caught by `tauri-plugin-single-instance` (the first plugin), which hands its
 arguments to the running process. **OS opens** (`windows::route`): a folder opens in the window
 that has it, or in the window whose vault holds it, or in a new window; a file inside a window's
-vault opens there; a file inside an old vault with `.ose/` opens a window on that vault; anything
-else opens as an outside file in the window focused last. On macOS, Finder's opens arrive as
+vault opens there; a file inside a vault with no window opens a window on that vault; anything
+else opens as an outside file in the window focused last. Nothing in a vault marks it, so "a vault"
+is one the app knows (`windows::vault_finder`): the deepest of the recent vaults and the
+remembered root that holds the file, else, for a vault an older Ose marked and this one never
+opened, the nearest ancestor holding `.ose/`. Never a `CLAUDE.md`: a code repository is not a
+vault. On macOS, Finder's opens arrive as
 `RunEvent::Opened` and wait for the first window if they come before it.
 
 ## Files
@@ -192,12 +196,16 @@ off (`.gitignore` means nothing to a vault), and links are never followed.
 ## What the app keeps on this machine
 
 Nothing below is in the vault. A vault is keyed by `vaultKey`, the hash of its normalised absolute
-root (lowercased on Windows and macOS), so a vault that moves starts fresh and its old folders
-stay behind.
+root (lowercased on Windows and macOS).
+
+A moved or renamed vault starts fresh: its settings, planner paths, versions, drafts and window
+are keyed by its old path, so the app sees a new vault and the old folders stay behind. This is
+deliberate: the only way to follow a vault that moves would be to write a marker into it, and
+nothing of the app is written into the vault.
 
 | Folder | Windows / macOS | Holds |
 |---|---|---|
-| data | `%LOCALAPPDATA%\com.zhssnym.ose\` / `~/Library/Application Support/com.zhssnym.ose/` | `vaults/<vaultKey>/state.json`, `history/<vaultKey>/…`, `drafts/<vaultKey>/…`, `drafts/outside/`, `drag.png` |
+| data | `%LOCALAPPDATA%\com.zhssnym.ose\` / `~/Library/Application Support/com.zhssnym.ose/` | `vaults/<vaultKey>/state.json`, `history/<vaultKey>/…`, `drafts/<vaultKey>/…`, `drafts/outside/` |
 | config | `%APPDATA%\com.zhssnym.ose\` / the same as data | `vault` (the remembered root), `vaults` (recent), `local/app.json`, `local/vaults/<vaultKey>.json` |
 | log | `%LOCALAPPDATA%\com.zhssnym.ose\logs\` / `~/Library/Logs/com.zhssnym.ose/` | `ose.log`, rotated at 2 MB, keeping `ose.1.log` and `ose.2.log` |
 
@@ -220,7 +228,10 @@ instance lock, so it runs beside the installed app.
   unless forced. Thinning per file: everything under an hour, the newest per hour under a day,
   the newest per day under thirty days, then only the newest; a session's first and every
   non-`save` version stay thirty days. At most 200 MB per vault, oldest first, never a file's
-  newest nor one younger than a day. Versions kept in `.ose/history` by an older Ose are not read.
+  newest nor one younger than a day. Versions an older Ose kept in the vault (`.ose/history`,
+  or `.ose/versions` before that) are still listed and read, merged with these newest first, an
+  id both hold listed once; they are never written, thinned, moved or deleted, and restoring one
+  writes only the file.
 - **Trash**: nothing is deleted outright. `trash` sends a path to the system's Recycle Bin or Trash,
   or to `.trash` at the vault root when the vault's setting `settings.trash` is `vault`, when the
   volume has no bin, or when the system refuses; a sidecar in `.trash/.info` remembers where it came
@@ -253,6 +264,13 @@ restarting (`tauri-plugin-process`). Every push to `main` runs `.github/workflow
 which builds Windows (NSIS) and macOS (Apple silicon) with `tauri-action`, signs the update with
 the secret `TAURI_SIGNING_PRIVATE_KEY`, and publishes release `v0.9.<run number>`; the version is
 passed as a `--config` overlay, so every push is newer than the last.
+
+There is one version: the built Tauri config's (`package.json`, or that overlay), which the host
+reads through `package_info()` for `platform().version`, `ose --version` and the log's first line;
+Cargo.toml's is kept equal to `package.json` and never reported. The release job also sets
+`OSE_BUILD_SHA` (the commit) and `OSE_BUILD_DATE` (its commit day, UTC) for the build, read at
+compile time (`platform::build_info`): `ose --version` prints `ose 0.9.42 (a45404e, 2026-09-15)`,
+and a local build `(dev build)`.
 
 ## Testing
 

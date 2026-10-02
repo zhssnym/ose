@@ -1,5 +1,5 @@
 //! The typed bridge (L9): every command of commands.rs, collected by tauri-specta, which both
-//! registers them with Tauri (`builder().invoke_handler()`) and writes the TypeScript the kernel
+//! registers them with Tauri (`builder().invoke_handler()`) and writes the TypeScript the core
 //! imports (`src/core/bridge/bindings.ts`). One list, so a command cannot be registered and
 //! missing from the bindings, or the other way round.
 //!
@@ -136,7 +136,7 @@ pub fn render() -> Result<String, String> {
 mod tests {
     use super::*;
 
-    /// The kernel's bindings are what these commands say. A command added, removed or changed
+    /// The core's bindings are what these commands say. A command added, removed or changed
     /// without writing them again fails here, on every platform, in CI.
     #[test]
     fn bindings_are_current() {

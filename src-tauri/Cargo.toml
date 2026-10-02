@@ -1,6 +1,9 @@
 [package]
 name = "ose"
-version = "1.0.0"
+# Cargo's own; the app never reports it. The app's version is tauri.conf.json's (package.json,
+# or 0.9.<run number> from release.yml's `--config`), read through `package_info()`. Kept equal
+# to package.json so nothing reads two numbers.
+version = "0.9.0"
 description = "Ose"
 authors = ["Hassan Shahir"]
 edition = "2021"
@@ -52,7 +55,7 @@ base64 = "0.22"
 # tauri-plugin-log is not here.
 log = "0.4"
 # Typed host commands (L9, wave 3): one `#[tauri::command]` per operation, and the TypeScript
-# bindings the kernel imports (`src/kernel/bridge/bindings.ts`) generated from the Rust types by
+# bindings the core imports (`src/core/bridge/bindings.ts`) generated from the Rust types by
 # `bindings::builder()`. A beta: pinned with `=`, as tauri-specta's own documentation requires.
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }

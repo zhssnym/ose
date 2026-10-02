@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
 fn main() {
-    // The CI stamp (update.rs `build_info`) is read with `option_env!`; without these lines a
-    // cached build would keep the previous commit's stamp.
+    // The CI stamp (platform.rs `build_info`, set by .github/workflows/release.yml) is read with
+    // `option_env!`; without these lines a cached build would keep the previous commit's stamp.
     println!("cargo:rerun-if-env-changed=OSE_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=OSE_BUILD_DATE");
 
-    // The kernel bundles and the shell are embedded by `generate_context!` when the crate is
+    // The page (dist/) is embedded by `generate_context!` when the crate is
     // compiled, and cargo does not know that. A directory here means "any file under it", so a
     // change to the JavaScript alone rebuilds the exe instead of shipping the previous one. Only
     // when it exists: a path that does not exist would rerun this script on every build.

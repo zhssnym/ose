@@ -45,6 +45,13 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      # The build stamp `ose --version` and Settings show (src-tauri/src/platform.rs
+      # `build_info`): the commit, and the day it was committed (UTC).
+      - name: Build stamp
+        shell: bash
+        run: |
+          echo "OSE_BUILD_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "OSE_BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format=%cd)" >> "$GITHUB_ENV"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

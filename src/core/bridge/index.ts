@@ -188,8 +188,8 @@ export const bridge = {
    */
   openVaultWindow: (path?: string | null): Promise<WindowOpened> => as(valued('openVaultWindow', path)),
   forgetVault: (path: string): Promise<null> => as(call('forgetVault', path)),
-  // The host's own description of itself: {os, version, exe, exeDir, root, logPath, build,
-  // dragIcon}. The chooser names `exeDir` as its suggestion; drag out uses `dragIcon`.
+  // The host's own description of itself: {os, version, exe, exeDir, root, logPath, build}.
+  // The chooser names `exeDir` as its suggestion.
   platformInfo: (): Promise<PlatformInfo> => as(call('platform')),
   // Listings (docs/HOST.md "The hide rule"): `opts { hidden }` lists hidden entries too
   // (a dotfile, or the OS hidden attribute); what is excluded (`.ose`, `.git`, the exe, temp

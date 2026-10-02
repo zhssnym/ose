@@ -17,16 +17,21 @@ fn main() {
     ose::install_log_records();
     let opts = args::parse(std::env::args().skip(1));
 
+    // The built config: the app's identifier and version as this build has them (a `tauri build
+    // --config` overlay changes both; CI's sets the version to 0.9.<run number>).
+    let context = tauri::generate_context!();
+    let version = context.package_info().version.to_string();
+
     if opts.version {
         // The release binary has no console of its own; borrowing the parent's makes the line
         // land in the terminal that asked.
         attach_parent_console();
-        println!("{}", platform::version_line());
+        println!("{}", platform::version_line(&version));
         std::process::exit(0);
     }
 
     let host = Host::new(opts.log.as_deref().and_then(open_log), Some(pick_folder), Some(save_file), Some(pick_file));
-    log_line(&host, &format!("ose starting ({})", platform::version_line()));
+    log_line(&host, &format!("ose starting ({})", platform::version_line(&version)));
     if opts.shell_ignored {
         log_line(&host, "--shell is gone: the shell is inside the executable, and `npm run tauri dev` is the live loop");
     }
@@ -39,7 +44,6 @@ fn main() {
     // loud, in this process's own log and on its stderr.
     // The identifier the plugin names its lock after is the built config's, which a
     // `tauri build --config` overlay can change; the file alone would name another app's lock.
-    let context = tauri::generate_context!();
     if another_instance_holds_the_lock(&context.config().identifier) {
         log_line(&host, HANDOVER);
     }
@@ -53,7 +57,7 @@ fn main() {
         // The native folder picker, save dialog and open-file dialog (`pick_folder` and friends
         // below); used from Rust only, so no capability entry is needed.
         .plugin(tauri_plugin_dialog::init())
-        // Drag out (§5.5): the page starts a native drag of vault files, as copies.
+        // Updates on push (docs/HOST.md "Updates and releases"), and the restart after one.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(typed.invoke_handler())
@@ -365,7 +369,6 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
     // store: the window, the theme mirror (docs/HOST.md "Local state").
     match handle.path().app_local_data_dir() {
         Ok(dir) => {
-            write_drag_icon(host, &dir);
             // A vault's state and its file history live here too: nothing of the app in the vault.
             ose::state::set_home(dir.clone());
             ose::versions::set_home(dir.clone());
@@ -391,22 +394,24 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
     }
 
     // The first window's vault, in the resolution order of docs/HOST.md "The vault root", with
-    // one step first: a folder, or a file of a vault (one holding `.ose/`), handed to this launch
-    // by the OS is the vault to open. The other paths are routed once the window exists.
+    // one step first: a folder, or a file of a vault (a vault this app knows, or an old one
+    // holding `.ose/`), handed to this launch by the OS is the vault to open. The other paths are
+    // routed once the window exists.
     let cwd = std::env::current_dir().ok();
     let paths: Vec<PathBuf> = opts.paths.iter().map(|p| args::absolute(p, cwd.as_deref())).collect();
     let explicit = opts.root.as_deref().filter(|r| !r.is_empty()).and_then(|r| {
         let full = vault::normalize(Path::new(r));
         full.is_dir().then_some(Root { path: full, source: Source::Arg })
     });
+    let vault_of = windows::vault_finder(&handle);
     let from_open = if explicit.is_none() {
         paths.first().and_then(|p| {
             if p.is_dir() {
                 // A folder of a vault opens that vault (and `open_path` below shows the folder),
                 // never a vault of its own nested in it.
-                Some(windows::vault_of_folder(p, &windows::ose_vault_of).unwrap_or_else(|| p.clone()))
+                Some(windows::vault_of_folder(p, &vault_of).unwrap_or_else(|| p.clone()))
             } else {
-                windows::ose_vault_of(p)
+                vault_of(p)
             }
         })
     } else {
@@ -437,22 +442,6 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
         windows::open_path(&handle, p);
     }
     Ok(())
-}
-
-/// The picture a drag out carries: the app's icon, written once into the app's data folder so
-/// the drag plugin can read it by path (`platform().dragIcon`).
-fn write_drag_icon(host: &Host, dir: &Path) {
-    const ICON: &[u8] = include_bytes!("../icons/128x128.png");
-    let file = dir.join("drag.png");
-    let same = std::fs::read(&file).map(|b| b == ICON).unwrap_or(false);
-    if !same {
-        let written = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&file, ICON));
-        if let Err(e) = written {
-            log_line(host, &format!("drag icon: {e}"));
-            return;
-        }
-    }
-    host.set_drag_icon(file);
 }
 
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {

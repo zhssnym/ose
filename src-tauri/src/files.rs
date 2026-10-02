@@ -81,7 +81,7 @@ fn read_existing(full: &Path, rel: &str) -> Result<Option<Vec<u8>>, String> {
 }
 
 /// A name the filesystem would refuse or silently change: `bad_name` before anything is created.
-/// The kernel checks names more strictly (`ose.names.check`); this is the host's floor.
+/// The core checks names more strictly (`ose.names.check`); this is the host's floor.
 fn check_name(rel: &str) -> Result<(), String> {
     let cleaned = clean(rel);
     let name = cleaned.rsplit('/').next().unwrap_or("");
@@ -459,7 +459,7 @@ fn line_spans(text: &str) -> Vec<(usize, usize)> {
 }
 
 /// Line `index` of `text` as a byte range, without the byte-order mark on line 0: the mark is a
-/// byte of the file, not a character of the line (the kernel's task parser strips it too).
+/// byte of the file, not a character of the line (the views' task parser strips it too).
 fn line_at(text: &str, index: i64) -> Option<(usize, usize)> {
     let (start, end) = *usize::try_from(index).ok().and_then(|i| line_spans(text).get(i).copied()).as_ref()?;
     let bom = if index == 0 && text[start..end].starts_with('\u{feff}') { '\u{feff}'.len_utf8() } else { 0 };

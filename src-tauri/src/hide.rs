@@ -7,7 +7,7 @@
 //! like any other; the only names this file knows are the app's own: its state folder `.ose`,
 //! git's `.git`, the executable and what a build leaves beside it at the vault root, and the
 //! temp files a save writes for a moment. `list`, `tree`, `search` and the watcher all ask
-//! here, and the dev bridge (dev/files.mjs) has one port of it.
+//! here, and nothing else in the app has a copy of it.
 //!
 //! The walker behind `tree` and `search` is the `ignore` crate with every filter of its own
 //! off (`.gitignore` means nothing to a vault) and links never followed.

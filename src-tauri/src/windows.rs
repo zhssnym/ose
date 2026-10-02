@@ -10,7 +10,8 @@
 //! 1. At most one window per vault root, compared with `vaults::same`. A window may have no vault
 //!    (the chooser).
 //! 2. Labels are `main`, then `w2`, `w3` and so on. `build` creates every window, with the same
-//!    options (native decorations, 480 by 360 at the least, drag and drop left to HTML5).
+//!    options (no system title bar on Windows and Linux, the `Overlay` title bar on macOS, 480 by
+//!    360 at the least, drag and drop left to HTML5).
 //! 3. Every command finds its `Win` from the window that invoked it; epochs are per window.
 //! 4. `main` keeps its geometry in `local/app.json`; any other window in its vault's local store.
 //!    A new window with nothing saved opens 32 px down and right of the focused one.
@@ -203,7 +204,6 @@ pub struct Host {
     clock: AtomicU64,
     data_dir: RwLock<Option<PathBuf>>,
     config_dir: RwLock<Option<PathBuf>>,
-    drag_icon: RwLock<Option<PathBuf>>,
     pub log: Option<Mutex<File>>,
     pub picker: Option<FolderPicker>,
     pub saver: Option<FileSaver>,
@@ -225,7 +225,6 @@ impl Host {
             clock: AtomicU64::new(1),
             data_dir: RwLock::new(None),
             config_dir: RwLock::new(None),
-            drag_icon: RwLock::new(None),
             log: log.map(Mutex::new),
             picker,
             saver,
@@ -317,7 +316,7 @@ impl Host {
         self.pending.lock().unwrap_or_else(|p| p.into_inner()).push(path);
     }
 
-    /// The per-machine app data folder (drafts, the drag icon), when the app has told us.
+    /// The per-machine app data folder (drafts, versions, state), when the app has told us.
     pub fn data_dir(&self) -> Option<PathBuf> {
         self.data_dir.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
@@ -334,14 +333,6 @@ impl Host {
 
     pub fn set_config_dir(&self, dir: PathBuf) {
         *self.config_dir.write().unwrap_or_else(|p| p.into_inner()) = Some(dir);
-    }
-
-    pub fn drag_icon(&self) -> Option<PathBuf> {
-        self.drag_icon.read().unwrap_or_else(|p| p.into_inner()).clone()
-    }
-
-    pub fn set_drag_icon(&self, path: PathBuf) {
-        *self.drag_icon.write().unwrap_or_else(|p| p.into_inner()) = Some(path);
     }
 }
 
@@ -370,8 +361,8 @@ pub fn inside(root: &Path, full: &Path) -> Option<String> {
     vaults::relative(root, full)
 }
 
-/// The vault a folder belongs to when no window holds it: the nearest of itself and its
-/// ancestors that holds `.ose/` (`vault_of` looks at the ancestors of what it is given, so it is
+/// The vault a folder belongs to when no window holds it: itself or the vault holding it, as
+/// `vault_of` (`vault_finder`) says (`vault_of` looks at the ancestors of what it is given, so it is
 /// given a name inside the folder).
 pub fn vault_of_folder(dir: &Path, vault_of: &dyn Fn(&Path) -> Option<PathBuf>) -> Option<PathBuf> {
     vault_of(&dir.join("_"))
@@ -381,12 +372,12 @@ pub fn vault_of_folder(dir: &Path, vault_of: &dyn Fn(&Path) -> Option<PathBuf>) 
 ///
 /// 1. a folder: the window whose root it is; else, inside some window's vault, that window, as
 ///    a folder route (`kind: dir`), never a second window nested in the first; else, inside a
-///    vault that has no window (the nearest `.ose/` at or above it), a new window on that vault
+///    vault that has no window (`vault_of`), a new window on that vault
 ///    showing the folder; else a new window on the folder itself;
 /// 2. a file inside some window's vault: that window, with the vault path;
-/// 3. a file whose nearest ancestor holding `.ose/` is `A` (`vault_of`): the window of `A`,
-///    made when there is none, with the path relative to `A`. Only `.ose`, never `CLAUDE.md`:
-///    a code repository is not a vault;
+/// 3. a file inside a vault `A` that has no window (`vault_of`, `vault_finder`: the deepest
+///    vault this app knows, else the nearest ancestor holding an old `.ose/`): a new window on
+///    `A`, with the path relative to `A`. Never `CLAUDE.md`: a code repository is not a vault;
 /// 4. anything else: the window focused last (or a new one with the normal root when there is
 ///    none), with `abs:<p>` as an outside file.
 ///
@@ -433,9 +424,41 @@ pub fn route(p: &Path, is_dir: bool, windows: &[WinView], vault_of: &dyn Fn(&Pat
     }
 }
 
-/// The nearest ancestor of `file` that holds a `.ose` folder (rule 3). A filesystem root (`D:`,
-/// `/`) is never taken for a vault: a stray `.ose` at the top of a drive would otherwise turn
-/// every loose file on it into a page of a vault the size of the disk.
+/// The vault an OS-opened path belongs to when no window holds it (rule 3): the deepest vault
+/// this app knows (the recent vaults and the remembered root, `known_vaults`) that holds it, else
+/// the nearest ancestor holding an old Ose's `.ose/` folder. Read once, when the open is routed.
+pub fn vault_finder(app: &tauri::AppHandle) -> impl Fn(&Path) -> Option<PathBuf> {
+    let known = known_vaults(app);
+    move |p: &Path| known_vault_of(p, &known).or_else(|| ose_vault_of(p))
+}
+
+/// Every vault root this app has had open on this machine: the recent vaults, then the
+/// remembered root. Nothing in a vault marks it any more, so this list is what says "a vault".
+pub fn known_vaults(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut known = vaults::read(app);
+    if let Some(r) = vault::read_remembered(app) {
+        if !known.iter().any(|k| vaults::same(k, &r)) {
+            known.push(r);
+        }
+    }
+    known
+}
+
+/// The deepest of `known` that holds `path` strictly inside it, compared with `vaults::fold`: a
+/// vault inside another vault's folder is its own. A filesystem root is never one.
+pub fn known_vault_of(path: &Path, known: &[PathBuf]) -> Option<PathBuf> {
+    known
+        .iter()
+        .filter(|k| k.parent().is_some())
+        .filter(|k| inside(k, path).is_some_and(|rel| !rel.is_empty()))
+        .max_by_key(|k| vaults::fold(k).len())
+        .cloned()
+}
+
+/// The nearest ancestor of `file` that holds a `.ose` folder (rule 3's fallback, for a vault an
+/// older Ose marked and this one has never opened). A filesystem root (`D:`, `/`) is never taken
+/// for a vault: a stray `.ose` at the top of a drive would otherwise turn every loose file on it
+/// into a page of a vault the size of the disk.
 pub fn ose_vault_of(file: &Path) -> Option<PathBuf> {
     vault_of_with(file, &|a| a.join(".ose").is_dir())
 }
@@ -657,7 +680,7 @@ pub fn open_path(app: &tauri::AppHandle, p: &Path) {
         .iter()
         .map(|w| WinView { label: w.label.clone(), root: w.root(), focused_at: w.focused_at() })
         .collect();
-    let target = route(&full, meta.is_dir(), &views, &ose_vault_of);
+    let target = route(&full, meta.is_dir(), &views, &vault_finder(app));
     log_line(host, &format!("open {}: {target:?}", full.display()));
     deliver(app, target, &full);
 }
@@ -845,6 +868,38 @@ mod tests {
         // `a2` is not inside `a`.
         let sibling = format!("{A}2");
         assert_eq!(inside(Path::new(A), &join(&sibling, "x.md")), None);
+    }
+
+    /// Rule 3 without any marker in the vault: a file opened from the OS while no window is on
+    /// its vault finds the deepest vault the app knows, and nothing for a file in none of them.
+    #[test]
+    fn a_file_finds_the_deepest_known_vault() {
+        let nested = join(A, "projects/inner");
+        let known = vec![PathBuf::from(B), PathBuf::from(A), nested.clone()];
+        assert_eq!(known_vault_of(&join(A, "notes/x.md"), &known), Some(PathBuf::from(A)));
+        assert_eq!(known_vault_of(&join(A, "projects/inner/y.md"), &known), Some(nested.clone()));
+        assert_eq!(known_vault_of(&join(B, "z.md"), &known), Some(PathBuf::from(B)));
+        // The vault folder itself is not inside a vault; a sibling with a longer name is not either.
+        assert_eq!(known_vault_of(Path::new(A), &[PathBuf::from(A)]), None);
+        assert_eq!(known_vault_of(&join(&format!("{A}2"), "x.md"), &known), None);
+        if cfg!(windows) {
+            let upper = join(&A.to_uppercase(), "Notes/X.md");
+            assert_eq!(known_vault_of(&upper, &known), Some(PathBuf::from(A)), "the one fold");
+        }
+        // A drive root in the list holds nothing.
+        let top = PathBuf::from(A).ancestors().last().unwrap().to_path_buf();
+        assert_eq!(known_vault_of(&join(A, "x.md"), &[top]), None);
+
+        // Routed: a new window on the known vault, with the path relative to it.
+        let vault_of = |p: &Path| known_vault_of(p, &known);
+        let r = route(&join(&nested.to_string_lossy(), "y.md"), false, &[view("main", Some(B), 1)], &vault_of);
+        assert_eq!(
+            r,
+            Route::New {
+                root: Some(nested),
+                request: Some(OpenRequest { path: "y.md".into(), outside: false, kind: OpenKind::File, line: None })
+            }
+        );
     }
 
     #[test]

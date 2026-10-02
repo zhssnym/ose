@@ -19,26 +19,22 @@ Wave 2 (2026-10-02):
 - [ ] Settings › Help: how to use Ose, and every shortcut.
 - [ ] No browser leftovers ("Open in a browser tab" and the like).
 
-Found during the tidy-up:
+Found during the tidy-up (fixed on dev, 2026-10-02):
 
-- [ ] Go to file shows "Shift+Enter makes the file" at its foot: a shortcut hint outside Help.
-- [ ] Settings › Planner: rename to match `views` (or keep "Planner" as the word users see).
-- [ ] The dev build calls itself 1.0.0 (src-tauri's version) and offers the old 1.0.3 release:
-      one version for the page and the host, from package.json.
-- [ ] A link to a folder (a page route that turns out to be a folder) reveals it in the
-      sidebar but then still hands the folder to the editor (router.ts `mountPage`: no return
-      after `tree:reveal`).
-- [ ] Leftovers to cut: the router's `start` option (the column is just blank with no tab),
-      `ose.vault.onChange` (never fires), `reopenClosed` alias, the one-time `migrateLocal`
-      that still runs at every boot.
-- [ ] The host's version is Cargo.toml's 1.0.0 (`--version`, the log, `platform()`); the build
-      stamp (`OSE_BUILD_SHA`/`OSE_BUILD_DATE`) is never set, so every release says "(dev build)".
-- [ ] File history an older Ose kept in the vault's `.ose/history` is never read or moved to the
-      app's data folder now (versions.rs).
-- [ ] Opening a file from the OS when no window is on its vault: vault detection looks for a
-      `.ose/` marker the app no longer creates, so the file opens as "outside vault".
-- [ ] A moved or renamed vault starts with no state, versions or drafts (the key is the path).
-- [ ] Drag-out leftovers: `drag.png`, `platform().dragIcon`, a "Drag out" comment, no plugin.
+- [x] No shortcut hints outside Settings › Help (Go to file's "Shift+Enter makes the file" and
+      a few more; Help lists them all).
+- [x] Settings › Planner is Settings › Views.
+- [x] One version: the host reports the app's version (package.json, 0.9.<run> in CI); releases
+      carry a build stamp (commit and date) instead of "(dev build)".
+- [x] A link to a folder only reveals it in the sidebar.
+- [x] Dead bits cut: the router's `start` option, `vault.onChange`, the `reopenClosed` alias,
+      `migrateLocal`, the drag-out leftovers.
+- [x] Old file history in a vault's `.ose/history` shows in Versions again (read, never written).
+- [x] A file opened from Explorer finds its vault among the vaults Ose knows.
+- [x] Drag-in from Explorer/Finder cut (decided). Dropping a file into an open page still
+      attaches it.
+- [x] A moved or renamed vault starts fresh: kept on purpose, documented (decided).
+- [x] Files outside the vault: kept (decided).
 
 ## Before launch: decisions
 
@@ -63,8 +59,6 @@ Found during the tidy-up:
 
 ## Later, maybe
 
-- [ ] Files outside the vault (Open file…): cut or keep.
-- [ ] Drag files in from Explorer/Finder: cut or keep.
 - [ ] Snap Layouts on hover of the maximise button (Windows), if missed.
 - [x] Tidy the house (branch `tidy`): dead code out, `src/ui`, `src/views`, the shell in
       TypeScript in `src/shell`, one Vite build, no `ose:*` nicknames, docs rewritten.

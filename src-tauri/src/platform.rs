@@ -7,7 +7,8 @@ use std::process::{Command, Stdio};
 // ---- what this build is ----------------------------------------------------
 
 /// The commit and day this executable was built from, stamped by CI (`OSE_BUILD_SHA`,
-/// `OSE_BUILD_DATE` in build.yml, read at compile time). A local build has none and says so.
+/// `OSE_BUILD_DATE`, set for the build step in .github/workflows/release.yml and read at compile
+/// time). A local build has none and says so.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuildInfo {
     pub sha: String,
@@ -27,11 +28,13 @@ pub fn build_info() -> Option<BuildInfo> {
     })
 }
 
-/// `ose 1.0.0 (a45404e, 2026-09-15)` or `ose 1.0.0 (dev build)`: the `--version` line. The
-/// name is the app's, not the file's: a copy on disk under another name prints `ose` too,
-/// because that is what it is.
-pub fn version_line() -> String {
-    let v = env!("CARGO_PKG_VERSION");
+/// `ose 0.9.42 (a45404e, 2026-09-15)` or `ose 0.9.0 (dev build)`: the `--version` line and the
+/// log's first line. `version` is the app's, from the built Tauri config (`package_info()`:
+/// package.json, or the `--config` overlay CI builds with), never Cargo.toml's. The name is the
+/// app's, not the file's: a copy on disk under another name prints `ose` too, because that is
+/// what it is.
+pub fn version_line(version: &str) -> String {
+    let v = version;
     match build_info() {
         Some(b) if !b.date.is_empty() => format!("ose {v} ({}, {})", b.short, b.date),
         Some(b) => format!("ose {v} ({})", b.short),
@@ -227,8 +230,8 @@ mod tests {
     /// `ose --version` is what a person runs to see what they have, and CI asserts its shape.
     #[test]
     fn the_version_line_names_the_app_and_the_version() {
-        let line = version_line();
-        assert!(line.starts_with(&format!("ose {} (", env!("CARGO_PKG_VERSION"))), "{line}");
+        let line = version_line("0.9.7");
+        assert!(line.starts_with("ose 0.9.7 ("), "{line}");
         assert!(line.ends_with(')'), "{line}");
         assert!(!is_sha("abc"));
         assert!(!is_sha(&"z".repeat(40)));

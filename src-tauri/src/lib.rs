@@ -1,6 +1,6 @@
 //! The Ose host (docs/HOST.md). Every operation the page asks of it is one typed command
 //! (commands.rs), with serde structs in and out and one error type (error.rs); the TypeScript
-//! bindings the kernel imports are generated from them (bindings.rs). Window control is done by
+//! bindings the core imports are generated from them (bindings.rs). Window control is done by
 //! the page through Tauri's own window API and never reaches here.
 //!
 //! The modules under the commands speak `Result<_, String>` with a `[code] message` prefix

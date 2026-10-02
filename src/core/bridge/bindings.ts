@@ -531,8 +531,6 @@ export type PlatformInfo = {
 	root: string | null,
 	logPath: string,
 	build: BuildStamp | null,
-	/**  A PNG the host wrote for the drag-out image, or null. */
-	dragIcon: string | null,
 };
 
 export type ReadFile = {

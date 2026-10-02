@@ -26,9 +26,14 @@
 //! `vault::write_atomic`.
 //!
 //! An older Ose kept the history inside the vault, in `.ose/history` (before 1.1,
-//! `.ose/versions`, every version `<id>.md`). With no data folder set (the unit tests) it is
-//! still kept there, and the pre-1.1 folder is renamed on first use; those names still read:
-//! an old version is a `save` of this session's past, and its id is still valid.
+//! `.ose/versions`, every version `<id>.md`). With the data folder set, those folders are still
+//! read, never written: a file's list and `read` take its versions from both places, newest
+//! first, the data folder's winning an id both hold (`with_legacy`); a restore of an old version
+//! writes only the file itself. Thinning, the cap and a rename touch the data folder alone, so
+//! nothing inside the vault is ever written, moved or deleted. With no data folder set (the unit
+//! tests) the history is still kept in `.ose/history`, and the pre-1.1 folder is renamed on first
+//! use; those names still read: an old version is a `save` of this session's past, and its id is
+//! still valid.
 
 use std::collections::HashSet;
 use std::fs;
@@ -229,20 +234,26 @@ fn migrate(root: &Path) {
     }
 }
 
-/// The folder holding the versions of `rel`. Every segment is checked, so a `..`
-/// in the page path can never reach outside the vault's history.
-fn dir_for(root: &Path, rel: &str) -> Result<PathBuf, String> {
+/// `rel` with forward slashes and no leading one, refused when it is empty or has a `..`, `.` or
+/// empty segment: a page path names a place under a history folder and nothing else.
+fn clean_rel(rel: &str) -> Result<String, String> {
     let cleaned = rel.replace('\\', "/");
     let cleaned = cleaned.trim().trim_start_matches('/');
     if cleaned.is_empty() {
         return Err(coded("bad_arg", "a version needs a file"));
     }
-    let base = history_base(root)?;
-    // No `..`, `.` or empty segment: a page path names a place under the base and nothing else.
     if cleaned.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..") {
         return Err(coded("escapes_vault", format!("path escapes the version history: {rel}")));
     }
-    let full = base.join(cleaned);
+    Ok(cleaned.to_string())
+}
+
+/// The folder holding the versions of `rel`. Every segment is checked, so a `..`
+/// in the page path can never reach outside the vault's history.
+fn dir_for(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let cleaned = clean_rel(rel)?;
+    let base = history_base(root)?;
+    let full = base.join(&cleaned);
     if !full.starts_with(&base) || full == base {
         return Err(coded("escapes_vault", format!("path escapes the version history: {rel}")));
     }
@@ -294,6 +305,35 @@ fn entries_in(dir: &Path) -> Vec<Entry> {
 /// The versions of `rel`, newest first. A missing folder is an empty list, never an error.
 fn entries(root: &Path, rel: &str) -> Result<Vec<Entry>, String> {
     Ok(entries_in(&dir_for(root, rel)?))
+}
+
+/// What the page sees of `rel`'s history: `entries`, and with the data folder set also the
+/// versions an older Ose kept inside the vault (`with_legacy`). Only for reading: keeping,
+/// thinning and moving work on `entries` alone.
+fn visible(root: &Path, rel: &str) -> Result<Vec<Entry>, String> {
+    let mine = entries(root, rel)?;
+    if HOME.get().is_none() {
+        // The history is `.ose/history` itself: nothing else to read.
+        return Ok(mine);
+    }
+    Ok(with_legacy(mine, root, rel))
+}
+
+/// `mine` merged with the versions of `rel` in the vault's old `.ose/history` and
+/// `.ose/versions`, newest first by id. An id already listed is not listed again (the data
+/// folder's wins, then `.ose/history`'s). Read-only: nothing in the vault is created, renamed or
+/// removed here, nor anywhere else once the data folder is set.
+fn with_legacy(mut mine: Vec<Entry>, root: &Path, rel: &str) -> Vec<Entry> {
+    let Ok(cleaned) = clean_rel(rel) else { return mine };
+    for old in [ROOT_DIR, OLD_DIR] {
+        for e in entries_in(&root.join(old).join(&cleaned)) {
+            if !mine.iter().any(|m| m.id == e.id) {
+                mine.push(e);
+            }
+        }
+    }
+    mine.sort_by(|a, b| b.id.cmp(&a.id));
+    mine
 }
 
 fn to_json(list: &[Entry]) -> Value {
@@ -524,12 +564,13 @@ pub(crate) fn keep_at(
 
 pub fn list(root: &Path, rel: &str) -> Result<Value, String> {
     migrate(root);
-    Ok(to_json(&entries(root, rel)?))
+    Ok(to_json(&visible(root, rel)?))
 }
 
+/// One version of `rel` by id, from wherever `visible` found it.
 fn find(root: &Path, rel: &str, id: &str) -> Result<Entry, String> {
     check_id(id)?;
-    entries(root, rel)?
+    visible(root, rel)?
         .into_iter()
         .find(|e| e.id == id)
         .ok_or_else(|| coded("not_found", format!("no version {id} of {rel}")))
@@ -845,6 +886,58 @@ mod tests {
         assert!(root.join(".ose").join("history").join("c.md").is_dir());
         assert!(!root.join(".ose").join("versions").exists());
         assert_eq!(read(root, "c.md", "2026-01-01-000000").unwrap(), "# then\n");
+    }
+
+    /// An older Ose's in-vault history still shows beside the data folder's, merged newest
+    /// first with no id twice, and reading it changes nothing inside the vault.
+    #[test]
+    fn the_old_in_vault_history_is_read_and_never_written() {
+        let t = Tmp::new("legacy");
+        let root = &t.0.join("vault");
+        let data = t.0.join("data").join("note.md");
+        fs::create_dir_all(&data).unwrap();
+        // The data folder: two versions, one sharing its id with the old history.
+        fs::write(data.join("2026-09-20-100000.save.md"), "data new").unwrap();
+        fs::write(data.join("2026-09-01-100000.save-s.md"), "data shared").unwrap();
+        // The old in-vault folders: `.ose/history` (one shared id, one of its own) and the
+        // pre-1.1 `.ose/versions` (`<id>.md`, one id `.ose/history` also has).
+        let hist = root.join(".ose").join("history").join("note.md");
+        let vers = root.join(".ose").join("versions").join("note.md");
+        fs::create_dir_all(&hist).unwrap();
+        fs::create_dir_all(&vers).unwrap();
+        fs::write(hist.join("2026-09-01-100000.save.md"), "old shared").unwrap();
+        fs::write(hist.join("2026-08-15-090000.conflict.md"), "old conflict").unwrap();
+        fs::write(vers.join("2026-07-01-080000.md"), "older still").unwrap();
+        fs::write(vers.join("2026-08-15-090000.md"), "dup of history").unwrap();
+        let before = snapshot(root);
+
+        let merged = with_legacy(entries_in(&data), root, "note.md");
+        let ids: Vec<&str> = merged.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["2026-09-20-100000", "2026-09-01-100000", "2026-08-15-090000", "2026-07-01-080000"]);
+        assert_eq!(fs::read_to_string(&merged[1].path).unwrap(), "data shared", "the data folder wins a shared id");
+        assert_eq!(merged[2].reason, Reason::Conflict, "`.ose/history` before `.ose/versions`");
+        assert_eq!(fs::read_to_string(&merged[3].path).unwrap(), "older still");
+        // A path that climbs is nothing to merge.
+        assert!(with_legacy(Vec::new(), root, "../note.md").is_empty());
+        assert_eq!(snapshot(root), before, "nothing in the vault was written, moved or removed");
+    }
+
+    /// Every file under `dir` with its bytes, sorted.
+    fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        fn walk(dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+            for e in fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else {
+                    out.push((p.clone(), fs::read(&p).unwrap()));
+                }
+            }
+        }
+        let mut all = Vec::new();
+        walk(dir, &mut all);
+        all.sort();
+        all
     }
 
     #[test]
