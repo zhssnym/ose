@@ -16,3 +16,6 @@ tests/fixtures/corpus/
 # Playwright's output (`npm run test:e2e`): traces, screenshots and the HTML report.
 test-results/
 playwright-report/
+
+# Sub-agents' working copies
+.claude/worktrees/
