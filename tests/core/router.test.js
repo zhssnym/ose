@@ -62,7 +62,7 @@ beforeEach(async () => {
   document.body.innerHTML = '';
   main = document.createElement('main');
   document.body.appendChild(main);
-  R.initRouter(main, { start: false });
+  R.initRouter(main);
   host = makeHost();
   P.setPageHost(host);
   events = [];
@@ -118,6 +118,25 @@ describe('navigate', () => {
     expect(here()).toBe('a.md');
   });
 
+  it('a page route to a folder reveals it and leaves the page and the history as they were', async () => {
+    await R.navigate(page('a.md'));
+    const reveals = [];
+    K.bus.on('tree:reveal', (d) => reveals.push(d.path));
+    events.length = 0;
+    const before = snapshot();
+    expect(await R.navigate(page('notes'))).toBe(false);
+    expect(reveals).toEqual(['notes']);
+    expect(snapshot()).toEqual(before);
+    expect(host.asked).toBe(0);
+    expect(host.closed).toBe(0);
+    expect(host.opened.map((o) => o.path)).toEqual(['a.md']);
+    expect(events).toEqual([]);
+    // In a new tab too: no tab is left behind pointing at the folder.
+    expect((await R.openTab(page('notes/sub'), { reuse: false })).shown).toBe(false);
+    expect(reveals).toEqual(['notes', 'notes/sub']);
+    expect(snapshot()).toEqual(before);
+  });
+
   it('a canLeave that throws is a no', async () => {
     await R.navigate(page('a.md'));
     host.leave = new Error('save threw');
@@ -147,7 +166,8 @@ describe('navigate', () => {
     let release;
     host.leave = () => new Promise((r) => { release = r; });
     const first = R.navigate(page('b.md'));
-    await Promise.resolve();
+    // The first navigation stats its target, then asks the page: wait until it is asking.
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
     host.leave = true;
     const second = R.navigate(page('c.md'));
     release(true);
@@ -209,7 +229,7 @@ describe('close (clearRoute)', () => {
     expect(await R.clearRoute()).toBe(true);
     expect(R.currentRoute()).toBe(null);
     expect(R.canReopenClosed()).toBe(true);
-    expect(await R.reopenClosed()).toBe(true);
+    expect(await R.reopenClosedTab()).toBe(true);
     expect(here()).toBe('a.md');
   });
 });
@@ -240,7 +260,7 @@ describe('repoint', () => {
     expect(await R.clearRoute()).toBe(true);
     R.repoint([{ from: 'notes', to: 'x' }]);
     fake.reset({ 'x/renamed.md': '' });
-    expect(await R.reopenClosed()).toBe(true);
+    expect(await R.reopenClosedTab()).toBe(true);
     expect(here()).toBe('x/renamed.md');
   });
 

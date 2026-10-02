@@ -209,7 +209,7 @@ const GROUPS = [
     ],
   },
   {
-    key: 'planner', label: 'planner', items: [
+    key: 'planner', label: 'views', items: [
       { key: 'month', label: 'Month', icon: I.month, aliases: ['month'], cmd: 'view.month' },
       { key: 'week', label: 'Week', icon: I.week, aliases: ['week'], cmd: 'view.week' },
       { key: 'day', label: 'Day', icon: I.day, aliases: ['day'], cmd: 'view.day' },

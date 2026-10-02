@@ -23,7 +23,7 @@ import { pageHost } from './pagehost.ts';
 import { repoint } from './router.ts';
 import { rewriteInboundMany } from './links.ts';
 import { check, split, free, sameName } from './names.ts';
-import { clean, dirName, baseName, join, isOutside, segments } from './paths.ts';
+import { clean, dirName, baseName, join, isOutside } from './paths.ts';
 import { trashMode } from './settings-core.ts';
 import { logLine } from './log.ts';
 import { record as journal, binName, itemsLabel, folderLabel } from './journal.ts';
@@ -581,10 +581,7 @@ export async function duplicate(path: string): Promise<{ path: string; entry: an
   throw fail('exists', `no free name beside ${from}`);
 }
 
-/* ------------------------------------------------------------------------ importing (§5.5) */
-
-/** The largest file a drop copies in; a bigger one is copied in Explorer or Finder. */
-export const IMPORT_MAX_BYTES = 64 * 1024 * 1024;
+/* ------------------------------------------------------------------------------ bytes */
 
 /**
  * Bytes as base64, in chunks: `String.fromCharCode(...bytes)` blows the argument limit on
@@ -594,125 +591,6 @@ export function bytesToBase64(bytes: Uint8Array) {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
-}
-
-/**
- * Files and folders dropped from the OS, copied into `folder` byte for byte (§5.5). `entries`
- * is what the shell gathered from the drop: `{ path, kind, file? }`, `path` relative inside the
- * drop (`Photos/2024/a.jpg`). Every file lands as its bytes through the create-only
- * `createNewBinary`, so a BOM, CRLF or a file in another encoding arrives exactly as it was, and
- * a failure leaves no empty file. A top-level name that is taken gets the next free one, and a
- * folder keeps that new name for its whole subtree; nothing is ever written over. A file over
- * 64 MB is refused, and so is a file whose bytes cannot be read; each refusal is listed and the
- * rest still land.
- *
- * One undo step for the whole drop: its undo trashes each top-level item that is still what the
- * drop left (a folder with the same entries, a file with the same bytes).
- *
- * `opts.onProgress(done, total)` is called after each file, for the shell's progress toast.
- * -> `{ created, failed, files, entry }`: `created` the top-level paths now in `folder`, `files`
- * how many files were written.
- */
-export async function importEntries(entries: import('./types.ts').ImportEntry[], folder: string, opts: { onProgress?: (done: number, total: number) => void; } = {}): Promise<{ created: string[]; failed: { path: string; error: Error; }[]; files: number; entry: any | null; }> {
-  const dest = clean(folder);
-  const failed: { path: string; error: Error; }[] = [];
-  if (isOutside(dest)) throw outside(dest, 'a place to copy into');
-  const list = (Array.isArray(entries) ? entries : [])
-    .map((e) => ({ ...e, path: segments(e && e.path).join('/') }))
-    .filter((e) => e.path && (e.kind === 'dir' || e.kind === 'file'));
-  // The top-level names, in the order they came, each with the free name it lands under.
-  const tops: Map<string, { dir: boolean; to: string | null; }> = new Map();
-  for (const e of list) {
-    const top = segments(e.path)[0] || '';
-    const dir = e.kind === 'dir' || e.path !== top;
-    const seen = tops.get(top);
-    if (!seen) tops.set(top, { dir, to: null });
-    else if (dir) seen.dir = true;
-  }
-  for (const [top, t] of tops) {
-    const c = check(top);
-    // A name no file can have is refused once, for the whole subtree under it.
-    if (!c.ok) { failed.push({ path: top, error: fail('bad_name', c.reason) }); continue; }
-    try { t.to = await free(dest, top, { dir: t.dir }); } catch (e) { failed.push({ path: top, error: (e as Error) }); }
-  }
-  const target = (rel: string): string | null => {
-    const [top = '', ...rest] = segments(rel);
-    const t = tops.get(top);
-    if (!t || !t.to) return null;
-    return rest.length ? join(t.to, ...rest) : t.to;
-  };
-
-  // Folders first, shallow before deep, so an empty folder in the drop exists too.
-  const dirs = list.filter((e) => e.kind === 'dir').sort((a, b) => segments(a.path).length - segments(b.path).length);
-  for (const d of dirs) {
-    const to = target(d.path);
-    if (!to) continue;   // its top-level name was refused above
-    try {
-      if (!(await bridge.exists(to))) await bridge.mkdir(to);
-    } catch (e) {
-      failed.push({ path: d.path, error: (e as Error) });
-    }
-  }
-
-  const files = list.filter((e) => e.kind === 'file');
-  let written = 0;
-  let done = 0;
-  /** top-level file -> hash */
-  const hashes: Map<string, string | null> = new Map();
-  for (const f of files) {
-    const to = target(f.path);
-    if (!to) { done++; continue; }   // its top-level name was refused above
-    try {
-      const file = f.file;
-      if (!file) throw fail('bad_arg', 'the drop did not carry this file');
-      if (file.size > IMPORT_MAX_BYTES) throw fail('too_large', 'too large to copy by drop; copy it in Explorer/Finder');
-      const b64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
-      let at = to;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          const r = await bridge.createNewBinary(at, b64);
-          if (!f.path.includes('/')) hashes.set(at, (r && r.hash) || null);
-          break;
-        } catch (e) {
-          // A top-level file whose free name was taken since: the next one. Inside a folder of
-          // the drop's own, the name was free a moment ago and a clash means someone else wrote.
-          const top = !f.path.includes('/');
-          if (!(e && (e as { code?: string }).code === 'exists' && top && attempt < 5)) throw e;
-          at = await free(dest, baseName(to));
-          const t = tops.get(f.path);
-          if (t) t.to = at;
-        }
-      }
-      written++;
-    } catch (e) {
-      failed.push({ path: f.path, error: (e as Error) });
-      logLine(`fileops import failed ${f.path}: ${(e && (e as { code?: string }).code) || 'io'} ${(e && (e as Error).message) || e}`, 'warn');
-    }
-    done++;
-    if (typeof opts.onProgress === 'function') {
-      try { opts.onProgress(done, files.length); } catch (e) { console.error('[fileops] progress', e); }
-    }
-  }
-
-  const created: string[] = [];
-  const steps: any[] = [];
-  for (const [, t] of tops) {
-    if (!t.to) continue;
-    let there = false;
-    try { there = !!(await bridge.exists(t.to)); } catch { there = false; }
-    if (!there) continue;
-    created.push(t.to);
-    if (t.dir) steps.push({ op: 'copied', from: '', to: t.to, ...(await folderPrint(t.to)) });
-    else steps.push({ op: 'created', path: t.to, dir: false, hash: hashes.get(t.to) ?? null });
-  }
-  if (created.length) logLine(`fileops import ${written} files into ${dest || '/'}: ${created.join(', ')}`);
-  const entry = created.length ? journal({
-    verb: 'import',
-    label: `Copied ${itemsLabel(created)} into ${folderLabel(dest)}`,
-    steps,
-  }) : null;
-  if (created.length) bus.emit('paths:created', { paths: created });
-  return { created, failed, files: written, entry };
 }
 
 /* --------------------------------------------------------------------------------- undo */

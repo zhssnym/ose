@@ -14,7 +14,7 @@
 //   - It reads ordinary files of the vault through `ose.files`, and writes back only one
 //     appended or replaced line (`appendLine`, `replaceLine`) or a new file, never a whole
 //     file it did not create. docs/FORMATS.md says exactly what each view reads and writes.
-//   - It never spells a vault path: where its files are is a setting (Settings › Planner,
+//   - It never spells a vault path: where its files are is a setting (Settings › Views,
 //     `shared/settings.ts`), found by name the first time (`shared/detect.ts`).
 //   - It imports the kit (src/ui), `date-fns`, `shared/` and its own files, and the editor
 //     (src/editor/lib.ts) only by dynamic import; never the core (a type aside) or the shell.
@@ -50,23 +50,23 @@ export function initViews(ose: any): { dispose: () => void; store: any; } {
     const def = create(ose, store);
     add(ose.views.register(name, def));
     add(ose.commands.register({
-      id: `view.${name}`, title: def.title, group: 'planner',
+      id: `view.${name}`, title: def.title, group: 'views',
       run: () => ose.route.navigate({ type: 'view', name }),
     }));
   }
 
   add(ose.commands.register({
-    id: 'journal.today', title: "Open today's journal", group: 'planner',
+    id: 'journal.today', title: "Open today's journal", group: 'views',
     hint: 'creates it when it is not there',
     run: () => openToday(ose, store),
   }));
   add(ose.commands.register({
-    id: 'planner.settings', title: 'Planner settings', group: 'planner',
+    id: 'planner.settings', title: 'Views settings', group: 'views',
     run: () => openPlannerSettings(ose),
   }));
 
   add(ose.settings.section({
-    id: 'planner', title: 'Planner', order: 40,
+    id: 'planner', title: 'Views', order: 40,
     render: (el) => renderSettings(el, store),
   }));
 

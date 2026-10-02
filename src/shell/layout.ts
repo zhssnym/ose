@@ -283,9 +283,9 @@ export function focusPage() {
 /* --------------------------------------------------------------- file drops */
 
 // A file dropped anywhere but a real target would otherwise navigate the whole window to it,
-// which in the host means the app is gone. Anything already handled (the tree's folder rows,
-// the editor's own drop) has called preventDefault by the time this runs;
-// what is left is ignored (docs/SHELL.md "Drag in and out").
+// which in the host means the app is gone. Anything already handled (a row onto a folder row
+// or the tab strip, the editor's own drop) has called preventDefault by the time this runs;
+// what is left, a drop from Explorer or Finder included, is ignored.
 const EDITABLE = '[contenteditable="true"], .ProseMirror, .milkdown, input, textarea';
 
 // The editor accepts dropped images through Milkdown's own uploader, which relies on the

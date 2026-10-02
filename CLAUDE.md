@@ -21,7 +21,7 @@ Vault, Scratchpad), every file listed under its real name and openable, nothing 
 A folder is not a page: opening one shows it in the sidebar. Files Ose does not show open in their
 own app. Day, Week, Month and Journal are built-in views (`src/views`): they read ordinary files
 (a timetable, todo lists, a monthly plan, `systems.jsonl`, the journal) whose paths are chosen in
-Settings › Planner, and write back only one appended or replaced line, or a new `YYYY-MM-DD.md`.
+Settings › Views, and write back only one appended or replaced line, or a new `YYYY-MM-DD.md`.
 There are no plugins and no loader: Ose is extended by forking it (`docs/VIEWS.md`). An agent
 (Claude Code, run on the vault from outside) reads and edits the same files with no adapter,
 keeping to the formats in `docs/FORMATS.md`, and Ose picks up its changes as they happen.

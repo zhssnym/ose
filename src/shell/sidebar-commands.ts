@@ -4,9 +4,7 @@
 import { ose } from '../core/core.ts';
 import { contextMenu, copyText, focusOrigin, icon, toast } from '../ui/index.ts';
 import { baseName, clean } from './paths.ts';
-import {
-  DRAG_TYPE, dragged, hasOsFiles, importDropped, isInternal, setDragged, takeDropped,
-} from './drag.ts';
+import { DRAG_TYPE, dragged, isInternal, setDragged } from './drag.ts';
 import { openSearch } from './search.ts';
 import { openInNewTab } from './tabs.ts';
 import {
@@ -30,8 +28,8 @@ import {
 // Internal drags carry the vault paths (a JSON list: a selection drags together, C17) in a
 // private type (drag.ts `DRAG_TYPE`); `dragPaths` mirrors it because dataTransfer.getData is
 // unreadable during dragover, and the self/descendant guard has to run there, for every item,
-// to decide whether the row may light up at all. A drop from Explorer or Finder is copied in,
-// folders and all, through drag.ts `importDropped`.
+// to decide whether the row may light up at all. A drop from Explorer or Finder is not taken:
+// the window's guard (layout.ts) ignores it.
 
 let dragPaths: string[] | null = null;
 let dropEl: Element | null = null;
@@ -84,19 +82,17 @@ export function bindDnd(host) {
   host.addEventListener('dragover', (e) => {
     // A drag `dragPaths` missed is internal too when it carries drag.ts's paths.
     const moving = dragPaths || dragged();
-    const internal = !!moving || isInternal(e.dataTransfer);
-    const external = !internal && hasOsFiles(e.dataTransfer);
-    if (!internal && !external) { setDropEl(null); return; }
+    if (!moving && !isInternal(e.dataTransfer)) { setDropEl(null); return; }
     const t = dropTargetOf(e.target);
     // Every dragged item has to be able to land there, or the folder does not light up.
-    if (!t || (internal && !(moving || []).every((p) => canDropInto(p, t.dir)))) {
+    if (!t || !(moving || []).every((p) => canDropInto(p, t.dir))) {
       setDropEl(null);
       e.preventDefault();                       // still ours: the web view never navigates to it
       e.dataTransfer.dropEffect = 'none';
       return;
     }
     e.preventDefault();
-    e.dataTransfer.dropEffect = internal ? 'move' : 'copy';
+    e.dataTransfer.dropEffect = 'move';
     setDropEl(t.el);
   });
 
@@ -108,12 +104,9 @@ export function bindDnd(host) {
     e.preventDefault();
     const t = dropTargetOf(e.target);
     const from = dragPaths || dragged() || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
-    // The drop's items are readable only now, inside the event: taken before anything awaits.
-    const dropped = !(from && from.length) && t && hasOsFiles(e.dataTransfer) ? takeDropped(e.dataTransfer) : null;
     endDrag();
-    if (!t) return;
-    if (from && from.length) void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
-    else if (dropped) void importDropped(dropped, clean(t.dir));
+    if (!t || !(from && from.length)) return;
+    void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
   });
 }
 

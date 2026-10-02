@@ -123,33 +123,6 @@ export function local(key: string) { return handle(scopes.vault, key); }
  */
 local.app = (key: string) => handle(scopes.app, key);
 
-/**
- * The first time a machine opens a vault after the upgrade, what used to live in the vault's
- * state and now belongs to the machine is copied over: the recent files, the
- * sidebar and the reading settings. Copied, never deleted from the state file, so an older
- * build on another machine still finds what it had. `readingKeys` are the machine settings.
- * @param state  the state file as loaded
- */
-export function migrateLocal(state: any, readingKeys: string[]) {
-  const v = scopes.vault;
-  if (!v.loaded) return false;
-  if (v.cache.migrated === 1) return false;
-  const st = state && typeof state === 'object' ? state : {};
-  if (Array.isArray(st.recent) && v.cache.recent === undefined) patch(v, 'recent', st.recent.slice());
-  if (st.sidebar && typeof st.sidebar === 'object' && v.cache.sidebar === undefined) patch(v, 'sidebar', { ...st.sidebar });
-  const a = scopes.app;
-  const old = st.settings && typeof st.settings === 'object' ? st.settings : {};
-  const have = a.cache.settings && typeof a.cache.settings === 'object' ? a.cache.settings : {};
-  const next = { ...have };
-  let copied = false;
-  for (const k of readingKeys) {
-    if (k in old && !(k in have)) { next[k] = old[k]; copied = true; }
-  }
-  if (copied) patch(a, 'settings', next);
-  patch(v, 'migrated', 1);
-  return true;
-}
-
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => {
     for (const s of Object.values(scopes)) {

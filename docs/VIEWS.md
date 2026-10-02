@@ -9,7 +9,7 @@ is how Ose is extended. There is no plugin system; you fork Ose and add a folder
 
 ```
 src/views/
-  index.ts      registers every view (the VIEWS list) and Settings › Planner
+  index.ts      registers every view (the VIEWS list) and Settings › Views
   views.css     the views' styles, tokens only
   day/          one folder per view, index.ts its entry
   week/
@@ -74,7 +74,7 @@ import of `src/editor/lib.ts`, as the Journal does.
 - **Write a line, never a file.** A view appends a line or replaces one line it has just read,
   or creates a new file. It never rewrites a whole file it did not create: the user, Claude Code
   and Google Drive may all be writing to it too.
-- **Never spell a vault path.** Where a view's files are is a setting (Settings › Planner,
+- **Never spell a vault path.** Where a view's files are is a setting (Settings › Views,
   `shared/settings.ts`), found by name the first time (`shared/detect.ts`) and confirmed by the
   user.
 - **Read again on a change.** A file can change under the view at any time; `refresh()` and

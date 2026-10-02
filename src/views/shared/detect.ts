@@ -1,6 +1,6 @@
 // Finding the planner's files by name (M29). Pure: `detectPaths(tree)` takes the tree the host
 // answers (`ose.files.tree()`: `{ name, path, kind, children }`) and names nothing it did not
-// find there. It only proposes: Settings › Planner shows what it found and "These look right"
+// find there. It only proposes: Settings › Views shows what it found and "These look right"
 // confirms it once.
 //
 // The rules:

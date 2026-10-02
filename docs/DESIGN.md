@@ -231,7 +231,7 @@ left, with no box: the box belongs to a document's own title. The view's control
 counts and tables keep the chrome faces. The views' furniture is `src/views/views.css`, which
 names no family and sets no size in px. A note a view shows goes through `render()` and is a
 document like any other. A view whose file is not chosen yet says so in one quiet line pointing
-at Settings › Planner, never in a red box. Dense data (the week grid) uses mono 11px labels and
+at Settings › Views, never in a red box. Dense data (the week grid) uses mono 11px labels and
 1px `--border` lines; colour blocks use the `--c-*` families at low opacity with a 2px bar in
 the full colour.
 

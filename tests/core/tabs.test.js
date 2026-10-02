@@ -55,7 +55,7 @@ beforeEach(async () => {
   document.body.innerHTML = '';
   main = document.createElement('main');
   document.body.appendChild(main);
-  R.initRouter(main, { start: false });
+  R.initRouter(main);
   host = makeHost();
   P.setPageHost(host);
 });

@@ -126,8 +126,7 @@ function appearanceHtml() {
     'System follows the light or dark setting of the computer, and changes when it does.')
     + row('Zoom',
       seg('zoom', ZOOM_STEPS.map((n) => ({ value: n, label: n + '%' })), v.zoom),
-      'The size of everything in the window. Ctrl+= and Ctrl+- step it, and Ctrl+0 goes back to '
-      + '100% everywhere except in a page, where Ctrl+0 is Paragraph.')
+      'The size of everything in the window.')
     + row('Text size',
       seg('font', FONT_SIZES.map((n) => ({ value: n, label: n + 'px' })), v.font),
       "The size of a page's own text. The chrome around it keeps its size.")
@@ -154,7 +153,7 @@ function editorHtml() {
     + 'switch keeps its mode; plain text files always open as source.')
     + row('Spellcheck',
     seg('spell', ON_OFF, v.spell),
-    "The web view's own checker, in the display language of the system. Shift+right-click a word for its suggestions.")
+    "The web view's own checker, in the display language of the system.")
     + row('Name new pages after their heading',
       seg('titlesync', ON_OFF, v.titlesync),
       'On, a new page still called Untitled takes the name of the first heading you type in it. '
@@ -305,23 +304,26 @@ function guideHtml() {
       + 'Settings › Vault changes which folder is open.'],
     ['The sidebar',
       'Views holds Day, Week, Month and Journal, pages drawn from ordinary files in the vault whose '
-      + 'paths are set in Settings › Planner. Vault lists your folders and files under their real '
+      + 'paths are set in Settings › Views. Vault lists your folders and files under their real '
       + 'names; a folder opens and closes in place. Right-click a row for what can be done with it, '
       + 'or the empty space below for New file, New folder, Collapse all folders and Show hidden '
-      + `items. ${kbd('mod+\\')} hides or shows the sidebar, and ${kbd('mod+shift+e')} moves the keyboard into it.`],
+      + `items. ${kbd('mod+\\')} hides or shows the sidebar, ${kbd('mod+shift+e')} moves the keyboard into it, `
+      + `and ${kbd('escape')} returns to the page.`],
     ['Pages',
       'A markdown page opens in one of two modes. Rich is the page drawn as a document, written '
       + `like one. Source is the raw markdown, as in a code editor. ${kbd('mod+e')} switches between `
       + 'them, and each file keeps the mode it was left in. The bar at the bottom of the window shows '
       + 'the mode, the counts and when the file was last saved, and says so when a save fails. '
-      + 'Ose saves as you type.'],
+      + `Ose saves as you type. ${kbd('shift')}-right-click a word for its spelling suggestions.`],
     ['Tabs',
       `Each tab holds one page, with its own back and forward: ${kbd(back)} and ${kbd(fwd)}. `
       + `${kbd('mod+t')} opens a new tab, ${kbd('mod+w')} closes one, ${kbd('mod+tab')} moves to `
       + `the next and ${kbd('mod+shift+t')} brings back the last one closed. A page in a tab behind `
-      + 'keeps its text and its undo.'],
+      + 'keeps its text and its undo. Focus tabs, in the command palette, puts the keyboard on the '
+      + `tabs: the arrows walk them, ${kbd('enter')} opens one and ${kbd('delete')} closes it.`],
     ['Go to file and commands',
-      `${kbd('mod+p')} goes to any file by its name or path. ${kbd('mod+shift+p')} opens the command `
+      `${kbd('mod+p')} goes to any file by its name or path, and ${kbd('shift+enter')} there makes `
+      + `the file typed when there is none. ${kbd('mod+shift+p')} opens the command `
       + 'palette, which lists every action in the app with its shortcut.'],
     ['Search',
       `${kbd('mod+shift+f')} searches the text of every file in the vault, in the side panel. `

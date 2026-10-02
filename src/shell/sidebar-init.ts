@@ -166,7 +166,7 @@ export function initSidebar(node: HTMLElement) {
     run: () => toggleSidebar(),
   });
   commands.register({
-    id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app', hint: 'Esc returns to the page',
+    id: 'app.focus-sidebar', title: 'Focus sidebar', group: 'app',
     run: () => focusTree(),
   });
   commands.register({

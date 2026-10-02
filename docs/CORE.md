@@ -56,14 +56,12 @@ shell and the editor; `ose.pickers` carries the same pickers for code that is ha
 ## Boot
 
 `ose.ready` resolves once the bridge is up and the host has answered: the platform, the vault's
-state, the per-machine store (with a one-time copy of keys older builds kept in the state file),
-the vault root and its epoch. Nothing in it throws the boot: a part that fails is logged and the
+state, the per-machine store, the vault root and its epoch. Nothing in it throws the boot: a part that fails is logged and the
 defaults answer. It then starts taking the files the OS asks this window to open.
 
-The shell calls `ose.init({ page, keys, theme, start })` once its surfaces exist: it starts the
-theme and the key engine and mounts the router into the page column. The shell passes
-`start: false` and navigates Home itself, so the column is not drawn twice. Before that it calls
-`ose.setPageHost` and `ose.route.setHome`.
+The shell calls `ose.init({ page, keys, theme })` once its surfaces exist: it starts the theme
+and the key engine and mounts the router into the page column, which stays blank until the shell
+navigates (Home). Before that it calls `ose.setPageHost` and `ose.route.setHome`.
 
 ## The `ose` object
 
@@ -74,8 +72,7 @@ theme and the key engine and mounts the router into the page column. The shell p
 (see the bridge), `info()` (with the log's path), `pick({ adopt? })` (the native folder picker;
 `adopt: false` only chooses), `open(path)` (adopt in this window, or `{ focused, label }` when
 another window has it), `recent()`, `forget(path)`, and `onChangeRequested(fn)`, a second launch
-naming another folder: the shell leaves the window, then adopts it. `onChange` is kept for old
-callers and never fires. `ose.windows.open(vaultPath?)` opens or brings forward the window for a
+naming another folder: the shell leaves the window, then adopts it. `ose.windows.open(vaultPath?)` opens or brings forward the window for a
 vault; there are never two windows on one vault.
 
 **`ose.files`**, one host command each:
@@ -193,11 +190,13 @@ back and forward restore the caret and scroll the page was left with.
 
 A folder is not a route. `{ type: 'folder', path }` handed to `navigate` or `tabs.open` is a
 request to reveal that folder in the sidebar (bus `tree:reveal`); it never enters a history and
-nothing is mounted. A page route whose path turns out to be a folder reveals it the same way.
+nothing is mounted. A page route whose path turns out to be a folder (a link to one) is the
+same: before the page on screen is asked or left, the router stats the path, takes the new entry
+or the new tab back, and reveals the folder; the page on screen stays as it was.
 
 `ose.route`: `current()`, `navigate(route, { replace?, force?, focus?, tab? })`, `back()`,
 `forward()`, `canBack()`, `canForward()`, `close()` (the active tab), `reopenClosed()`,
-`setHome(route)`, `repoint(moves)`, `recent()`, `on(fn)`, `init(el, opts)`. `tab` is
+`setHome(route)`, `repoint(moves)`, `recent()`, `on(fn)`, `init(el)`. `tab` is
 `'current'`, `'new'` or a tab id. A missing page gets a "Not found" box with "Create it", an
 exclusive create. The window title is the file name (or view title) and the vault's name.
 `recent()` is the pages opened on this machine in this vault, newest first, kept in
@@ -232,10 +231,9 @@ means "yes" or "nothing to do". The full contract is the comment at the top of `
 
 `ose.fileops` is the one implementation of `create(folder, name, { text?, unique? })`,
 `mkdir(folder, name)`, `rename(path, name)`, `move(paths, folder)`, `copy(paths, folder)`,
-`paste({ mode, paths }, folder)`, `trash(paths)`, `restore(ids)`, `trashList()`,
-`duplicate(path)` and `importEntries(entries, folder, { onProgress? })` (files and folders
-dropped from the OS, copied byte for byte, at most 64 MB a file). The tree, the palette, the
-router's "Create it" and the editor all call these; the prompts for a name are the shell's.
+`paste({ mode, paths }, folder)`, `trash(paths)`, `restore(ids)`, `trashList()` and
+`duplicate(path)`. The tree, the palette, the router's "Create it" and the editor all call
+these; the prompts for a name are the shell's.
 
 A name is literal: nothing appends `.md` or strips an extension. `ose.names.check` refuses only
 what Windows or macOS cannot hold, `free` finds the next free name (`x 2.md`, `folder 2`),

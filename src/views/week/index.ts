@@ -1,7 +1,7 @@
 // Week: the calendar's grid for the current ISO week, a "Now / Next" box, and the personal work
 // each day holds. Read-only; the calendar file is the only thing it reads.
 //
-// M33: the (Q1)/(Q2) blocks follow the Q1 anchor from Settings › Planner (weeks alternate from
+// M33: the (Q1)/(Q2) blocks follow the Q1 anchor from Settings › Views (weeks alternate from
 // a Monday, never by ISO week number); while it is unknown both are drawn side by side, each with its marker. A block
 // whose end is before its start runs overnight and is drawn to the bottom of the day, never with
 // a negative length. Lines under a weekday that cannot be read are counted, and the meta line

@@ -24,7 +24,7 @@ export function initHome() {
 }
 
 /**
- * Where the boot ends. The router was mounted with `start: false`, so the column is blank until
+ * Where the boot ends. The router mounts showing nothing, so the column is blank until
  * this runs. Something that has already navigated somewhere keeps the window it asked for.
  */
 export async function startSurface(): Promise<void> {

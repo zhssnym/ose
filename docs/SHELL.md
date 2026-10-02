@@ -25,7 +25,7 @@ start.ts         Home, and where the boot ends
 page.ts          the page host: the editor or media.ts's card
 palette.ts       the command palette and Go to file      search.ts   search in the side panel
 settings.ts      the Settings page        fileops.ts     the one UI for file operations
-drag.ts          drops from the OS, the internal drag of rows
+drag.ts          the internal drag of rows (to a folder, to the tab strip)
 recover.ts       the Recovered changes sheet
 vault.ts         the vault chooser, Change vault…, the "vault is gone" dialog
 host.ts, paths.ts, order.ts, logo.ts   a window hose, path helpers, view order, the mark
@@ -41,15 +41,15 @@ lazy chunks.
 
 ```
 ose.ready -> settings.apply -> vault chooser | mountShell
-          -> initPageHost -> initHome -> initTabs -> ose.init({start:false})
+          -> initPageHost -> initHome -> initTabs -> ose.init({page})
           -> palette, search, settings, fileops, recover -> keys.json
           -> views -> startSurface (Home) -> 'booted' -> offerRecovered, offerUpdate
 ```
 
 The editor chunk starts downloading first. With no vault, `vault.ts` mounts the chooser and the
 shell is not built. The page host, Home and the tab strip exist before `ose.init`, because the
-router mounts with it and may need Home at once; `start: false` leaves the first place to the
-shell. The views register their own views, commands and Settings section; if they fail to load,
+router mounts with it and may need Home at once; it mounts blank and leaves the first place to
+the shell. The views register their own views, commands and Settings section; if they fail to load,
 one toast says so and the boot goes on. The app always opens on Home, unless the OS has already
 asked for a file. Then the Recovered changes sheet appears when there are drafts, and a
 downloaded update offers **Restart** in a sticky toast.
@@ -93,8 +93,9 @@ is its only user. Its width is `ose.local('panel')`.
 
 `layout.ts` also refuses the web view's reload and history keys (F5, Ctrl+R, Ctrl+U, F7, the
 Back, Forward and Refresh keys), swallows the web view's context menu (Shift+right-click still
-gets it, for spelling), and ignores file drops that land on no target. The window is at least
-480 by 360.
+gets it, for spelling), and ignores file drops that land on no target, which is every drop
+from Explorer or Finder outside an open page (a page attaches what is dropped into it). The
+window is at least 480 by 360.
 
 ## Tabs and Home
 
@@ -141,9 +142,8 @@ page. Ctrl+Shift+E moves the keyboard in. A row's menu holds the file commands, 
 link, Open with default app, Open containing folder, Search in folder and Focus folder; the empty
 space below holds New file, New folder, Collapse all folders and Show hidden items.
 
-Rows dragged onto a folder row move, with Undo. A drop from Explorer or Finder on a folder row is
-copied in by `drag.ts`: every file written as its bytes, create-only, a taken name given a free
-one, the whole drop one undo step, anything over 64 MB refused. Nothing drags a file out.
+Rows dragged onto a folder row move, with Undo. Nothing is dragged in from Explorer or Finder
+onto the tree, and nothing drags a file out.
 
 ## Pages
 
@@ -201,6 +201,6 @@ never saved. `app.recovered` reopens the sheet.
 **Settings** (`app.settings`, Ctrl+,) is a view in a tab; `route.arg` names a section. Sections:
 Appearance (theme, zoom, text size, line height, page face, page layout, full width), Editor
 (Rich or Source by default, spellcheck, name new pages after their heading), Files (attachments,
-show hidden items, hide `.md`), any registered section (the views' Planner), Updates, Vault (path,
-Change vault…, log path) and Help (a short guide and every shortcut). Every change applies at
-once. The values belong to `ose.settings`, which knows what is per machine and what per vault.
+show hidden items, hide `.md`), any registered section (Views, where the views' files are),
+Updates, Vault (path, Change vault…, log path) and Help (a short guide and every shortcut).
+Every change applies at once. The values belong to `ose.settings`, which knows what is per machine and what per vault.

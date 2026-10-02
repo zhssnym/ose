@@ -475,7 +475,6 @@ export function initTabs(node: HTMLElement, panel?: HTMLElement) {
   });
   commands.register({
     id: 'tab.focus', title: 'Focus tabs', group: 'navigate',
-    hint: 'arrows walk the strip, Enter opens, Delete closes',
     when: () => !!strip && !strip.hidden,
     run: () => { const on = strip && (strip.querySelector<HTMLElement>('.tab.on') || strip.querySelector<HTMLElement>('.tab')); focusTab(on); },
   });

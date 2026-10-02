@@ -64,11 +64,11 @@ const WHAT = {
 
 /**
  * The one quiet line a view draws where a path is missing (9.2), never a red box: what is
- * missing, then "Choose… in Settings › Planner" as a button.
+ * missing, then "Choose… in Settings › Views" as a button.
  * @returns HTML
  */
 export function missingHtml(key: 'calendar' | 'todo' | 'reports' | 'journal'): string {
-  return `<div class="pl-quiet">${esc(WHAT[key] || 'Nothing chosen.')} <button type="button" class="v-link pl-choose" data-planner-settings>Choose…</button> in Settings › Planner</div>`;
+  return `<div class="pl-quiet">${esc(WHAT[key] || 'Nothing chosen.')} <button type="button" class="v-link pl-choose" data-planner-settings>Choose…</button> in Settings › Views</div>`;
 }
 
 /**
@@ -76,7 +76,7 @@ export function missingHtml(key: 'calendar' | 'todo' | 'reports' | 'journal'): s
  * @returns HTML
  */
 export function goneHtml(path: string): string {
-  return `<div class="pl-quiet">Nothing at <span class="mono-sm">${esc(path)}</span>. <button type="button" class="v-link pl-choose" data-planner-settings>Choose…</button> in Settings › Planner</div>`;
+  return `<div class="pl-quiet">Nothing at <span class="mono-sm">${esc(path)}</span>. <button type="button" class="v-link pl-choose" data-planner-settings>Choose…</button> in Settings › Views</div>`;
 }
 
 /**
@@ -84,11 +84,11 @@ export function goneHtml(path: string): string {
  * @returns HTML
  */
 export function detectedHtml(): string {
-  return `<div class="pl-quiet pl-detected">These paths were found automatically. <button type="button" class="v-link pl-choose" data-planner-settings>Check them</button> in Settings › Planner</div>`;
+  return `<div class="pl-quiet pl-detected">These paths were found automatically. <button type="button" class="v-link pl-choose" data-planner-settings>Check them</button> in Settings › Views</div>`;
 }
 
 /**
- * Open Settings › Planner, in a tab of its own (a tab already on Settings is reused).
+ * Open Settings › Views, in a tab of its own (a tab already on Settings is reused).
  */
 export function openPlannerSettings(ose: typeof import('../../core/core.ts').ose): Promise<unknown> {
   return ose.tabs.open({ type: 'view', name: 'settings', arg: 'planner' });

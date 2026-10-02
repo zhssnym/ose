@@ -281,9 +281,6 @@
   white-space: nowrap;
 }
 
-/* The foot's Shift+Enter hint, shown only in quick open (N41). */
-.pal-create { display: inline-flex; align-items: center; gap: var(--sp-1); }
-
 /* ------------------------------------------------------------------ the shell's views */
 
 /* Home, Settings and Trash are views: the root they mount into, and a path that navigates when

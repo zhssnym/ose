@@ -81,13 +81,6 @@ export interface FsEvent {
   rescan?: boolean;
 }
 
-/** One item of an OS drop, as the shell gathers it (§5.5): `path` relative inside the drop. */
-export interface ImportEntry {
-  path: string;
-  kind: 'dir' | 'file';
-  file?: File;
-}
-
 /** Window control the adapter has: Tauri's own window API. */
 export interface AdapterWindow {
   close?: () => Promise<unknown>;

@@ -12,7 +12,7 @@
 // old `q1Parity` (odd or even ISO weeks) broke after every 53-week year, so it is only read
 // once, turned into an anchor on the week it is read, and cleared.
 //
-// The fragment Settings › Planner draws is `renderSettings`. Every control in it is a button or
+// The fragment Settings › Views draws is `renderSettings`. Every control in it is a button or
 // a segmented control, so it is reachable from the keyboard like the rest of the settings.
 
 import { esc, toast } from '../../ui/index.ts';
@@ -173,7 +173,7 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
   };
 }
 
-/* ------------------------------------------------------------------ Settings › Planner */
+/* -------------------------------------------------------------------- Settings › Views */
 
 const ROWS = [
   { key: 'calendar', name: 'Calendar', kind: 'file', note: 'One heading per weekday and one line per block. Day and Week draw it.' },
@@ -256,7 +256,7 @@ const TITLES = {
 };
 
 /**
- * Draw Settings › Planner into `el` and keep it live.
+ * Draw Settings › Views into `el` and keep it live.
  */
 export function renderSettings(el: HTMLElement, store: ReturnType<typeof createStore>): { unmount: () => void; } {
   let alive = true;

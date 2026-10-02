@@ -28,7 +28,7 @@ import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from '.
 import { watch } from './watch.ts';
 import { setPageHost, setPageList, pageList } from './pagehost.ts';
 import * as tabs from './tabs.ts';
-import { local, loadLocal, flushLocal, migrateLocal } from './local.ts';
+import { local, loadLocal, flushLocal } from './local.ts';
 import * as journal from './journal.ts';
 import * as focusLib from './focus.ts';
 import { toast } from '../ui/toast.ts';
@@ -168,10 +168,8 @@ const ready = (async () => {
   } catch (e) { console.warn('[core] platform', e); }
   journal.setPlatform(platformName);
   try { await loadState(); } catch (e) { console.warn('[core] state', e); }
-  // The per-machine store, and the one-time copy of what used to live in the vault's state
-  // and belongs to the machine now: recent files, the sidebar, the reading settings.
+  // The per-machine store: recent files, the sidebar, the machine settings.
   try { await loadLocal(); } catch (e) { console.warn('[core] local', e); }
-  try { migrateLocal(stateCache(), [...settingsCore.MACHINE_KEYS]); } catch (e) { console.warn('[core] local migration', e); }
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[core] focus', e); }
   try { await readRoot(); } catch (e) { console.warn('[core] rootInfo', e); }
   // What the OS asks this window to open: taken once the first surface is up (./opens.ts).
@@ -290,11 +288,6 @@ export const ose = {
      * "Epoch"). Every mutating call carries it, and the host refuses one from an older vault.
      */
     get epoch() { return currentEpoch(); },
-    /**
-     * Kept for old callers. The host no longer switches a window's vault on its own (a second
-     * launch asks instead: `onChangeRequested`), so it never fires.
-     */
-    onChange: (fn) => bridge.on('vault', (d) => (d && d.changed ? fn(d) : undefined)),
     /**
      * A second launch named another folder (C5). The host did not adopt it: `fn({root, name})`
      * decides, and the shell leaves the window (`ose.window.leave('vault-change')`) before it
@@ -455,11 +448,6 @@ export const ose = {
     restore: (ids) => fileops.restore(ids),
     trashList: () => fileops.trashList(),
     duplicate: (path) => fileops.duplicate(path),
-    /**
-     * What the shell gathered from an OS drop, copied in byte for byte, one undo step (§5.5).
-     * -> `{ created, failed, files, entry }`
-     */
-    importEntries: (entries, folder, opts?) => fileops.importEntries(entries, folder, opts),
     /** The undo journal of file operations (M17): session memory, newest first. */
     journal: {
       list: () => journal.list(),
@@ -512,9 +500,9 @@ export const ose = {
     repoint: (moves) => router.repoint(moves),
     recent: () => router.recentFiles(),
     on: (fn) => router.onRoute(fn),
-    // The shell mounts the router into its page column; nothing else may. `{ start: false }`
-    // skips the first show: the column stays blank until the shell navigates.
-    init: (el, opts) => router.initRouter(el, opts),
+    // The shell mounts the router into its page column; nothing else may. The column stays
+    // blank until the shell navigates.
+    init: (el) => router.initRouter(el),
   },
 
   /** The tabs (M23): the core owns them, `src/shell/tabs.ts` draws them. */
@@ -705,14 +693,13 @@ export const ose = {
   setPageList,
 
   /**
-   * What the shell calls once, after its own surfaces exist: the key engine and the theme.
-   * `start: false` mounts the router without its first show: the column stays blank until the
-   * shell navigates.
+   * What the shell calls once, after its own surfaces exist: the key engine, the theme, and
+   * the router in the page column, which stays blank until the shell navigates.
    */
-  init({ page, keys = true, theme = true, start = true }: { page?: HTMLElement; keys?: boolean; theme?: boolean; start?: boolean; } = {}) {
+  init({ page, keys = true, theme = true }: { page?: HTMLElement; keys?: boolean; theme?: boolean; } = {}) {
     if (theme) initTheme();
     if (keys) initKeys();
-    if (page) router.initRouter(page, { start });
+    if (page) router.initRouter(page);
   },
 
   // Small shared helpers the shell would otherwise write again.

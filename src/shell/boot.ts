@@ -2,7 +2,7 @@
 //
 //   ose.ready -> settings.apply -> vault chooser | mountShell
 //             -> initPageHost -> initHome -> initTabs
-//             -> ose.init({start:false}) -> initPalette -> initSearch -> initSettings -> initFileOps
+//             -> ose.init({page}) -> initPalette -> initSearch -> initSettings -> initFileOps
 //             -> initRecover -> loadKeys
 //             -> loadPlanner -> startSurface -> 'booted' -> offerRecovered
 //
@@ -50,7 +50,7 @@ async function loadPlanner() {
     await m.initViews(ose);
   } catch (e) {
     console.error('[shell] planner', e);
-    toast('The planner could not be loaded: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e), 'err');
+    toast('The views could not be loaded: ' + (e && typeof e === 'object' && 'message' in e && e.message ? e.message : e), 'err');
   }
 }
 
@@ -95,9 +95,9 @@ export async function boot(): Promise<void> {
     initHome();
     initTabs(els.tabs, els.main);
     // The one call that starts the core in the shell: the theme, the key engine, and the
-    // router mounted into the shell's own page column. `start: false` because the shell
-    // decides where the app opens (start.ts).
-    ose.init({ page: els.main, start: false });
+    // router mounted into the shell's own page column, blank until the shell decides where the
+    // app opens (start.ts).
+    ose.init({ page: els.main });
 
     initPalette();
     initSearch();

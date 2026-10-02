@@ -20,7 +20,7 @@ const shortcutFor = (id) => ose.keys.shortcutFor(id);
 // `tree` is the sidebar's row commands (D3): they act on the focused row, else the open page.
 // `editor` (the code block's own two) and `image` sit with the other block-level groups; a
 // group nobody lists here sorts after `app`.
-const GROUP_ORDER = ['navigate', 'tab', 'folder', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'planner', 'trash', 'app'];
+const GROUP_ORDER = ['navigate', 'tab', 'folder', 'file', 'page', 'format', 'block', 'table', 'editor', 'image', 'tree', 'view', 'views', 'trash', 'app'];
 const GROUP_RANK = new Map(GROUP_ORDER.map((g, i) => [g, i]));
 
 // The matcher and the page-list builder live in src/ui/fuzzy.ts so `pickPage`
@@ -143,7 +143,6 @@ export function openPalette(mode: Mode = 'commands') {
     <div class="pal-list" role="listbox"></div>
     <div class="pal-foot mono-sm">
       <span class="pal-enter" hidden></span>
-      <span class="pal-create" hidden>Shift+Enter makes the file</span>
       <span class="grow"></span>
       <span class="pal-mode"></span>
     </div>`;
@@ -153,7 +152,6 @@ export function openPalette(mode: Mode = 'commands') {
   const list = ov.box.querySelector('.pal-list') as HTMLElement;
   const modeEl = ov.box.querySelector('.pal-mode') as HTMLElement;
   const iconEl = ov.box.querySelector('.pal-icon') as HTMLElement;
-  const createEl = ov.box.querySelector('.pal-create') as HTMLElement;
   const enterEl = ov.box.querySelector('.pal-enter') as HTMLElement;
 
   let items: Item[] = [];
@@ -243,7 +241,6 @@ export function openPalette(mode: Mode = 'commands') {
     // The foot names the act, and Go to file opens a file rather than running one (R17).
     enterEl.textContent = m === 'files' ? 'Open' : 'Run';
     iconEl.innerHTML = icon(m === 'files' ? 'file' : 'command');
-    createEl.hidden = m !== 'files';
     build();
   }
 

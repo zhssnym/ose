@@ -3,7 +3,7 @@
 // line (`addToToday`), and never edits what is there. Text not saved yet is kept on this machine
 // (localStorage `os.journal.draft`) and comes back in the box at the next start.
 //
-// The folder is `journal` in Settings › Planner. An entry is any `YYYY-MM-DD*.md` in it; the date
+// The folder is `journal` in Settings › Views. An entry is any `YYYY-MM-DD*.md` in it; the date
 // comes from the file name, never from the heading. Today's file is `YYYY-MM-DD.md`, created with
 // `# YYYY-MM-DD - Journal` by an exclusive create when it is not there yet; when a file dated
 // today exists under another name, that one is opened instead. A journal folder that is not
@@ -92,7 +92,7 @@ async function ensureToday(ose: any, store: any, { createFolder = false, then = 
   await store.ready;
   const folder = store.get().journal;
   if (!folder) {
-    toast('No journal folder chosen. Choose one in Settings › Planner.', 'warn');
+    toast('No journal folder chosen. Choose one in Settings › Views.', 'warn');
     openPlannerSettings(ose);
     return '';
   }
@@ -113,7 +113,7 @@ async function ensureToday(ose: any, store: any, { createFolder = false, then = 
         const path = await ensureToday(ose, store, { createFolder: true });
         if (path && then) await then(path);
       };
-      toast(`Nothing at ${folder}. Choose the journal folder in Settings › Planner, or create it.`, 'warn', 0, {
+      toast(`Nothing at ${folder}. Choose the journal folder in Settings › Views, or create it.`, 'warn', 0, {
         actions: [{ label: 'Choose…', run: () => openPlannerSettings(ose) }, { label: 'Create it', run: make }],
       });
       return '';

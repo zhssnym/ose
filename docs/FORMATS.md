@@ -13,7 +13,7 @@ The code is in `src/views/`: one folder per view (`day/`, `week/`, `month/`, `jo
 
 ## Where the files are
 
-Settings › Planner holds four paths. They are stored under `planner` in the vault's state, which
+Settings › Views holds four paths. They are stored under `planner` in the vault's state, which
 the app keeps on this machine (`<app data>/vaults/<vaultKey>/state.json`, see docs/HOST.md), not
 in the vault. A vault that still has a `.ose/state.json` from an older Ose is read from there
 until the app first writes its state:
@@ -51,7 +51,7 @@ time, the paths saved under `plugins.<id>.paths` and the journal mode are copied
 
 Which weeks are Q1 weeks and the journal mode (full or compact) are in the same place. Q1 is
 stored as `q1Anchor`, the Monday of a week that is a Q1 week, written by "This week is Q1 / Q2"
-in Settings › Planner; the weeks alternate from it. A vault that had the older `q1Parity` (odd
+in Settings › Views; the weeks alternate from it. A vault that had the older `q1Parity` (odd
 or even ISO weeks) has it turned into an anchor once, on the week the app first reads it.
 
 ## Calendar
@@ -278,7 +278,7 @@ already has something written, then the text. "Discard…" asks first.
 | the first todo file | `appendLine`: `- [ ] <text>` at the end | a task added in Day |
 | `<journal>/YYYY-MM-DD.md` | exclusive create, never an overwrite | "Write today" when today has no file |
 | today's journal file | `appendLine`, line by line: `---` and a blank line when the day has text, then the text | "Add to today's journal" on the old composer's unsaved text |
-| the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Planner; a chosen file or folder renamed or moved |
+| the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Views; a chosen file or folder renamed or moved |
 
 Every other planner file is read and never written. The calendar, the plans and the journal
 entries change only when you edit them, in the editor or anywhere else.

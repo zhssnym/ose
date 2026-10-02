@@ -161,12 +161,10 @@ function pushRecent(path) {
 /* ----------------------------------------------------------------------------- mounting */
 
 /**
- * `ose.route.init(el, { start })` — the shell mounts the router into its page column, once.
- *
- * `start: false` skips the first show, for a shell that opens on a surface of its own (Home):
- * the column is left blank until the shell navigates.
+ * `ose.route.init(el)` — the shell mounts the router into its page column, once. Nothing is
+ * shown: the column is blank until the shell navigates (Home).
  */
-export function initRouter(el, { start = true } = {}) {
+export function initRouter(el) {
   mainEl = el;
 
   // On close the editor's own subscriber returns its final save (and may veto); the router
@@ -215,8 +213,6 @@ export function initRouter(el, { start = true } = {}) {
     when: canReopenClosed,
     run: () => void reopenClosedTab(),
   });
-
-  if (start) void show({ focus: false, reason: 'start' });
 }
 
 /* ----------------------------------------------------------- focus and scroll */
@@ -421,9 +417,11 @@ async function mountPage(scroll, route, my) {
     return;
   }
   if (my !== seq) return;
-  // A page route to a folder (a link): the folder is shown in the sidebar.
+  // A page route to a folder that `show` did not catch (it became a folder since): the folder
+  // is shown in the sidebar and nothing is handed to the page host.
   if (st && st.exists && st.kind === 'dir') {
-    bus.emit('tree:reveal', { path, focus: true, open: true });
+    revealFolder(path);
+    return;
   }
   // A path the page host draws itself when it is missing (a media file, whose own miss says
   // more than "not found") goes straight to it (M4).
@@ -650,6 +648,22 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
   const settle = () => { if (claim && claim.my === my) claim = null; };
   if (earlier) await bounded(earlier);
   if (my !== seq) { done(); return false; }
+  // A page route that turns out to be a folder (a link to one, a Go to file of a folder name):
+  // a folder is never a place, so the change is taken back before anything is asked or torn
+  // down, the folder is revealed in the sidebar, and the page on screen stays as it was.
+  // Only a new entry is taken back (a navigate, a tab opened); one already in a history that
+  // became a folder since is left to `mountPage`, which reveals it and mounts nothing.
+  const adds = opts.reason === 'navigate' || opts.reason === 'open';
+  if (adds && await isFolderRoute(T.currentOf(T.activeRecord()))) {
+    if (my !== seq) { done(); return false; }
+    const to = T.currentOf(T.activeRecord());
+    settle();
+    T.rollbackChange();
+    done();
+    if (to) revealFolder(to.path);
+    return false;
+  }
+  if (my !== seq) { done(); return false; }
   const mode = leaveMode(opts);
   // The page this show asks: only it may be handed back if the answer comes too late.
   const asked = current;
@@ -731,6 +745,21 @@ async function show(opts: ShowOpts = {}, own: { rec: TabRecord; before: { stack:
   // every ordinary open lands the caret.
   if (opts.focus !== false) settleFocus(scroll);
   return true;
+}
+
+/**
+ * True when `route` is a page route whose path is a folder in the vault. A path outside the
+ * vault is left to `mountPage` (the host answers for it when it is registered), and a stat that
+ * fails is not a folder: the mount says what went wrong.
+ */
+async function isFolderRoute(route) {
+  if (!route || route.type !== 'page' || !route.path || isOutside(route.path)) return false;
+  try {
+    const st = await bridge.stat(route.path);
+    return !!(st && st.exists && st.kind === 'dir');
+  } catch {
+    return false;
+  }
 }
 
 /* -------------------------------------------------------------------- navigating in a tab */
@@ -981,9 +1010,6 @@ export function reopenClosedTab() {
   T.setActive(e.rec.id);
   return show({ park: true, reason: 'reopen' });
 }
-
-/** Kept for callers of the old name: the same as `reopenClosedTab`. */
-export const reopenClosed = () => reopenClosedTab();
 
 export function canReopenClosed() { return T.closedRecords().length > 0; }
 
