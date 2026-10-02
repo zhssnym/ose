@@ -38,7 +38,6 @@ export const DEFAULTS = {
   zoom: 100,
   spellcheck: true,
   showHidden: false,
-  restoreSession: false,
   hideMdExt: false,
   attachments: 'beside',
   trash: 'system',
@@ -54,11 +53,11 @@ export const DEFAULTS = {
  */
 export const MACHINE_KEYS = new Set([
   'fontSize', 'lineHeight', 'pageFace', 'layout', 'readableWidth', 'zoom', 'spellcheck',
-  'showHidden', 'restoreSession', 'hideMdExt', 'editorMode',
+  'showHidden', 'hideMdExt', 'editorMode',
 ]);
 
 // Settings an older build wrote that mean nothing now: never answered, never written back.
-const RETIRED = new Set(['newPages']);
+const RETIRED = new Set(['newPages', 'restoreSession']);
 
 const machine = () => local.app('settings');
 

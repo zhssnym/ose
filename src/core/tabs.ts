@@ -152,15 +152,6 @@ export function nextAfterClose(id) {
   return rest[Math.min(Math.max(0, at), rest.length - 1)];
 }
 
-/** Replace the whole model (session restore). */
-export function replaceModel(recs, active) {
-  tabs = recs.slice();
-  closed = [];
-  mru = [];
-  activeId = null;
-  setActive(active || (tabs[0] && tabs[0].id) || null);
-}
-
 /**
  * Every route object the model holds — open tabs, closed tabs and the pending snapshot — passed
  * through `fn(route) -> route`, entry by entry, in place. `ose.route.repoint` uses it, so a

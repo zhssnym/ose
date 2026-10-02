@@ -87,7 +87,6 @@ test('the close fan-out goes through the gate; onChangeRequested', async () => {
 describe('the wave-2 facade (CONTRACT §4)', () => {
   it('has tabs, the session, the per-machine store and the new file calls', () => {
     for (const k of ['list', 'active', 'open', 'activate', 'close', 'closeOthers', 'move', 'reopenClosed', 'on']) expect(typeof ose.tabs[k], `tabs.${k}`).toBe('function');
-    for (const k of ['snapshot', 'restore']) expect(typeof ose.session[k], `session.${k}`).toBe('function');
     expect(typeof ose.local).toBe('function');
     expect(typeof ose.local.app).toBe('function');
     for (const k of ['get', 'set', 'flush']) expect(typeof ose.local('x')[k], `local().${k}`).toBe('function');
@@ -107,7 +106,7 @@ describe('the wave-2 facade (CONTRACT §4)', () => {
 
   it('the settings have their wave-2 keys and defaults (W5, W7, W8)', () => {
     const s = ose.settings.get();
-    expect(s).toMatchObject({ showHidden: false, restoreSession: false, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
+    expect(s).toMatchObject({ showHidden: false, hideMdExt: false, titleSync: false, trash: 'system', attachments: 'beside' });
     expect('newPages' in s).toBe(false);
   });
 

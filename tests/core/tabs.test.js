@@ -9,7 +9,7 @@
 //
 // Every test gets a fresh core (the router and the tab model keep module state).
 //
-// Depends on: core (src/core/router.ts, tabs.js, pagehost.js, session.js).
+// Depends on: core (src/core/router.ts, tabs.js, pagehost.js).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -212,48 +212,5 @@ describe('tabs', () => {
     expect(last.tabs.map((t) => t.route.path)).toEqual(['a.md', 'b.md']);
     expect(last.active).toBe(T.active().id);
     expect(typeof last.reason).toBe('string');
-  });
-});
-
-describe('session', () => {
-  it('a snapshot restores the same tabs, their histories and the active one, mounting one page', async () => {
-    const S = await import('../../src/core/session.ts');
-    await R.navigate(page('a.md'));
-    await R.navigate(page('b.md'));
-    await T.open(page('c.md'));
-    await T.open({ type: 'folder', path: 'notes' });
-    await T.activate(T.list()[1].id);
-    const snap = S.snapshot();
-    expect(snap).toMatchObject({ v: 1, active: 1 });
-    expect(snap.tabs.map((t) => t.stack.length)).toEqual([2, 1, 1]);
-    expect(JSON.parse(JSON.stringify(snap))).toEqual(snap);
-
-    // A fresh core, as after a restart.
-    vi.resetModules();
-    const fake = await import('./fake-bridge.js');
-    fake.reset({ 'a.md': '# a\n', 'b.md': '# b\n', 'c.md': '# c\n', 'notes/n.md': '# n\n' });
-    R = await import('../../src/core/router.ts');
-    T = await import('../../src/core/tabs.ts');
-    const P = await import('../../src/core/pagehost.ts');
-    const S2 = await import('../../src/core/session.ts');
-    main.innerHTML = '';
-    R.initRouter(main, { start: false });
-    host = makeHost();
-    P.setPageHost(host);
-
-    expect(await S2.restore(snap)).toBe(true);
-    expect(keys()).toEqual(['page:b.md', 'page:c.md', 'folder:notes']);
-    expect(here()).toBe('c.md');
-    expect(host.log.filter(([c]) => c === 'open')).toEqual([['open', 'c.md']]);
-    await T.activate(T.list()[0].id);
-    expect(R.canBack()).toBe(true);
-    await R.back();
-    expect(here()).toBe('a.md');
-  });
-
-  it('nothing usable restores nothing', async () => {
-    const S = await import('../../src/core/session.ts');
-    expect(await S.restore({ v: 1, at: 0, active: 0, tabs: [] })).toBe(false);
-    expect(await S.restore({ v: 99 })).toBe(false);
   });
 });

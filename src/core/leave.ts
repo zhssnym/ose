@@ -20,7 +20,6 @@ import { records, currentOf } from './tabs.ts';
 import { display } from './names.ts';
 import { flushState } from './state.ts';
 import { flushLocal } from './local.ts';
-import { flushSession } from './session.ts';
 import { logLine } from './log.ts';
 
 export type LeaveReason = 'close'|'reload'|'vault-change';
@@ -173,7 +172,7 @@ function refuse(reason: LeaveReason, why: string) {
  * 2. A handler that answers `false`, or rejects: `stayWindow()`, bus `window:refused`
  *    `{ reason }`, a sticky error toast with [Show] (and [Close anyway] for `close`). Answers
  *    false.
- * 3. Otherwise the session and the per-machine store are written; then, for every reason but
+ * 3. Otherwise the per-machine store is written; then, for every reason but
  *    `close`, the view on screen is unmounted and the state file flushed (a close does both in
  *    the router's own `closing` handler). Bus
  *    `window:leaving` `{ reason }`. Answers true, and the handlers stay frozen: the caller
@@ -194,9 +193,7 @@ export function leaveWindow(reason: LeaveReason): Promise<boolean> {
       problem = String((e && e.message) || e);
     }
     if (!ok) { refuse(why, problem); return false; }
-    // The session and the per-machine store are written before anything is unmounted, so the
-    // next start finds the tabs, the scroll and the selection exactly as they were left.
-    try { await flushSession({ live: true }); } catch (e) { console.error('[leave] session', e); }
+    // The per-machine store is written before anything is unmounted.
     try { await flushLocal(); } catch (e) { console.error('[leave] local', e); }
     if (why !== 'close') {
       const r = currentRoute();

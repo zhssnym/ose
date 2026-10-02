@@ -285,23 +285,6 @@ function rememberScroll() {
   while (caretMemory.size > MAX_CARET_MEMORY) caretMemory.delete(caretMemory.keys().next().value);
 }
 
-/** The live scroll offset of the route on screen, for the session. */
-export function liveScroll() {
-  return current && scrollEl ? { key: routeKey(current), top: scrollEl.scrollTop, tab: mountedTab } : null;
-}
-
-/**
- * The live selection of the folder on screen, for the session: `rememberScroll` only reads it
- * when the route is left, so without this a snapshot taken while the folder is up carries the
- * child selected on an earlier visit.
- */
-export function liveSelection() {
-  if (!current || current.type !== 'folder' || !mountedTab || !mountedView || typeof mountedView.selection !== 'function') return null;
-  let sel: any = null;
-  try { sel = mountedView.selection(); } catch (e) { console.warn('[router] folder selection', e); }
-  return { key: routeKey(current), name: typeof sel === 'string' && sel ? sel : null, tab: mountedTab };
-}
-
 /**
  * Put the scroll back after the editor, the folder or the view has mounted. One frame later,
  * because a view lays itself out on mount and the editor's node views settle after `open`
@@ -1111,18 +1094,6 @@ export function canReopenClosed() { return T.closedRecords().length > 0; }
 export function reopenCurrent() {
   if (!T.activeRecord()) return Promise.resolve(true);
   return show({ reason: 'reload' });
-}
-
-/**
- * Session restore (./session.js): replace the whole model with `recs` and show the active one.
- * Only the active tab mounts; the rest are rows in the strip until they are brought forward.
- * False when the page on screen refused to be left (nothing changed then).
- */
-export function restoreTabs(recs: TabRecord[], activeId: string, { focus }: { focus?: boolean; } = {}): Promise<boolean> {
-  if (!recs.length) return Promise.resolve(false);
-  T.beginChange();
-  T.replaceModel(recs, activeId);
-  return show({ focus, reason: 'restore' });
 }
 
 /* ------------------------------------------------------------------- re-pointing (C6) */

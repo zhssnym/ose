@@ -1,7 +1,7 @@
 // The per-machine store (docs/CORE.md `ose.local`, W5, M26). Two objects outside the vault,
-// kept by the host: `vault`, for this machine and the open vault (the session, recent files,
+// kept by the host: `vault`, for this machine and the open vault (recent files,
 // the sidebar, per-folder sort, the side panel, one-time notices), and `app`, for this machine
-// and every vault (reading comfort, Show hidden, the restore switch). `.ose/state.json` keeps
+// and every vault (reading comfort, Show hidden). `.ose/state.json` keeps
 // only what belongs to the vault and travels with it: pins, the planner's paths, vault settings.
 //
 // Both objects are read once in `ose.ready` and written back debounced, the way `state.ts`

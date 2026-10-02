@@ -29,7 +29,6 @@ import { KEYMAP, BODY_KEYS, shortcutFor, bindKey, comboLabel, initKeys } from '.
 import { watch } from './watch.ts';
 import { setPageHost, setFolderHost, setPageList, pageList } from './pagehost.ts';
 import * as tabs from './tabs.ts';
-import * as session from './session.ts';
 import { local, loadLocal, flushLocal, migrateLocal } from './local.ts';
 import * as journal from './journal.ts';
 import * as focusLib from './focus.ts';
@@ -171,7 +170,6 @@ const ready = (async () => {
   // file and belongs to the machine now: recent files, the sidebar, the reading settings.
   try { await loadLocal(); } catch (e) { console.warn('[core] local', e); }
   try { migrateLocal(stateCache(), [...settingsCore.MACHINE_KEYS]); } catch (e) { console.warn('[core] local migration', e); }
-  session.initSession();
   try { focusLib.loadFocus(stateCache()); focusLib.initFocus(); } catch (e) { console.warn('[core] focus', e); }
   try { await readRoot(); } catch (e) { console.warn('[core] rootInfo', e); }
   // What the OS asks this window to open: taken once the first surface is up (./opens.js).
@@ -525,12 +523,6 @@ export const ose = {
     move: (id, index) => tabs.move(id, index),
     reopenClosed: () => tabs.reopenClosed(),
     on: (fn) => tabs.on(fn),
-  },
-
-  /** Session restore (H19): the tabs and their histories, per machine and per vault. */
-  session: {
-    snapshot: () => session.snapshot(),
-    restore: (s?) => session.restore(s),
   },
 
   /**
