@@ -261,29 +261,3 @@ export function countWords(md) {
   const m = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’.\-]*/gu);
   return m ? m.length : 0;
 }
-
-// Spellcheck language. The vault is French and English mixed, often in the same folder, so
-// the language is a property of the document, not of the app. Counting a handful of function
-// words is enough: they are frequent, short, and disjoint between the two languages. French
-// wins ties because the paperwork, the school notes and the family files are French.
-const FR_WORDS = ['le', 'la', 'les', 'des', 'et', 'est', 'une', 'pour', 'dans', 'du', 'que', 'qui', 'pas', 'sur'];
-const EN_WORDS = ['the', 'and', 'of', 'to', 'is', 'for', 'with', 'that', 'this', 'are', 'it', 'in'];
-
-function countHits(words, list) {
-  let n = 0;
-  for (const w of words) if (list.includes(w)) n++;
-  return n;
-}
-
-/** 'fr' | 'en' for a markdown body. Default 'fr'. */
-export function detectLang(md) {
-  const words = String(md || '')
-    .toLowerCase()
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`]*`/g, ' ')
-    .match(/[a-zà-ÿ']+/g) || [];
-  const sample = words.slice(0, 4000);
-  const en = countHits(sample, EN_WORDS);
-  const fr = countHits(sample, FR_WORDS);
-  return en > fr ? 'en' : 'fr';
-}

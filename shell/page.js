@@ -230,9 +230,3 @@ export async function initPageHost() {
   // sidebar knows the tree and the focused folder; the core does not.
   ose.setPageList(() => allPages());
 }
-
-/**
- * The page on screen, for a shell file that needs to ask. Null on a view or the home. It is a
- * `markdownPage` handle or a `mediaPage` one: `page.media` says which.
- */
-export const currentPage = () => page;

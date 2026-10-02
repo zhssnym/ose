@@ -63,7 +63,6 @@ export function setPageHost(next) {
 }
 
 export function pageHost() { return host; }
-export function hasPageHost() { return !!host; }
 
 let folders: any = null;
 

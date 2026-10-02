@@ -206,12 +206,6 @@ export function bindKey(combo, commandId, { scope = 'window' } = {}) {
   };
 }
 
-/** What is bound to a combo right now: a binding, else the default, else null. */
-export function bindingFor(combo) {
-  index();
-  return byCombo!.get(normalizeCombo(combo)) || null;
-}
-
 /**
  * `commands.register({ shortcut })` is a binding, not a printed hint: the chord fires the command
  * and `shortcutFor` answers it. It is read off the registry here rather than bound inside

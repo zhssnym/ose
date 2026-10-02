@@ -123,9 +123,6 @@ export function local(key: string) { return handle(scopes.vault, key); }
  */
 local.app = (key: string) => handle(scopes.app, key);
 
-/** The whole vault-scope object, read only (the migration below, and tests). */
-export function localCache(which = 'vault') { return scopes[which] ? scopes[which].cache : {}; }
-
 /**
  * The first time a machine opens a vault after the upgrade, what used to live in the synced
  * `.ose/state.json` and now belongs to the machine is copied over: the recent files, the

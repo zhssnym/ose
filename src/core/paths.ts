@@ -96,17 +96,3 @@ export function assetPath(path: string) {
   return String(path ?? '').replace(/^\.?\//, '').split('/').map(encodeURIComponent).join('/');
 }
 
-/**
- * A native absolute path (or an `abs:` one) in the `abs:` form: forward slashes, the drive letter
- * upper case, no `\\?\` prefix. Null when it is not absolute.
- */
-export const absFrom = (native: string): string | null => {
-  let s = String(native ?? '').trim();
-  if (s.startsWith(ABS)) s = s.slice(ABS.length);
-  s = s.replace(/\\/g, '/');
-  if (s.startsWith('//?/UNC/')) s = '//' + s.slice(8);
-  else if (s.startsWith('//?/')) s = s.slice(4);
-  if (/^[A-Za-z]:\//.test(s)) s = s.charAt(0).toUpperCase() + s.slice(1);
-  else if (!s.startsWith('/')) return null;
-  return ABS + s.replace(/\/+$/, '');
-};
