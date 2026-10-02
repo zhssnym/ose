@@ -295,10 +295,9 @@
 }
 .mo-lab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Four cell states: off (not due, not started, to come) a solid square; skip (due, not done)
-   a ring on the page ground; on the accent; today the accent ring. */
+   a ring on the page ground; on the accent; today the accent ring. The system's own tooltip
+   (title) names the day: a drawn one would stick out of the scrolling grid and be cut off. */
 .mo-c { min-width: 0; aspect-ratio: 1; background: var(--bg-3); }
-.mo-c[data-tip]::after, .mo-loss[data-tip]::after { max-width: 0; overflow: hidden; }
-.mo-c[data-tip]:hover::after, .mo-loss[data-tip]:hover::after { max-width: none; overflow: visible; }
 .mo-c.skip { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
 .mo-c.on { background: var(--accent); }
 .mo-c.today { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -307,7 +306,6 @@
   display: flex; align-items: center; justify-content: flex-end; min-width: 0;
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
 }
-.mo-loss[data-tip]::after { left: auto; right: 0; transform: none; }
 .mo-sum {
   grid-column: 1 / -1; margin-top: var(--sp-2); text-align: right;
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);

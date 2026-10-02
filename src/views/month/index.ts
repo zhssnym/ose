@@ -129,11 +129,11 @@ export function createMonthView(ose: any, store: any): any {
         for (const d of days) {
           const v = dayVerdict(s, d, log, today);
           if (v.tally) { t[v.tally]++; month[v.tally]++; }
-          out.push(`<div class="mo-c ${v.cls}${isSameDay(d, today) ? ' today' : ''}" data-tip="${esc(s.name)} · ${ddmm(d)} · ${v.state}"></div>`);
+          out.push(`<div class="mo-c ${v.cls}${isSameDay(d, today) ? ' today' : ''}" title="${esc(s.name)} · ${ddmm(d)} · ${v.state}"></div>`);
         }
         const due = t.done + t.lost + t.open;
         const loss = due && t.lost ? `−${Math.round((100 * t.lost) / due)}%` : '';
-        out.push(`<div class="mo-loss" data-tip="${tallyText(t)}">${loss}</div>`);
+        out.push(`<div class="mo-loss" title="${tallyText(t)}">${loss}</div>`);
       }
       if (month.done + month.lost + month.open) {
         const p = percentages(month);
