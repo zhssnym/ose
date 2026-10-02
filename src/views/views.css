@@ -541,14 +541,12 @@ button.mo-dh:hover { color: var(--fg); }
   --c: var(--c-rest);
   display: flex; align-items: center; gap: var(--sp-3); width: 100%;
   padding: var(--sp-2) var(--sp-2) var(--sp-2) 0; border: 0; border-bottom: 1px solid var(--border);
-  background: none; font: inherit; font-size: var(--fs-ui); color: var(--fg); text-align: left; cursor: pointer;
+  font-size: var(--fs-ui); color: var(--fg);
 }
 .td-blk:last-child { border-bottom: 0; }
 .td-blk.t-class { --c: var(--c-class); } .td-blk.t-maths { --c: var(--c-maths); } .td-blk.t-nsi { --c: var(--c-nsi); }
 .td-blk.t-hum { --c: var(--c-hum); } .td-blk.t-bilan { --c: var(--c-bilan); } .td-blk.t-lunch { --c: var(--c-lunch); }
 .td-blk.t-work { --c: var(--c-work); } .td-blk.t-sleep { --c: var(--c-sleep); }
-.td-blk:hover .td-name { color: var(--fg); }
-.td-blk:hover .check { border-color: var(--accent); }
 .td-bar { flex: none; width: 3px; height: 1.1em; background: var(--c); border-radius: 1px; }
 .td-time { width: 7.5rem; flex: none; color: var(--fg-3); }
 .td-name { min-width: 0; }
@@ -558,7 +556,6 @@ button.mo-dh:hover { color: var(--fg); }
 .td-blk.live .td-name { font-weight: 600; }
 .td-blk.live .td-time { color: var(--accent-ink); }
 .td-blk.past:not(.done) { opacity: .5; }
-.td-blk.done .td-name { color: var(--fg-3); text-decoration: line-through; }
 
 .td-box { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
 

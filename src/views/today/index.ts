@@ -16,7 +16,7 @@ import {
 } from '../shared/dates.ts';
 import { chooseTimetable } from '../shared/timetable.ts';
 import {
-  applies, blockId, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
+  applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
 import { groupsForDay, PRIORITY_RANK, taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
@@ -100,7 +100,7 @@ export function createTodayView(ose: any, store: any): any {
       <div class="td-now" data-el="nowbox" hidden></div>
       <div class="td-grid">
         <section class="td-day">
-          <div class="label">The day <span class="td-count" data-el="daycount"></span></div>
+          <div class="label">The day</div>
           <div class="td-list" data-el="tl"></div>
         </section>
         <div class="td-side">
@@ -138,23 +138,16 @@ export function createTodayView(ose: any, store: any): any {
       box.classList.remove('is-empty');
       const d = dayIndex(st.cursor);
       const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s))).sort((a, b) => a.sm - b.sm);
-      const count = $('daycount');
-      if (!list.length) { box.innerHTML = note('Nothing in the timetable for this day'); if (count) count.textContent = ''; tick(); return; }
-      // The day as a checklist of its blocks: a block is ticked where it is listed.
-      let done = 0;
+      if (!list.length) { box.innerHTML = note('Nothing in the timetable for this day'); tick(); return; }
+      // The day, block by block: what it is, when and where. Confirming is the Systems box's.
       box.innerHTML = list.map((e) => {
-        const id = blockId(e.t, e.sm);
-        const dn = isDone(id, st.cursor);
-        if (dn) done++;
-        return `<button type="button" class="td-blk t-${e.type}${dn ? ' done' : ''}" data-block="${esc(id)}" data-s="${e.sm}" data-e="${e.em}" aria-pressed="${dn}">
-          <span class="check${dn ? ' on' : ''}"></span>
+        return `<div class="td-blk t-${e.type}" data-s="${e.sm}" data-e="${e.em}">
           <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
           <span class="td-bar"></span>
           <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
           <span class="td-nowtag">now</span>
-        </button>`;
+        </div>`;
       }).join('');
-      if (count) { count.textContent = `${done} of ${list.length}`; count.classList.toggle('ok', done === list.length); }
       tick();
     }
 
@@ -221,7 +214,6 @@ export function createTodayView(ose: any, store: any): any {
       const firstBefore = st.log.first.get(name);
       if (!firstBefore || date < firstBefore) st.log.first.set(name, date);
       renderSystems();
-      renderTimeline();
       try {
         await ose.files.appendLine(st.logFile, JSON.stringify(checkRecord(st.cursor, name, next)));
       } catch (err) {
@@ -230,7 +222,6 @@ export function createTodayView(ose: any, store: any): any {
         if (prev === undefined) st.log.done.delete(k); else st.log.done.set(k, prev);
         if (firstBefore === undefined) st.log.first.delete(name); else st.log.first.set(name, firstBefore);
         renderSystems();
-        renderTimeline();
         toast(`The check was not written: ${(e && e.message) || e}`, 'err');
       } finally {
         st.busy = false;
@@ -427,9 +418,6 @@ export function createTodayView(ose: any, store: any): any {
     function onClick(ev) {
       const sys = ev.target.closest('[data-system]');
       if (sys) { toggleSystem(sys.dataset.system); return; }
-      // a block of the strip is ticked where it is drawn
-      const blk = ev.target.closest('[data-block]');
-      if (blk) { toggleSystem(blk.dataset.block); return; }
       const tg = ev.target.closest('[data-toggle]');
       if (tg) { onToggleTask(tg.dataset.toggle); return; }
       const more = ev.target.closest('[data-more]');

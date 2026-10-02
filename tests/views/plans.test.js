@@ -164,21 +164,3 @@ describe('checkRecord', () => {
     expect(JSON.stringify(r)).not.toMatch(/[\r\n]/);
   });
 });
-
-describe('a timetable block is a system', () => {
-  it('a block row is due where its blocks are, and done when every block of its name that day is ticked', () => {
-    // Wednesday 2026-09-30 (d = 2): two Maths blocks; Thursday none.
-    const events = [{ d: 2, sm: 8 * 60, t: 'Maths' }, { d: 2, sm: 17 * 60 + 20, t: 'Maths' }];
-    const [row] = p.blockRows(events, () => true);
-    const wed = new Date(2026, 8, 30), thu = new Date(2026, 9, 1), today = new Date(2026, 9, 3);
-    expect(row.ids(wed)).toEqual(['Maths 08h00', 'Maths 17h20']);
-    expect(row.ids(thu)).toEqual([]);
-    const one = p.parseSystemsLog(`${JSON.stringify(p.checkRecord(wed, 'Maths 08h00', true))}\n`);
-    expect(p.dayVerdict(row, wed, one, today).tally).toBe('lost');
-    const both = p.parseSystemsLog(`${JSON.stringify(p.checkRecord(wed, 'Maths 08h00', true))}\n${JSON.stringify(p.checkRecord(wed, 'Maths 17h20', true))}\n`);
-    expect(p.dayVerdict(row, wed, both, today).tally).toBe('done');
-    expect(p.dayVerdict(row, thu, both, today).tally).toBe(null);
-    // a block's ticks are never taken for a habit
-    expect(p.systemsFor(null, both, wed)).toEqual([]);
-  });
-});
