@@ -14,6 +14,7 @@ import { IMAGE_DATA_TYPE, imageBlockSchema } from '@milkdown/kit/component/image
 import { NodeSelection, Plugin } from '@milkdown/kit/prose/state';
 import { bridge, commands, copyText } from './host.ts';
 import { prompt, toast } from './deps.ts';
+import { openLightbox } from './lightbox.ts';
 import * as P from './paths.ts';
 
 const NODE = 'image-block';
@@ -264,19 +265,94 @@ export function plugins(ctx, o) {
       sync = () => { try { syncBlocks(view); } catch (e) { console.error('[editor] image sync', e); } };
       // The node views mount a frame after the editor does, so the first pass waits for them.
       requestAnimationFrame(sync);
-      const onDown = (e) => resizeFrom(view, e);
+      const zoom = enlarger(view);
+      const onDown = (e) => { zoom.down(e); resizeFrom(view, e); };
       // Capture, on the editor's own element: the gesture has to be taken away from Crepe's
       // handler, which is bound to the handle itself and would otherwise run first.
       view.dom.addEventListener('pointerdown', onDown, true);
+      view.dom.addEventListener('click', zoom.click);
+      view.dom.addEventListener('keydown', zoom.key, true);
       return {
         update: (v, prev) => { if (v.state.doc !== prev.doc) requestAnimationFrame(sync); },
-        destroy: () => { sync = () => {}; view.dom.removeEventListener('pointerdown', onDown, true); },
+        destroy: () => {
+          sync = () => {};
+          view.dom.removeEventListener('pointerdown', onDown, true);
+          view.dom.removeEventListener('click', zoom.click);
+          view.dom.removeEventListener('keydown', zoom.key, true);
+        },
       };
     },
     props: {
       handlePaste: (view, event) => webImagePaste(view, event),
     },
   })];
+}
+
+// ---------------------------------------------------------------------------
+// the lightbox
+
+/** What the lightbox says under the picture: the alt text, else the file's name. */
+function captionOf(node) {
+  const alt = String(node.attrs.alt || '').trim();
+  if (alt) return alt;
+  const src = String(node.attrs.src || '');
+  if (!src || src.startsWith('data:') || src.startsWith('blob:')) return '';
+  const name = P.basename(src.split(/[?#]/)[0] || '');
+  try { return decodeURIComponent(name); } catch { return name; }
+}
+
+/** The image-block's `<img>` when it has a picture to show (not a missing one, not empty). */
+function shownImage(host): HTMLImageElement | null {
+  if (!(host instanceof HTMLElement) || host.classList.contains('ed-missing')) return null;
+  const img = host.querySelector('.image-wrapper > img');
+  if (!(img instanceof HTMLImageElement) || !img.complete || !img.naturalWidth) return null;
+  return img;
+}
+
+function enlarge(view, host) {
+  const img = shownImage(host);
+  if (!img) return false;
+  const live = nodeAtDom(view, host);
+  openLightbox(img.currentSrc || img.src, live ? captionOf(live.node) : img.alt);
+  return true;
+}
+
+/**
+ * A click on the picture itself enlarges it. ProseMirror has already made the image the
+ * selected node on the way down, so it stays selected behind the lightbox and, once that
+ * closes (the focus goes back to the editor), Delete, a drag or the image commands act on it
+ * as before. Only a plain click counts: one that starts on the `<img>` and ends there without
+ * travelling, so a drag of the block, a resize from the handle, the caption toggle, the
+ * caption field and a shift/mod click keep doing what they did. With the image selected,
+ * Enter opens it from the keyboard.
+ */
+function enlarger(view) {
+  let downAt: { img: Element; x: number; y: number; } | null = null;
+  return {
+    down: (e) => {
+      const t = e.target;
+      downAt = t instanceof HTMLImageElement && t.closest('.milkdown-image-block') && e.button === 0
+        ? { img: t, x: e.clientX, y: e.clientY }
+        : null;
+    },
+    click: (e) => {
+      const at = downAt;
+      downAt = null;
+      if (!at || e.target !== at.img || e.button !== 0) return;
+      if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (Math.abs(e.clientX - at.x) > 4 || Math.abs(e.clientY - at.y) > 4) return;
+      if (enlarge(view, at.img.closest('.milkdown-image-block'))) e.preventDefault();
+    },
+    key: (e) => {
+      // The editor's own key only: Enter in the caption field is the caption's.
+      if (e.target !== view.dom || e.key !== 'Enter' || e.isComposing || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      const sel = view.state.selection;
+      if (!(sel instanceof NodeSelection) || sel.node.type.name !== NODE) return;
+      if (!enlarge(view, view.nodeDOM(sel.from))) return;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  };
 }
 
 /**
