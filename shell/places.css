@@ -58,11 +58,8 @@
 :root[data-os="mac"] .tb-corner { padding-left: 5rem; }
 .shell.no-sidebar .tb-corner { width: auto; padding: 0 var(--sp-1); }
 :root[data-os="mac"] .shell.no-sidebar .tb-corner { padding-left: 5rem; }
-.tb-vault {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: var(--fs-ui); font-weight: 600; color: var(--fg);
-}
-.shell.no-sidebar .tb-vault { display: none; }
+.tb-corner .tb-space { min-width: 0; }
+.shell.no-sidebar .tb-corner .tb-mark, .shell.no-sidebar .tb-corner .tb-space { display: none; }
 .tb-fold {
   width: 1.75rem; height: 1.75rem; flex: none;
   display: grid; place-items: center;
@@ -192,22 +189,23 @@
    It takes what the row has and scrolls sideways past that. */
 .titlebar .tabs {
   height: 100%; flex: 0 1 auto; min-width: 0;
-  align-items: stretch; gap: 0; padding: 0;
+  align-items: center; gap: var(--sp-1);
+  padding: 0 var(--sp-2);
   background: transparent; border-bottom: 0;
 }
-/* Each tab a flat cell the bar's full height, a hairline after it; the open one lighter. */
+/* Each tab a small card; the open one on a lighter ground. */
 .titlebar .tab {
-  height: 100%; max-width: 40rem;
-  padding: 0 var(--sp-2) 0 var(--sp-3);
-  border-radius: 0; border-right: 1px solid var(--border);
+  height: 1.5rem; max-width: 40rem;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  border-radius: var(--radius);
 }
-.titlebar .tab.on { background: var(--bg); color: var(--fg); box-shadow: none; }
+.titlebar .tab.on { background: var(--bg-3); box-shadow: none; }
 .titlebar .tab .tab-x { opacity: 1; }
-/* The + is a cell of its own after the last tab. */
+/* The + after the last tab. */
 .tb-tab-add {
-  flex: none; align-self: stretch; width: 2.25rem;
+  flex: none; width: 1.5rem; height: 1.5rem;
   display: grid; place-items: center;
-  color: var(--fg-3); border-right: 1px solid var(--border);
+  color: var(--fg-3); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .tb-tab-add:hover { background: var(--bg-3); color: var(--fg); }

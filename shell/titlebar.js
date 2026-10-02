@@ -1,4 +1,4 @@
-// The window's title bar. The corner over the sidebar is the sidebar's: the vault's name and,
+// The window's title bar. The corner over the sidebar is the sidebar's: the mark and,
 // at its right edge, the sidebar's toggle; folded, only the toggle is left. Then the tabs (tabs.js
 // draws them; layout.js puts the strip here) as flat cells, and their +. The window has no system
 // title bar: its empty parts move the window (`data-tauri-drag-region`; a double click
@@ -8,7 +8,8 @@
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
-import { clean, vaultName } from './paths.js';
+import { clean } from './paths.js';
+import { LOGO } from './logo.js';
 
 const { bus, commands, route } = ose;
 const currentRoute = () => route.current();
@@ -35,7 +36,8 @@ export function initTitlebar(node) {
   el.className = 'titlebar';
   el.innerHTML = `
     <div class="tb-corner" data-tauri-drag-region>
-      <span class="tb-vault" data-tauri-drag-region></span>
+      <span class="tb-mark" title="Ose" data-tauri-drag-region>${LOGO}</span>
+      <span class="tb-space" data-tauri-drag-region></span>
       <button class="tb-fold" type="button">${SIDE_GLYPH}</button>
     </div>
     <span class="tb-tabs-slot"></span>
@@ -45,7 +47,7 @@ export function initTitlebar(node) {
   el.setAttribute('data-tauri-drag-region', '');
   wireWindowButtons(el);
 
-  // The corner over the sidebar is the sidebar's: the vault's name, and at its right edge the
+  // The corner over the sidebar is the sidebar's: the mark, and at its right edge the
   // sidebar's toggle, which runs `app.sidebar` like Ctrl+\. Folded, the toggle is all that is
   // left of it, before the tabs.
   // Every control below was written just above, so none of them is null.
@@ -59,10 +61,6 @@ export function initTitlebar(node) {
   const addEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-tab-add'));
   addEl.addEventListener('click', () => commands.run('tab.new'));
 
-  const vaultEl = /** @type {HTMLElement} */ (el.querySelector('.tb-vault'));
-  const paintVault = () => { vaultEl.textContent = vaultName(); vaultEl.title = (ose.vault && ose.vault.root) || vaultName(); };
-  paintVault();
-  bus.on('booted', paintVault);
 
   bus.on('route', () => { setState(null); });
   // The mark follows the page in front only: the tabs carry every other page's (H8).
