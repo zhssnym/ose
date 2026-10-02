@@ -83,6 +83,9 @@ const ready: Promise<Adapter> = (async () => {
   if (a.platform) platform.os = a.platform;
   return a;
 })();
+// Outside the app (the unit tests) there is no host: every call says so when it awaits this;
+// the start itself is not an unhandled error.
+ready.catch(() => {});
 
 /**
  * One host command: `adapter.invoke(name, args)`, every refusal a HostError.

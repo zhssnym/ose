@@ -32,7 +32,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "app", "dmg"],
+    "targets": [
+      "nsis",
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -70,7 +74,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZBMUM0RTMyMTc0MkY5ODkKUldTSitVSVhNazRjYXNoSG1FZWRVdm9iRHBKVVI3KzJONFZNMGtybGhBclFuZkNEaG9ZL3E3TnAK",
       "endpoints": [
         "https://github.com/zhssnym/ose/releases/latest/download/latest.json"
       ],
