@@ -41,6 +41,9 @@ export const DEFAULTS = {
   restoreSession: false,
   hideMdExt: false,
   attachments: 'beside',
+  // Where the app opens (shell/start.js): 'empty' (the empty page), 'journal' (today's), or a
+  // vault path of a page.
+  startPage: 'empty',
   trash: 'system',
   titleSync: false,
   // How a markdown file opens the first time (X1): 'rich' or 'source'. A file the user

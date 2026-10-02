@@ -13,6 +13,7 @@ import { icon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
 import { openInNewTab } from './tabs.js';
 import { LOGO } from './logo.js';
+import { HOME } from './start.js';
 import { clean, baseName, dirName, titleOf, vaultName, isOutside, outsideLabel } from './paths.js';
 
 const { bus, commands, route } = ose;
@@ -35,9 +36,14 @@ const display = (path) => titleOf(path) || baseName(path);
  * root is one click away from anywhere; a folder segment carries the folder it opens.
  */
 function partsOf(r) {
-  /** @type {{text: string, folder?: string, cur?: boolean, outside?: boolean, path?: string}[]} */
-  const parts = [{ text: vaultName(), folder: '' }];
+  /** @typedef {{text: string, folder?: string, home?: boolean, cur?: boolean, outside?: boolean, path?: string}} Part */
+  /** @type {Part} */
+  const vault = { text: vaultName(), home: true, cur: false };
+  /** @type {Part[]} */
+  const parts = [vault];
   if (!r) return parts;
+  // The empty page: the vault's name alone.
+  if (r.type === 'view' && r.name === 'home') { vault.cur = true; return parts; }
   if (r.type === 'view') {
     const v = ose.views.get(r.name);
     parts.push({ text: (v && v.title) || r.name, cur: true });
@@ -77,10 +83,16 @@ function renderAddress(r) {
       s.textContent = '›';
       crumbs.appendChild(s);
     }
-    const b = document.createElement(p.folder != null ? 'button' : 'span');
+    const b = document.createElement(p.folder != null || p.home ? 'button' : 'span');
     b.className = 'tb-crumb' + (p.cur ? ' cur' : '') + (p.outside ? ' tb-outside' : '');
     b.textContent = p.text;
-    if (p.folder != null) {
+    if (p.home) {
+      // The vault's name goes to the empty page.
+      b.setAttribute('type', 'button');
+      b.dataset.home = '1';
+      b.title = vaultName();
+      if (p.cur) b.setAttribute('aria-current', 'page');
+    } else if (p.folder != null) {
       b.setAttribute('type', 'button');
       b.dataset.folder = p.folder;
       b.title = p.folder ? `Open ${p.folder}` : `Open ${vaultName()}`;
@@ -135,6 +147,8 @@ export function initTitlebar(node) {
 
   // A folder segment opens its folder.
   addrEl.addEventListener('click', (e) => {
+    const home = e.target instanceof Element ? e.target.closest('.tb-crumb[data-home]') : null;
+    if (home) { if (!home.classList.contains('cur')) void route.navigate(HOME); return; }
     /** @type {HTMLElement|null} */
     const b = e.target instanceof Element ? e.target.closest('.tb-crumb[data-folder]') : null;
     if (b && !b.classList.contains('cur')) {
