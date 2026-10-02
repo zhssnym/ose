@@ -1,18 +1,14 @@
-// The window's title bar, which is the app's toolbar: the sidebar's fold, the app mark, back
-// and forward, then the tabs (tabs.js draws them; layout.js puts the strip here) and their +. The window has no
-// system title bar: its empty parts move the window (`data-tauri-drag-region`; a double click
+// The window's title bar. The corner over the sidebar is the sidebar's: the vault's name and,
+// at its right edge, the sidebar's toggle; folded, only the toggle is left. Then the tabs (tabs.js
+// draws them; layout.js puts the strip here) as flat cells, and their +. The window has no system
+// title bar: its empty parts move the window (`data-tauri-drag-region`; a double click
 // maximises), and the window buttons are drawn here on Windows and Linux. On macOS the system's
 // traffic lights sit over the row's left end, which leaves them room.
-//
-// The path bar (M21): the place on screen as segments — the vault's name, each folder, then
-// the file — and every folder segment is a button that opens that folder (Ctrl+click: a new
-// tab). A page outside the vault reads "Outside the vault", its folder, then its name.
 
 import { ose } from 'ose:core';
 import { icon } from 'ose:ui';
 import { sidebarVisible } from './layout.js';
-import { LOGO } from './logo.js';
-import { clean } from './paths.js';
+import { clean, vaultName } from './paths.js';
 
 const { bus, commands, route } = ose;
 const currentRoute = () => route.current();
@@ -21,9 +17,13 @@ let el = null;
 /** The save dot: drawn by the status bar (statusbar.js), kept current from here. */
 const dot = () => /** @type {HTMLElement|null} */ (document.querySelector('.tb-dirty'));
 let foldEl = null;
-let navEls = null;
 
 /* ------------------------------------------------------------------ build */
+
+// The sidebar's toggle: a window with its left panel, the panel filled while the sidebar shows.
+const SIDE_GLYPH = '<svg viewBox="0 0 16 16" aria-hidden="true">'
+  + '<rect class="tb-side-fill" x="2.25" y="2.75" width="3.75" height="10.5"/>'
+  + '<rect x="2.25" y="2.75" width="11.5" height="10.5"/><path d="M6 2.75v10.5"/></svg>';
 
 /**
  * Build the title bar into `node`: every control, the address bar and its command, and the
@@ -34,22 +34,20 @@ export function initTitlebar(node) {
   el = node;
   el.className = 'titlebar';
   el.innerHTML = `
-    <button class="tb-fold" type="button">${icon('chevron')}</button>
-    <div class="tb-mark" title="Ose" data-tauri-drag-region>${LOGO}</div>
-    <div class="tb-nav">
-      <button class="tb-nav-btn" data-nav="back" type="button">${icon('back')}</button>
-      <button class="tb-nav-btn" data-nav="forward" type="button">${icon('forward')}</button>
+    <div class="tb-corner" data-tauri-drag-region>
+      <span class="tb-vault" data-tauri-drag-region></span>
+      <button class="tb-fold" type="button">${SIDE_GLYPH}</button>
     </div>
     <span class="tb-tabs-slot"></span>
-    <button class="tb-nav-btn tb-tab-add" type="button" title="New tab" aria-label="New tab">${icon('plus')}</button>
+    <button class="tb-tab-add" type="button" title="New tab" aria-label="New tab">${icon('plus')}</button>
     <span class="tb-space" data-tauri-drag-region></span>
     ${windowButtons()}`;
   el.setAttribute('data-tauri-drag-region', '');
   wireWindowButtons(el);
 
-  // The sidebar's one control: the far-left corner of the title bar, at the sidebar's own x,
-  // in the same place whether the sidebar is open or folded. Only the glyph turns, and the
-  // title says which way it goes. It runs `app.sidebar`, the same command Ctrl+\ runs.
+  // The corner over the sidebar is the sidebar's: the vault's name, and at its right edge the
+  // sidebar's toggle, which runs `app.sidebar` like Ctrl+\. Folded, the toggle is all that is
+  // left of it, before the tabs.
   // Every control below was written just above, so none of them is null.
   foldEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-fold'));
   foldEl.addEventListener('click', () => commands.run('app.sidebar'));
@@ -61,28 +59,12 @@ export function initTitlebar(node) {
   const addEl = /** @type {HTMLButtonElement} */ (el.querySelector('.tb-tab-add'));
   addEl.addEventListener('click', () => commands.run('tab.new'));
 
-  // Back and forward, where every browser and every file manager puts them (N45, L23): the
-  // tab in front's own history (M23).
-  navEls = {
-    back: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="back"]')),
-    forward: /** @type {HTMLButtonElement} */ (el.querySelector('[data-nav="forward"]')),
-  };
-  const titleNav = () => {
-    for (const name of ['back', 'forward']) {
-      const b = navEls[name];
-      const label = name === 'back' ? 'Back' : 'Forward';
-      b.title = label;
-      b.setAttribute('aria-label', label);
-    }
-  };
-  for (const [name, b] of Object.entries(navEls)) {
-    b.addEventListener('click', () => commands.run('app.' + name));
-  }
-  titleNav();
-  updateNav();
+  const vaultEl = /** @type {HTMLElement} */ (el.querySelector('.tb-vault'));
+  const paintVault = () => { vaultEl.textContent = vaultName(); vaultEl.title = (ose.vault && ose.vault.root) || vaultName(); };
+  paintVault();
+  bus.on('booted', paintVault);
 
-  bus.on('route', () => { updateNav(); setState(null); });
-  bus.on('tabs', () => updateNav());
+  bus.on('route', () => { setState(null); });
   // The mark follows the page in front only: the tabs carry every other page's (H8).
   const mine = (d) => {
     const r = currentRoute();
@@ -112,6 +94,7 @@ function setState(d) {
 /** The fold button's two states: the glyph is CSS off `.no-sidebar`, the words are here. */
 function setSidebarShown(shown) {
   if (!foldEl) return;
+  foldEl.classList.toggle('on', !!shown);
   const what = shown ? 'Hide sidebar' : 'Show sidebar';
   foldEl.title = what;
   foldEl.setAttribute('aria-label', what);
@@ -126,13 +109,6 @@ export function setDirty(v) {
   const dirtyEl = dot();
   if (!dirtyEl || dirtyEl.classList.contains('err')) return;
   dirtyEl.hidden = !v;
-}
-
-/** Disabled when there is nowhere to go in the tab in front: the buttons say what the chords knew. */
-export function updateNav() {
-  if (!navEls) return;
-  navEls.back.disabled = !route.canBack();
-  navEls.forward.disabled = !route.canForward();
 }
 
 /* ------------------------------------------------------------------ the window buttons */

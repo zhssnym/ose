@@ -11,13 +11,13 @@
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 0 0 0 var(--sp-3);
+  padding: 0;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
 }
 /* macOS: the system's traffic lights sit over the row's left end. */
-:root[data-os="mac"] .titlebar { padding-left: 5rem; padding-right: var(--sp-3); }
+:root[data-os="mac"] .titlebar { padding-right: var(--sp-3); }
 .tb-space { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
 
 /* The window buttons (Windows, Linux): flat, the bar's full height, the close turning red. */
@@ -46,19 +46,33 @@
    sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
    inside the padding the bar already had, where the sidebar begins. Only the glyph turns —
    pointing left at an open sidebar, right at a folded one. */
+/* The corner over the sidebar: as wide as the sidebar, its right border carried up, the vault's
+   name and the toggle. Folded, it is the toggle alone, before the tabs. */
+.tb-corner {
+  flex: none; align-self: stretch; box-sizing: border-box;
+  width: var(--sidebar-w);
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  border-right: 1px solid var(--border);
+}
+:root[data-os="mac"] .tb-corner { padding-left: 5rem; }
+.shell.no-sidebar .tb-corner { width: auto; padding: 0 var(--sp-1); }
+:root[data-os="mac"] .shell.no-sidebar .tb-corner { padding-left: 5rem; }
+.tb-vault {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-ui); font-weight: 600; color: var(--fg);
+}
+.shell.no-sidebar .tb-vault { display: none; }
 .tb-fold {
-  width: 1.5rem; height: 1.5rem; flex: none; margin-right: var(--sp-2);
+  width: 1.75rem; height: 1.75rem; flex: none;
   display: grid; place-items: center;
   color: var(--fg-3); border-radius: var(--radius);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .tb-fold:hover { background: var(--bg-3); color: var(--fg); }
-.tb-fold svg {
-  width: 0.75rem; height: 0.75rem;
-  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
-  transform: rotate(180deg); transition: transform var(--t-fast);
-}
-.shell.no-sidebar .tb-fold svg { transform: none; }
+.tb-fold svg { width: 0.875rem; height: 0.875rem; stroke: currentColor; fill: none; stroke-width: 1.25; }
+.tb-fold .tb-side-fill { fill: transparent; stroke: none; }
+.tb-fold.on .tb-side-fill { fill: currentColor; }
 
 .tb-dirty {
   width: 0.375rem; height: 0.375rem; flex: none; margin-left: var(--sp-2);
@@ -177,19 +191,27 @@
    chips after back and forward, the open one on a lighter ground, then the + for a new tab.
    It takes what the row has and scrolls sideways past that. */
 .titlebar .tabs {
-  height: 100%; flex: 0 1 auto; min-width: 0; margin-left: var(--sp-2);
-  align-items: center; gap: var(--sp-1);
-  padding: 0 var(--sp-2);
+  height: 100%; flex: 0 1 auto; min-width: 0;
+  align-items: stretch; gap: 0; padding: 0;
   background: transparent; border-bottom: 0;
 }
+/* Each tab a flat cell the bar's full height, a hairline after it; the open one lighter. */
 .titlebar .tab {
-  height: 1.5rem; max-width: 40rem;
-  padding: 0 var(--sp-1) 0 var(--sp-2);
-  border-radius: var(--radius);
+  height: 100%; max-width: 40rem;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: 0; border-right: 1px solid var(--border);
 }
-.titlebar .tab.on { background: var(--bg-3); box-shadow: none; }
+.titlebar .tab.on { background: var(--bg); color: var(--fg); box-shadow: none; }
 .titlebar .tab .tab-x { opacity: 1; }
-.tb-tab-add { flex: none; }
+/* The + is a cell of its own after the last tab. */
+.tb-tab-add {
+  flex: none; align-self: stretch; width: 2.25rem;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-right: 1px solid var(--border);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-tab-add:hover { background: var(--bg-3); color: var(--fg); }
+.tb-tab-add svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; }
 /* A tab being dragged along the strip; the strip while a file from the sidebar is over it. */
 .tab.dragging { opacity: 0.4; }
 .titlebar.drop-on { background: var(--accent-soft); }
