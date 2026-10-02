@@ -103,6 +103,18 @@ function renderAddress(r) {
     }
     crumbs.appendChild(b);
   });
+  // What is open can be closed, like a file in Explorer: the × beside its name goes back to the
+  // empty page (the leave gate saves first, as for any navigation).
+  if (r && !(r.type === 'view' && r.name === 'home')) {
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tb-close';
+    x.dataset.close = '1';
+    x.title = 'Close';
+    x.setAttribute('aria-label', 'Close');
+    x.innerHTML = icon('close');
+    crumbs.appendChild(x);
+  }
   // The last segment is the one that matters: it stays in view when the path is long.
   crumbs.scrollLeft = crumbs.scrollWidth;
 }
@@ -147,6 +159,7 @@ export function initTitlebar(node) {
 
   // A folder segment opens its folder.
   addrEl.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('.tb-close')) { void route.navigate(HOME); return; }
     const home = e.target instanceof Element ? e.target.closest('.tb-crumb[data-home]') : null;
     if (home) { if (!home.classList.contains('cur')) void route.navigate(HOME); return; }
     /** @type {HTMLElement|null} */

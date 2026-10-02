@@ -74,6 +74,16 @@ button.tb-crumb:focus-visible { outline: 1px solid var(--accent); outline-offset
 /* A page outside the vault (X7): the first segment says so, in the faint voice of a note. */
 .tb-crumb.tb-outside { color: var(--fg-3); flex: none; }
 .tb-sep-ch { color: var(--fg-3); flex: none; font-size: var(--fs-chrome-sm); }
+/* The × beside what is open: closes it, back to the empty page. Quiet until hovered. */
+.tb-close {
+  flex: none; width: 1.125rem; height: 1.125rem; margin-left: var(--sp-1);
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-close svg { width: 0.625rem; height: 0.625rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
+.tb-close:hover { background: var(--bg-3); color: var(--fg); }
+.tb-close:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 /* The sidebar's one control, in the title bar's left corner and in the same spot whether the
    sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
