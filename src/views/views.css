@@ -284,6 +284,9 @@ button.pv-gh:hover { color: var(--fg); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pv-grid { overflow-x: auto; }
+/* what an item has lost, at the end of its row, and the month in three words under the grid */
+.pv-loss { text-align: right; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err-ink); }
+.pv-hsum { margin-top: var(--sp-2); text-align: right; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
 @container (max-width: 36rem) { .pv { --pv-margin: 6.5rem; } }
 
 /* ============================================================================ day === */

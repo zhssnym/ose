@@ -14,7 +14,7 @@ Agents work best with plain local files, with no API, export or plugin in betwee
 
 **Nothing typed is lost.** Unsaved text is kept as a draft until it reaches the file. When an agent or another program changes a file you have open, Ose merges the change into your page line by line, and asks only when you both changed the same lines.
 
-**Today, Planner and Journal.** Today is your day: its list in the order you do things, ticked as you go, the month as a heatmap, and your todos. Planner shows the year and the month, their goals and reviews, from one folder of plain markdown files. Journal is one file per day. They write back one line at a time, so the files stay readable and editable by anything else.
+**Execution, Planner and Journal.** Execution is the month as you live it: the day's list in the order you do things, ticked as you go, the month as a heatmap with what each habit has lost, and your todos. Planner shows the year and the month, their goals and reviews, from one folder of plain markdown files. Journal is one file per day. They write back one line at a time, so the files stay readable and editable by anything else.
 
 ## Your folder stays yours
 

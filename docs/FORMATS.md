@@ -1,12 +1,12 @@
 # File formats
 
-Ose keeps no database. Every note is a plain file, and the views (Today, Planner and Journal)
+Ose keeps no database. Every note is a plain file, and the views (Execution, Planner and Journal)
 are built out of a handful of ordinary markdown files. This document
 is the contract for those files. An agent such as Claude Code, run on the vault from outside,
 reads it to know how to write a file that the app will read, and what the app writes back.
 
-The code is in `src/views/`: `planner/` (Today and Planner: `render.ts` draws the Year, Month
-and Today pages, `index.ts` reads and writes), `journal/`, and `shared/` for the readers
+The code is in `src/views/`: `planner/` (Execution and Planner: `render.ts` draws the Year, Month
+and Execution pages, `index.ts` reads and writes), `journal/`, and `shared/` for the readers
 they share, named for what they hold: `plan.ts` (a year, a month, and how a day counts),
 `plans.ts` (where the year and month files are), `tasks.ts` and `todo.ts` (todo lines),
 `settings.ts` and `detect.ts` (where the folders are). The journal's format is read in
@@ -21,7 +21,7 @@ until the app first writes its state:
 
 | Setting | Stored as | Kind | Read by |
 |---|---|---|---|
-| Planner folder | `reports` | a folder | Today, Planner |
+| Planner folder | `reports` | a folder | Execution, Planner |
 | Journal folder | `journal` | a folder | Journal |
 
 The planner folder holds everything about planning: the year and month files and `todo.md`
@@ -89,7 +89,7 @@ not set_)` written as plain words is just part of the task's text.
   - Done turns `[ ]` into `[x]` and adds `✅ <today>` when the line has no done marker.
   - Undone reverses both.
   - The file's line endings are kept.
-- **A new task** from Today's foot line is appended to `<planner>/todo.md` (made with `# Todo` the
+- **A new task** from the Execution page's foot line is appended to `<planner>/todo.md` (made with `# Todo` the
   first time) as
   `- [ ] <text>`, exactly as typed, markers included. It is written with
   `ose.files.appendLine`, and the host adds the line break the file needs.
@@ -232,7 +232,7 @@ computed from the months.
 
 ### How a day counts
 
-The log's figures on Today come from these five rules (`src/views/shared/plan.ts`); the goals' figure
+The log's figures on the Execution page come from these five rules (`src/views/shared/plan.ts`); the goals' figure
 on Year and Month is only their boxes ticked.
 
 1. An item is **planned** on a day when the execution in force that day lists it for that
@@ -242,13 +242,16 @@ on Year and Month is only their boxes ticked.
 3. It is **done** when its cell is `x`, planned or not.
 4. A month counts from its first marked day. From there every past day counts in full, a day
    with no mark included. Today counts only what is done; days to come count nothing.
-5. The **rate** is done over due, for a day or a month of the log. An item's
+5. The **rate** is done over due, for a day or a month of the log. At the end of each heatmap
+   row, what the item has **lost** is its missed days over all its due days of the month (done,
+   missed and still to come); under the heatmap the month is the same three, done, lost and
+   open, as whole percentages that add up to 100. An item's
    **run** is its due days done in a row, back from today, across months; a day it is not due,
    a `-` and today still open do not break it.
 
 ### What the pages write
 
-- **A mark** (Today: a click on the day's list or on the heatmap ticks and unticks,
+- **A mark** (Execution: a click on the day's list or on the heatmap ticks and unticks,
   Shift+click or `s` drops for the day) replaces that day's row with `ose.files.replaceLine`, only if the row still reads what
   was on screen; otherwise the file is read again and the write tried once more. The first mark
   of a day writes `.` under everything planned that day, then the mark, so the row says by
@@ -304,7 +307,7 @@ already has something written, then the text. "Discard…" asks first.
 
 | File | How | When |
 |---|---|---|
-| a month, `<planner>/YYYY-MM.md` | `replaceLine`: one row of `# Log`, only if it still reads what was shown | a mark made, taken back or dropped in Today |
+| a month, `<planner>/YYYY-MM.md` | `replaceLine`: one row of `# Log`, only if it still reads what was shown | a mark made, taken back or dropped on the Execution page |
 | a month or a year | `replaceLine`: one goal line, the same way | a goal ticked in Month or Year |
 | `<planner>/YYYY-MM.md` (or in `<planner>/YYYY/`) | exclusive create, never an overwrite | "Start it" on a month with no file |
 | `<planner>/YYYY.md` (or in `<planner>/YYYY/`) | exclusive create, never an overwrite | "Start it" on a year with no file |

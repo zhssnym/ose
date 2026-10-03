@@ -426,6 +426,37 @@ export function count(month: Month, today: Date, { days = null, systems = null }
   return t;
 }
 
+/**
+ * The whole month, every due day of the items given (all by default): done, lost (gone by and not
+ * done) and open (today not done yet, and the days to come). A dropped day and a day before the
+ * month's first mark count as nothing.
+ */
+export function outcome(month: Month, today: Date, systems: string[] | null = null): { done: number; lost: number; open: number; } {
+  const t = { done: 0, lost: 0, open: 0 };
+  for (const s of systems || allSystems(month)) {
+    for (let d = 1; d <= daysIn(month.year, month.month); d++) {
+      const st = stateOf(month, d, s, today);
+      if (st === 'done') t.done++;
+      else if (st === 'missed') t.lost++;
+      else if (st === 'open' || st === 'planned') t.open++;
+    }
+  }
+  return t;
+}
+
+/**
+ * Three whole percentages that always add up to 100: done and lost round on their own and open
+ * takes what is left; with nothing open the rest goes to lost, so nothing reads "-1% open".
+ */
+export function percentages(t: { done: number; lost: number; open: number; }): { done: number; lost: number; open: number; } {
+  const all = t.done + t.lost + t.open;
+  if (!all) return { done: 0, lost: 0, open: 0 };
+  const done = Math.round((100 * t.done) / all);
+  if (!t.open) return { done, lost: 100 - done, open: 0 };
+  const lost = Math.round((100 * t.lost) / all);
+  return { done, lost, open: 100 - done - lost };
+}
+
 /** The month so far: the tally, the day it counts from, and the past days left with no mark. */
 export function monthTally(month: Month, today: Date): { done: number; due: number; skipped: number; from: number | null; blank: number; } {
   const t = count(month, today);

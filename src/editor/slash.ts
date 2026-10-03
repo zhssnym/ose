@@ -210,7 +210,7 @@ const GROUPS = [
   },
   {
     key: 'planner', label: 'views', items: [
-      { key: 'today', label: 'Today', icon: I.day, aliases: ['today', 'day'], cmd: 'view.today' },
+      { key: 'execution', label: 'Execution', icon: I.day, aliases: ['execution', 'today', 'day'], cmd: 'view.execution' },
       { key: 'planner', label: 'Planner', icon: I.month, aliases: ['planner', 'month', 'week', 'year'], cmd: 'view.planner' },
       { key: 'journal', label: 'Journal', icon: I.journal, aliases: ['journal'], cmd: 'view.journal' },
       { key: 'journal-today', label: "Today's journal", icon: I.journalNew, aliases: ['journal', 'today', 'entry'], cmd: 'journal.today' },

@@ -1,10 +1,10 @@
-// Today and Planner over the planner folder. Planner is Year · Month: a file's goals, how many
-// are ticked, its review. Today is the day: the month's log as a heatmap, the day's execution to
-// tick, the todo list. The pages are drawn by render.ts from the files read here; the format is
+// Execution and Planner over the planner folder. Planner is Year · Month: a file's goals, how many
+// are ticked, its review. Execution is the month as it is lived: its log as a heatmap with what
+// each item has lost, the day's list to tick, the todo list. The pages are drawn by render.ts from the files read here; the format is
 // plan.ts and docs/FORMATS.md "The planner".
 //
-// `route.arg` says where to land: Planner takes `year:2026` or `month:2026-10`, Today a day,
-// `2026-10-15`. With none, Planner opens the zoom last used, and Today today.
+// `route.arg` says where to land: Planner takes `year:2026` or `month:2026-10`, Execution a
+// day, `2026-10-15`. With none, Planner opens the zoom last used, and Execution today.
 //
 // Writes, one line each, never a whole file:
 //   - a mark of a day replaces that day's row of the month's `# Days` (`replaceLine`, only if the
@@ -24,7 +24,7 @@ import { taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml } from '../shared/nav.ts';
 import { proseInto } from '../shared/prose.ts';
-import { monthPage, todayPage, yearPage, type Ctx, type Zoom } from './render.ts';
+import { executionPage, monthPage, yearPage, type Ctx, type Zoom } from './render.ts';
 
 /** What a mounted planner shows: a zoom of Planner, or Today. */
 type Mode = Zoom | 'today';
@@ -132,7 +132,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
       pageEl.innerHTML = `<h1 class="page-title view-title">${opts.today ? 'Today' : 'Planner'}</h1>${missingHtml('reports')}`;
       return;
     }
-    const html = st.zoom === 'today' ? todayPage(ctx, st.date)
+    const html = st.zoom === 'today' ? executionPage(ctx, st.date)
       : st.zoom === 'month' ? monthPage(ctx, st.date)
       : yearPage(ctx, st.date.getFullYear());
     pageEl.innerHTML = (s.confirmed ? '' : detectedHtml()) + html;
@@ -149,7 +149,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
     const d = date || st.date;
     // Today is a day, the zooms are Planner's: crossing over is a navigation
     if (opts.today && zoom !== 'today') { ose.route.navigate({ type: 'view', name: 'planner', arg: zoom === 'year' ? `year:${d.getFullYear()}` : `month:${ymOf(d)}` }); return; }
-    if (!opts.today && zoom === 'today') { ose.route.navigate({ type: 'view', name: 'today', arg: `${ymOf(d)}-${two(d.getDate())}` }); return; }
+    if (!opts.today && zoom === 'today') { ose.route.navigate({ type: 'view', name: 'execution', arg: `${ymOf(d)}-${two(d.getDate())}` }); return; }
     st.zoom = zoom;
     if (date) st.date = startOfDay(date);
     if (!opts.today) { try { opts.memory?.set(zoom); } catch { /* remembered or not, the page shows */ } }
@@ -390,12 +390,12 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
   };
 }
 
-/** A view of the planner: Today, or Planner. */
+/** A view of the planner: Execution, or Planner. */
 function planView(ose: any, store: any, which: 'today' | 'planner') {
   let live: { unmount(): void; refresh(): void; } | null = null;
   const memory = () => { try { return ose.local('views.planner'); } catch { return null; } };
   return {
-    title: which === 'today' ? 'Today' : 'Planner',
+    title: which === 'today' ? 'Execution' : 'Planner',
     order: which === 'today' ? 10 : 20,
     icon: which === 'today' ? 'day' : 'month',
     section: 'planner',
@@ -411,4 +411,4 @@ function planView(ose: any, store: any, which: 'today' | 'planner') {
 }
 
 export const createPlannerView = (ose: any, store: any): any => planView(ose, store, 'planner');
-export const createTodayView = (ose: any, store: any): any => planView(ose, store, 'today');
+export const createExecutionView = (ose: any, store: any): any => planView(ose, store, 'today');

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The planner's pages (src/views/planner/render.ts), drawn from the example months. Year and
-// Month are goals and a review, with one figure from the checkboxes; Today is the month's log
+// Month are goals and a review, with one figure from the checkboxes; Execution is the month's log
 // as a heatmap, the day's execution and the tasks. No page shows a time of its own.
 
 import { readFileSync } from 'node:fs';
@@ -21,12 +21,14 @@ const ctx = {
 const page = (html) => { const el = document.createElement('div'); el.innerHTML = html; return el; };
 
 describe('the planner pages', () => {
-  it('Today: the heatmap, the day in its order, the tasks', () => {
-    const el = page(R.todayPage(ctx, ctx.today));
+  it('Execution: the heatmap with what each item lost, the day in its order, the tasks', () => {
+    const el = page(R.executionPage(ctx, ctx.today));
     expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
     expect(el.querySelector('.pn-zoom')).toBe(null);
     expect(el.querySelector('.pv-sum').textContent).toBe('76% so far · September 57%');
     expect(el.querySelectorAll('.pv-heat .pv-gl')).toHaveLength(12);
+    expect([...el.querySelectorAll('.pv-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
+    expect(el.querySelector('.pv-hsum').textContent).toBe('34% done · 11% lost · 55% open');
     expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'NSI', 'Lecture', 'Off', 'Sleep']);
     expect(el.querySelector('.pv-late').textContent).toBe('late');
     expect(el.textContent).not.toMatch(/\b\d{2}h\d{2}\b/);

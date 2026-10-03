@@ -2,14 +2,15 @@
 // reads from the files.
 //
 //   Year, Month   the file's goals, how many are ticked, its review in a paragraph
-//   Today         the month's log as a heatmap, the day's execution to tick, the todo list
+//   Execution     the month's log as a heatmap with what each item has lost, the day's list to
+//                 tick, the todo list
 //
 // No times and no counts beside lines: life is not managed to the minute. The look is views.css's
 // `.pv` block: terracotta for what was done, the paper's own greys for the rest.
 
 import { esc } from '../../ui/index.ts';
 import {
-  allSystems, dateOf, dayIndex, daysIn, isOldMonth, linesFor, monthTally, nameOf, stateOf, ymd, ymOf,
+  allSystems, dateOf, dayIndex, daysIn, isOldMonth, linesFor, monthTally, nameOf, outcome, percentages, stateOf, ymd, ymOf,
   type Area, type Month, type Review, type Year,
 } from '../shared/plan.ts';
 
@@ -128,7 +129,11 @@ export function monthPage(ctx: Ctx, date: Date): string {
 
 const SAID = { done: 'done', missed: 'not done', open: 'open', planned: 'to come', skipped: 'dropped that day', idle: 'before the month began' };
 
-/** The month's log as a heatmap: a row per item, a cell per day. A cell of a day gone by or of today ticks it. */
+/**
+ * The month's log as a heatmap: a row per item, a cell per day, and at the end of the row what
+ * that item has lost (its due days gone by and not done). Under it, the month in three words.
+ * A cell of a day gone by or of today ticks it.
+ */
 function heatmap(ctx: Ctx, month: Month, on: Date): string {
   const tracks: string[] = [];
   const cols: Array<Date | null> = [];
@@ -138,9 +143,9 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
     tracks.push('minmax(0, 1fr)');
     cols.push(d);
   }
-  const row = (label: string, cells: string[], cls = '') => {
+  const row = (label: string, cells: string[], cls = '', end = '<span></span>') => {
     let i = 0;
-    return `<div class="pv-gr ${cls}">${label}${cols.map((c) => (c ? cells[i++] ?? '<span></span>' : '<span></span>')).join('')}</div>`;
+    return `<div class="pv-gr ${cls}">${label}${cols.map((c) => (c ? cells[i++] ?? '<span></span>' : '<span></span>')).join('')}${end}</div>`;
   };
   const days = cols.filter((c): c is Date => !!c);
   const heads = row('<span></span>', days.map((d) => {
@@ -150,6 +155,9 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
   }), 'is-heads');
   const body = allSystems(month).map((s) => {
     const name = nameOf(month, s);
+    const o = outcome(month, ctx.today, [s]);
+    const all = o.done + o.lost + o.open;
+    const loss = all && o.lost ? `<span class="pv-loss" title="${esc(name)} · ${o.done} done · ${o.lost} lost · ${o.open} open">−${Math.round((100 * o.lost) / all)}%</span>` : '<span></span>';
     return row(`<span class="pv-gl" title="${esc(name)}">${esc(name)}</span>`, days.map((d) => {
       const st = stateOf(month, d.getDate(), s, ctx.today);
       if (!st) return '<span class="pv-c"></span>';
@@ -158,9 +166,11 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
       return d > ctx.today
         ? `<span class="${cls}" title="${esc(tip)}"></span>`
         : `<button type="button" class="${cls}" data-act="tick" data-day="${ymd(d)}" data-sys="${esc(s)}" data-key="c:${ymd(d)}:${esc(s)}" aria-pressed="${st === 'done'}" aria-label="${esc(tip)}" title="${esc(tip)}"></button>`;
-    }));
+    }), '', loss);
   }).join('');
-  return `<div class="pv-grid pv-heat" style="--pv-cols: var(--pv-margin) ${tracks.join(' ')}">${heads}${body}</div>`;
+  const p = percentages(outcome(month, ctx.today));
+  const sum = `<div class="pv-hsum">${p.done}% done · ${p.lost}% lost · ${p.open}% open</div>`;
+  return `<div class="pv-grid pv-heat" style="--pv-cols: var(--pv-margin) ${tracks.join(' ')} var(--pv-end)">${heads}${body}</div>${sum}`;
 }
 
 /** The day's execution, in the order it is done, to tick. */
@@ -215,7 +225,7 @@ function logSum(ctx: Ctx, month: Month): string {
   return p && p.due && prev ? `${now} · ${MONTH[prev.month - 1]} ${pct(p.done, p.due)}%` : now;
 }
 
-export function todayPage(ctx: Ctx, d: Date): string {
+export function executionPage(ctx: Ctx, d: Date): string {
   const month = ctx.months.get(ymOf(d)) || null;
   const f = ctx.files.get(ymOf(d));
   const title = `${DAY_LONG[dayIndex(d)]} ${d.getDate()} ${MONTH[d.getMonth()]}${d.getFullYear() !== ctx.today.getFullYear() ? ` ${d.getFullYear()}` : ''}`;
