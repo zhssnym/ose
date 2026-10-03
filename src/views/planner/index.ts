@@ -1,9 +1,10 @@
-// Planner: the planner folder at four zooms, Year · Month · Week · Day, on one page, and Today,
-// which is the Day zoom on today with its own row in the sidebar. The pages are drawn by
-// render.ts from the files read here; the format is plan.ts and docs/FORMATS.md "The planner".
+// Today and Planner over the planner folder. Planner is Year · Month: a file's goals, how many
+// are ticked, its review. Today is the day: the month's log as a heatmap, the day's execution to
+// tick, the todo list. The pages are drawn by render.ts from the files read here; the format is
+// plan.ts and docs/FORMATS.md "The planner".
 //
-// `route.arg` says where to land: `year:2026`, `month:2026-10`, `week:2026-10-12`, `day:2026-10-15`
-// (Today takes a bare `2026-10-15`). With none, Planner opens the zoom last used, on today.
+// `route.arg` says where to land: Planner takes `year:2026` or `month:2026-10`, Today a day,
+// `2026-10-15`. With none, Planner opens the zoom last used, and Today today.
 //
 // Writes, one line each, never a whole file:
 //   - a mark of a day replaces that day's row of the month's `# Days` (`replaceLine`, only if the
@@ -14,7 +15,7 @@
 
 import { loadingLine, toast } from '../../ui/index.ts';
 import {
-  addDays, dayIndex, isOldMonth, newMonthText, newYearText, parseMonth, parseYear, plannedSystems, startOfDay,
+  addDays, isOldMonth, newMonthText, newYearText, parseMonth, parseYear, plannedSystems, startOfDay,
   stateOf, two, writeGoal, writeMark, ymOf, type Mark, type Month, type Write,
 } from '../shared/plan.ts';
 import { listPlannings, pickMonth, pickYear, planDir, previousMonthFile } from '../shared/plans.ts';
@@ -24,29 +25,28 @@ import { createTodoIndex } from '../shared/todo.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml } from '../shared/nav.ts';
 import { proseInto } from '../shared/prose.ts';
 import { q1Of } from '../shared/settings.ts';
-import { dayPage, monthPage, weekPage, yearPage, type Ctx, type Zoom } from './render.ts';
+import { monthPage, todayPage, yearPage, type Ctx, type Zoom } from './render.ts';
 
-const isZoom = (z: unknown): z is Zoom => z === 'year' || z === 'month' || z === 'week' || z === 'day';
+/** What a mounted planner shows: a zoom of Planner, or Today. */
+type Mode = Zoom | 'today';
+const isZoom = (z: unknown): z is Zoom => z === 'year' || z === 'month';
 
-/** `month:2026-10` -> ['month', date]; a bare `2026-10-15` -> ['day', date]. */
-function parseArg(arg: unknown): [Zoom | null, Date | null] {
+/** `month:2026-10` -> ['month', date]; a bare `2026-10-15` -> ['today', date]. */
+function parseArg(arg: unknown): [Mode | null, Date | null] {
   const s = String(arg ?? '');
   const bare = parseYmd(s);
-  if (bare && /^\d{4}-\d{2}-\d{2}$/.test(s)) return ['day', bare];
+  if (bare && /^\d{4}-\d{2}-\d{2}$/.test(s)) return ['today', bare];
   const m = /^(year|month|week|day):(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(s);
-  if (!m || !isZoom(m[1])) return [null, null];
-  return [m[1], new Date(Number(m[2]), Number(m[3] || 1) - 1, Number(m[4] || 1))];
+  if (!m) return [null, null];
+  // an older link to a week or a day opens its month
+  return [m[1] === 'year' ? 'year' : 'month', new Date(Number(m[2]), Number(m[3] || 1) - 1, Number(m[4] || 1))];
 }
 
-/** The months a page needs: the ones it shows and the ones it compares with. */
-function monthsFor(zoom: Zoom, d: Date): string[] {
-  const at = (y: number, m: number) => ymOf(new Date(y, m, 1));
-  if (zoom === 'year') return [];
-  if (zoom === 'week') {
-    const monday = addDays(d, -dayIndex(d));
-    return [...new Set([-7, 0, 6].map((k) => ymOf(addDays(monday, k))))];
-  }
-  return [at(d.getFullYear(), d.getMonth() - 1), ymOf(d)];
+/** The months a page needs: Today its month and the one before (to compare), Month its own, Year none. */
+function monthsFor(mode: Mode, d: Date): string[] {
+  if (mode === 'year') return [];
+  if (mode === 'month') return [ymOf(d)];
+  return [ymOf(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymOf(d)];
 }
 
 /**
@@ -59,7 +59,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
   let remembered: unknown = null;
   try { remembered = opts.memory?.get(); } catch { remembered = null; }
   const st = {
-    zoom: (opts.today ? 'day' : askedZoom || (isZoom(remembered) ? remembered : 'month')) as Zoom,
+    zoom: (opts.today ? 'today' : (isZoom(askedZoom) ? askedZoom : (isZoom(remembered) ? remembered : 'month'))) as Mode,
     date: startOfDay(askedDate || new Date()),
     seq: 0, busy: false,
   };
@@ -134,8 +134,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
       pageEl.innerHTML = `<h1 class="page-title view-title">${opts.today ? 'Today' : 'Planner'}</h1>${missingHtml('reports')}`;
       return;
     }
-    const html = st.zoom === 'day' ? dayPage(ctx, st.date)
-      : st.zoom === 'week' ? weekPage(ctx, st.date)
+    const html = st.zoom === 'today' ? todayPage(ctx, st.date)
       : st.zoom === 'month' ? monthPage(ctx, st.date)
       : yearPage(ctx, st.date.getFullYear());
     pageEl.innerHTML = (s.confirmed ? '' : detectedHtml()) + html;
@@ -148,14 +147,11 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
     if (again) again.focus({ preventScroll: true });
   }
 
-  function go(zoom: Zoom, date: Date | null) {
-    if (opts.today && zoom !== 'day') {
-      // Today is a day: any other zoom is the Planner's
-      const d = date || st.date;
-      const arg = zoom === 'year' ? `year:${d.getFullYear()}` : zoom === 'month' ? `month:${ymOf(d)}` : `week:${ymOf(d)}-${two(d.getDate())}`;
-      ose.route.navigate({ type: 'view', name: 'planner', arg });
-      return;
-    }
+  function go(zoom: Mode, date: Date | null) {
+    const d = date || st.date;
+    // Today is a day, the zooms are Planner's: crossing over is a navigation
+    if (opts.today && zoom !== 'today') { ose.route.navigate({ type: 'view', name: 'planner', arg: zoom === 'year' ? `year:${d.getFullYear()}` : `month:${ymOf(d)}` }); return; }
+    if (!opts.today && zoom === 'today') { ose.route.navigate({ type: 'view', name: 'today', arg: `${ymOf(d)}-${two(d.getDate())}` }); return; }
     st.zoom = zoom;
     if (date) st.date = startOfDay(date);
     if (!opts.today) { try { opts.memory?.set(zoom); } catch { /* remembered or not, the page shows */ } }
@@ -168,8 +164,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
     if (dir === 'today') st.date = startOfDay(new Date());
     else {
       const k = dir === 'next' ? 1 : -1;
-      if (st.zoom === 'day') st.date = addDays(d, k);
-      else if (st.zoom === 'week') st.date = addDays(d, 7 * k);
+      if (st.zoom === 'today') st.date = addDays(d, k);
       else if (st.zoom === 'month') st.date = new Date(d.getFullYear(), d.getMonth() + k, 1);
       else st.date = new Date(d.getFullYear() + k, 0, 1);
     }
@@ -333,7 +328,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
     else if (a === 'tick') void tick(el.dataset.day || '', el.dataset.sys || '', ev.shiftKey);
     else if (a === 'task') void toggleTask(el.dataset.id || '');
     else if (a === 'goal') void goal(el.dataset.path || '', Number(el.dataset.line));
-    else if (a === 'open-day') go('day', parseYmd(el.dataset.day));
+    else if (a === 'open-day') go('today', parseYmd(el.dataset.day));
     else if (a === 'open-month') go('month', parseYmd(`${el.dataset.ym}-01`));
     else if (a === 'start-month') void startMonth(el.dataset.ym || '');
     else if (a === 'start-year') void startYear();
@@ -348,8 +343,8 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
     }
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const k = ev.key;
-    const zoomKeys: Record<string, Zoom> = { y: 'year', m: 'month', w: 'week', d: 'day' };
-    if (zoomKeys[k]) { ev.preventDefault(); go(zoomKeys[k] as Zoom, null); }
+    const zoomKeys: Record<string, Mode> = { y: 'year', m: 'month', d: 'today' };
+    if (zoomKeys[k]) { ev.preventDefault(); go(zoomKeys[k] as Mode, null); }
     else if (k === 's' && t.dataset && t.dataset.act === 'tick') { ev.preventDefault(); void tick(t.dataset.day || '', t.dataset.sys || '', true); }
     else if (k === 'ArrowDown' || k === 'ArrowUp') {
       // the rows of the page are one list to the arrows
@@ -379,7 +374,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
   const timer = setInterval(() => {
     const now = startOfDay(new Date());
     if (+now === +lastDay) return;
-    if (+st.date === +lastDay || (st.zoom !== 'day' && ymOf(st.date) === ymOf(lastDay))) st.date = now;
+    if (+st.date === +lastDay || (st.zoom !== 'today' && ymOf(st.date) === ymOf(lastDay))) st.date = now;
     lastDay = now;
     load();
   }, 60000);

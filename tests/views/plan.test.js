@@ -1,7 +1,7 @@
 // The planner's files and how a day counts (src/views/shared/plan.ts, docs/FORMATS.md "The
 // planner"), on two example months: September, closed and reviewed, counted from its first
-// marked day; October, open, with a holiday week from the 19th. The clock is Thursday 15
-// October 2026.
+// marked day; October, open. A month is # Goals, # Execution (a list per weekday, in doing
+// order), # Log (a row per day) and # Review. The clock is Thursday 15 October 2026.
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -16,14 +16,26 @@ const today = new Date(2026, 9, 15);
 const st = (m, day, sys) => P.stateOf(m, day, sys, today);
 
 describe('a month file', () => {
-  it('reads its title, goals, weeks, days and review', () => {
+  it('reads its title, goals, execution, log and review', () => {
     expect(oct.title).toBe('October 2026');
     expect(oct.goals.map((a) => `${a.label} ${a.goals.length}`)).toEqual(['Educational 5', 'Financial 2', 'Personal 3']);
-    expect(oct.weeks.map((w) => w.from)).toEqual([null, '2026-10-19']);
-    expect(oct.days.systems).toEqual(['cours', 'maths', 'nsi', 'lecture', 'philo', 'sport', 'bilan', 'algo', 'famille', 'hg', 'off', 'bed']);
+    expect(oct.weeks).toHaveLength(1);
+    expect(oct.days.systems).toEqual(['school', 'maths', 'nsi', 'lecture', 'off', 'sleep', 'philo', 'cardio', 'bilan', 'algo', 'famille', 'hg']);
     expect(oct.days.rows.size).toBe(31);
     expect(oct.review.written).toBe(false);
+    expect(sep.review.written).toBe(true);
     expect(P.isOldMonth(oct)).toBe(false);
+  });
+
+  it('lists a day in the order the file writes it', () => {
+    expect(P.linesFor(oct, new Date(2026, 9, 18)).map((l) => l.name)).toEqual(['Maths', 'Philo', 'Famille', 'HG', 'Bilan', 'Cardio', 'Lecture', 'Off', 'Sleep']);
+  });
+
+  it('keys an item by its own words, unless brackets name it', () => {
+    expect(P.parseWeekLine('Sleep')).toMatchObject({ name: 'Sleep', system: 'sleep', start: null });
+    expect(P.parseWeekLine('Histoire-géo [hg]')).toMatchObject({ name: 'Histoire-géo', system: 'hg' });
+    expect(P.parseWeekLine('17h20 à 19h00 Maths · BU Sciences')).toMatchObject({ name: 'Maths', where: 'BU Sciences', system: 'maths' });
+    expect([...P.parseWeekLine('Lecture (sam dim)').days]).toEqual([5, 6]);
   });
 
   it('reads a weekday label of one day, a list and a run, and nothing else', () => {
@@ -32,46 +44,42 @@ describe('a month file', () => {
     expect(P.weekdaysOfLabel('Holidays until 1 November.')).toBe(null);
   });
 
-  it('reads a week line with or without its times, its place and its tail', () => {
-    expect(P.parseWeekLine('17h20 à 19h00 Maths · BU Sciences [maths]')).toMatchObject({ name: 'Maths', where: 'BU Sciences', start: 1040, end: 1140, system: 'maths' });
-    expect(P.parseWeekLine('Bed by 23h00 [bed]')).toMatchObject({ name: 'Bed by 23h00', start: null, system: 'bed' });
-    expect([...P.parseWeekLine('Lecture (sam dim) [lecture]').days]).toEqual([5, 6]);
-    expect(P.parseWeekLine('23h00 à 07h00 Sommeil [sleep] (Q2)')).toMatchObject({ end: 1860, q: 'Q2' });
+  it('still reads the older names, # Week and # Days', () => {
+    const m = P.parseMonth('# x\n\n# Week\n\nLundi\n\n- Maths\n\n# Days\n\n| Day | Maths | Note |\n|---|---|---|\n| 05 lun | x | |\n', '2026-10');
+    expect(P.stateOf(m, 5, 'maths', today)).toBe('done');
   });
 
-  it('reads the grades of a review', () => {
-    expect(sep.review.overall).toBe(6);
-    expect(sep.review.grades.map((g) => `${g.label} ${g.n}`)).toEqual(['Educational 6', 'Financial 8', 'Personal 4']);
-  });
-
-  it('knows a month kept before the planner had days', () => {
+  it('knows a month kept before the planner had a log', () => {
     expect(P.isOldMonth(P.parseMonth('# 2026-06 Monthly Plan\n\nEducational\n\n- Read\n\n# Monthly Review\n\nGood.\n', '2026-06'))).toBe(true);
+  });
+
+  it('reads the grades a review may hold', () => {
+    const r = P.parseMonth('# x\n\n# Review\n\nEducational\n\nIt went fine.\n\nGrade: 7/10\n\nOverall: 60/100\n', '2026-10').review;
+    expect(r.overall).toBe(6);
+    expect(r.grades).toEqual([{ label: 'Educational', n: 7 }]);
   });
 });
 
 describe('how a day counts', () => {
-  it('uses the week in force on the day', () => {
-    expect(P.weekFor(oct, new Date(2026, 9, 18)).from).toBe(null);
-    expect(P.weekFor(oct, new Date(2026, 9, 19)).from).toBe('2026-10-19');
-    expect(P.plannedSystems(oct, new Date(2026, 9, 16))).toContain('cours');
-    expect(P.plannedSystems(oct, new Date(2026, 9, 19))).not.toContain('cours');
-    expect(P.plannedSystems(oct, new Date(2026, 9, 24))).toEqual(['algo', 'sport', 'lecture', 'off', 'bed']);
+  it('plans what the execution lists for the weekday', () => {
+    expect(P.plannedSystems(oct, new Date(2026, 9, 17))).toEqual(['maths', 'nsi', 'algo', 'cardio', 'lecture', 'off', 'sleep']);
+    expect(P.plannedSystems(oct, new Date(2026, 9, 17))).not.toContain('school');
   });
 
-  it('marks a system done, missed, dropped, open or to come', () => {
-    expect(st(oct, 1, 'cours')).toBe('done');
+  it('marks an item done, missed, dropped, open or to come', () => {
+    expect(st(oct, 1, 'school')).toBe('done');
     expect(st(oct, 1, 'nsi')).toBe('missed');
-    expect(st(oct, 8, 'cours')).toBe('skipped');
+    expect(st(oct, 8, 'school')).toBe('skipped');
     expect(st(oct, 4, 'nsi')).toBe(null);
     expect(st(oct, 15, 'maths')).toBe('open');
-    expect(st(oct, 16, 'cours')).toBe('planned');
+    expect(st(oct, 16, 'school')).toBe('planned');
   });
 
   it('counts a month from its first marked day, and a blank day after it as missed', () => {
     expect(P.firstMarked(sep)).toBe(7);
-    expect(st(sep, 3, 'cours')).toBe('idle');
+    expect(st(sep, 3, 'school')).toBe('idle');
     expect(st(sep, 12, 'maths')).toBe('missed');
-    expect(P.monthTally(sep, today)).toEqual({ done: 94, due: 164, skipped: 0, from: 7, blank: 3 });
+    expect(P.monthTally(sep, today)).toEqual({ done: 95, due: 167, skipped: 0, from: 7, blank: 3 });
     expect(P.monthTally(oct, today)).toEqual({ done: 73, due: 96, skipped: 3, from: 1, blank: 0 });
   });
 
@@ -92,9 +100,9 @@ describe('how a day counts', () => {
     expect(P.streak(months, 'lecture', today)).toBe(4);
   });
 
-  it('shows a system under the words of its first line', () => {
-    expect(P.nameOf(oct, 'maths')).toBe('Maths');
-    expect(P.nameOf(oct, 'off')).toBe('OFF block taken');
+  it('shows an item under its own words', () => {
+    expect(P.nameOf(oct, 'famille')).toBe('Famille');
+    expect(P.nameOf(oct, 'hg')).toBe('HG');
     expect(P.nameOf(oct, 'nothing')).toBe('nothing');
   });
 });
@@ -103,11 +111,13 @@ describe('what the app writes', () => {
   it('writes the first mark of a day with a dot under everything planned', () => {
     const w = P.writeMark(oct, 16, 'maths', 'x');
     expect(w.expected).toBe(oct.days.rows.get(16).raw);
-    expect(w.next).toBe('| 16 ven | .     | x     | .   | .       |       |       | .     |      |         |    | .   | .   |      |');
+    expect(w.next).toBe('| 16 ven | .      | x     | .   | .       | .   | .     |       |        | .     |      |         |    |      |');
   });
 
   it('changes one cell of a marked day, and keeps its note', () => {
-    expect(P.writeMark(oct, 14, 'sport', 'x').next).toBe(oct.days.rows.get(14).raw.replace('| .     |       |      |', '| x     |       |      |'));
+    const before = oct.days.rows.get(14);
+    const after = P.parseDays({ body: [oct.days.header, { n: 99, text: P.writeMark(oct, 14, 'cardio', 'x').next }].map((x) => ({ n: x.n ?? x.line, text: x.text ?? x.raw })) }).rows.get(14);
+    expect(after.marks).toEqual({ ...before.marks, cardio: 'x' });
     expect(P.writeMark(oct, 2, 'maths', 'x').next.endsWith('| DS de maths le matin |')).toBe(true);
   });
 
@@ -121,14 +131,15 @@ describe('what the app writes', () => {
     expect(P.writeGoal({ line: 0, raw: '- a', text: 'a', box: null })).toBe(null);
   });
 
-  it('starts a month from the one before: goals unticked, the last week, an empty table', () => {
+  it('starts a month from the one before: goals unticked, the same execution, an empty log', () => {
     const text = P.newMonthText(2026, 11, { text: fixture('2026-10.md'), ym: '2026-10' });
     const nov = P.parseMonth(text, '2026-11');
     expect(nov.title).toBe('November 2026');
+    expect(text).toContain('# Execution');
+    expect(text).toContain('# Log');
     expect(nov.goals.flatMap((a) => a.goals).every((g) => g.box === 'open')).toBe(true);
-    expect(nov.weeks).toHaveLength(1);
-    expect(nov.weeks[0].from).toBe(null);
-    expect(P.plannedSystems(nov, new Date(2026, 10, 2))).not.toContain('cours');     // the holiday week went on
+    expect(nov.days.systems).toEqual(oct.days.systems);
+    expect(nov.days.heads.slice(1, 4)).toEqual(['School', 'Maths', 'NSI']);
     expect(nov.days.rows.size).toBe(30);
     expect(nov.days.rows.get(1).raw.startsWith('| 01 dim |')).toBe(true);
     expect(P.firstMarked(nov)).toBe(null);

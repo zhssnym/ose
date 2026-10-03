@@ -52,7 +52,7 @@ src/                TypeScript, built by Vite into one app (dist/); imports are 
   editor/           Rich and Source (Crepe, CodeMirror, marked), one live instance per open file,
                     the 3-way merge of changes made on disk; page/ the parts of one page's life
                     (open, modes, save, merge, drafts, leave…); stringify/ the serializer
-  views/            Today and Planner (year, month, week, day), Journal, and shared/; index.ts registers
+  views/            Today and Planner (year, month), Journal, and shared/; index.ts registers
                     them and holds the view contract (docs/VIEWS.md)
   shell/            the interface: layout, title bar and tabs, sidebar (sidebar*.ts, one shared
                     state), status bar, Home, page seam and media card, palette, search, settings,

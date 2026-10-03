@@ -2,12 +2,13 @@
 // DOM, no `ose`, no vault path. The format is docs/FORMATS.md "The planner".
 //
 //   YYYY.md      # <title>, intro · # Goals · # Review
-//   YYYY-MM.md   # <title>, intro · # Goals · # Week (and # Week from YYYY-MM-DD) · # Days · # Review
+//   YYYY-MM.md   # <title>, intro · # Goals · # Execution · # Log · # Review
 //
-// A month's `# Days` is one table, a row per day and a column per system; a cell is `x` done,
-// `.` due and not done, `-` dropped that day, empty nothing recorded. The word in brackets on a
-// line of the week is that line's system. The app writes one row (`writeMark`) or one goal line
-// (`writeGoal`) at a time, with `replaceLine`.
+// `# Execution` lists, under each weekday, what that day holds, in the order it is done: no
+// times. Each item is a column of `# Log`, one table with a row per day; a cell is `x` done,
+// `.` due and not done, `-` dropped that day, empty nothing recorded. The app writes one row
+// (`writeMark`) or one goal line (`writeGoal`) at a time, with `replaceLine`. The older names,
+// `# Week` and `# Days`, still read.
 
 import { blockApplies } from './dates.ts';
 
@@ -52,7 +53,7 @@ export type Week = { from: string | null; head: string; line: number; lines: Wee
 export type Mark = '' | 'x' | '.' | '-';
 export type DayRow = { line: number; raw: string; day: string; marks: Record<string, Mark>; note: string; };
 export type Days = {
-  header: { line: number; raw: string; } | null; cols: string[]; systems: string[]; noteCol: number;
+  header: { line: number; raw: string; } | null; cols: string[]; heads: string[]; systems: string[]; noteCol: number;
   widths: number[]; rows: Map<number, DayRow>;
 };
 export type Review = { text: string; gap: boolean; written: boolean; grades: Array<{ label: string | null; n: number; }>; overall: number | null; };
@@ -141,7 +142,7 @@ export function weekdaysOfLabel(text: string): Set<number> | null {
 const TIME = String.raw`(\d{1,2})\s*[h:]\s*(\d{2})?`;
 const BLOCK = new RegExp(String.raw`^${TIME}\s*(?:à|a|to|-|–)\s*${TIME}\s+(.+)$`, 'i');
 
-/** One line of a week, from the text after its bullet: name, place, optional times, tail. */
+/** One item of the execution, from the text after its bullet: its words, optional place, time and tail. */
 export function parseWeekLine(rest: string): Omit<WeekLine, 'line' | 'days'> & { days: Set<number> | null; } {
   let t = rest.trim();
   let system: string | null = null, days: Set<number> | null = null, q: WeekLine['q'] = null;
@@ -165,7 +166,9 @@ export function parseWeekLine(rest: string): Omit<WeekLine, 'line' | 'days'> & {
     t = b[5] ?? '';
   }
   const [name = '', ...where] = t.split(/\s+·\s+/);
-  return { name: name.trim(), where: where.join(' · ').trim(), start, end, system, days, q };
+  const words = name.trim();
+  // the item is its own column, by its words, unless brackets name the column
+  return { name: words, where: where.join(' · ').trim(), start, end, system: system || (words ? strip(words) : null), days, q };
 }
 
 /**
@@ -173,7 +176,7 @@ export function parseWeekLine(rest: string): Omit<WeekLine, 'line' | 'days'> & {
  * lines under a label are for its days; a day may sit under several labels.
  */
 export function parseWeek(sec: Section): Week {
-  const m = /^week\s+from\s+(\d{4}-\d{2}-\d{2})$/i.exec(sec.head.trim());
+  const m = /^(?:execution|week)\s+from\s+(\d{4}-\d{2}-\d{2})$/i.exec(sec.head.trim());
   const lines: WeekLine[] = [];
   let scope: Set<number> | null = null;
   for (const { n, text } of sec.body) {
@@ -210,9 +213,9 @@ export function markOf(cell: unknown): Mark {
   return 'x';
 }
 
-/** `# Days`: one table, a row per day; the header names the columns: `Day`, one per system, `Note`. */
+/** `# Log`: one table, a row per day; the header names the columns: `Day`, one per item, `Note`. */
 export function parseDays(sec: { body: Section['body']; }): Days {
-  const t: Days = { header: null, cols: [], systems: [], noteCol: -1, widths: [], rows: new Map() };
+  const t: Days = { header: null, cols: [], heads: [], systems: [], noteCol: -1, widths: [], rows: new Map() };
   for (const { n, text } of sec.body) {
     if (!/^\s*\|/.test(text)) continue;
     const raw = rawCells(text);
@@ -220,6 +223,7 @@ export function parseDays(sec: { body: Section['body']; }): Days {
     if (!t.header) {
       t.header = { line: n, raw: text };
       t.cols = c.map(strip);
+      t.heads = c;
       t.noteCol = t.cols.findIndex((h, i) => i > 0 && (h === 'note' || h === 'notes'));
       t.systems = t.cols.filter((h, i) => i > 0 && i !== t.noteCol && !!h);
       // the width each cell is padded to: the header's own, less the space on each side
@@ -248,9 +252,9 @@ export function formatRow(t: Pick<Days, 'cols' | 'noteCol' | 'widths'>, dayCell:
   return `| ${cells.join(' | ')} |`;
 }
 
-/** The header, the delimiter and one empty row per day: what a new month writes under `# Days`. */
-export function emptyDays(year: number, month: number, systems: string[]): string[] {
-  const cols = ['Day', ...systems, 'Note'];
+/** The header, the delimiter and an empty row per day: a new month's `# Log`. `names` head the columns. */
+export function emptyDays(year: number, month: number, names: string[]): string[] {
+  const cols = ['Day', ...names, 'Note'];
   const widths = cols.map((c, i) => (i === 0 ? 6 : Math.max(c.length, 1)));
   const t = { cols: cols.map(strip), noteCol: cols.length - 1, widths };
   const out = [
@@ -294,8 +298,8 @@ export function parseMonth(text: string, ym: string, q1: string | null = null): 
   const secs = sections(text);
   const find = (re: RegExp) => secs.find((s) => re.test(s.head.trim()));
   const title = secs[0] || { head: '', line: 0, body: [] };
-  const goals = find(/^goals$/i), days = find(/^days$/i), review = find(/^(?:monthly\s+)?review$/i);
-  const weeks = secs.filter((s) => /^week(?:\s+from\s+\d{4}-\d{2}-\d{2})?$/i.test(s.head.trim())).map(parseWeek);
+  const goals = find(/^goals$/i), days = find(/^(?:log|days)$/i), review = find(/^(?:monthly\s+)?review$/i);
+  const weeks = secs.filter((s) => /^(?:execution|week)(?:\s+from\s+\d{4}-\d{2}-\d{2})?$/i.test(s.head.trim())).map(parseWeek);
   weeks.sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')));
   const [year = 0, month = 1] = ym.split('-').map(Number);
   return {
@@ -339,16 +343,12 @@ export function weekFor(month: Month, date: Date): Week | null {
   return cur;
 }
 
-/** The day's lines: the timed ones in the order of the day, then the others. */
+/** The day's items, in the order the file lists them. */
 export function linesFor(month: Month, date: Date): WeekLine[] {
   const w = weekFor(month, date);
   if (!w) return [];
   const wd = dayIndex(date);
-  const list = w.lines.filter((l) => l.days.has(wd) && blockApplies({ q: l.q }, date, month.q1));
-  return [
-    ...list.filter((l) => l.start !== null).sort((a, b) => (a.start ?? 0) - (b.start ?? 0) || a.line - b.line),
-    ...list.filter((l) => l.start === null),
-  ];
+  return w.lines.filter((l) => l.days.has(wd) && blockApplies({ q: l.q }, date, month.q1));
 }
 
 /** The systems planned on a date, in the order of the day. */
@@ -358,17 +358,15 @@ export function plannedSystems(month: Month, date: Date): string[] {
   return out;
 }
 
-/** The systems in the order the week meets them, Monday first, lines with no time last. */
+/** The items in the order the week meets them, Monday first, each day in its own order. */
 export function systemsOf(month: Month): string[] {
-  const timed: string[] = [], untimed: string[] = [];
+  const out: string[] = [];
   for (const w of month.weeks) {
     for (let wd = 0; wd < 7; wd++) {
-      const list = w.lines.filter((l) => l.days.has(wd) && l.system);
-      for (const l of list.filter((x) => x.start !== null).sort((a, b) => (a.start ?? 0) - (b.start ?? 0))) if (l.system && !timed.includes(l.system)) timed.push(l.system);
-      for (const l of list.filter((x) => x.start === null)) if (l.system && !untimed.includes(l.system)) untimed.push(l.system);
+      for (const l of w.lines) if (l.days.has(wd) && l.system && !out.includes(l.system)) out.push(l.system);
     }
   }
-  return [...timed, ...untimed.filter((s) => !timed.includes(s))];
+  return out;
 }
 
 /** Every system the month knows: the table's columns, then any the weeks add. */
@@ -378,13 +376,14 @@ export function allSystems(month: Month): string[] {
   return out;
 }
 
-/** The words a system is shown under: its first line's name, up to the first comma. */
+/** The words an item is shown under: as the execution writes it, else as the log's header does. */
 export function nameOf(month: Month | null, sys: string): string {
   for (const w of month ? month.weeks : []) {
     const l = w.lines.find((x) => x.system === sys);
-    if (l) return l.name.split(',')[0]?.trim() || sys;
+    if (l) return l.name || sys;
   }
-  return sys;
+  const i = month && month.days ? month.days.cols.indexOf(sys) : -1;
+  return (i > 0 && month?.days?.heads[i]) || sys;
 }
 
 /** The first day of the month that has a mark: the month counts from there. */
@@ -516,8 +515,8 @@ export function writeGoal(goal: Goal): Write | null {
 const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 /**
- * A new month's text, from the month before it when there is one: its goals unticked, the week
- * in force on its last day as `# Week`, an empty table of days, the review's gap line.
+ * A new month's text, from the month before it when there is one: its goals unticked, the
+ * execution in force on its last day as `# Execution`, an empty `# Log`, the review's gap line.
  * @param month 1 to 12
  */
 export function newMonthText(year: number, month: number, prev: { text: string; ym: string; } | null): string {
@@ -530,14 +529,15 @@ export function newMonthText(year: number, month: number, prev: { text: string; 
       out.push('');
     }
   } else out.push('Educational', '', 'Financial', '', 'Personal', '');
-  out.push('# Week', '');
+  out.push('# Execution', '');
   const week = p ? weekFor(p, dateOf(p, daysIn(p.year, p.month))) : null;
   const body = week ? [...week.body] : [];
   while (body.length && !(body[0] ?? '').trim()) body.shift();
   while (body.length && !(body[body.length - 1] ?? '').trim()) body.pop();
   if (body.length) out.push(...body, '');
-  const systems = p ? systemsOf({ ...p, weeks: week ? [week] : [] }) : [];
-  out.push('# Days', '', ...emptyDays(year, month, systems), '', '# Review', '', MONTH_GAP, '');
+  const one = p ? { ...p, weeks: week ? [week] : [] } : null;
+  const names = one ? systemsOf(one).map((s) => nameOf(one, s)) : [];
+  out.push('# Log', '', ...emptyDays(year, month, names), '', '# Review', '', MONTH_GAP, '');
   return out.join('\n');
 }
 

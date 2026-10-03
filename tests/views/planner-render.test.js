@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The planner's four pages (src/views/planner/render.ts), drawn from the example months: each
-// page draws, shows the one figure it promises, and none shows a clock time.
+// The planner's pages (src/views/planner/render.ts), drawn from the example months. Year and
+// Month are goals and a review, with one figure from the checkboxes; Today is the month's log
+// as a heatmap, the day's execution and the tasks. No page shows a time of its own.
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -18,47 +19,39 @@ const ctx = {
   todoPath: 'plannings/todo.md',
 };
 const page = (html) => { const el = document.createElement('div'); el.innerHTML = html; return el; };
-// a time the user wrote into a name ("Bed by 23h00") is their words; the page adds none of its own
-const noClock = (el) => expect(el.textContent.replace(/Bed by 23h00/g, '')).not.toMatch(/\b\d{2}h\d{2}\b/);
 
 describe('the planner pages', () => {
-  it('Day: the month across the top, the day, the tasks', () => {
-    const el = page(R.dayPage(ctx, ctx.today));
+  it('Today: the heatmap, the day in its order, the tasks', () => {
+    const el = page(R.todayPage(ctx, ctx.today));
     expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
-    expect(el.querySelectorAll('.pv-strip .pv-c')).toHaveLength(31);
+    expect(el.querySelector('.pn-zoom')).toBe(null);
     expect(el.querySelector('.pv-sum').textContent).toBe('76% so far · September 57%');
-    expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'NSI', 'Lecture', 'OFF block taken, not worked through', 'Bed by 23h00']);
+    expect(el.querySelectorAll('.pv-heat .pv-gl')).toHaveLength(12);
+    expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'NSI', 'Lecture', 'Off', 'Sleep']);
     expect(el.querySelector('.pv-late').textContent).toBe('late');
-    noClock([...el.querySelectorAll('.pv-day section')][0]);
+    expect(el.textContent).not.toMatch(/\b\d{2}h\d{2}\b/);
   });
 
-  it('Week: a row per system and the week before', () => {
-    const el = page(R.weekPage(ctx, ctx.today));
-    expect(el.querySelector('.page-title').textContent).toBe('Week of 12 October');
-    expect(el.querySelector('.pv-sum').textContent).toBe('76% so far · last week 67%');
-    expect(el.querySelectorAll('.pv-gr:not(.is-heads)').length).toBeGreaterThan(5);
-    noClock(el);
-  });
-
-  it('Month: goals, the days by system, the review', () => {
+  it('Month: the goals with their figure, then the review, and nothing else', () => {
     const el = page(R.monthPage(ctx, new Date(2026, 8, 1)));
     expect(el.querySelector('.page-title').textContent).toBe('September 2026');
-    expect([...el.querySelectorAll('.pv-sum')].map((x) => x.textContent)).toContain('57%');
-    expect(el.querySelectorAll('.pv-goal').length).toBe(11);
-    expect(el.querySelectorAll('.pv-review').length).toBe(4);
-    noClock(el.querySelector('.pv-grid'));
+    expect([...el.querySelectorAll('.pn-zoom-b')].map((b) => b.textContent)).toEqual(['Year', 'Month']);
+    expect([...el.querySelectorAll('.label')].map((x) => x.textContent)).toEqual(['Goals', 'Review']);
+    expect(el.querySelector('.pv-sum').textContent).toBe('36% · 4 of 11 met');
+    expect(el.querySelectorAll('.pv-goal')).toHaveLength(11);
+    expect(el.querySelector('.pv-review').dataset.prose).toMatch(/^The week itself held/);
+    expect(el.querySelector('.pv-grid')).toBe(null);
   });
 
   it('Month: a month with no file can be started', () => {
-    const el = page(R.monthPage(ctx, new Date(2026, 10, 1)));
-    expect(el.querySelector('[data-act="start-month"]')).not.toBe(null);
+    expect(page(R.monthPage(ctx, new Date(2026, 10, 1))).querySelector('[data-act="start-month"]')).not.toBe(null);
   });
 
   it('Year: the year file alone, its checklist and how much of it is met', () => {
     const el = page(R.yearPage(ctx, 2026));
     expect(el.querySelector('.page-title').textContent).toBe('2026');
     expect(el.querySelector('.pv-sum').textContent).toBe('27% · 3 of 11 met');
-    expect(el.querySelectorAll('.pv-goal').length).toBe(11);
-    expect(el.querySelectorAll('.pv-month, .pv-grid')).toHaveLength(0);
+    expect(el.querySelectorAll('.pv-goal')).toHaveLength(11);
+    expect(el.querySelector('.pv-grid')).toBe(null);
   });
 });

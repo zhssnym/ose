@@ -242,8 +242,8 @@ button.label:hover { color: var(--accent-ink); }
 
 /* ========================================================================= the cells === */
 
-/* A row: a name, its cells, and at most one figure. `--pv-cols` is written by the page: the
-   name's column, a track per cell with a small space between two weeks, the figure's column. */
+/* A row of the heatmap: an item's name, then a cell per day. `--pv-cols` is written by the
+   page: the name's column, then a track per day with a small space before each Monday. */
 .pv-gr {
   display: grid; grid-template-columns: var(--pv-cols); column-gap: var(--sp-half);
   align-items: center; min-height: 1.375rem;
@@ -283,18 +283,10 @@ button.pv-gh:hover { color: var(--fg); }
   font-family: var(--font-doc); font-size: var(--fs-content); line-height: 1.375rem; color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pv-gl.is-all, .pv-gr.is-figures .pv-gl { color: var(--fg-3); }
-.pv-ge { text-align: right; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
-.pv-gr.is-all + .pv-gr:not(.is-figures) { margin-top: var(--sp-2); }
-.pv-gr.is-figures + .pv-gr:not(.is-figures) { margin-top: var(--sp-2); }
-.pv-gr.is-figures { min-height: 1.125rem; }
 .pv-grid { overflow-x: auto; }
 @container (max-width: 36rem) { .pv { --pv-margin: 6.5rem; } }
 
 /* ============================================================================ day === */
-
-/* The month so far, one cell per day, across the top of the day: taller cells, no names. */
-.pv-strip .pv-c { height: 1.125rem; }
 
 /* Two columns, like the two pages of a paper planner: the day, and the tasks beside it. */
 .pv-day { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); column-gap: var(--sp-6); align-items: start; }

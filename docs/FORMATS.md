@@ -5,8 +5,8 @@ are built out of a handful of ordinary markdown files. This document
 is the contract for those files. An agent such as Claude Code, run on the vault from outside,
 reads it to know how to write a file that the app will read, and what the app writes back.
 
-The code is in `src/views/`: `planner/` (Today and Planner: `render.ts` draws the Year, Month,
-Week and Day pages, `index.ts` reads and writes), `journal/`, and `shared/` for the readers
+The code is in `src/views/`: `planner/` (Today and Planner: `render.ts` draws the Year, Month
+and Today pages, `index.ts` reads and writes), `journal/`, and `shared/` for the readers
 they share, named for what they hold: `plan.ts` (a year, a month, and how a day counts),
 `plans.ts` (where the year and month files are), `tasks.ts` and `todo.ts` (todo lines),
 `settings.ts` and `detect.ts` (where the folders are). The journal's format is read in
@@ -106,7 +106,7 @@ older shape (goals, then a review); the pages show them as text and never conver
 ```
 <planner>/
   YYYY.md       a year: what it is for, its goals, its review
-  YYYY-MM.md    a month: its goals, the week it intends, a row per day, its review
+  YYYY-MM.md    a month: its goals, its execution, its log (a row per day), its review
   todo.md       the todo list
 ```
 
@@ -123,7 +123,7 @@ H1 headings and body text only, `-` bullets; no H2.
 
 ### A month: `YYYY-MM.md`
 
-Five H1 sections, in this order.
+Four H1 sections after the title, in this order: Goals, Execution, Log, Review.
 
 ```markdown
 # October 2026
@@ -140,34 +140,29 @@ Personal
 
 - [ ] In bed by 23h00, six nights out of seven
 
-# Week
-
-- Lecture [lecture]
-- Bed by 23h00 [bed]
+# Execution
 
 Lundi
 
-- 08h00 à 17h00 School [cours]
-- 17h20 à 19h00 Maths · BU Sciences [maths]
+- School
+- Maths
+- NSI
+- Lecture
+- Sleep
 
-Mardi, Jeudi
+Mardi
 
-- School [cours]
-- Maths [maths]
+- School
+- Maths
+- Sleep
 
-# Week from 2026-10-19
+# Log
 
-Lundi à Vendredi
-
-- Maths, annales [maths]
-
-# Days
-
-| Day    | cours | maths | lecture | bed | Note                 |
-|--------|-------|-------|---------|-----|----------------------|
-| 01 jeu | x     | x     | x       | .   |                      |
-| 02 ven | x     | .     | x       | x   | DS de maths le matin |
-| 03 sam |       |       |         |     |                      |
+| Day    | School | Maths | NSI | Lecture | Sleep | Note                 |
+|--------|--------|-------|-----|---------|-------|----------------------|
+| 01 jeu | x      | x     | .   | x       | x     |                      |
+| 02 ven | x      | .     | x   | x       | x     | DS de maths le matin |
+| 03 sam |        |       |     |         |       |                      |
 
 # Review
 
@@ -177,45 +172,43 @@ _gap: written at the end of the month_
 **The title** is the first H1; its text is free, the month comes from the file name. Prose under
 it is the intro.
 
-**`# Goals`**
+**`# Goals`**, what the month is for:
 
 - A line holding one word is an area: `Educational`, `Financial`, `Personal`.
 - `- [ ] text` is a goal, `- [x]` once it is met. A plain `-` bullet is a goal nobody ticks.
+- The month's one figure is its goals ticked over its goals with a box.
 
-**`# Week`**, the one list of what gets confirmed:
+**`# Execution`**, what each day holds, in the order it is done, and nothing about the hour:
 
-- A line is a name and, in brackets, its **system**: `- Maths [maths]`. The system is the line's
-  column in `# Days` and its row on the pages. Lines that share a system on one day are one
-  thing to confirm. A line with no brackets is shown and never confirmed.
-- A time and a place may be written around the name: `- 17h20 à 19h00 Maths · BU Sciences
-  [maths]` (`8h`, `8:20`; `à`, `a`, `to` or a dash between; an end before the start runs
-  overnight). The pages never show them: a time only puts the day in order, and the tooltip
-  holds both.
-- Lines above the first weekday label are for every day. A label is a line of weekday names,
-  French or English, with or without accents: `Lundi`, `Mardi, Jeudi`, `Lundi à Vendredi`.
-  Lines under it are for its days; a day may sit under several labels.
-- A line with no time may carry its own days: `(lun-ven)`, `(lun mer jeu)`, `(sam, dim)`.
-- `(Q1)` or `(Q2)` at the end: every other week, counted from the anchor in Settings › Views
-  ("This week is Q1 / Q2"). With no anchor, both apply.
+- A weekday label (`Lundi` … `Dimanche`, or in English, with or without accents) and under it
+  one bullet per thing, in doing order. Every day of the week is listed on its own.
+- An item is its own column in `# Log`, by its words compared without case or accents:
+  `- Maths` is the column `Maths`. Brackets at the end name another column when the words are
+  long: `- Histoire-géo, composition [HG]`.
+- A label may name several days (`Mardi, Jeudi`, `Lundi à Vendredi`), and bullets above the
+  first label are for every day. An item may carry its own days: `(lun-ven)`, `(sam, dim)`.
+- `(Q1)` or `(Q2)` at the end: every other week, counted from the anchor in Settings › Views.
+- A time or a place written in a line (`17h20 à 19h00 Maths · BU Sciences`) is read and set
+  aside; the pages never show it.
 - Any other prose is ignored.
-- `# Week from YYYY-MM-DD` is a whole week that takes over on that day (the holidays, a week
-  rewritten mid-month). The days before it keep the week they had.
+- `# Execution from YYYY-MM-DD` is a whole execution that takes over on that day (the
+  holidays); the days before it keep the one they had.
+- The older name `# Week` reads the same.
 
-**`# Days`**, what was done, a row per day, made empty when the month is started:
+**`# Log`**, what was done, a row per day, made empty when the month is started:
 
-- The header names the columns: `Day`, one per system (the word in brackets), `Note`.
+- The header names the columns: `Day`, one per item of the execution, `Note`.
 - The first cell is the day of the month and its weekday for the reader, `03 sam`; only the
   number is read.
 - A cell holds `x` done, `.` due and not done, `-` dropped on purpose that day (counts for
   nothing), or nothing.
 - `Note` is a few free words on the day, written by hand or by an agent. No `|` in it.
-- A system added during the month gets a new column at the right end; a column is never removed
+- An item added during the month gets a new column at the right end; a column is never removed
   or renamed during the month.
+- The older name `# Days` reads the same.
 
-**`# Review`** (or `# Monthly Review`) is prose, written at the end of the month; until then
-`_gap: written at the end of the month_`. An area label opens that area's paragraphs,
-`Grade: 7/10` under them grades it, and `Overall: 6/10` grades the month. The app shows the
-review and never writes it.
+**`# Review`** (or `# Monthly Review`) is a paragraph written at the end of the month; until then
+`_gap: written at the end of the month_`. The app shows it and never writes it.
 
 ### A year: `YYYY.md`
 
@@ -241,31 +234,32 @@ computed from the months.
 
 ### How a day counts
 
-Every figure on the pages comes from these five rules (`src/views/shared/plan.ts`).
+The log's figures on Today come from these five rules (`src/views/shared/plan.ts`); the goals' figure
+on Year and Month is only their boxes ticked.
 
-1. A system is **planned** on a day when the week in force that day has a line for it on that
+1. An item is **planned** on a day when the execution in force that day lists it for that
    weekday.
 2. It is **due** when its cell is `x` or `.`, or when it is planned and the cell is empty; never
    when the cell is `-`.
 3. It is **done** when its cell is `x`, planned or not.
 4. A month counts from its first marked day. From there every past day counts in full, a day
    with no mark included. Today counts only what is done; days to come count nothing.
-5. The **rate** is done over due, for a day, a week, a month or a system. A system's
+5. The **rate** is done over due, for a day or a month of the log. An item's
    **run** is its due days done in a row, back from today, across months; a day it is not due,
    a `-` and today still open do not break it.
 
 ### What the pages write
 
-- **A mark** (Day, Week or Month: a click ticks and unticks, Shift+click or `s` drops for the
-  day) replaces that day's row with `ose.files.replaceLine`, only if the row still reads what
+- **A mark** (Today: a click on the day's list or on the heatmap ticks and unticks,
+  Shift+click or `s` drops for the day) replaces that day's row with `ose.files.replaceLine`, only if the row still reads what
   was on screen; otherwise the file is read again and the write tried once more. The first mark
   of a day writes `.` under everything planned that day, then the mark, so the row says by
   itself what was due. Every cell is padded to its header's width.
 - **A goal** ticked on the Month or Year page replaces its line the same way.
 - **Start <month>** on a month with no file creates it (`ose.fileops.create`, never over a
-  file), in the same layout as the last month that has one: its goals unticked, the week in
-  force on its last day as `# Week`, `# Days` with an empty row per day and a column per system
-  in the order the week meets them, and the review's gap line.
+  file), in the same layout as the last month that has one: its goals unticked, the execution
+  in force on its last day as `# Execution`, `# Log` with an empty row per day and a column per
+  item in the order the week meets them, and the review's gap line.
 - **Start <year>** creates `YYYY.md`: the title, the previous year's areas, the gap line.
 
 ## Journal files
@@ -312,7 +306,7 @@ already has something written, then the text. "Discard…" asks first.
 
 | File | How | When |
 |---|---|---|
-| a month, `<planner>/YYYY-MM.md` | `replaceLine`: one row of `# Days`, only if it still reads what was shown | a mark made, taken back or dropped in Day, Week or Month |
+| a month, `<planner>/YYYY-MM.md` | `replaceLine`: one row of `# Log`, only if it still reads what was shown | a mark made, taken back or dropped in Today |
 | a month or a year | `replaceLine`: one goal line, the same way | a goal ticked in Month or Year |
 | `<planner>/YYYY-MM.md` (or in `<planner>/YYYY/`) | exclusive create, never an overwrite | "Start it" on a month with no file |
 | `<planner>/YYYY.md` (or in `<planner>/YYYY/`) | exclusive create, never an overwrite | "Start it" on a year with no file |
