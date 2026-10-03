@@ -162,7 +162,7 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
       const st = stateOf(month, d.getDate(), s, ctx.today);
       if (!st) return '<span class="pv-c"></span>';
       const tip = `${name} · ${DAY_SHORT[dayIndex(d)]} ${d.getDate()} · ${SAID[st]}`;
-      const cls = `pv-c is-${st}${+d === +on ? ' is-here' : ''}`;
+      const cls = `pv-c is-${st}`;
       return d > ctx.today
         ? `<span class="${cls}" title="${esc(tip)}"></span>`
         : `<button type="button" class="${cls}" data-act="tick" data-day="${ymd(d)}" data-sys="${esc(s)}" data-key="c:${ymd(d)}:${esc(s)}" aria-pressed="${st === 'done'}" aria-label="${esc(tip)}" title="${esc(tip)}"></button>`;
