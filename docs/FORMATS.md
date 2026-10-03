@@ -48,10 +48,7 @@ A vault that used the old day, week, month and journal plugins keeps its choices
 time, the paths saved under `plugins.<id>.paths` and the journal mode are copied into
 `planner`, and left where they were.
 
-Which weeks are Q1 weeks and the journal mode (full or compact) are in the same place. Q1 is
-stored as `q1Anchor`, the Monday of a week that is a Q1 week, written by "This week is Q1 / Q2"
-in Settings › Views; the weeks alternate from it. A vault that had the older `q1Parity` (odd
-or even ISO weeks) has it turned into an anchor once, on the week the app first reads it.
+The journal mode (full or compact) is kept in the same place.
 
 ## Todo lines
 
@@ -158,11 +155,11 @@ Mardi
 
 # Log
 
-| Day    | School | Maths | NSI | Lecture | Sleep | Note                 |
-|--------|--------|-------|-----|---------|-------|----------------------|
-| 01 jeu | x      | x     | .   | x       | x     |                      |
-| 02 ven | x      | .     | x   | x       | x     | DS de maths le matin |
-| 03 sam |        |       |     |         |       |                      |
+| Day    | School | Maths | NSI | Lecture | Sleep |
+|--------|--------|-------|-----|---------|-------|
+| 01 jeu | x      | x     | .   | x       | x     |
+| 02 ven | x      | .     | x   | x       | x     |
+| 03 sam |        |       |     |         |       |
 
 # Review
 
@@ -187,22 +184,23 @@ it is the intro.
   long: `- Histoire-géo, composition [HG]`.
 - A label may name several days (`Mardi, Jeudi`, `Lundi à Vendredi`), and bullets above the
   first label are for every day. An item may carry its own days: `(lun-ven)`, `(sam, dim)`.
-- `(Q1)` or `(Q2)` at the end: every other week, counted from the anchor in Settings › Views.
 - A time or a place written in a line (`17h20 à 19h00 Maths · BU Sciences`) is read and set
   aside; the pages never show it.
 - Any other prose is ignored.
-- `# Execution from YYYY-MM-DD` is a whole execution that takes over on that day (the
-  holidays); the days before it keep the one they had.
+- `# Execution` runs from the 1st of the month. `# Execution from YYYY-MM-DD` is a whole
+  execution that takes over on that day (the holidays) and runs until the next one, or to the
+  end of the month. The days before it keep the one they had. There are no alternating weeks.
 - The older name `# Week` reads the same.
 
 **`# Log`**, what was done, a row per day, made empty when the month is started:
 
-- The header names the columns: `Day`, one per item of the execution, `Note`.
+- The header names the columns: `Day`, then one per item of the execution.
 - The first cell is the day of the month and its weekday for the reader, `03 sam`; only the
   number is read.
 - A cell holds `x` done, `.` due and not done, `-` dropped on purpose that day (counts for
   nothing), or nothing.
-- `Note` is a few free words on the day, written by hand or by an agent. No `|` in it.
+- An older table may end with a `Note` column; it is kept as it is and is not an item. New
+  months have none.
 - An item added during the month gets a new column at the right end; a column is never removed
   or renamed during the month.
 - The older name `# Days` reads the same.
@@ -314,7 +312,7 @@ already has something written, then the text. "Discard…" asks first.
 | `<planner>/todo.md` | `appendLine`: `- [ ] <text>` at the end (the file made with `# Todo` the first time) | a task added in Day |
 | `<journal>/YYYY-MM-DD.md` | exclusive create, never an overwrite | "Write today" when today has no file |
 | today's journal file | `appendLine`, line by line: `---` and a blank line when the day has text, then the text | "Add to today's journal" on the old composer's unsaved text |
-| the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; once, when an old `q1Parity` becomes `q1Anchor`; Settings › Views; a chosen file or folder renamed or moved |
+| the vault's state, `planner` (on this machine, not in the vault) | the app's own state | the first start (the old plugins' choices, then detection); each start until the paths are confirmed, when detection fills one; Settings › Views; a chosen file or folder renamed or moved |
 
 Nothing else is written. The intro, the week, the notes and the reviews of the plans, and the
 journal entries, change only when you edit them, in the editor or anywhere else. An older

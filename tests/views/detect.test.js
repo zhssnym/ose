@@ -88,12 +88,13 @@ describe('planner settings: migration and normalising', () => {
 
   it('normalises anything into a complete PlannerSettings', () => {
     expect(settings.normalize(undefined)).toEqual({
-      v: 1, calendar: null, todo: [], reports: null, journal: null, q1Parity: null, journalMode: 'full', confirmed: false,
+      v: 1, calendar: null, todo: [], reports: null, journal: null, journalMode: 'full', confirmed: false,
     });
     const n = settings.normalize({ todo: 'a.md', calendar: 'c.md', reports: 'planner', q1Parity: 'odd', journal: '/j/', confirmed: true });
+    // an old stored q1Parity is dropped: there are no alternating weeks
     // the todo list is always the planner folder's todo.md, and there is no calendar file
-    expect(n).toMatchObject({ todo: ['planner/todo.md'], calendar: null, q1Parity: 'odd', journal: 'j', confirmed: true });
-    expect(settings.normalize({ q1Parity: 'sometimes' }).q1Parity).toBe(null);
+    expect(n).toMatchObject({ todo: ['planner/todo.md'], calendar: null, journal: 'j', confirmed: true });
+    expect(n).not.toHaveProperty('q1Parity');
   });
 
   it('detection only fills what is missing', () => {

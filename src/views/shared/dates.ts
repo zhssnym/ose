@@ -3,14 +3,10 @@
 // the machine's time zone, exactly as the file names are written (`2026-09-26.md`).
 //
 // Two notations are Hassan's own and stay: a time of day is `17h30`, and a week starts on
-// Monday. The calendar's (Q1)/(Q2) markers alternate week by week from an anchor, a Monday
-// that starts a Q1 week, and never by the ISO week number: a year of 53 ISO weeks (2020, 2026)
-// ends odd and the next one starts odd, which would swap Q1 and Q2 every January after one.
+// Monday.
 
 import {
-  addDays, addMonths, differenceInCalendarDays, differenceInCalendarWeeks, eachDayOfInterval,
-  endOfMonth, format, getISODay, getISOWeek, isSameDay, isValid, startOfDay, startOfISOWeek,
-  startOfMonth,
+  addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, format, getISODay, isSameDay, isValid, startOfDay, startOfISOWeek, startOfMonth,
 } from 'date-fns';
 
 export { addDays, addMonths, isSameDay, startOfDay, startOfMonth };
@@ -114,66 +110,6 @@ export const monthDays = (date: Date): Date[] => eachDayOfInterval({ start: star
  * Whole calendar days from `a` to `b` (positive when `b` is later).
  */
 export const daysBetween = (a: Date, b: Date): number => differenceInCalendarDays(b, a);
-
-/* ----------------------------------------------------------- alternating weeks */
-
-/**
- * The parity of the ISO week `date` falls in (date-fns `getISOWeek`). Only the input of the
- * old `q1Parity` setting: two weeks in a row share a parity after a 53-week year.
- */
-export const isoWeekParity = (date: Date): 'odd' | 'even' => (getISOWeek(date) % 2 ? 'odd' : 'even');
-
-/**
- * The anchor for "the week of `date` is a Q1 week" (or a Q2 week when `q1` is false): the Monday
- * of that week, or the Monday before it. -> `YYYY-MM-DD`.
- */
-export function q1AnchorFor(date: Date, q1: boolean = true): string {
-  const monday = startOfISOWeek(date);
-  return ymd(q1 ? monday : addDays(monday, -7));
-}
-
-/**
- * The old `q1Parity` ('odd' | 'even') read as an anchor on `now`: the weeks keep the Q1/Q2 they
- * had that week, and alternate from there. -> `YYYY-MM-DD`, or null for no parity.
- */
-export function anchorFromParity(parity: 'odd' | 'even' | null, now: Date = new Date()): string | null {
-  if (parity !== 'odd' && parity !== 'even') return null;
-  return q1AnchorFor(now, isoWeekParity(now) === parity);
-}
-
-/**
- * Whether the week `date` falls in is a Q1 week. `q1` is an anchor (`YYYY-MM-DD`, any day of a
- * Q1 week) counted in whole weeks either way, or, from the old setting, an ISO week parity.
- * -> null when it is not known.
- */
-export function isQ1Week(date: Date, q1: string | null): boolean | null {
-  if (q1 === 'odd' || q1 === 'even') return isoWeekParity(date) === q1;
-  const anchor = parseYmd(q1);
-  if (!anchor) return null;
-  const n = differenceInCalendarWeeks(startOfISOWeek(date), startOfISOWeek(anchor), { weekStartsOn: 1 });
-  return ((n % 2) + 2) % 2 === 0;
-}
-
-/** `1`, `'1'`, `'Q1'`, `'q1'` -> 1; anything else -> null (a block of every week). */
-function weekMark(q) {
-  const m = /^q?([12])$/i.exec(String(q ?? '').trim());
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * Whether a timetable block is on the calendar on `date`. A block with no marker is there every
- * week. With Q1 unknown (null) both (Q1) and (Q2) blocks apply and are drawn side by side, as
- * before: guessing would be wrong half the time (M33). Otherwise a (Q1) block applies in Q1
- * weeks and a (Q2) block in the others.
- * @param q1 the Q1 anchor (`YYYY-MM-DD`), an old parity ('odd' | 'even'), or null
- */
-export function blockApplies(block: { q?: null | 'Q1' | 'Q2' | 1 | 2; }, date: Date, q1: string | null): boolean {
-  const q = weekMark(block && block.q);
-  if (!q) return true;
-  const inQ1 = isQ1Week(date, q1);
-  if (inQ1 === null) return true;
-  return q === 1 ? inQ1 : !inQ1;
-}
 
 /* ------------------------------------------------------------------ times */
 

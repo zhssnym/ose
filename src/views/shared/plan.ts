@@ -10,8 +10,6 @@
 // (`writeMark`) or one goal line (`writeGoal`) at a time, with `replaceLine`. The older names,
 // `# Week` and `# Days`, still read.
 
-import { blockApplies } from './dates.ts';
-
 /* ------------------------------------------------------------------ small helpers */
 
 export const strip = (s: unknown): string => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -47,7 +45,7 @@ export type Goal = { line: number; raw: string; text: string; box: 'open' | 'don
 export type Area = { label: string; goals: Goal[]; };
 export type WeekLine = {
   line: number; name: string; where: string; start: number | null; end: number | null;
-  system: string | null; days: Set<number>; q: 'Q1' | 'Q2' | null;
+  system: string | null; days: Set<number>;
 };
 export type Week = { from: string | null; head: string; line: number; lines: WeekLine[]; body: string[]; };
 export type Mark = '' | 'x' | '.' | '-';
@@ -59,7 +57,7 @@ export type Days = {
 export type Review = { text: string; gap: boolean; written: boolean; grades: Array<{ label: string | null; n: number; }>; overall: number | null; };
 export type Month = {
   ym: string; year: number; month: number; title: string; intro: string; goals: Area[];
-  weeks: Week[]; days: Days | null; review: Review; q1: string | null;
+  weeks: Week[]; days: Days | null; review: Review;
 };
 export type Year = { year: number; title: string; intro: string; goals: Area[]; review: Review; };
 export type State = 'done' | 'skipped' | 'missed' | 'open' | 'planned' | 'idle' | null;
@@ -145,13 +143,11 @@ const BLOCK = new RegExp(String.raw`^${TIME}\s*(?:à|a|to|-|–)\s*${TIME}\s+(.+
 /** One item of the execution, from the text after its bullet: its words, optional place, time and tail. */
 export function parseWeekLine(rest: string): Omit<WeekLine, 'line' | 'days'> & { days: Set<number> | null; } {
   let t = rest.trim();
-  let system: string | null = null, days: Set<number> | null = null, q: WeekLine['q'] = null;
-  // the tail, in any order: [system], (Q1) or (Q2), a day list
-  for (let i = 0; i < 3; i++) {
+  let system: string | null = null, days: Set<number> | null = null;
+  // the tail, in either order: [column], a day list
+  for (let i = 0; i < 2; i++) {
     let m = /\s*\[([^\]]+)\]\s*$/.exec(t);
     if (m && system === null) { system = strip(m[1]); t = t.slice(0, m.index); continue; }
-    m = /\s*\(Q([12])\)\s*$/i.exec(t);
-    if (m && q === null) { q = m[1] === '1' ? 'Q1' : 'Q2'; t = t.slice(0, m.index); continue; }
     m = /\s*\(([^)]*)\)\s*$/.exec(t);
     const set = m ? dayList(m[1] ?? '') : null;
     if (m && set && days === null) { days = set; t = t.slice(0, m.index); continue; }
@@ -168,7 +164,7 @@ export function parseWeekLine(rest: string): Omit<WeekLine, 'line' | 'days'> & {
   const [name = '', ...where] = t.split(/\s+·\s+/);
   const words = name.trim();
   // the item is its own column, by its words, unless brackets name the column
-  return { name: words, where: where.join(' · ').trim(), start, end, system: system || (words ? strip(words) : null), days, q };
+  return { name: words, where: where.join(' · ').trim(), start, end, system: system || (words ? strip(words) : null), days };
 }
 
 /**
@@ -213,7 +209,7 @@ export function markOf(cell: unknown): Mark {
   return 'x';
 }
 
-/** `# Log`: one table, a row per day; the header names the columns: `Day`, one per item, `Note`. */
+/** `# Log`: one table, a row per day; the header names the columns: `Day`, then one per item. An older table's `Note` column is kept as it is and is not an item. */
 export function parseDays(sec: { body: Section['body']; }): Days {
   const t: Days = { header: null, cols: [], heads: [], systems: [], noteCol: -1, widths: [], rows: new Map() };
   for (const { n, text } of sec.body) {
@@ -254,9 +250,9 @@ export function formatRow(t: Pick<Days, 'cols' | 'noteCol' | 'widths'>, dayCell:
 
 /** The header, the delimiter and an empty row per day: a new month's `# Log`. `names` head the columns. */
 export function emptyDays(year: number, month: number, names: string[]): string[] {
-  const cols = ['Day', ...names, 'Note'];
+  const cols = ['Day', ...names];
   const widths = cols.map((c, i) => (i === 0 ? 6 : Math.max(c.length, 1)));
-  const t = { cols: cols.map(strip), noteCol: cols.length - 1, widths };
+  const t = { cols: cols.map(strip), noteCol: -1, widths };
   const out = [
     `| ${cols.map((c, i) => c.padEnd(widths[i] ?? 1)).join(' | ')} |`,
     `|${widths.map((w) => '-'.repeat(w + 2)).join('|')}|`,
@@ -291,10 +287,9 @@ const NO_REVIEW: Review = { text: '', gap: false, written: false, grades: [], ov
 /* ------------------------------------------------------------------ a month, a year */
 
 /**
- * A month file. `ym` is its date, `2026-10`; `q1` the Monday a Q1 week starts on (Settings),
- * for the lines marked (Q1) or (Q2).
+ * A month file. `ym` is its date, `2026-10`.
  */
-export function parseMonth(text: string, ym: string, q1: string | null = null): Month {
+export function parseMonth(text: string, ym: string): Month {
   const secs = sections(text);
   const find = (re: RegExp) => secs.find((s) => re.test(s.head.trim()));
   const title = secs[0] || { head: '', line: 0, body: [] };
@@ -303,7 +298,7 @@ export function parseMonth(text: string, ym: string, q1: string | null = null): 
   weeks.sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')));
   const [year = 0, month = 1] = ym.split('-').map(Number);
   return {
-    ym, year, month, q1,
+    ym, year, month,
     title: title.head,
     intro: title.body.map((l) => l.text).join('\n').trim(),
     goals: goals ? parseGoals(goals.body) : [],
@@ -348,7 +343,7 @@ export function linesFor(month: Month, date: Date): WeekLine[] {
   const w = weekFor(month, date);
   if (!w) return [];
   const wd = dayIndex(date);
-  return w.lines.filter((l) => l.days.has(wd) && blockApplies({ q: l.q }, date, month.q1));
+  return w.lines.filter((l) => l.days.has(wd));
 }
 
 /** The systems planned on a date, in the order of the day. */

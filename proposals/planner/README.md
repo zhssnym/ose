@@ -1,5 +1,7 @@
 # The planner: one file a month, one row a day
 
+> **Superseded.** This describes an earlier draft (a timed week, a Days table, Week and Day pages). The format as built is in `docs/FORMATS.md`, "The planner": a month is Goals, Execution, Log and Review; Planner is Year and Month; Today is the heatmap, the day's list and the todos.
+
 A proposal, on the `experimental` branch. Nothing here is built into the app and no vault was
 touched. It answers three things: how the planning files are kept, how a month, a year and a
 review get written, and what the app's pages over them look like.

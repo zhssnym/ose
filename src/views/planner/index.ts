@@ -24,7 +24,6 @@ import { taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml } from '../shared/nav.ts';
 import { proseInto } from '../shared/prose.ts';
-import { q1Of } from '../shared/settings.ts';
 import { monthPage, todayPage, yearPage, type Ctx, type Zoom } from './render.ts';
 
 /** What a mounted planner shows: a zoom of Planner, or Today. */
@@ -99,9 +98,8 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
       }
       const yf = st.zoom === 'year' ? pickYear(listings.get(st.date.getFullYear())) : null;
       const read = async (p: string) => { const t = await ose.files.read(p); texts.set(p, t); return t; };
-      const q1 = q1Of(s);
       const months = new Map<string, Month>();
-      await Promise.all([...files].map(async ([ym, f]) => { if (f.exists) months.set(ym, parseMonth(await read(f.path), ym, q1)); }));
+      await Promise.all([...files].map(async ([ym, f]) => { if (f.exists) months.set(ym, parseMonth(await read(f.path), ym)); }));
       const yearText = yf && yf.exists ? await read(yf.path) : null;
       todo.setPaths(s.todo);
       const todoFiles = await todo.load();
@@ -201,7 +199,7 @@ function mountPlanner(ose: any, store: any, host: HTMLElement, route: any, opts:
       let ok = await replace(f.path, first);
       if (!ok) {
         // the file changed under the page: read it again, find the day's row by its number, try once more
-        const fresh = parseMonth(await ose.files.read(f.path), ym, q1Of(settings()));
+        const fresh = parseMonth(await ose.files.read(f.path), ym);
         ok = await replace(f.path, attempt(fresh));
         if (!ok) toast(`${f.path} changed; the mark was not written. Read again.`, 'warn');
       }

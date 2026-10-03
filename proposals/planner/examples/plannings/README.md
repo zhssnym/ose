@@ -1,5 +1,7 @@
 # plannings: the year, the months and the todo list
 
+> **Superseded.** This describes an earlier draft (a timed week, a Days table, Week and Day pages). The format as built is in `docs/FORMATS.md`, "The planner": a month is Goals, Execution, Log and Review; Planner is Year and Month; Today is the heatmap, the day's list and the todos.
+
 This folder is the whole planning system: one file per year, one file per month, one todo list.
 Ose's Today and Planner pages are these files, typeset. Hassan and an agent read and edit the
 same files. Their shape is a contract: a file that follows it is drawn as goals, a week, days

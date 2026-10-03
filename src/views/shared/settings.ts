@@ -1,5 +1,5 @@
 // The planner's settings: four paths (`reports` is the plannings folder, under its old key so
-// stored settings keep working), the (Q1) week anchor and the journal mode, kept in the
+// stored settings keep working) and the journal mode, kept in the
 // vault's state (`ose.state`, on this machine, outside the vault) under `planner`. Nothing
 // else in the planner spells a path; the views ask the store.
 //
@@ -9,18 +9,13 @@
 // While the paths are not confirmed, detection (`detect.ts`) fills whatever is still missing at
 // every start; "These look right" stops that, and "Detect again" asks once more on demand.
 //
-// (Q1) weeks are `q1Anchor`, a Monday that starts a Q1 week; the weeks alternate from it. The
-// old `q1Parity` (odd or even ISO weeks) broke after every 53-week year, so it is only read
-// once, turned into an anchor on the week it is read, and cleared.
-//
 // The fragment Settings › Views draws is `renderSettings`. Every control in it is a button or
 // a segmented control, so it is reachable from the keyboard like the rest of the settings.
 
 import { esc, toast } from '../../ui/index.ts';
 import { detectPaths } from './detect.ts';
-import { anchorFromParity, isQ1Week, parseYmd, q1AnchorFor, ymd } from './dates.ts';
 
-export type PlannerSettings = {v: 1, calendar: string|null, todo: string[], reports: string|null, journal: string|null, q1Parity: 'odd'|'even'|null, q1Anchor?: string, journalMode: 'full'|'compact', confirmed: boolean};
+export type PlannerSettings = {v: 1, calendar: string|null, todo: string[], reports: string|null, journal: string|null, journalMode: 'full'|'compact', confirmed: boolean};
 
 const KEY = 'planner';
 const clean = (p) => (typeof p === 'string' && p.trim() ? p.replace(/\\/g, '/').trim().replace(/^\/+/, '').replace(/\/+$/, '') : null);
@@ -30,7 +25,6 @@ const clean = (p) => (typeof p === 'string' && p.trim() ? p.replace(/\\/g, '/').
  */
 export function normalize(raw: any): PlannerSettings {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const anchor = parseYmd(r.q1Anchor);
   // The planner folder holds everything planning: the year and month files, systems.jsonl and
   // the one todo list, `todo.md`. `calendar` and `todo` are derived, never chosen: no separate
   // calendar (a month carries its timetable), and the todo list is always the folder's.
@@ -41,19 +35,11 @@ export function normalize(raw: any): PlannerSettings {
     todo: reports ? [`${reports}/todo.md`] : [],
     reports,
     journal: clean(r.journal),
-    q1Parity: r.q1Parity === 'odd' || r.q1Parity === 'even' ? r.q1Parity : null,
     journalMode: r.journalMode === 'compact' ? 'compact' : 'full',
     confirmed: r.confirmed === true,
   };
-  // present only when known, so a vault that never set it stores nothing for it
-  if (anchor) out.q1Anchor = ymd(anchor);
   return out;
 }
-
-/**
- * What the views hand `blockApplies`: the anchor, else an old parity not yet migrated, else null.
- */
-export const q1Of = (s: PlannerSettings): string | null => (s && (s.q1Anchor || s.q1Parity)) || null;
 
 /**
  * What the old plugins had saved, as planner settings (only the fields they knew).
@@ -132,10 +118,6 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
       cur = normalize({ ...old, confirmed: false });
       ose.state(KEY).set(cur);
     }
-    if (cur.q1Parity && !cur.q1Anchor) {
-      // once: the parity as it reads this week, then the anchor alone
-      write({ ...cur, q1Anchor: anchorFromParity(cur.q1Parity, new Date()), q1Parity: null });
-    }
     if (!cur.confirmed) await detect();
   })().catch((e) => console.error('[planner] settings', e));
 
@@ -195,12 +177,6 @@ function pathValue(p, kind) {
     : `<span class="pl-set-none">${kind === 'folder' ? 'No folder chosen' : 'No file chosen'}</span>`;
 }
 
-/** 'q1' | 'q2' | 'unknown' for the week in front of you. */
-function thisWeek(s) {
-  const q = isQ1Week(new Date(), q1Of(s));
-  return q === null ? 'unknown' : q ? 'q1' : 'q2';
-}
-
 function html(s) {
   const rows = ROWS.map((r) => `
     <div class="pl-set-row" data-key="${r.key}">
@@ -218,13 +194,6 @@ function html(s) {
     <div class="pl-set">
       ${s.confirmed ? '' : '<div class="pl-quiet">These were found automatically. Check them, then confirm.</div>'}
       ${rows.join('')}
-      <div class="pl-set-row">
-        <div class="pl-set-name">This week is</div>
-        <div class="pl-set-value">${seg('q1', [
-          { value: 'q1', label: 'Q1' }, { value: 'q2', label: 'Q2' }, { value: 'unknown', label: "Don't know" },
-        ], thisWeek(s))}</div>
-        <div class="pl-set-note">Which of the week's (Q1) and (Q2) lines apply this week. The weeks alternate from here, year ends included; after a break that restarts the count, set it again. Not knowing counts both.</div>
-      </div>
       <div class="pl-set-row">
         <div class="pl-set-name">Journal</div>
         <div class="pl-set-value">${seg('mode', [{ value: 'full', label: 'Full' }, { value: 'compact', label: 'Compact' }], s.journalMode)}</div>
@@ -267,11 +236,7 @@ export function renderSettings(el: HTMLElement, store: ReturnType<typeof createS
     const segEl = b.closest('[data-pl-seg]');
     if (segEl) {
       const v = b.dataset.v;
-      if (segEl.dataset.plSeg === 'q1') {
-        const anchor = v === 'q1' || v === 'q2' ? q1AnchorFor(new Date(), v === 'q1') : undefined;
-        store.set({ q1Anchor: anchor, q1Parity: null });
-      }
-      else if (segEl.dataset.plSeg === 'mode') store.set({ journalMode: v === 'compact' ? 'compact' : 'full' });
+      if (segEl.dataset.plSeg === 'mode') store.set({ journalMode: v === 'compact' ? 'compact' : 'full' });
       return;
     }
     const key = b.dataset.key;

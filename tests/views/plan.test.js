@@ -44,6 +44,28 @@ describe('a month file', () => {
     expect(P.weekdaysOfLabel('Holidays until 1 November.')).toBe(null);
   });
 
+  it('runs the first execution from the 1st, and each dated one until the next or the end of the month', () => {
+    const m = P.parseMonth([
+      '# x', '', '# Execution', '', 'Lundi', '', '- School', '- Maths', '',
+      '# Execution from 2026-10-26', '', 'Lundi', '', '- Lecture', '',
+      '# Log', '', '| Day | School | Maths | Lecture |', '|---|---|---|---|',
+    ].join('\n'), '2026-10');
+    const mon = (d) => P.plannedSystems(m, new Date(2026, 9, d));
+    expect(mon(5)).toEqual(['school', 'maths']);
+    expect(mon(19)).toEqual(['school', 'maths']);
+    expect(mon(26)).toEqual(['lecture']);
+    // written in any order, the dated executions still follow their dates
+    const three = P.parseMonth('# x\n\n# Execution from 2026-11-16\n\nLundi\n\n- C\n\n# Execution\n\nLundi\n\n- A\n\n# Execution from 2026-11-09\n\nLundi\n\n- B\n', '2026-11');
+    expect([2, 9, 16, 23].map((d) => P.plannedSystems(three, new Date(2026, 10, d)))).toEqual([['a'], ['b'], ['c'], ['c']]);
+  });
+
+  it('starts a new month with no Note column, and reads an older one without making it an item', () => {
+    expect(P.emptyDays(2026, 11, ['Maths'])[0]).toBe('| Day    | Maths |');
+    const m = P.parseMonth('# x\n\n# Log\n\n| Day | Maths | Note |\n|---|---|---|\n| 05 lun | x | ill |\n', '2026-10');
+    expect(m.days.systems).toEqual(['maths']);
+    expect(P.writeMark(m, 5, 'maths', '').next).toBe('| 05 lun |       | ill  |');
+  });
+
   it('still reads the older names, # Week and # Days', () => {
     const m = P.parseMonth('# x\n\n# Week\n\nLundi\n\n- Maths\n\n# Days\n\n| Day | Maths | Note |\n|---|---|---|\n| 05 lun | x | |\n', '2026-10');
     expect(P.stateOf(m, 5, 'maths', today)).toBe('done');
@@ -111,14 +133,13 @@ describe('what the app writes', () => {
   it('writes the first mark of a day with a dot under everything planned', () => {
     const w = P.writeMark(oct, 16, 'maths', 'x');
     expect(w.expected).toBe(oct.days.rows.get(16).raw);
-    expect(w.next).toBe('| 16 ven | .      | x     | .   | .       | .   | .     |       |        | .     |      |         |    |      |');
+    expect(w.next).toBe('| 16 ven | .      | x     | .   | .       | .   | .     |       |        | .     |      |         |    |');
   });
 
-  it('changes one cell of a marked day, and keeps its note', () => {
+  it('changes one cell of a marked day', () => {
     const before = oct.days.rows.get(14);
     const after = P.parseDays({ body: [oct.days.header, { n: 99, text: P.writeMark(oct, 14, 'cardio', 'x').next }].map((x) => ({ n: x.n ?? x.line, text: x.text ?? x.raw })) }).rows.get(14);
     expect(after.marks).toEqual({ ...before.marks, cardio: 'x' });
-    expect(P.writeMark(oct, 2, 'maths', 'x').next.endsWith('| DS de maths le matin |')).toBe(true);
   });
 
   it('writes nothing it cannot place', () => {
