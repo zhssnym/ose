@@ -18,6 +18,8 @@ const TYPES = {
 createServer(async (req, res) => {
   try {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    // the root is the app's own page, which needs its host: go to the mock instead
+    if (path === '/') { res.writeHead(302, { location: '/proposals/planner/mock/' }).end(); return; }
     let file = normalize(join(root, path));
     if (!file.startsWith(root.endsWith(sep) ? root : root + sep) && file !== root) { res.writeHead(403).end(); return; }
     if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
