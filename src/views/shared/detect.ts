@@ -57,7 +57,7 @@ export function detectPaths(tree: { children?: any[]; }): { calendar: string | n
 
   // a folder whose direct children hold `systems.jsonl` is the strongest sign; among those a
   // matching name wins, then depth
-  const holdsLog = (r) => (r.entry.children || []).some((c) => c && c.kind !== 'dir' && lower(c.name) === 'systems.jsonl');
+  const holdsLog = (r) => (r.entry.children || []).some((c) => c && c.kind !== 'dir' && (lower(c.name) === 'execution.jsonl' || lower(c.name) === 'systems.jsonl'));
   const named = (r) => REPORTS.includes(bare(r.entry.name));
   const withLog = dirs.filter(holdsLog);
   const reports = shallowest(withLog.filter(named)) || shallowest(withLog) || shallowest(dirs.filter(named));

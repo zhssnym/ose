@@ -16,7 +16,7 @@ import {
 } from '../shared/dates.ts';
 import { chooseTimetable } from '../shared/timetable.ts';
 import {
-  applies, checkRecord, logKey, logPath, parseMonthlyPlan, parseSystemsLog, resolvePlanPath, systemsFor,
+  applies, blockId, checkRecord, logKey, parseMonthlyPlan, resolveLogPath, parseSystemsLog, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
 import { groupsForDay, PRIORITY_RANK, taskDepth } from '../shared/tasks.ts';
 import { createTodoIndex } from '../shared/todo.ts';
@@ -100,17 +100,13 @@ export function createTodayView(ose: any, store: any): any {
       <div class="td-now" data-el="nowbox" hidden></div>
       <div class="td-grid">
         <section class="td-day">
-          <div class="label">The day</div>
+          <div class="label">Execution <span class="td-count" data-el="count"></span></div>
           <div class="td-list" data-el="tl"></div>
         </section>
         <div class="td-side">
           <section class="td-box">
             <div class="label">Tasks</div>
             <div class="td-list td-tasks" data-el="tasks"></div>
-          </section>
-          <section class="td-box">
-            <div class="label">Systems <span class="td-count" data-el="syscount"></span></div>
-            <div class="td-list" data-el="sys"></div>
           </section>
         </div>
       </div>
@@ -124,30 +120,76 @@ export function createTodayView(ose: any, store: any): any {
 
     /* ------------------------------------------------------------ timeline */
 
+    /**
+     * The day's execution: what the month's `# Execution` says for this day, ticked where it is
+     * listed. The timed lines first, in the order of the day (time, colour, room, now), then the
+     * lines with no time. One tick is one line of the log: a timed line by its name and start
+     * (`Maths 17h20`), one with no time by its name.
+     */
+    function lines() {
+      const s = settings();
+      const d = dayIndex(st.cursor);
+      const timed = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s))).sort((a, b) => a.sm - b.sm)
+        .map((e) => ({ id: blockId(e.t, e.sm), e }));
+      const untimed = st.systems.filter((x) => applies(x, st.cursor)).map((x) => ({ id: x.name, e: null }));
+      return [...timed, ...untimed];
+    }
+
+    /** Days in a row this line was done, counting back from the day on screen (today unticked is not a break). */
+    function streak(line): number {
+      const s = settings();
+      const dueOn = (day: Date): string[] => {
+        if (!line.e) return st.systems.some((x) => x.name === line.id && applies(x, day)) ? [line.id] : [];
+        const wd = dayIndex(day);
+        return st.events.filter((e) => e.t === line.e.t && e.d === wd && blockApplies(e, day, q1Of(s))).map((e) => blockId(e.t, e.sm));
+      };
+      let n = 0;
+      for (let k = 0; k < 120; k++) {
+        const day = addDays(st.cursor, -k);
+        const ids = dueOn(day);
+        if (!ids.length) continue;
+        const done = ids.every((id) => isDone(id, day));
+        if (!done) { if (k === 0) continue; break; }
+        n++;
+      }
+      return n;
+    }
+
     function renderTimeline() {
       const box = $('tl');
       if (!box) return;
-      const s = settings();
-      if (!st.ttFrom) {
-        box.classList.add('is-empty');
-        box.innerHTML = !settings().reports ? missingHtml('reports')
-          : st.planMissing ? `<div class="pl-quiet">No timetable: ${esc(monthTitle(st.cursor))} has no file yet. <button type="button" class="v-link" data-start-month>Start it</button> in the Planner.</div>`
-          : `<div class="pl-quiet">No timetable: ${esc(monthTitle(st.cursor))}'s file has no # Timetable.</div>`;
+      const count = $('count');
+      if (count) count.textContent = '';
+      if (!settings().reports) { box.innerHTML = missingHtml('reports'); return; }
+      if (st.planMissing) {
+        box.innerHTML = `<div class="pl-quiet">${esc(monthTitle(st.cursor))} has no plan yet. <button type="button" class="v-link" data-start-month>Start it</button> in the Planner.</div>`;
         return;
       }
-      box.classList.remove('is-empty');
-      const d = dayIndex(st.cursor);
-      const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(s))).sort((a, b) => a.sm - b.sm);
-      if (!list.length) { box.innerHTML = note('Nothing in the timetable for this day'); tick(); return; }
-      // The day, block by block: what it is, when and where. Confirming is the Systems box's.
-      box.innerHTML = list.map((e) => {
-        return `<div class="td-blk t-${e.type}" data-s="${e.sm}" data-e="${e.em}">
-          <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
-          <span class="td-bar"></span>
-          <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
-          <span class="td-nowtag">now</span>
-        </div>`;
+      const list = lines();
+      if (!list.length) { box.innerHTML = note('Nothing to execute on this day'); tick(); return; }
+      let done = 0;
+      box.innerHTML = list.map((line) => {
+        const dn = isDone(line.id, st.cursor);
+        if (dn) done++;
+        const n = streak(line);
+        const run = n >= 2 ? `<span class="td-streak mono-sm" title="${n} days in a row">${n} days</span>` : '';
+        const e = line.e;
+        return e
+          ? `<button type="button" class="td-blk t-${e.type}${dn ? ' done' : ''}" data-system="${esc(line.id)}" data-s="${e.sm}" data-e="${e.em}" aria-pressed="${dn}">
+              <span class="check${dn ? ' on' : ''}"></span>
+              <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
+              <span class="td-bar"></span>
+              <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
+              <span class="td-nowtag">now</span>${run}
+            </button>`
+          : `<button type="button" class="td-blk${dn ? ' done' : ''}" data-system="${esc(line.id)}" aria-pressed="${dn}">
+              <span class="check${dn ? ' on' : ''}"></span>
+              <span class="td-time mono-sm"></span>
+              <span class="td-bar td-bar-none"></span>
+              <span class="td-name">${esc(line.id)}</span>${run}
+            </button>`;
       }).join('');
+      if (count) { count.textContent = `${done} of ${list.length}`; count.classList.toggle('ok', done === list.length); }
       tick();
     }
 
@@ -179,30 +221,8 @@ export function createTodayView(ose: any, store: any): any {
 
     /* ------------------------------------------------------------- systems */
 
-    function renderSystems() {
-      const box = $('sys');
-      if (!box) return;
-      const s = settings();
-      if (!s.reports) { box.innerHTML = missingHtml('reports'); return; }
-      const list = st.systems.filter((x) => applies(x, st.cursor));
-      if (!list.length) {
-        box.innerHTML = (!st.systems.length && st.planMissing)
-          ? note(`No plan for this month at ${st.planFile}`)
-          : note(`No system is due on ${ddmm(st.cursor)}`);
-        return;
-      }
-      const k = list.filter((x) => isDone(x.name, st.cursor)).length;
-      const count = $('syscount');
-      if (count) { count.textContent = `${k} of ${list.length}`; count.classList.toggle('ok', k === list.length); }
-      box.innerHTML = `
-          ${list.map((x) => {
-            const dn = isDone(x.name, st.cursor);
-            return `<button type="button" class="dy-sys-row${dn ? ' done' : ''}" data-system="${esc(x.name)}" aria-pressed="${dn}">
-              <span class="check${dn ? ' on' : ''}"></span>
-              <span class="dy-sys-name">${esc(x.name)}</span>
-            </button>`;
-          }).join('')}`;
-    }
+    /** The execution list is the one place a line is ticked: redrawn whole after a tick. */
+    function renderSystems() { renderTimeline(); }
 
     async function toggleSystem(name) {
       if (st.busy || !st.logFile) return;
@@ -359,7 +379,7 @@ export function createTodayView(ose: any, store: any): any {
       const my = ++st.seq;
       const at = st.cursor;
       const s = settings();
-      st.logFile = s.reports ? logPath(s.reports) : '';
+      st.logFile = s.reports ? await resolveLogPath((p) => ose.files.exists(p), s.reports) : '';
       todo.setPaths(s.todo);
       const stops: [() => boolean, () => boolean, () => boolean] = [
         loadingLine(s.calendar || s.reports ? $('tl') : null),

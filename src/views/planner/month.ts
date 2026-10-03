@@ -14,15 +14,16 @@
 
 import { esc, icon, loadingLine, toast } from '../../ui/index.ts';
 import {
-  addMonths, DAY_SHORT, ddmm, hhmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth, ym, ymd,
+  addMonths, blockApplies, DAY_SHORT, ddmm, hhmm, isSameDay, monthDays, monthTitle, startOfDay, startOfMonth, ym, ymd,
 } from '../shared/dates.ts';
 import {
-  dayVerdict, listPlannings, logPath, newMonthText, parseMonthlyPlan, parseSystemsLog, percentages,
+  blockRows, dayVerdict, listPlannings, resolveLogPath, newMonthText, parseMonthlyPlan, parseSystemsLog, percentages,
   pickMonth, planDir, previousMonthFile, resolvePlanPath, systemsFor,
 } from '../shared/plans.ts';
 import { parseTimetable, timetableSection, type TimetableEvent } from '../shared/timetable.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from '../shared/nav.ts';
 import { proseInto } from '../shared/prose.ts';
+import { q1Of } from '../shared/settings.ts';
 
 /** `12 done · 2 lost · 16 open`. */
 const tallyText = (t) => `${t.done} done · ${t.lost} lost · ${t.open} open`;
@@ -198,7 +199,7 @@ export function createMonthView(ose: any, store: any): any {
       const my = ++seq;
       const at = cursor;
       const s = settings();
-      logFile = s.reports ? logPath(s.reports) : '';
+      logFile = s.reports ? await resolveLogPath((p) => ose.files.exists(p), s.reports) : '';
       if (!s.reports) {
         plan = null; path = ''; planExists = false; systems = []; log = parseSystemsLog('');
         tt = { found: false, events: [], unknown: [] };
@@ -224,7 +225,8 @@ export function createMonthView(ose: any, store: any): any {
         const sec = timetableSection(planText);
         tt = sec.found ? { found: true, ...parseTimetable(sec.text) } : { found: false, events: [], unknown: [] };
         log = parseSystemsLog(logText);
-        systems = systemsFor(plan, log, at);
+        // The habits of # Systems, then one row per kind of block of the month's timetable.
+        systems = [...systemsFor(plan, log, at), ...blockRows(tt.events, (e, date) => blockApplies(e, date, q1Of(settings())))];
         stop();
         render();
       } catch (err) {

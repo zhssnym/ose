@@ -149,15 +149,19 @@ export function lanes(list: any[]): Array<{ e: any; lane: number; lanes: number;
 export function timetableSection(text: string): { found: boolean; text: string; } {
   const lines = String(text ?? '').replace(/^﻿/, '').split(/\r?\n/);
   const out = lines.map(() => '');
-  let inside = false, found = false;
+  let inside = false, found = false, seenDay = false;
   for (let i = 0; i < lines.length; i++) {
     const l = (lines[i] as string).trim();
     if (/^#\s/.test(l)) {
       const head = l.slice(2).trim();
-      if (/^timetable$/i.test(head)) { inside = true; found = true; continue; }
-      if (inside && dayOfHeading(head) === null) inside = false;
+      // `# Timetable`, or `# Execution` whose weekday headings are the timed systems.
+      if (/^(?:timetable|execution)$/i.test(head)) { inside = true; found = true; continue; }
+      if (inside && dayOfHeading(head) === null) { inside = false; seenDay = false; }
     }
-    if (inside) out[i] = lines[i] as string;
+    // Under `# Execution`, the bullets before the first weekday are the untimed systems: not
+    // timetable lines, so they stay out of the slice.
+    if (inside && seenDay) out[i] = lines[i] as string;
+    else if (inside && /^#\s/.test(l) && dayOfHeading(l.slice(2).trim()) !== null) { seenDay = true; out[i] = lines[i] as string; }
   }
   return { found, text: out.join('\n') };
 }

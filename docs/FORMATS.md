@@ -8,7 +8,7 @@ reads it to know how to write a file that the app will read, and what the app wr
 The code is in `src/views/`: one folder per view (`today/`, `planner/` with its year, month and
 week pages, `journal/`) and `shared/` for the readers they share, named for what they hold:
 `timetable.ts` (a month's `# Timetable`), `tasks.ts` and `todo.ts` (todo lines),
-`plans.ts` (the plannings: year and month files, and `systems.jsonl`),
+`plans.ts` (the plannings: year and month files, and the log `execution.jsonl`),
 `settings.ts` and `detect.ts` (where the files are). The journal's format is read in
 `journal/index.ts`.
 
@@ -25,14 +25,14 @@ until the app first writes its state:
 | Journal folder | `journal` | a folder | Journal |
 
 The planner folder holds everything about planning: the year and month files, `todo.md` (the one
-todo list) and `systems.jsonl`. It is stored under its old key, `reports`, so a vault's stored
+todo list) and `execution.jsonl` (`systems.jsonl` in older folders). It is stored under its old key, `reports`, so a vault's stored
 choice keeps working. There is no separate calendar file: a month carries its own timetable.
 
 The first time the app opens a vault, it looks for these by name and shows what it found:
 
 - names are compared without case and without a leading number, so `4-journal` is a journal
   folder and `1-general-todo.md` is a todo file;
-- the planner folder is the folder that holds `systems.jsonl`, or else one named `planner`,
+- the planner folder is the folder that holds `execution.jsonl` (or `systems.jsonl`), or else one named `planner`,
   `plannings`, `planning`, `plans`, `reports`, `report`, `monthly plans` (or `monthly-plans`)
   or `execution`;
 - the journal folder is one named `journal`, `journals`, `journaling` or `diary`;
@@ -163,7 +163,7 @@ The plannings folder holds one file per year, one per month, and the check log:
   YYYY.md          one per year:  # YYYY Yearly Plan (intro, goal labels and bullets)  ·  # Yearly Review
   YYYY-MM.md       one per month: # YYYY-MM Monthly Plan (intro, optional # Goals, labels and bullets)
                                   · # Systems · # Timetable · # Monthly Review
-  systems.jsonl    the check log
+  execution.jsonl  the log of ticks (an older folder's systems.jsonl is read too)
 ```
 
 H1 headings and body text only, `-` bullets; no H2.
@@ -192,17 +192,15 @@ Educational
 
 - Finish chapter 3 of the maths course
 
-# Systems
+# Execution
 
-- Maths session (lun-ven)
-- Reading before bed (sam, dim)
 - Bed by 23h00
-
-# Timetable
+- Reading before bed (sam, dim)
 
 # Lundi
 
-- 08h20 à 09h15 Maths · salle 333 [maths]
+- 08h00 à 17h00 School [cours]
+- 17h20 à 19h00 Maths · BU Sciences [maths]
 
 # Monthly Review
 
@@ -218,9 +216,19 @@ _gap: written at the end of the month_
 - A bullet before any label goes under `Notes`.
 - An optional `# Goals` section is read as more of the title section.
 
-**`# Systems`**
+**`# Execution`**: what is done, day by day, to reach the goals. Every line of it is ticked in
+Today, and every tick is one line of the log.
 
-- One bullet per system.
+- A bullet with no time, directly under `# Execution`, is done on the days its day list says.
+- The weekday headings below it (`# Lundi` … `# Dimanche`) hold the timed lines, in the
+  timetable format below: Today lists them in the order of the day, Week draws them, and each
+  block is ticked on its own (its log name is its name and start, `Maths 17h20`).
+- Older months say `# Systems` (the untimed lines) and `# Timetable` (the weekdays); both are
+  still read the same way.
+
+The untimed lines:
+
+- One bullet per line.
 - A day list in parentheses at the end says when it is due: `(lun-ven)`, `(lun mer jeu)`,
   `(sam, dim)`. English three-letter days work too.
 - With no day list, the system is due every day.

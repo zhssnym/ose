@@ -69,7 +69,18 @@ export const planPath = (date: Date, dir: string): string => join(dir, `${ym(dat
 /**
  * The check log's path: `<plannings>/systems.jsonl`.
  */
-export const logPath = (dir: string): string => join(dir, 'systems.jsonl');
+export const logPath = (dir: string): string => join(dir, 'execution.jsonl');
+
+/**
+ * The log a folder really has: `execution.jsonl`, else the older `systems.jsonl` when only that
+ * one is there, else `execution.jsonl` (the name a first tick creates).
+ */
+export async function resolveLogPath(exists: (path: string) => Promise<boolean>, dir: string): Promise<string> {
+  const now = join(dir, 'execution.jsonl');
+  if (await exists(now).catch(() => false)) return now;
+  const old = join(dir, 'systems.jsonl');
+  return (await exists(old).catch(() => false)) ? old : now;
+}
 
 /**
  * The year file among a folder's names: `2026.md` wins, then a name that starts with the year
@@ -220,7 +231,9 @@ export function parseMonthlyPlan(text: string): { title: string | null; intro: s
   const titleSec = heads[0] || { head: null, body: [] };
   const find = (re) => heads.find((s) => re.test(s.head));
   const goalSec = heads.indexOf(titleSec) === 0 ? find(/^goals$/i) : null;
-  const sysSec = find(/^systems$/i);
+  // `# Execution` is the new name of `# Systems`: its bullets with no time are the systems with
+  // no slot; its weekday headings below are the timed ones (timetable.ts).
+  const sysSec = find(/^(?:systems|execution)$/i);
   const revSec = find(/^(?:monthly\s+)?review$/i);
   const head = goalSections(titleSec.body);
   const extra = goalSec ? goalSections(goalSec.body) : { sections: [], intro: '' };
@@ -281,7 +294,7 @@ function blocks(lines: string[]): string[][] {
 export function newMonthText(date: Date, prev: string | null): string {
   const title = `# ${ym(date)} Monthly Plan`;
   if (!prev || !prev.trim()) {
-    return [title, '', '# Systems', '', '# Timetable', '', '# Monthly Review', '', MONTH_GAP, ''].join('\n');
+    return [title, '', '# Execution', '', '# Monthly Review', '', MONTH_GAP, ''].join('\n');
   }
   const eol = /\r\n/.test(prev) ? '\r\n' : '\n';
   const secs = h1Sections(prev);
@@ -393,6 +406,38 @@ export function parseSystemsLog(text: string): { done: Map<string, boolean>; fir
 export const logKey = (date: string, name: string): string => `${date}|${name}`;
 
 /**
+ * A timetable block as a system (a block is ticked where it is drawn): its name and its start,
+ * `Maths 17h20`. That string is the `system` of its log records, so one block of one day is one
+ * check, and two blocks of the same name on a day are two.
+ */
+export const blockId = (name: string, startMin: number): string =>
+  `${name} ${String(Math.floor(startMin / 60)).padStart(2, '0')}h${String(startMin % 60).padStart(2, '0')}`;
+
+/** True for a log name that is a block's (`Maths 17h20`), not a habit's. */
+export const isBlockId = (name: string): boolean => /\s\d{2}h\d{2}$/.test(String(name ?? ''));
+
+/** A row of the month's grid: a habit of `# Systems`, or a kind of block (`ids` says which on a day). */
+export type SystemRow = { name: string; days: Set<number>; ids?: (date: Date) => string[]; };
+
+/**
+ * One grid row per block name of a month's timetable, in the order the names first appear: due
+ * on the weekdays it has a block, done on a day when every block of that name that day is ticked.
+ * `applies(e, date)` is the parity rule (Q1 / Q2) the views already use.
+ */
+export function blockRows(events: Array<{ d: number; sm: number; t: string; q?: string | null; }>, applies: (e: any, date: Date) => boolean): SystemRow[] {
+  const byName = new Map<string, Array<{ d: number; sm: number; t: string; q?: string | null; }>>();
+  for (const e of events) {
+    if (!byName.has(e.t)) byName.set(e.t, []);
+    byName.get(e.t)?.push(e);
+  }
+  return [...byName.entries()].map(([name, list]) => ({
+    name,
+    days: new Set(list.map((e) => e.d)),
+    ids: (date: Date) => list.filter((e) => e.d === (date.getDay() + 6) % 7 && applies(e, date)).map((e) => blockId(name, e.sm)),
+  }));
+}
+
+/**
  * One line of `systems.jsonl` for a check, as the Day view appends it.
  */
 export const checkRecord = (date: Date, name: string, done: boolean, now: Date = new Date()): { date: string; system: string; done: boolean; at: string; } => ({ date: ymd(date), system: name, done: !!done, at: now.toISOString() });
@@ -404,7 +449,10 @@ export const checkRecord = (date: Date, name: string, done: boolean, now: Date =
 export function systemsFor(plan: any | null, log: { done: Map<string, boolean>; }, date: Date): Array<{ name: string; days: Set<number>; }> {
   if (plan && plan.hasSystems && plan.systems.length) return plan.systems;
   const prefix = ym(date), names = new Set<any>();
-  for (const k of log.done.keys()) if (k.slice(0, 7) === prefix) names.add(k.slice(k.indexOf('|') + 1));
+  for (const k of log.done.keys()) {
+    const name = k.slice(k.indexOf('|') + 1);
+    if (k.slice(0, 7) === prefix && !isBlockId(name)) names.add(name);
+  }
   return [...names].sort().map((name) => ({ name, days: EVERY_DAY() }));
 }
 
@@ -416,8 +464,13 @@ export function systemsFor(plan: any | null, log: { done: Map<string, boolean>; 
  * checked has not started, and answers null: no day of it counts as lost.
  * @param monthDate any day of the month
  */
-export function startOf(system: { name: string; }, monthDate: Date, log: { first: Map<string, string>; }): Date | null {
-  const first = log && log.first ? parseYmd(log.first.get(system.name)) : null;
+export function startOf(system: SystemRow, monthDate: Date, log: { first: Map<string, string>; }): Date | null {
+  let firstYmd = log && log.first ? log.first.get(system.name) : undefined;
+  // A block row starts with the first tick of any block of its name.
+  if (system.ids && log && log.first) {
+    for (const [k, v] of log.first) if (k.startsWith(`${system.name} `) && isBlockId(k) && (!firstYmd || v < firstYmd)) firstYmd = v;
+  }
+  const first = parseYmd(firstYmd);
   if (!first) return null;
   const start = startOfMonth(monthDate);
   return first > start ? first : start;
@@ -430,17 +483,19 @@ export function startOf(system: { name: string; }, monthDate: Date, log: { first
  *   state  words for the tooltip
  * A day before the system's start counts as nothing (L16); today unchecked is open, not lost.
  */
-export function dayVerdict(system: { name: string; days: Set<number>; }, date: Date, log: { done: Map<string, boolean>; first: Map<string, string>; }, today: Date): { cls: string; tally: string | null; state: string; } {
+export function dayVerdict(system: SystemRow, date: Date, log: { done: Map<string, boolean>; first: Map<string, string>; }, today: Date): { cls: string; tally: string | null; state: string; } {
   const d = startOfDay(date), now = startOfDay(today);
-  const done = log.done.get(logKey(ymd(d), system.name)) === true;
+  const ids = system.ids ? system.ids(d) : null;
+  const done = ids ? ids.length > 0 && ids.every((id) => log.done.get(logKey(ymd(d), id)) === true)
+    : log.done.get(logKey(ymd(d), system.name)) === true;
   const floor = startOf(system, d, log);
   const isToday = isSameDay(d, now), future = d > now;
-  const due = applies(system, d) && !!floor && d >= floor;
+  const due = (ids ? ids.length > 0 : applies(system, d)) && !!floor && d >= floor;
   const cls = done ? 'on' : (!due || future) ? 'off' : 'skip';
   const tally = !due ? null : done ? 'done' : (future || isToday) ? 'open' : 'lost';
   const state = done ? 'done'
     : future ? 'upcoming'
-    : !applies(system, d) ? 'not due'
+    : (ids ? !ids.length : !applies(system, d)) ? 'not due'
     : !floor ? 'not started'
     : d < floor ? 'before it started'
     : isToday ? 'open'

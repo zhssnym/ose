@@ -13,7 +13,7 @@
 import { esc, loadingLine, toast } from '../../ui/index.ts';
 import { startOfDay } from '../shared/dates.ts';
 import {
-  listPlannings, logPath, monthTally, newYearText, parseMonthlyPlan, parseSystemsLog, parseYearlyPlan,
+  listPlannings, monthTally, resolveLogPath, newYearText, parseMonthlyPlan, parseSystemsLog, parseYearlyPlan,
   percentages, pickMonth, pickYear, systemsFor, type PlanFile,
 } from '../shared/plans.ts';
 import { bindLinks, bindNav, detectedHtml, missingHtml, navHtml } from '../shared/nav.ts';
@@ -131,7 +131,7 @@ export function createYearView(ose: any, store: any): any {
         const listing = await listPlannings((f) => ose.files.list(f), s.reports, at);
         const yf = pickYear(listing);
         const mf = MONTHS.map((_, i) => pickMonth(listing, new Date(at, i, 1)));
-        const log = logPath(s.reports);
+        const log = await resolveLogPath((p) => ose.files.exists(p), s.reports);
         const [yearText, logText] = await Promise.all([
           yf.exists ? ose.files.read(yf.path) : '',
           (await ose.files.exists(log)) ? ose.files.read(log) : '',
