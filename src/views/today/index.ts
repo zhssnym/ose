@@ -97,19 +97,14 @@ export function createTodayView(ose: any, store: any): any {
     <div class="page-meta" data-el="meta"></div>
     <div data-el="detected"></div>
     <div class="td">
-      <div class="td-now" data-el="nowbox" hidden></div>
-      <div class="td-grid">
-        <section class="td-day">
-          <div class="label">Execution <span class="td-count" data-el="count"></span></div>
-          <div class="td-list" data-el="tl"></div>
-        </section>
-        <div class="td-side">
-          <section class="td-box">
-            <div class="label">Tasks</div>
-            <div class="td-list td-tasks" data-el="tasks"></div>
-          </section>
-        </div>
-      </div>
+      <section class="td-sec">
+        <div class="td-head"><span class="td-h">Execution</span><span class="td-count" data-el="count"></span><span class="td-rule"><span class="td-fill" data-el="fill"></span></span></div>
+        <div class="td-list" data-el="tl"></div>
+      </section>
+      <section class="td-sec">
+        <div class="td-head"><span class="td-h">Tasks</span><span class="td-rule"></span></div>
+        <div class="td-list td-tasks" data-el="tasks"></div>
+      </section>
     </div>
   </div>
 </div>`;
@@ -168,16 +163,19 @@ export function createTodayView(ose: any, store: any): any {
       const list = lines();
       if (!list.length) { box.innerHTML = note('Nothing to execute on this day'); tick(); return; }
       let done = 0;
+      let anytime = false;
       box.innerHTML = list.map((line) => {
         const dn = isDone(line.id, st.cursor);
         if (dn) done++;
         const n = streak(line);
         const run = n >= 2 ? `<span class="td-streak mono-sm" title="${n} days in a row">${n} days</span>` : '';
         const e = line.e;
-        return e
-          ? `<button type="button" class="td-blk t-${e.type}${dn ? ' done' : ''}" data-system="${esc(line.id)}" data-s="${e.sm}" data-e="${e.em}" aria-pressed="${dn}">
+        // the first line with no time opens the "Anytime" group
+        const group = !e && !anytime ? (anytime = true, '<div class="td-any">Anytime</div>') : '';
+        return group + (e
+          ? `<button type="button" class="td-blk t-${e.type}${dn ? ' done' : ''}" data-system="${esc(line.id)}" data-s="${e.sm}" data-e="${e.em}" aria-pressed="${dn}" title="${hhmm(e.sm)} to ${hhmm(e.em % 1440)}">
               <span class="check${dn ? ' on' : ''}"></span>
-              <span class="td-time mono-sm">${hhmm(e.sm)} – ${hhmm(e.em % 1440)}</span>
+              <span class="td-time mono-sm">${hhmm(e.sm)}</span>
               <span class="td-bar"></span>
               <span class="td-name">${esc(e.t)}</span>${e.sub ? `<span class="td-sub">${esc(e.sub)}</span>` : ''}${e.q ? `<span class="td-meta mono-sm">${e.q}</span>` : ''}
               <span class="td-nowtag">now</span>${run}
@@ -185,17 +183,17 @@ export function createTodayView(ose: any, store: any): any {
           : `<button type="button" class="td-blk${dn ? ' done' : ''}" data-system="${esc(line.id)}" aria-pressed="${dn}">
               <span class="check${dn ? ' on' : ''}"></span>
               <span class="td-time mono-sm"></span>
-              <span class="td-bar td-bar-none"></span>
               <span class="td-name">${esc(line.id)}</span>${run}
-            </button>`;
+            </button>`);
       }).join('');
       if (count) { count.textContent = `${done} of ${list.length}`; count.classList.toggle('ok', done === list.length); }
+      const fill = $('fill');
+      if (fill) fill.style.width = `${list.length ? Math.round((100 * done) / list.length) : 0}%`;
       tick();
     }
 
     function tick() {
       if (!alive) return;
-      const box = $('nowbox');
       const today = isSameDay(st.cursor, new Date());
       const m = minutesOf();
       for (const node of host.querySelectorAll('.td-blk')) {
@@ -203,20 +201,6 @@ export function createTodayView(ose: any, store: any): any {
         node.classList.toggle('past', today && e <= m);
         node.classList.toggle('live', today && s <= m && m < e);
       }
-      if (!box) return;
-      const d = dayIndex(st.cursor);
-      const list = st.events.filter((e) => e.d === d && blockApplies(e, st.cursor, q1Of(settings()))).sort((a, b) => a.sm - b.sm);
-      if (!today || !list.length) { box.hidden = true; return; }
-      const cur = list.find((e) => e.sm <= m && m < e.em);
-      const nxt = list.find((e) => e.sm > m);
-      box.hidden = false;
-      box.innerHTML = `
-        <div class="td-now-row"><span class="td-now-k">Now</span>${cur
-          ? `<span class="td-now-v">${esc(cur.t)}</span><span class="td-meta mono-sm">until ${hhmm(cur.em % 1440)}</span>`
-          : '<span class="td-meta">Nothing scheduled</span>'}</div>
-        <div class="td-now-row"><span class="td-now-k">Next</span>${nxt
-          ? `<span class="td-now-v">${esc(nxt.t)}</span><span class="td-meta mono-sm">at ${hhmm(nxt.sm)}</span>`
-          : '<span class="td-meta">Nothing else today</span>'}</div>`;
     }
 
     /* ------------------------------------------------------------- systems */

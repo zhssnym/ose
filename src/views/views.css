@@ -514,41 +514,32 @@ button.mo-dh:hover { color: var(--fg); }
 
 /* --------------------------------------------------------------------------- Today */
 
-/* Now and next, the day as one horizontal strip, then two boxes side by side: the tasks and the
-   systems. Whitespace groups; the accent says now, the live block and late. */
-.td-col { max-width: 64rem; }
+/* A printed daily page: one column, two sections (Execution, Tasks), each opened by its name,
+   its count and a hairline that fills with what is done. No boxes; rows on one left edge. */
+.td-col { max-width: 46rem; }
 .td-col .page-meta:empty { display: none; }
-.td-count { margin-left: var(--sp-2); color: var(--fg-3); font-family: var(--font-mono); }
+.td-sec { margin-top: var(--sp-6); }
+.td-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.td-h { font-size: var(--fs-ui); font-weight: 600; color: var(--fg); }
+.td-count { color: var(--fg-3); font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
 .td-count.ok { color: var(--ok-ink); }
+.td-rule { position: relative; flex: 1; height: 1px; background: var(--border); }
+.td-fill { position: absolute; left: 0; top: -1px; height: 3px; width: 0; background: var(--accent); border-radius: 2px; transition: width var(--t-fast); }
 .td-meta { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
 .td-late { color: var(--accent-ink); font-size: var(--fs-chrome-sm); }
 .td-due { color: var(--fg-2); font-size: var(--fs-chrome-sm); }
 
-.td-now {
-  display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-6); margin-top: var(--sp-4);
-  padding: var(--sp-2) var(--sp-4); background: var(--bg-2); border-radius: var(--radius);
-}
-.td-now-row { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-ui); }
-.td-now-k { color: var(--fg-3); font-size: var(--fs-chrome-sm); }
-.td-now-v { color: var(--fg); }
-
-/* The day: its blocks as a checklist, each with its time, its colour and its room. */
-.td-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--sp-5); margin-top: var(--sp-5); align-items: start; }
-@media (max-width: 1100px) { .td-grid { grid-template-columns: minmax(0, 1fr); } }
-.td-side { display: grid; gap: var(--sp-4); }
-.td-day > .label, .td-box > .label { margin-top: 0; }
 .td-blk {
   --c: var(--c-rest);
   display: flex; align-items: center; gap: var(--sp-3); width: 100%;
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) 0; border: 0; border-bottom: 1px solid var(--border);
-  background: none; font: inherit; font-size: var(--fs-ui); color: var(--fg); text-align: left; cursor: pointer;
+  padding: var(--sp-2) 0; border: 0; background: none;
+  font: inherit; font-size: var(--fs-ui); color: var(--fg); text-align: left; cursor: pointer;
 }
-.td-blk:last-child { border-bottom: 0; }
 .td-blk.t-class { --c: var(--c-class); } .td-blk.t-maths { --c: var(--c-maths); } .td-blk.t-nsi { --c: var(--c-nsi); }
 .td-blk.t-hum { --c: var(--c-hum); } .td-blk.t-bilan { --c: var(--c-bilan); } .td-blk.t-lunch { --c: var(--c-lunch); }
 .td-blk.t-work { --c: var(--c-work); } .td-blk.t-sleep { --c: var(--c-sleep); }
+.td-time { width: 3.25rem; flex: none; color: var(--fg-3); }
 .td-bar { flex: none; width: 3px; height: 1.1em; background: var(--c); border-radius: 1px; }
-.td-time { width: 7.5rem; flex: none; color: var(--fg-3); }
 .td-name { min-width: 0; }
 .td-sub { color: var(--fg-3); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-nowtag { display: none; margin-left: auto; color: var(--accent-ink); font-size: var(--fs-chrome-sm); }
@@ -558,18 +549,14 @@ button.mo-dh:hover { color: var(--fg); }
 .td-blk.past:not(.done) { opacity: .5; }
 .td-blk:hover .check { border-color: var(--accent); }
 .td-blk.done .td-name { color: var(--fg-3); text-decoration: line-through; }
-.td-bar-none { background: transparent; }
 .td-streak { margin-left: auto; color: var(--fg-3); white-space: nowrap; }
 .td-blk.live .td-streak { margin-left: var(--sp-3); }
+.td-any { margin: var(--sp-3) 0 var(--sp-1) calc(var(--sp-3) + 14px); color: var(--fg-3); font-size: var(--fs-chrome-sm); }
 
-.td-box { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
-
-.td .dy-sys-row, .td .tk-row { padding-left: 0; background: none; }
-.td .dy-sys-row:hover, .td .tk-row:hover { background: none; }
-.td .dy-sys-row:hover .dy-sys-name, .td .tk-row:hover .tk-text { color: var(--fg); }
-.td .dy-sys-row.done .dy-sys-name { color: var(--fg-3); text-decoration: line-through; }
+.td .tk-row { padding-left: calc(var(--tk-depth) * var(--sp-5)); background: none; }
+.td .tk-row:hover { background: none; }
+.td .tk-row:hover .tk-text { color: var(--fg); }
 .td .tk-check { padding-left: 0; }
-.td .tk-row { padding-left: calc(var(--tk-depth) * var(--sp-5)); }
-.td .dy-add { margin-top: var(--sp-3); }
+.td .dy-add { margin-top: var(--sp-2); padding-left: calc(var(--sp-3) + 14px); }
 .td .dy-add-in { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; padding-left: 0; }
 .td .empty { padding: var(--sp-1) 0; }
