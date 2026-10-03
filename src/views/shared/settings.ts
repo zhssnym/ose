@@ -179,7 +179,7 @@ export function createStore(ose: any): { ready: Promise<void>; get: () => Planne
 /* -------------------------------------------------------------------- Settings › Views */
 
 const ROWS = [
-  { key: 'reports', name: 'Planner folder', kind: 'folder', note: 'Holds YYYY.md, each year, YYYY-MM.md, each month (goals, systems, timetable, review), todo.md and systems.jsonl. Today and Planner read it.' },
+  { key: 'reports', name: 'Planner folder', kind: 'folder', note: 'Holds YYYY.md, each year, YYYY-MM.md, each month (goals, week, days, review), and todo.md. Today and Planner read it.' },
   { key: 'journal', name: 'Journal folder', kind: 'folder', note: 'One file per day, named YYYY-MM-DD.md.' },
 ];
 
@@ -223,7 +223,7 @@ function html(s) {
         <div class="pl-set-value">${seg('q1', [
           { value: 'q1', label: 'Q1' }, { value: 'q2', label: 'Q2' }, { value: 'unknown', label: "Don't know" },
         ], thisWeek(s))}</div>
-        <div class="pl-set-note">Which of the timetable's (Q1) and (Q2) blocks apply this week. The weeks alternate from here, year ends included; after a break that restarts the count, set it again. Not knowing draws both, side by side.</div>
+        <div class="pl-set-note">Which of the week's (Q1) and (Q2) lines apply this week. The weeks alternate from here, year ends included; after a break that restarts the count, set it again. Not knowing counts both.</div>
       </div>
       <div class="pl-set-row">
         <div class="pl-set-name">Journal</div>

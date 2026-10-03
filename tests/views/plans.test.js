@@ -1,17 +1,11 @@
-// The monthly plan and the systems log (CONTRACT §9.4, L16, M30): where a month's plan lives,
-// and which days a system has lost. Days before a system's first log record are not losses,
-// today unchecked is open, and a system never checked has lost nothing.
-//
-// Depends on: views (src/views/shared/plans.ts, dates.js). Skipped until they exist.
+// Where the planner's files are (src/views/shared/plans.ts): a month and a year, flat or in a
+// year folder, flat winning; the last month that has a file. What they hold is plan.test.js.
 
 import { describe, expect, it } from 'vitest';
 
 const p = await import('../../src/views/shared/plans.ts');
 
 const day = (y, m, dd) => new Date(y, m - 1, dd);
-const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-const EVERY = new Set([0, 1, 2, 3, 4, 5, 6]);
-const jsonl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 
 describe('planPath', () => {
   it('is <plannings>/<YYYY-MM>.md, flat', () => {
@@ -66,119 +60,4 @@ describe('the year file', () => {
     expect(await p.resolveYearPath(lister({ plannings: ['2026-goals.md'] }), 2026, 'plannings')).toMatchObject({ path: 'plannings/2026.md', exists: false });
   });
 
-  it('reads like a month: intro, labels with bullets, the yearly review', () => {
-    const y = p.parseYearlyPlan('# 2026 Yearly Plan\n\nWhy this year.\n\nEducational\n\n- Pass\n\nPersonal\n\n- Sleep\n\n# Yearly Review\n\n_gap: later_\n');
-    expect(y.intro).toBe('Why this year.');
-    expect(y.sections).toEqual([{ label: 'Educational', items: ['Pass'] }, { label: 'Personal', items: ['Sleep'] }]);
-    expect(y.review).toBe('_gap: later_');
-  });
-});
-
-describe('a new month', () => {
-  const prev = [
-    '# 2026-09 Monthly Plan', '', 'Why September matters.', '', '# Goals', '', 'Educational', '', '- Maths: 17+', '',
-    '# Systems', '', '- Maths session (lun-ven)', '', '', '# Timetable', '', '# Lundi', '', '- 08h20 à 09h15 Maths [maths]', '',
-    '# Monthly Review', '', 'It went well.', '',
-  ].join('\n');
-
-  it('keeps goals, systems and timetable, drops the intro, and leaves the review a gap', () => {
-    expect(p.newMonthText(day(2026, 10, 1), prev)).toBe([
-      '# 2026-10 Monthly Plan', '', '# Goals', '', 'Educational', '', '- Maths: 17+', '',
-      '# Systems', '', '- Maths session (lun-ven)', '', '', '# Timetable', '', '# Lundi', '', '- 08h20 à 09h15 Maths [maths]', '',
-      '# Monthly Review', '', p.MONTH_GAP, '',
-    ].join('\n'));
-  });
-
-  it('keeps the labels and bullets of a title section, and adds a review when there was none', () => {
-    const old = '# 2024-01 Monthly Plan\n\nEducational\n\n- Read\n\nFinancial\n\n- Earn\n';
-    expect(p.newMonthText(day(2024, 2, 1), old)).toBe(`# 2024-02 Monthly Plan\n\nEducational\n\n- Read\n\nFinancial\n\n- Earn\n\n# Monthly Review\n\n${p.MONTH_GAP}\n`);
-  });
-
-  it('with no previous month, is the title, # Execution and the review', () => {
-    expect(p.newMonthText(day(2026, 10, 1), null)).toBe(`# 2026-10 Monthly Plan\n\n# Execution\n\n# Monthly Review\n\n${p.MONTH_GAP}\n`);
-  });
-});
-
-describe('a new year', () => {
-  it("carries the previous year's labels only, then the review gap", () => {
-    const prev = '# 2026 Yearly Plan\n\nThe year in a line.\n\nEducational\n\n- Pass\n\nFinancial\n\n- Save\n\n# Yearly Review\n\nDone.\n';
-    expect(p.newYearText(2027, prev)).toBe(`# 2027 Yearly Plan\n\nEducational\n\nFinancial\n\n# Yearly Review\n\n${p.YEAR_GAP}\n`);
-    expect(p.newYearText(2027, null)).toBe(`# 2027 Yearly Plan\n\n# Yearly Review\n\n${p.YEAR_GAP}\n`);
-  });
-});
-
-describe('lossDays', () => {
-  const sys = { name: 'Read', days: EVERY };
-  const today = day(2026, 9, 20);
-
-  it('counts nothing before the first log record (L16)', () => {
-    const log = p.parseSystemsLog(jsonl([
-      { date: '2026-09-10', system: 'Read', done: true, at: 'x' },
-      { date: '2026-09-12', system: 'Read', done: true, at: 'x' },
-    ]));
-    const lost = p.lossDays(sys, day(2026, 9, 1), log, today).map(ymd);
-    // From the 10th to the 19th, the 10th and 12th done, today (20th) open.
-    expect(lost).toEqual(['2026-09-11', '2026-09-13', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19']);
-    expect(lost.some((x) => x < '2026-09-10')).toBe(false);
-    expect(lost).not.toContain('2026-09-20');
-  });
-
-  it('a system that started in an earlier month counts from the 1st', () => {
-    const log = p.parseSystemsLog(jsonl([{ date: '2026-08-02', system: 'Read', done: true, at: 'x' }]));
-    const lost = p.lossDays(sys, day(2026, 9, 15), log, day(2026, 9, 4)).map(ymd);
-    expect(lost).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
-  });
-
-  it('a system never checked has lost nothing', () => {
-    const log = p.parseSystemsLog('');
-    expect(p.lossDays(sys, day(2026, 9, 1), log, today)).toEqual([]);
-  });
-
-  it('only the days a system is due on count', () => {
-    const weekdays = { name: 'Run', days: new Set([0, 1, 2, 3, 4]) };
-    const log = p.parseSystemsLog(jsonl([{ date: '2026-09-01', system: 'Run', done: true, at: 'x' }]));
-    const lost = p.lossDays(weekdays, day(2026, 9, 1), log, day(2026, 9, 8)).map(ymd);
-    // 1 Sept 2026 is a Tuesday: 2, 3, 4 and 7 Sept are lost; 5 and 6 are the weekend.
-    expect(lost).toEqual(['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07']);
-  });
-
-  it('the last record for a day wins, and old `habit` records count', () => {
-    const log = p.parseSystemsLog(jsonl([
-      { date: '2026-09-01', habit: 'Read', done: true, at: 'x' },
-      { date: '2026-09-02', system: 'Read', done: true, at: 'x' },
-      { date: '2026-09-02', system: 'Read', done: false, at: 'y' },
-    ]));
-    expect(p.lossDays(sys, day(2026, 9, 1), log, day(2026, 9, 3)).map(ymd)).toEqual(['2026-09-02']);
-  });
-
-  it('a month entirely in the future has lost nothing', () => {
-    const log = p.parseSystemsLog(jsonl([{ date: '2026-09-01', system: 'Read', done: true, at: 'x' }]));
-    expect(p.lossDays(sys, day(2026, 11, 1), log, today)).toEqual([]);
-  });
-});
-
-describe('checkRecord', () => {
-  it('is one JSON line for appendLine (M30): no newline in it', () => {
-    const r = p.checkRecord(day(2026, 9, 26), 'Read', true, new Date(Date.UTC(2026, 8, 26, 8, 0)));
-    expect(r).toEqual({ date: '2026-09-26', system: 'Read', done: true, at: '2026-09-26T08:00:00.000Z' });
-    expect(JSON.stringify(r)).not.toMatch(/[\r\n]/);
-  });
-});
-
-describe('a timetable block is a system', () => {
-  it('a block row is due where its blocks are, and done when every block of its name that day is ticked', () => {
-    // Wednesday 2026-09-30 (d = 2): two Maths blocks; Thursday none.
-    const events = [{ d: 2, sm: 8 * 60, t: 'Maths' }, { d: 2, sm: 17 * 60 + 20, t: 'Maths' }];
-    const [row] = p.blockRows(events, () => true);
-    const wed = new Date(2026, 8, 30), thu = new Date(2026, 9, 1), today = new Date(2026, 9, 3);
-    expect(row.ids(wed)).toEqual(['Maths 08h00', 'Maths 17h20']);
-    expect(row.ids(thu)).toEqual([]);
-    const one = p.parseSystemsLog(`${JSON.stringify(p.checkRecord(wed, 'Maths 08h00', true))}\n`);
-    expect(p.dayVerdict(row, wed, one, today).tally).toBe('lost');
-    const both = p.parseSystemsLog(`${JSON.stringify(p.checkRecord(wed, 'Maths 08h00', true))}\n${JSON.stringify(p.checkRecord(wed, 'Maths 17h20', true))}\n`);
-    expect(p.dayVerdict(row, wed, both, today).tally).toBe('done');
-    expect(p.dayVerdict(row, thu, both, today).tally).toBe(null);
-    // a block's ticks are never taken for a habit
-    expect(p.systemsFor(null, both, wed)).toEqual([]);
-  });
 });

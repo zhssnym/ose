@@ -11,13 +11,13 @@ is how Ose is extended. There is no plugin system; you fork Ose and add a folder
 src/views/
   index.ts      registers every view (the VIEWS list) and Settings › Views
   views.css     the views' styles, tokens only
-  today/        one folder per view, index.ts its entry: the day's timetable, systems, todos
-  planner/      Year · Month · Week over the planner folder (index.ts holds the switch;
-                year.ts, month.ts, week.ts are the three pages)
+  planner/      Today and Planner: Year · Month · Week · Day over the planner folder
+                (index.ts reads and writes, render.ts draws the four pages; Today is
+                the Day page on today)
   journal/      the fullest one: the example to copy
-  shared/       what views share: dates, tasks and todo files, the timetable, the
-                plannings (year and month files, the check log), prose, the settings
-                store (where each file is), path detection
+  shared/       what views share: dates, tasks and todo files, the planner's files
+                (plan.ts: a year, a month, how a day counts; plans.ts: where they are),
+                prose, the settings store (where each folder is), path detection
 ```
 
 ## Adding one
