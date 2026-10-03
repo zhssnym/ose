@@ -1,0 +1,236 @@
+/* The planner's four pages (Day, Week, Month, Year): what would replace the Today, Week, Month
+   and Year blocks of src/views/views.css. Tokens only, both themes; every padding, margin and
+   gap is a step of the scale, and the few other numbers are geometry and say so.
+
+   One grammar on every page. A narrow margin on the left says when or which (a time, a day, a
+   month, an area), the column says what, in the document face because the words are the
+   user's own, and the right edge says how much, in mono. No boxes and no colour families: ink
+   for what was done, a hollow square for what was not, the accent for today and for a control
+   that is on, and nothing else. */
+
+.pv {
+  --pv-margin: 6rem;                                         /* the margin column, the Journal's 96px */
+  --pv-line: calc(var(--fs-body) * var(--lh-body));          /* one line of the document face */
+  --pv-col: 2.25rem;                                         /* one system's column in the ledger */
+  container-type: inline-size;
+}
+.pv .page-meta { margin-bottom: var(--sp-2); }
+.pv-sec { margin-top: var(--sp-3); }
+
+/* A section opens with its label and, at the right edge, its count in words. */
+.pv-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.pv-sum { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); white-space: nowrap; }
+
+/* The three voices of a row. */
+.pv-when, .pv-much {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: var(--pv-line);
+  color: var(--fg-3); white-space: nowrap;
+}
+.pv-what {
+  min-width: 0; overflow-wrap: break-word;
+  font-family: var(--font-doc); font-size: var(--fs-body); line-height: var(--pv-line); color: var(--fg);
+}
+.pv-where { color: var(--fg-3); }
+.pv-much { text-align: right; }
+
+/* A row with the margin: the week's two lines on the month page, the review's grades. */
+.pv-row {
+  display: grid; grid-template-columns: var(--pv-margin) minmax(0, 1fr) auto; column-gap: var(--sp-4);
+  align-items: start; width: 100%; padding: var(--sp-1) 0; text-align: left;
+}
+.pv-row .pv-what.small, .pv-what.small { font-size: var(--fs-content); }
+button.pv-row { cursor: pointer; }
+button.pv-row:hover .pv-when { color: var(--accent-ink); }
+
+/* The mark: one small square, the same on every page. Geometry: 10px, a 1px ring. */
+.pv-mk { display: block; width: 0.625rem; height: 0.625rem; flex: none; }
+.pv-mk.is-done { background: var(--fg); }
+.pv-mk.is-missed { box-shadow: inset 0 0 0 1px var(--fg-3); }
+.pv-mk.is-open { box-shadow: inset 0 0 0 1px var(--accent); }
+.pv-mk.is-skipped { height: 1px; width: 0.5rem; background: var(--fg-3); }
+.pv-mk.is-planned, .pv-mk.is-idle { width: 2px; height: 2px; background: var(--border-strong); }
+
+/* A checkbox that says "not today": the app's box with a flat line in it. */
+.check.skip::after { content: ""; width: 0.5rem; height: 2px; background: var(--fg-3); }
+
+/* ============================================================================ day === */
+
+/* Two columns, the day and the tasks beside it, like the two pages of a paper planner. */
+.pv-day { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); column-gap: var(--sp-6); align-items: start; }
+@container (max-width: 36rem) { .pv-day { grid-template-columns: minmax(0, 1fr); } }
+
+/* One line of the day: its time, its box, its words, its run. The box is centred on the first
+   line of the words: (line - 1rem) / 2. */
+.pv-line {
+  --pv-inset: calc(3rem + 1rem + 2 * var(--sp-2));
+  display: grid; grid-template-columns: 3rem 1rem minmax(0, 1fr) auto; column-gap: var(--sp-2);
+  align-items: start; width: 100%; padding: var(--sp-1) 0; text-align: left;
+}
+.pv-line .check, .pv-goal .check, .pv-task .check { margin-top: calc((var(--pv-line) - 1rem) / 2); }
+button.pv-line { cursor: pointer; }
+button.pv-line:hover .check, .pv-goal:hover .check, .pv-task-box:hover .check { border-color: var(--accent); }
+.pv-line.is-done .pv-what { color: var(--fg-2); }
+.pv-line.is-skipped .pv-what, .pv-line.is-plain .pv-what { color: var(--fg-3); }
+.pv-line.is-now .pv-when { color: var(--accent-ink); }
+.pv-lines.is-past .pv-line.is-missed .pv-what { color: var(--fg-2); }
+
+/* Yesterday's open lines, unfolded above today's. */
+.pv-yday { margin-bottom: 0; }
+.pv .pl-quiet { padding: var(--sp-1) 0; }
+
+/* The line about the day, and the new task: a field with only its baseline, starting where the
+   words of the rows above it start. */
+.pv-field {
+  display: block; padding: var(--sp-1) 0; margin-top: var(--sp-2);
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none;
+  font-family: var(--font-doc); font-size: var(--fs-body); line-height: var(--pv-line); color: var(--fg);
+  user-select: text; cursor: text; transition: border-color var(--t-fast);
+}
+.pv-field::placeholder { color: var(--fg-3); }
+.pv-field:focus, .pv-field:focus-visible { outline: none; border-bottom-color: var(--accent); }
+.pv-note { width: calc(100% - 3rem - 1rem - 2 * var(--sp-2)); margin-left: calc(3rem + 1rem + 2 * var(--sp-2)); }
+.pv-add { width: calc(100% - 1rem - var(--sp-2)); margin-left: calc(1rem + var(--sp-2)); }
+
+/* A task: its box, its words, and what is said about it in the right edge. */
+.pv-task {
+  --d: 0;
+  display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; column-gap: var(--sp-2);
+  align-items: start; padding: var(--sp-1) 0 var(--sp-1) calc(var(--d) * var(--sp-5));
+}
+.pv-task-box { cursor: pointer; }
+.pv-task.is-done .pv-what { color: var(--fg-3); text-decoration: line-through; }
+.pv-much.is-late { color: var(--accent-ink); }
+
+/* ========================================================================== goals === */
+
+/* An area in the margin, its goals beside it. A goal is ticked when it is met. */
+.pv-area { display: grid; grid-template-columns: var(--pv-margin) minmax(0, 1fr); column-gap: var(--sp-4); align-items: start; }
+.pv-area + .pv-area { margin-top: var(--sp-3); }
+.pv-area-name { padding: var(--sp-1) 0; color: var(--fg-2); }
+.pv-area-grade { display: block; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.pv-goal {
+  display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; column-gap: var(--sp-2);
+  align-items: start; width: 100%; padding: var(--sp-1) 0; text-align: left;
+}
+button.pv-goal { cursor: pointer; }
+.pv-goal.is-done .pv-what { color: var(--fg-2); }
+/* a goal written as a plain bullet has no box: the document's own dot stands there */
+.pv-bullet { width: 1rem; height: var(--pv-line); display: grid; place-items: center; }
+.pv-bullet::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--fg-3); }
+
+/* ========================================================================== month === */
+
+/* The ledger: a row per day, a column per system, the day's note after them. It is the
+   `# Days` table of the file, typeset. */
+.pv-ledger { overflow-x: auto; padding-bottom: var(--sp-1); }
+.pv-g {
+  display: grid; align-items: center;
+  grid-template-columns: calc(var(--pv-margin) + var(--sp-4)) repeat(var(--pv-n, 12), var(--pv-col)) minmax(7rem, 1fr);
+}
+.pv-g.is-monday { margin-top: var(--sp-2); }
+/* a column's name, written up the page the way a register's column heads are */
+.pv-gh { height: 4.25rem; display: flex; align-items: flex-end; justify-content: center; padding-bottom: var(--sp-1); }
+.pv-gh > span {
+  writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+}
+/* under the heads, the plan: what a week gives each column, a row per week written */
+.pv-g.is-plan .pv-gday { color: var(--fg-3); }
+.pv-g.is-plan + .pv-g:not(.is-plan) { margin-top: var(--sp-2); }
+.pv-gday {
+  height: 1.5rem; display: flex; align-items: center; gap: var(--sp-2); text-align: left;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  cursor: pointer; transition: color var(--t-fast);
+}
+.pv-gday > i { font-style: normal; color: var(--fg-3); }
+.pv-gday:hover, .pv-gday:hover > i { color: var(--fg); }
+.pv-g.is-future .pv-gday, .pv-g.is-future .pv-gday > i { color: var(--fg-3); }
+.pv-g.is-today .pv-gday, .pv-g.is-today .pv-gday > i { color: var(--accent-ink); }
+.pv-m { width: var(--pv-col); height: 1.5rem; display: grid; place-items: center; }
+button.pv-m { cursor: pointer; }
+button.pv-m:hover .pv-mk:not(.is-done) { box-shadow: inset 0 0 0 1px var(--accent); width: 0.625rem; height: 0.625rem; background: none; }
+button.pv-m:hover .pv-mk.is-done { background: var(--fg-2); }
+.pv-gnote {
+  padding-left: var(--sp-3); min-width: 0;
+  font-family: var(--font-doc); font-size: var(--fs-ui); line-height: 1.5rem; color: var(--fg-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* the foot of the ledger: each column's count, then its run */
+.pv-gf { height: 1.25rem; display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); white-space: nowrap; }
+.pv-g.is-foot { margin-top: var(--sp-2); }
+.pv-g.is-foot + .pv-g.is-foot { margin-top: 0; }
+.pv-gf-k { justify-content: start; }
+.pv-gf.is-full { color: var(--fg); }
+
+/* ========================================================================== week === */
+
+/* Seven columns of plain lines: the week as it was planned, each line marked as it went. */
+.pv-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); column-gap: var(--sp-2); align-items: start; }
+@container (max-width: 36rem) { .pv-week { grid-template-columns: repeat(7, 6.5rem); overflow-x: auto; } }
+.pv-wday {
+  display: block; width: 100%; padding-bottom: var(--sp-2); text-align: left; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2); transition: color var(--t-fast);
+}
+.pv-wday > i { font-style: normal; color: var(--fg-3); }
+.pv-wday:hover, .pv-wday:hover > i { color: var(--fg); }
+.pv-wcol.is-today .pv-wday, .pv-wcol.is-today .pv-wday > i { color: var(--accent-ink); }
+/* the mark sits on the first line of the name: (line - mark) / 2 */
+.pv-wl {
+  --wl: calc(var(--fs-ui) * 1.4);
+  display: grid; grid-template-columns: 0.625rem minmax(0, 1fr); column-gap: var(--sp-1);
+  align-items: start; width: 100%; padding: var(--sp-1) 0; text-align: left;
+}
+button.pv-wl { cursor: pointer; }
+.pv-wl > .pv-mk { margin-top: calc((var(--wl) - 0.625rem) / 2); justify-self: center; }
+.pv-wl > .pv-mk.is-skipped { margin-top: calc(var(--wl) / 2); }
+.pv-wl > .pv-mk.is-planned, .pv-wl > .pv-mk.is-idle { margin-top: calc((var(--wl) - 2px) / 2); }
+button.pv-wl:hover > .pv-mk:not(.is-done) { box-shadow: inset 0 0 0 1px var(--accent); }
+.pv-wl-n {
+  font-family: var(--font-doc); font-size: var(--fs-ui); line-height: var(--wl); color: var(--fg);
+  overflow-wrap: break-word;
+}
+.pv-wl-t { grid-column: 2; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.3; color: var(--fg-3); }
+.pv-wl.is-plain .pv-wl-n { color: var(--fg-3); }
+.pv-wfoot { padding-top: var(--sp-2); font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.pv-wcol.is-future .pv-wl-n { color: var(--fg-2); }
+
+/* The systems of the week, and of the year: a name in the margin, numbers in columns. */
+.pv-table { display: grid; align-items: center; column-gap: var(--sp-4); }
+.pv-table > * { min-height: 1.5rem; display: flex; align-items: center; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2); white-space: nowrap; }
+.pv-table > .k { color: var(--fg-2); }
+.pv-table > .h, .pv-table > .dim { color: var(--fg-3); }
+.pv-table > .r { justify-content: flex-end; }
+.pv-table > .c { justify-content: center; }
+.pv-table > .pv-sysrow { display: contents; }
+
+/* ========================================================================== year === */
+
+/* The twelve months, one row each: its name in the margin, how it went, what it was graded. */
+.pv-month {
+  display: grid; align-items: center; width: 100%; min-height: var(--row-h); text-align: left;
+  grid-template-columns: calc(var(--pv-margin) + var(--sp-4)) 7rem 3rem minmax(0, 1fr) auto;
+}
+button.pv-month { cursor: pointer; }
+.pv-month .pv-what { transition: color var(--t-fast); }
+button.pv-month:hover .pv-what { color: var(--accent-ink); }
+.pv-month.is-now .pv-what { color: var(--accent-ink); }
+.pv-month.is-old .pv-what, .pv-month.is-none .pv-what { color: var(--fg-3); }
+.pv-month .pv-much { text-align: left; }
+.pv-month .pv-much.r { text-align: right; }
+/* ten marks for a share: the ledger's square again, 8px with a 2px gap */
+.pv-bar { display: inline-grid; grid-template-columns: repeat(10, 0.5rem); column-gap: 2px; align-items: center; }
+.pv-bar > i { display: block; height: 0.5rem; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.pv-bar > i.on { background: var(--fg); box-shadow: none; }
+
+/* ========================================================================== review === */
+
+.pv-review .md-render p:has(> .pv-grade-line) { margin-top: var(--doc-gap); }
+.pv-empty { font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3); padding: var(--sp-2) 0; }
+
+/* ========================================================================== mock only === */
+
+/* Not part of the design: the light / dark switch in the mock's title bar, and the status bar's
+   line showing what the last click would have written. */
+.mock-theme { align-self: center; margin-right: var(--sp-3); font-size: var(--fs-chrome-sm); color: var(--fg-3); cursor: pointer; }
+.mock-theme:hover { color: var(--fg); }
+.mock-write { font-family: var(--font-mono); white-space: pre; }

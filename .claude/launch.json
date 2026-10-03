@@ -26,6 +26,14 @@
         "tests/e2e/serve.mjs"
       ],
       "port": 5190
+    },
+    {
+      "name": "planner-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "proposals/planner/mock/serve.mjs"
+      ],
+      "port": 5199
     }
   ]
 }

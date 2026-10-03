@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ose planner, mock</title>
+<!-- A mock of the planner's four pages, drawn from ../examples/plannings by the reader in
+     planner.js. The frame and every colour, face and size are the app's own stylesheets;
+     mock.css is only the planner's furniture, tokens only. Nothing here touches a vault: a tick
+     changes the text held in memory, and the status bar shows the one line the app would write.
+     Opens straight from disk, or at /proposals/planner/mock/ under `npm run dev`. -->
+<link rel="stylesheet" href="../../../src/ui/ui.css">
+<link rel="stylesheet" href="../../../src/shell/shell.css">
+<link rel="stylesheet" href="../../../src/shell/places.css">
+<link rel="stylesheet" href="../../../src/shell/tree.css">
+<link rel="stylesheet" href="../../../src/editor/render.css">
+<link rel="stylesheet" href="../../../src/views/views.css">
+<link rel="stylesheet" href="./mock.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="./data.js"></script>
+<script src="./planner.js"></script>
+<script src="./mock.js"></script>
+</body>
+</html>
