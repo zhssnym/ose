@@ -11,7 +11,6 @@ const P = await import('../../src/views/shared/plan.ts');
 const fixture = (name) => readFileSync(new URL(`../fixtures/planner/${name}`, import.meta.url), 'utf8');
 const sep = P.parseMonth(fixture('2026-09.md'), '2026-09');
 const oct = P.parseMonth(fixture('2026-10.md'), '2026-10');
-const months = new Map([['2026-09', sep], ['2026-10', oct]]);
 const today = new Date(2026, 9, 15);
 const st = (m, day, sys) => P.stateOf(m, day, sys, today);
 
@@ -101,25 +100,13 @@ describe('how a day counts', () => {
     expect(P.firstMarked(sep)).toBe(7);
     expect(st(sep, 3, 'school')).toBe('idle');
     expect(st(sep, 12, 'maths')).toBe('missed');
-    expect(P.monthTally(sep, today)).toEqual({ done: 95, due: 167, skipped: 0, from: 7, blank: 3 });
-    expect(P.monthTally(oct, today)).toEqual({ done: 73, due: 96, skipped: 3, from: 1, blank: 0 });
   });
 
-  it('does not count what is still open today', () => {
-    expect(P.count(oct, today, { days: [15] })).toEqual({ done: 1, due: 1, skipped: 0 });
-    expect(P.dayShare(oct, 15, today).when).toBe('today');
-  });
-
-  it('says how one day went', () => {
-    expect(P.dayShare(oct, 1, today)).toEqual({ done: 5, due: 6, share: 5 / 6, when: 'past' });
-    expect(P.dayShare(oct, 16, today).share).toBe(null);
-    expect(P.dayShare(sep, 3, today).when).toBe('idle');
-  });
-
-  it('runs across a dropped day and months, and stops on a missed one', () => {
-    expect(P.streak(months, 'maths', today)).toBe(11);
-    expect(P.streak(months, 'nsi', today)).toBe(0);
-    expect(P.streak(months, 'lecture', today)).toBe(4);
+  it('says what the month has done, lost and still open, in percentages that add up to 100', () => {
+    expect(P.outcome(oct, today)).toEqual({ done: 73, lost: 23, open: 117 });
+    expect(P.percentages(P.outcome(oct, today))).toEqual({ done: 34, lost: 11, open: 55 });
+    expect(P.percentages(P.outcome(sep, today))).toEqual({ done: 57, lost: 43, open: 0 });
+    expect(P.outcome(oct, today, ['nsi'])).toEqual({ done: 7, lost: 4, open: 15 });   // the −15% on its row
   });
 
   it('shows an item under its own words', () => {

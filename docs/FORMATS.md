@@ -251,8 +251,8 @@ on Year and Month is only their boxes ticked.
 
 ### What the pages write
 
-- **A mark** (Execution: a click on the day's list or on the heatmap ticks and unticks,
-  Shift+click or `s` drops for the day) replaces that day's row with `ose.files.replaceLine`, only if the row still reads what
+- **A mark** (Execution: a click on the day's list ticks and unticks, Shift+click or `s` drops
+  for the day; the heatmap is only to look at) replaces that day's row with `ose.files.replaceLine`, only if the row still reads what
   was on screen; otherwise the file is read again and the write tried once more. The first mark
   of a day writes `.` under everything planned that day, then the mark, so the row says by
   itself what was due. Every cell is padded to its header's width.

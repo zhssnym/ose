@@ -41,11 +41,10 @@ function parseArg(arg: unknown): [Mode | null, Date | null] {
   return [m[1] === 'year' ? 'year' : 'month', new Date(Number(m[2]), Number(m[3] || 1) - 1, Number(m[4] || 1))];
 }
 
-/** The months a page needs: Today its month and the one before (to compare), Month its own, Year none. */
+/** The months a page needs: Execution and Month their own, Year none. */
 function monthsFor(mode: Mode, d: Date): string[] {
   if (mode === 'year') return [];
-  if (mode === 'month') return [ymOf(d)];
-  return [ymOf(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymOf(d)];
+  return [ymOf(d)];
 }
 
 /**

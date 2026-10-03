@@ -10,7 +10,7 @@
 
 import { esc } from '../../ui/index.ts';
 import {
-  allSystems, dateOf, dayIndex, daysIn, isOldMonth, linesFor, monthTally, nameOf, outcome, percentages, stateOf, ymd, ymOf,
+  allSystems, dateOf, dayIndex, daysIn, isOldMonth, linesFor, nameOf, outcome, percentages, stateOf, ymd, ymOf,
   type Area, type Month, type Review, type Year,
 } from '../shared/plan.ts';
 
@@ -132,9 +132,11 @@ const SAID = { done: 'done', missed: 'not done', open: 'open', planned: 'to come
 /**
  * The month's log as a heatmap: a row per item, a cell per day, and at the end of the row what
  * that item has lost (its due days gone by and not done). Under it, the month in three words.
- * A cell of a day gone by or of today ticks it.
+ * It is to look at: nothing in it is clicked, the day's list is where a thing is ticked. Every
+ * cell is drawn, as the old month grid did: the accent when done, an empty square when missed,
+ * grey when nothing was due that day or the day has not come.
  */
-function heatmap(ctx: Ctx, month: Month, on: Date): string {
+function heatmap(ctx: Ctx, month: Month): string {
   const tracks: string[] = [];
   const cols: Array<Date | null> = [];
   for (let day = 1; day <= daysIn(month.year, month.month); day++) {
@@ -149,9 +151,9 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
   };
   const days = cols.filter((c): c is Date => !!c);
   const heads = row('<span></span>', days.map((d) => {
-    const isOn = +d === +on;
-    if (!(d.getDate() === 1 || dayIndex(d) === 0 || isOn)) return '<span></span>';
-    return `<button type="button" class="pv-gh${+d === +ctx.today ? ' is-today' : ''}" data-act="open-day" data-day="${ymd(d)}" data-key="h:${ymd(d)}" title="Open this day">${d.getDate()}</button>`;
+    const isToday = +d === +ctx.today;
+    if (!(d.getDate() === 1 || dayIndex(d) === 0 || isToday)) return '<span></span>';
+    return `<span class="pv-gh${isToday ? ' is-today' : ''}">${d.getDate()}</span>`;
   }), 'is-heads');
   const body = allSystems(month).map((s) => {
     const name = nameOf(month, s);
@@ -160,12 +162,8 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
     const loss = all && o.lost ? `<span class="pv-loss" title="${esc(name)} · ${o.done} done · ${o.lost} lost · ${o.open} open">−${Math.round((100 * o.lost) / all)}%</span>` : '<span></span>';
     return row(`<span class="pv-gl" title="${esc(name)}">${esc(name)}</span>`, days.map((d) => {
       const st = stateOf(month, d.getDate(), s, ctx.today);
-      if (!st) return '<span class="pv-c"></span>';
-      const tip = `${name} · ${DAY_SHORT[dayIndex(d)]} ${d.getDate()} · ${SAID[st]}`;
-      const cls = `pv-c is-${st}`;
-      return d > ctx.today
-        ? `<span class="${cls}" title="${esc(tip)}"></span>`
-        : `<button type="button" class="${cls}" data-act="tick" data-day="${ymd(d)}" data-sys="${esc(s)}" data-key="c:${ymd(d)}:${esc(s)}" aria-pressed="${st === 'done'}" aria-label="${esc(tip)}" title="${esc(tip)}"></button>`;
+      const tip = `${name} · ${DAY_SHORT[dayIndex(d)]} ${d.getDate()} · ${st ? SAID[st] : 'not due'}`;
+      return `<span class="pv-c is-${st || 'off'}" title="${esc(tip)}"></span>`;
     }), '', loss);
   }).join('');
   const p = percentages(outcome(month, ctx.today));
@@ -177,20 +175,17 @@ function heatmap(ctx: Ctx, month: Month, on: Date): string {
 function dayList(ctx: Ctx, month: Month, d: Date): string {
   const future = d > ctx.today, key = ymd(d);
   const seen = new Set<string>();
-  let done = 0, due = 0;
   const rows = linesFor(month, d).map((l) => {
     if (!l.system || seen.has(l.system)) return '';
     seen.add(l.system);
     const st = stateOf(month, d.getDate(), l.system, ctx.today);
-    if (st === 'done') { done++; due++; } else if (st !== 'skipped') due++;
     const box = st === 'done' ? ' on' : st === 'skipped' ? ' skip' : '';
     const inner = `<span class="check${box}"></span><span class="pv-what">${esc(l.name)}</span>`;
     return future
       ? `<div class="pv-item">${inner}</div>`
       : `<button type="button" class="pv-item is-${st}" data-act="tick" data-day="${key}" data-sys="${esc(l.system)}" data-key="tick:${key}:${esc(l.system)}" aria-pressed="${st === 'done'}">${inner}</button>`;
   }).join('');
-  const sum = !due ? '' : future ? `${due} planned` : `${done} of ${due}`;
-  return `<section>${head(+d === +ctx.today ? 'Today' : (DAY_LONG[dayIndex(d)] ?? ''), sum)}
+  return `<section>${head(+d === +ctx.today ? 'Today' : (DAY_LONG[dayIndex(d)] ?? ''))}
     ${rows || '<div class="pv-empty">Nothing listed for this day</div>'}</section>`;
 }
 
@@ -215,16 +210,6 @@ function tasksColumn(ctx: Ctx, d: Date): string {
   </section>`;
 }
 
-/** How far the month's log is, and the month before it when it has one. */
-function logSum(ctx: Ctx, month: Month): string {
-  const t = monthTally(month, ctx.today);
-  if (!t.due) return '';
-  const prev = ctx.months.get(ymOf(new Date(month.year, month.month - 2, 1)));
-  const p = prev && prev.days ? monthTally(prev, ctx.today) : null;
-  const now = `<b>${pct(t.done, t.due)}%</b>${month.ym === ymOf(ctx.today) ? ' so far' : ''}`;
-  return p && p.due && prev ? `${now} · ${MONTH[prev.month - 1]} ${pct(p.done, p.due)}%` : now;
-}
-
 export function executionPage(ctx: Ctx, d: Date): string {
   const month = ctx.months.get(ymOf(d)) || null;
   const f = ctx.files.get(ymOf(d));
@@ -232,8 +217,7 @@ export function executionPage(ctx: Ctx, d: Date): string {
   const meta = [f && f.exists ? fileLink(f.path) : '', ctx.todoPath ? fileLink(ctx.todoPath) : ''];
   const body = month && month.days
     ? `<div class="pv-sec"><div class="pv-head">
-        <button type="button" class="label" data-act="open-month" data-ym="${month.ym}" data-key="to-month" title="Open the month">${MONTH[d.getMonth()]}</button>
-        <span class="pv-sum">${logSum(ctx, month)}</span></div>${heatmap(ctx, month, d)}</div>
+        <button type="button" class="label" data-act="open-month" data-ym="${month.ym}" data-key="to-month" title="Open the month">${MONTH[d.getMonth()]}</button></div>${heatmap(ctx, month)}</div>
       <div class="pv-day pv-sec">${dayList(ctx, month, d)}${tasksColumn(ctx, d)}</div>`
     : `${noMonth(ctx, d)}<div class="pv-day pv-sec"><section></section>${tasksColumn(ctx, d)}</div>`;
   return frame(ctx, { zoom: null, title, unit: 'day', meta, body, here: +d === +ctx.today });

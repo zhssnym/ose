@@ -25,10 +25,13 @@ describe('the planner pages', () => {
     const el = page(R.executionPage(ctx, ctx.today));
     expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
     expect(el.querySelector('.pn-zoom')).toBe(null);
-    expect(el.querySelector('.pv-sum').textContent).toBe('76% so far · September 57%');
     expect(el.querySelectorAll('.pv-heat .pv-gl')).toHaveLength(12);
     expect([...el.querySelectorAll('.pv-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
     expect(el.querySelector('.pv-hsum').textContent).toBe('34% done · 11% lost · 55% open');
+    // one figure for the month, nothing repeating it; the heatmap is only to look at
+    expect([...el.querySelectorAll('.pv-sum')].every((x) => !x.textContent)).toBe(true);
+    expect(el.querySelectorAll('.pv-heat button')).toHaveLength(0);
+    expect(el.querySelectorAll('.pv-heat .pv-c.is-off').length).toBeGreaterThan(0);
     expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'NSI', 'Lecture', 'Off', 'Sleep']);
     expect(el.querySelector('.pv-late').textContent).toBe('late');
     expect(el.textContent).not.toMatch(/\b\d{2}h\d{2}\b/);

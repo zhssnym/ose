@@ -411,21 +411,6 @@ export function stateOf(month: Month, day: number, sys: string, today: Date): St
   return 'missed';
 }
 
-/** Done over due for a set of days and systems; today's open lines are not due yet. */
-export function count(month: Month, today: Date, { days = null, systems = null }: { days?: number[] | null; systems?: string[] | null; } = {}): { done: number; due: number; skipped: number; } {
-  const t = { done: 0, due: 0, skipped: 0 };
-  const sys = systems || allSystems(month);
-  for (let d = 1; d <= daysIn(month.year, month.month); d++) {
-    if (days && !days.includes(d)) continue;
-    for (const s of sys) {
-      const st = stateOf(month, d, s, today);
-      if (st === 'done') { t.done++; t.due++; } else if (st === 'missed') t.due++;
-      else if (st === 'skipped') t.skipped++;
-    }
-  }
-  return t;
-}
-
 /**
  * The whole month, every due day of the items given (all by default): done, lost (gone by and not
  * done) and open (today not done yet, and the days to come). A dropped day and a day before the
@@ -455,58 +440,6 @@ export function percentages(t: { done: number; lost: number; open: number; }): {
   if (!t.open) return { done, lost: 100 - done, open: 0 };
   const lost = Math.round((100 * t.lost) / all);
   return { done, lost, open: 100 - done - lost };
-}
-
-/** The month so far: the tally, the day it counts from, and the past days left with no mark. */
-export function monthTally(month: Month, today: Date): { done: number; due: number; skipped: number; from: number | null; blank: number; } {
-  const t = count(month, today);
-  const first = firstMarked(month);
-  const now = startOfDay(today);
-  let blank = 0;
-  if (first !== null && month.days) {
-    for (let d = first; d <= daysIn(month.year, month.month); d++) {
-      const date = dateOf(month, d);
-      if (date >= now) break;
-      const row = month.days.rows.get(d);
-      const marked = row && Object.values(row.marks).some(Boolean);
-      if (!marked && plannedSystems(month, date).length) blank++;
-    }
-  }
-  return { ...t, from: first, blank };
-}
-
-/**
- * How one day went: done over due. `when` is "past", "today" (open lines count as due, so the
- * share is the day so far), "future", or "idle" for a day before the month's first mark.
- */
-export function dayShare(month: Month, day: number, today: Date): { done: number; due: number; share: number | null; when: 'past' | 'today' | 'future' | 'idle'; } {
-  const date = dateOf(month, day), now = startOfDay(today);
-  const when = date > now ? 'future' : +date === +now ? 'today' : 'past';
-  let done = 0, due = 0, idle = 0;
-  for (const s of allSystems(month)) {
-    const st = stateOf(month, day, s, today);
-    if (st === 'done') { done++; due++; } else if (st === 'missed' || st === 'open') due++;
-    else if (st === 'idle') idle++;
-  }
-  if (when === 'past' && !due && idle) return { done, due, share: null, when: 'idle' };
-  return { done, due, share: when !== 'future' && due ? done / due : null, when };
-}
-
-/**
- * Days in a row a system was done, back from `from`, across months (`months` by `YYYY-MM`). A day
- * it was not due, a skipped day and today still open do not break it; a missed day does.
- */
-export function streak(months: Map<string, Month>, sys: string, today: Date, from: Date = today): number {
-  let n = 0;
-  let d = startOfDay(from);
-  for (let k = 0; k < 800; k++, d = addDays(d, -1)) {
-    const month = months.get(ymOf(d));
-    if (!month || !month.days) break;
-    const st = stateOf(month, d.getDate(), sys, today);
-    if (st === 'done') n++;
-    else if (st === 'missed' || st === 'idle') break;
-  }
-  return n;
 }
 
 /* ------------------------------------------------------------------ what the app writes */
