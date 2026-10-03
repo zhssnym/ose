@@ -353,8 +353,9 @@ export function createTodayView(ose: any, store: any): any {
       const box = $('meta');
       if (!box) return;
       const s = settings();
-      // The files are named in Settings › Views; the page only says when a line could not be read.
-      const links: string[] = [];
+      // The files the day is drawn from, each a link to it, as every view names its own.
+      const files = [st.planMissing ? '' : st.planFile, st.logFile, ...s.todo];
+      const links = files.filter(Boolean).map((p) => `<button type="button" class="v-link" data-path="${esc(p)}">${esc(p)}</button>`);
       if (st.unknown.length) {
         const where = st.unknown.map((u) => u.line).join(', ');
         links.push(`<button type="button" class="v-link pl-unknown" data-path="${esc(st.ttPath)}" data-line="${st.unknown[0]?.line}" title="Timetable lines ${esc(where)}">${st.unknown.length} line${st.unknown.length === 1 ? '' : 's'} not understood</button>`);
