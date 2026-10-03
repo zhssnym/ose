@@ -34,12 +34,12 @@ Why this month matters, in a paragraph. Optional.
 
 Educational
 
-- [ ] Maths: 17 or more at the DS [maths]
-- [ ] Fewer than 10 hours of absence [cours]
+- [ ] Maths: 17 or more at the DS
+- [ ] Fewer than 10 hours of absence
 
 Personal
 
-- [ ] In bed by 23h00, six nights out of seven [bed]
+- [ ] In bed by 23h00, six nights out of seven
 
 # Week
 
@@ -76,16 +76,16 @@ it is the intro.
 
 - A line holding one word is an area: `Educational`, `Financial`, `Personal`.
 - `- [ ] text` is a goal, and `- [x]` once it is met. A plain `-` bullet is a goal nobody ticks.
-- A word in brackets at the end names the system the goal leans on. The pages show that
-  system's count beside the goal: `maths 12 of 13`.
 
 **`# Week`.** How the days are meant to be spent. This is the one list of what gets confirmed.
 
-- A line is `- start à end name · place [system]`. With times it is a block of the day. With
-  none it is a rule for the whole day: `- Bed by 23h00 [bed]`.
-- The word in brackets is the line's **system**: its column in the days table, its count, its
-  run. Lines that share a system on one day are confirmed together. A line with no brackets is
-  shown in the day and never confirmed.
+- A line is a name and, in brackets, its system: `- Maths [maths]`, `- Bed by 23h00 [bed]`.
+- The word in brackets is the line's **system**: its column in the days table, its row on the
+  pages, its run. Lines that share a system on one day are one thing to confirm. A line with no
+  brackets is shown in the day and never confirmed.
+- A time and a place may be written around the name: `- 17h20 à 19h00 Maths · BU Sciences
+  [maths]`. They are yours to keep or to leave out. The pages do not show them: a time only
+  puts the day in order.
 - Lines above the first weekday label are for every day. A label is a line of weekday names:
   `Lundi`, `Mardi, Jeudi`, `Lundi à Vendredi`, in French or English. Lines under a label are for
   its days, and a day may sit under several labels.
@@ -110,7 +110,8 @@ started, all of them, empty.
   | `-` | dropped on purpose that day (ill, a holiday, a class cancelled): it counts for nothing |
   | empty | nothing recorded |
 
-- `Note` is a few free words on the day. No `|` in it.
+- `Note` is a few free words on the day, written here by hand or by an agent and shown on that
+  day's page. No `|` in it.
 - A system added during the month gets a new column at the right end. A column is never
   removed or renamed during the month.
 
@@ -133,16 +134,15 @@ What this year is for, in a paragraph.
 Educational
 
 - [x] Pass the bac de français, oral and written
-- [ ] Read 4 books outside the curriculum [lecture]
+- [ ] Read 4 books outside the curriculum
 
 # Review
 
 _gap: written at the end of the year_
 ```
 
-Goals and Review read exactly as a month's. A goal with a system shows that system's count over
-the year's months. Nothing about the months is written here: the Year page reads the twelve
-month files.
+Goals and Review read exactly as a month's. Nothing about the months is written here: the Year
+page reads the twelve month files.
 
 ## How a day counts
 
@@ -166,7 +166,7 @@ machines and three hands may be in it at once.
 
 | Who | What | How |
 |---|---|---|
-| Ose | a mark or the note of a day | replaces that day's row, only if it still reads what was on screen |
+| Ose | a mark of a day | replaces that day's row, only if it still reads what was on screen |
 | Ose | a goal met | replaces that goal's line the same way |
 | Ose | a task ticked, a task added | replaces its line, or appends one, in `todo.md` |
 | Ose | a new month or year | creates the file, never over one |

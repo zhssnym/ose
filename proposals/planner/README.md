@@ -10,12 +10,12 @@ What is in this folder:
 |---|---|
 | `README.md` | this proposal |
 | `examples/plannings/` | a planner folder in the proposed shape: its contract (`README.md`), a year, two months, the todo list. The week is a real one; the marks are invented |
-| `mock/` | the four pages, drawn from those example files with the app's own stylesheets. A tick changes the text in memory and the status bar shows the one line the app would write |
+| `mock/` | the four pages, drawn from those example files with the app's own stylesheets and colours. A tick changes the text in memory and the status bar shows the one line the app would write |
 | `shots/` | the same pages as pictures, both themes |
 
 To look at the mock: `node proposals/planner/mock/serve.mjs`, then
 http://127.0.0.1:5199/proposals/planner/mock/ (it runs beside `npm run dev`). Its clock is fixed
-on Thursday 15 October 2026, 17h10, so the pages always match the examples.
+on Thursday 15 October 2026, so the pages always match the examples.
 
 ## The answer in short
 
@@ -26,12 +26,13 @@ on Thursday 15 October 2026, 17h10, so the pages always match the examples.
 3. The daily record is a table in the month file: a row per day, a column per system, one
    character per cell. It replaces the log.
 4. One small word ties a month together. The word in brackets on a line of the week, `[maths]`,
-   is its **system**: a column of the days table, a count beside any goal that names it, a run
-   that carries from month to month.
+   is its **system**: a column of the days table, a row on every page, a run that carries from
+   month to month.
 5. Two numbers, never mixed. **Execution** is counted from the days. The **grade** is written by
    you in the review.
 6. Every write is one line, checked against what was read. The host needs no new command.
-7. The pages are the files, typeset: Day, Week, Month and Year, one zoom.
+7. The pages are the big picture, not the minute: Day, Week, Month and Year are the same rows
+   of cells at four zooms, in the app's own colours, with one figure that says how far you are.
 
 ## What the current setup costs
 
@@ -46,8 +47,6 @@ This is read from the real September, not assumed.
   mer sam dim)` is a system, and the cardio blocks sit in the timetable on Wednesday, Saturday
   and Sunday. The second and the third already disagree. Systems and timetable are one list
   kept twice.
-- **Nothing connects a goal to the days.** The month page shows goals, then a grid, and the
-  reader does the linking.
 - **A week cannot change without rejudging the past.** September's week was rewritten in its
   first week. Every day before the change is judged by a week that did not exist yet.
 - **The reviews already carry grades**, each written its own way: `Grade: 7/10`, `Overall:
@@ -87,9 +86,9 @@ September stays as it is until the 16th.
 
 Educational
 
-- [ ] Maths: 17 or more at the DS [maths]
-- [ ] Fewer than 10 hours of absence [cours]
-- [ ] Russell: finish the first book [lecture]
+- [ ] Maths: 17 or more at the DS
+- [ ] Fewer than 10 hours of absence
+- [ ] Russell: finish the first book
 
 Financial
 
@@ -97,8 +96,8 @@ Financial
 
 Personal
 
-- [ ] In bed by 23h00, six nights out of seven [bed]
-- [ ] Cardio four times a week [sport]
+- [ ] In bed by 23h00, six nights out of seven
+- [ ] Cardio four times a week
 
 # Week
 
@@ -151,12 +150,15 @@ What each section holds:
 
 - **The title** and, under it, a paragraph on why the month matters.
 - **Goals.** Area labels as today, one word on a line. A goal is a checkbox, ticked when it is
-  met. A word in brackets at its end names the system it leans on.
-- **Week.** The one list of what gets confirmed. A line with times is a block, a line without is
-  a rule for the day. Lines above the first weekday label are for every day. A label is a line
-  of weekday names, and it may name several: `Mardi, Jeudi`, `Lundi à Vendredi`. Tuesday and
-  Thursday are the same day in the real week, and Lecture is at 22h00 seven days out of seven:
-  written this way the real week is 28 lines, where it took 35 blocks and 10 systems.
+  met.
+- **Week.** The one list of what gets confirmed. A line is a name and its system in brackets.
+  Lines above the first weekday label are for every day. A label is a line of weekday names,
+  and it may name several: `Mardi, Jeudi`, `Lundi à Vendredi`. Tuesday and Thursday are the
+  same day in the real week, and Lecture is there seven days out of seven: written this way the
+  real week is 28 lines, where it took 35 blocks and 10 systems.
+- **Times are yours to keep or to drop.** The real week has them, so the example does. The
+  pages never show a time or a place: a time only puts the day in order. The same Monday can be
+  written `- School [cours]`, `- Maths [maths]`, `- NSI [nsi]`, and nothing else changes.
 - **Week from a date.** A week that takes over on that day: the holidays, or a week rewritten
   mid-month. The days before it keep the week they had.
 - **Days.** A row per day, made empty when the month is started. `x` done. `.` due, not done.
@@ -215,13 +217,12 @@ grade is written in the year's review, with the twelve months in front of you.
 | Action | Write |
 |---|---|
 | a line of a day ticked, unticked or skipped | `replaceLine`: that day's row |
-| the day's note | `replaceLine`: that day's row |
 | a goal ticked | `replaceLine`: that goal's line |
 | a task ticked | `replaceLine` in `todo.md`, as today |
 | a task added | `appendLine` in `todo.md`, as today |
 | Start a month, start a year | exclusive create, as today |
 
-Nothing else, ever. The first mark of a day writes `.` under everything planned that day and
+Nothing else, ever. A day's note is written in the file, by hand or by an agent. The first mark of a day writes `.` under everything planned that day and
 `x` under the one ticked, so from then on the row says by itself what was due, whatever the
 week becomes later. A tick on a system the header does not have yet adds its column at the
 right end: the header row, the delimiter row, then the day's row, three replaces.
@@ -290,74 +291,63 @@ line. An agent also carries the goals that still stand.
 
 ## The pages
 
-Four pages over the same files. Today is the Day page on today and keeps its row in the
+Four pages over the same files, and one idea for all of them: the big picture, not the minute.
+A page says what was meant and how it went. It shows no times, no hours and no places, and one
+figure says how far things are. Today is the Day page on today and keeps its row in the
 sidebar; Planner opens the zoom last used. Everything below is in the mock.
 
-### One grammar
+### What every page shares
 
-- **Three voices in a row.** A narrow margin on the left says when or which: a time, a day, a
-  month, an area. The column says what, in the document face, because the words are yours. The
-  right edge says how much, in mono.
-- **One mark.** A small square, the same on every page. Solid ink: done. Hollow: missed. A
-  hollow square in the accent: open today. A short dash: skipped. A dot: planned, or before the
-  month's first mark. Nothing: not planned.
-- **One accent, three uses.** Today and now, a mark that is still open, a checkbox that is on.
-  The nine colour families of the week grid are not used.
-- **No boxes.** No cards, no panels, no fills. Whitespace groups; a section opens with the
-  app's label and, at its right edge, its count in words.
-- **The zoom** is the four words `Year · Month · Week · Day`, lit like the status bar's
-  `Rich · Source`, above the title. `‹ Today ›` as now.
+- **The app's colours.** Paper, ink for the words, terracotta for what was done. A thing not
+  done is the pale beige of the app's hover ground, and what is still to come is a whisper of
+  it. Nothing is black and no second colour is used.
+- **One component at every zoom**: rows of cells across the page. A week has seven cells, a
+  month one per day, a year twelve. The names are on the left in the document face, because
+  they are your words.
+- **The first row is everything together.** Its cells deepen with the share that was done that
+  day or that month. It is also how you move: a cell opens its day or its month.
+- **One figure, with the one before it**: "76% so far · September 57%". That line is the answer
+  to "am I going forward", and it is the only thing a section says at its right edge.
+- **The rest is on hover.** A cell's tooltip names the day and what happened. A line's tooltip
+  holds its time and place when the file has them.
+- **No boxes.** Whitespace groups. The zoom is the four words `Year · Month · Week · Day`, lit
+  like the status bar's `Rich · Source`, with `‹ Today ›` as now.
 
 ### Day
 
 ![Day](shots/day.png)
 
-- Two columns, like the two pages of a paper planner: the day on the left, the tasks beside it.
-  Under 36rem of column they stack.
-- **A line of the day**: its start time in the margin, its box, its name and place, its run at
-  the right edge once it reaches two days. The whole line is the button.
-- **States.** Done: the box on, the words a shade dimmer, not struck. Now: the time in the
-  accent, nothing else. Skipped: a dash in the box, the words dim. A line with no system: no
-  box.
-- **Click or Space** ticks and unticks. **Shift+click or `s`** skips for the day. A day to come
-  is read only.
-- **Yesterday.** On today only, one quiet line when yesterday left lines open: "Yesterday
-  closed at 4 of 8. Fill it in". It unfolds into those lines, tickable in place. "Bed by 23h00"
-  can only be confirmed the next morning: this is where.
-- **A line about today**: one field under the lines, written into the row's note on Enter.
-- **Tasks** as today: late, due that day, undated. "late · 12/10" in the accent ink, a new task
-  in the foot field.
-- The section's count is "1 of 6". No bar fills.
+- **The month across the top**: one cell per day, a small space between weeks, the day on
+  screen ringed. Every day you see the month filling. Its label opens the month, and a cell
+  opens that day, which is also how yesterday gets finished.
+- **Today**: the things of the day, one line each, a box and your words. One line per system,
+  in the order of the day. No time, no place, nothing beside the line.
+- **Tasks** beside it: the late ones first with the one word "late", then the ones due, then
+  the undated. A new task in the foot field.
+- **Click or Space** ticks and unticks. **Shift+click or `s`** drops a line for the day, shown
+  as a flat line in its box. A day to come is read only.
+- A day whose row has a note shows it under the title, in italics.
+- Under 36rem of column the two lists stack.
 
 ### Week
 
 ![Week](shots/week.png)
 
-- Seven columns of plain lines, one per day: the name, the start time under it, the mark in
-  front. No hour grid and no coloured blocks.
-- A line is ticked here as on the Day page, so a whole week can be filled in from one screen.
-- Under each day: "5 of 6", or "7 planned" for a day to come. A day's head opens that day.
-- **Systems**, under the days: for each system, the days done of the days planned this week,
-  and the hours done of the hours planned. It is the page for the Sunday review.
+- Seven bars per row: the week as it was planned and as it went, in one look. A filled bar was
+  done, a pale one was not, today's open ones are outlined.
+- A bar is ticked here as on the Day page, so a whole week can be put right from one screen.
+- The head says "76% so far · last week 67%".
 
 ### Month
 
 ![Month](shots/month.png)
 
 - The intro, drawn as a document.
-- **Goals.** The area in the margin, its goals beside it. A goal's box is ticked here. At the
-  right edge, the count of the system it names: `maths 12 of 13`. The section says "4 of 11
-  met".
-- **Days** is the table of the file, typeset.
-  - The column heads are the systems, written up the page as a register's are.
-  - Under the heads, the plan in the same columns: the hours a week gives each system, one row
-    per week written. That row opens the week.
-  - A row per day, a small gap before each Monday, today's label in the accent, the note after
-    the marks.
-  - A mark is ticked here too. A day's label opens that day.
-  - The foot: each column's "12/13", then its run.
-  - The section says "73 of 96 · 76% · 3 skipped", and when it applies "3 days with no mark"
-    and "counted from the 7th".
+- **Goals.** The area in the margin, its goals beside it. A goal's box is ticked here when it
+  is met. The section says "4 of 11 met".
+- **Days** is the table of the file turned on its side: a row per system, a cell per day. The
+  only figures are each system's share at the end of its row and the month's at the head.
+  Today's number is in the accent. A cell is ticked here too.
 - **Review.** Each area in the margin with its grade under it, its paragraphs beside it. A month
   that is over, with its review:
 
@@ -367,19 +357,18 @@ sidebar; Planner opens the zoom last used. Everything below is in the mock.
 
 ![Year](shots/year.png)
 
-- The intro and the goals, as on the Month page. A milestone is ticked here.
-- **Months.** Twelve rows: the name, ten squares for the rate, the rate, done of due, and at
-  the right the grade from that month's review, or "in progress". A row opens its month. A month
-  kept before this format says "goals and a review" and still opens.
-- **Systems.** One row per system, twelve columns: its rate each month, and its run today. This
-  is where a year shows what held and what did not.
+- The intro and the goals, as on the Month page. A milestone is ticked here the day it happens.
+- **Months.** The same rows, twelve cells wide. The first row is the year: each month's cell
+  deepens with its rate, the rate is written under it, and under that the grade you gave the
+  month. The other rows are the systems, month by month, each with its run today at the end.
+  A month's name opens it. The months kept before this format are empty and still open.
 - **Review**, as on the Month page.
 
 ### Keys and commands
 
 `←` `→` the period. `t` today. `y` `m` `w` `d` the zoom. `↑` `↓` walk the rows of the page.
-Space ticks, `s` skips, Enter in a field writes it. Every action is also a command in the
-palette. The keys are listed in Settings › Help only.
+Space ticks, `s` drops for the day, Enter in the field adds the task. Every action is also a
+command in the palette. The keys are listed in Settings › Help only.
 
 ### The quiet cases
 
@@ -391,9 +380,13 @@ palette. The keys are listed in Settings › Help only.
 
 ### What goes away
 
-The hour grid and its nine colour families, the cards around the goals, the squares matrix with
-its loss column, the fold of the month's timetable, the box of systems, the bar that fills, and
-`# Systems`, `# Timetable` and `# Execution` as three names for one thing.
+From the current views: the hour grid and its nine colour families, the cards around the goals,
+the Now and Next box, the fold of the month's timetable, the box of systems, the bar that
+fills, and `# Systems`, `# Timetable` and `# Execution` as three names for one thing.
+
+From the first draft of these pages, which read as cluttered: black marks, the times and places
+on every line, the hours per week, the counts beside the goals, the count and the run under
+every column, the list of notes, the line about yesterday and the field for the day's note.
 
 Both themes are in `shots/`:
 
@@ -419,7 +412,7 @@ choice is to leave September's table empty and let the count start in October.
 1. The reader. `mock/planner.js` is the reference: text in, data out, about 400 lines. Ported
    to `src/views/shared/`, on date-fns, with the example files as fixtures and the five counting
    rules as tests.
-2. The Day page on it, with the three writes.
+2. The Day page on it, with its two writes: a mark and a task.
 3. Month, Week, Year.
 4. "Start a month" and "Start a year" in the new shape.
 5. `docs/FORMATS.md` and `docs/VIEWS.md` rewritten; the old readers of systems, timetable and
@@ -437,14 +430,15 @@ Each of these is settled in the proposal and easy to turn the other way.
 | `-`, a line dropped for the day | allowed, shown as a dash, counted in words | no excuses: a line is done or it is missed |
 | Goals as checkboxes | yes, ticked when met | plain bullets, judged in the review only |
 | Grades | `Grade: N/10` per area, `Overall: N/10` | one overall grade, or none read at all |
-| Done marks in the ledger | ink | the accent, as the grid has today |
+| Each system's share on the Month page | shown at the end of its row, quiet | no figure at all, the colours only |
+| The month across the top of the Day page | yes | the two lists alone |
 | Day as the fourth zoom | yes | Today stays a page apart |
 
 ## What was checked
 
-The mock was run in both themes and at a narrow width. A tick, a skip, a note, a task ticked, a
-task added, a goal ticked and a day filled in from the Month page each produce one line, shown
-in the status bar. `node proposals/planner/mock/check.mjs` asserts the five counting rules, the
+The mock was run in both themes and at a narrow width. A tick, a skip, a task ticked, a task
+added, a goal ticked and a day filled in from the Month and Week pages each produce one line,
+shown in the status bar. `node proposals/planner/mock/check.mjs` asserts the five counting rules, the
 runs, the grades and the exact rows written, on the two example months.
 
 The real September was also put through it, outside the repository: its week written the short

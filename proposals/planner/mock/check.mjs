@@ -50,11 +50,18 @@ assert.equal(w.next, '| 16 ven | .     | x     | .   | .       |       |       |
 // a second mark changes one cell and keeps the rest
 const w2 = P.writeMark(oct, 14, 'sport', 'x');
 assert.equal(w2.next, oct.days.rows.get(14).raw.replace('| .     |       |      |', '| x     |       |      |'));
-// the note is escaped and the row keeps its marks
-assert.ok(P.writeNote(oct, 2, 'a | b').next.endsWith('| a \\| b |'));
+// a mark keeps the day's note where it is
+assert.ok(P.writeMark(oct, 2, 'maths', 'x').next.endsWith('| DS de maths le matin |'));
+// what a day says in one figure, and the words a system is shown under
+assert.deepEqual(P.dayShare(oct, 1, today), { done: 5, due: 6, share: 5 / 6, when: 'past' });
+assert.equal(P.dayShare(oct, 15, today).when, 'today');
+assert.equal(P.dayShare(oct, 16, today).share, null);
+assert.equal(P.dayShare(sep, 3, today).when, 'idle');
+assert.equal(P.nameOf(oct, 'maths'), 'Maths');
+assert.equal(P.nameOf(oct, 'off'), 'OFF block taken');
 // a goal's box flips and nothing else on the line moves
 const g = oct.goals[0].goals[0];
-assert.equal(P.writeGoal(g).next, '- [x] Maths: 17 or more at the DS [maths]');
+assert.equal(P.writeGoal(g).next, '- [x] Maths: 17 or more at the DS');
 // labels: one day, a list, a run
 assert.deepEqual([...P.weekdaysOfLabel('Mardi, Jeudi')], [1, 3]);
 assert.deepEqual([...P.weekdaysOfLabel('Lundi à Vendredi')], [0, 1, 2, 3, 4]);

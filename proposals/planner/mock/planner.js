@@ -55,7 +55,6 @@
 
   const BULLET = /^\s*[-*+]\s+(.*)$/;
   const BOX = /^\[([ xX])\]\s+(.*)$/;
-  const TAG = /\s*\[([^\]]+)\]\s*$/;
   /** A label: a line holding one word and no bullet (`Educational`). */
   const isLabel = (t) => { const l = String(t).trim(); return l.length > 0 && l.length <= 32 && !/\s/.test(l) && /^[\p{L}\p{N}]/u.test(l); };
 
@@ -63,8 +62,8 @@
 
   /**
    * `# Goals`: label lines, each followed by its goals. A goal is a bullet, a checkbox when it
-   * is to be ticked once met, with the system it leans on in brackets at the end.
-   * -> `[{ label, goals: [{ line, raw, text, system, box }] }]`, box "open" | "done" | null.
+   * is to be ticked once met.
+   * -> `[{ label, goals: [{ line, raw, text, box }] }]`, box "open" | "done" | null.
    */
   function parseGoals(body) {
     const areas = [];
@@ -73,13 +72,11 @@
       if (!text.trim()) continue;
       const b = BULLET.exec(text);
       if (!b) { if (isLabel(text)) { cur = { label: text.trim(), goals: [] }; areas.push(cur); } continue; }
-      let rest = b[1], box = null, system = null;
+      let rest = b[1], box = null;
       const bx = BOX.exec(rest);
       if (bx) { box = bx[1] === ' ' ? 'open' : 'done'; rest = bx[2]; }
-      const tg = TAG.exec(rest);
-      if (tg) { system = strip(tg[1]); rest = rest.slice(0, tg.index); }
       if (!cur) { cur = { label: '', goals: [] }; areas.push(cur); }
-      cur.goals.push({ line: n, raw: text, text: rest.trim(), system, box });
+      cur.goals.push({ line: n, raw: text, text: rest.trim(), box });
     }
     return areas;
   }
@@ -364,6 +361,37 @@
     return out;
   }
 
+  /**
+   * The words a system is shown under: the name of its first line in the month's weeks, up to
+   * the first comma (`Maths, semaine puis annales` -> `Maths`). A column no week has a line for
+   * keeps its own word.
+   */
+  function nameOf(month, sys) {
+    for (const w of month.weeks) {
+      const l = w.lines.find((x) => x.system === sys);
+      if (l) return l.name.split(',')[0].trim() || sys;
+    }
+    return sys;
+  }
+
+  /**
+   * How one day went: `{ done, due, share, when }`. `share` is done over due, null when nothing
+   * counts. `when` is "past", "today" (the open lines count as due, so the share is the day so
+   * far), "future", or "idle" for a day before the month's first mark.
+   */
+  function dayShare(month, day, today) {
+    const date = dateOf(month, day), now = startOfDay(today);
+    const when = date > now ? 'future' : +date === +now ? 'today' : 'past';
+    let done = 0, due = 0, idle = 0;
+    for (const s of allSystems(month)) {
+      const st = stateOf(month, day, s, today);
+      if (st === 'done') { done++; due++; } else if (st === 'missed' || st === 'open') due++;
+      else if (st === 'idle') idle++;
+    }
+    if (when === 'past' && !due && idle) return { done, due, share: null, when: 'idle' };
+    return { done, due, share: when !== 'future' && due ? done / due : null, when };
+  }
+
   /** The first day of the month that has a mark: the month counts from there. Null when none. */
   function firstMarked(month) {
     if (!month.days) return null;
@@ -481,14 +509,6 @@
     return { line: row.line, expected: row.raw, next: formatRow(t, row.day, marks, row.note) };
   }
 
-  /** The same, for the day's note. */
-  function writeNote(month, day, note) {
-    const t = month.days;
-    const row = t.rows.get(day);
-    if (!row || t.noteCol < 0) return null;
-    return { line: row.line, expected: row.raw, next: formatRow(t, row.day, row.marks, String(note).trim()) };
-  }
-
   /** A goal's box, flipped: `{ line, expected, next }`. */
   function writeGoal(goal) {
     if (!goal.box) return null;
@@ -500,8 +520,8 @@
     strip, two, ymd, ymOf, parseYmd, startOfDay, addDays, dayIndex, daysIn, hhmm, DAY_FR,
     sections, parseGoals, parseWeek, parseWeekLine, weekdaysOfLabel, dayList, parseDays, markOf, formatRow,
     emptyDays, parseReview, parseMonth, parseYear,
-    dateOf, weekFor, linesFor, plannedSystems, systemsOf, allSystems, firstMarked, stateOf, count,
-    monthTally, streak, weekMinutes, writeMark, writeNote, writeGoal,
+    dateOf, weekFor, linesFor, plannedSystems, systemsOf, allSystems, nameOf, dayShare, firstMarked, stateOf, count,
+    monthTally, streak, weekMinutes, writeMark, writeGoal,
   };
   root.Planner = api;
 })(typeof window !== 'undefined' ? window : globalThis);
