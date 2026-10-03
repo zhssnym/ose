@@ -26,7 +26,7 @@ describe('the planner pages', () => {
     expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
     expect(el.querySelector('.pn-zoom')).toBe(null);
     expect(el.querySelectorAll('.hm-lab')).toHaveLength(12);
-    expect(el.querySelectorAll('.hm-dh')).toHaveLength(31);
+    expect(el.querySelectorAll('.hm-dh')).toHaveLength(0);
     expect([...el.querySelectorAll('.hm-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
     expect(el.querySelector('.hm-sum').textContent).toBe('34% done · 11% lost · 55% open');
     // the old grid's states: done the accent, missed and to come empty, not due grey

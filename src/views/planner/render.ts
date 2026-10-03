@@ -139,9 +139,7 @@ const SAID = { done: 'done', missed: 'not done', open: 'open', planned: 'to come
 function heatmap(ctx: Ctx, month: Month): string {
   const last = daysIn(month.year, month.month);
   const days = Array.from({ length: last }, (_, i) => dateOf(month, i + 1));
-  const out = ['<div class="hm-corner"></div>'];
-  for (const d of days) out.push(`<div class="hm-dh${+d === +ctx.today ? ' today' : ''}"><span>${String(d.getDate()).padStart(2, '0')}</span></div>`);
-  out.push('<div class="hm-corner"></div>');
+  const out: string[] = [];
   for (const s of allSystems(month)) {
     const name = nameOf(month, s);
     out.push(`<div class="hm-lab" title="${esc(name)}"><span>${esc(name)}</span></div>`);

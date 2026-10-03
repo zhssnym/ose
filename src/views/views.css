@@ -243,13 +243,13 @@ button.label:hover { color: var(--accent-ink); }
 /* ======================================================================= the heatmap === */
 
 /* The old month grid (git 8b4d47e, `.mo-matrix`), as it was: a names column in rem (it zooms
-   with the names), one square per day sharing the rest, a loss column at the end; the summary
+   with the names), one true square per day sharing the rest (no day numbers), a loss column at the end; the summary
    line is the last row. Its states: on (done) the accent; skip (missed, or due and still to
    come) a ring on the page ground; off (not due, before the month began) a solid square; today
    the accent ring. The square's own tooltip names the day. */
 .hm-wrap { overflow-x: auto; padding-bottom: var(--sp-2); }
 .hm {
-  --hm-name: 15rem;
+  --hm-name: var(--pv-margin);
   --hm-loss: 40px;
   --hm-cell-min: 12px;
   display: grid;
@@ -257,25 +257,12 @@ button.label:hover { color: var(--accent-ink); }
   gap: var(--sp-half); width: 100%;
   min-width: calc(var(--hm-name) + var(--hm-loss) + var(--hm-days, 31) * (var(--hm-cell-min) + var(--sp-half)));
 }
-.hm-corner { height: 15px; }
-.hm-dh {
-  position: relative; height: 15px; min-width: 0; color: var(--fg-3);
-  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
-}
-.hm-dh > span {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  white-space: nowrap; line-height: 1.2;
-}
-.hm-dh.today { color: var(--accent-ink); }
-.hm-dh.today::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--accent);
-}
 .hm-lab {
   display: flex; align-items: center; min-width: 0; padding-right: var(--sp-3);
   font-size: var(--fs-ui); line-height: 1.2; color: var(--fg-2);
 }
 .hm-lab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-c { position: relative; min-width: 0; aspect-ratio: 1; background: var(--bg-3); }
+.hm-c { position: relative; min-width: 0; aspect-ratio: 1; align-self: center; background: var(--bg-3); }
 .hm-c.skip { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
 .hm-c.on { background: var(--accent); }
 .hm-c.today { box-shadow: inset 0 0 0 1px var(--accent); }
