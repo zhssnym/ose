@@ -25,13 +25,21 @@ describe('the planner pages', () => {
     const el = page(R.executionPage(ctx, ctx.today));
     expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
     expect(el.querySelector('.pn-zoom')).toBe(null);
-    expect(el.querySelectorAll('.pv-heat .pv-gl')).toHaveLength(12);
-    expect([...el.querySelectorAll('.pv-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
-    expect(el.querySelector('.pv-hsum').textContent).toBe('34% done · 11% lost · 55% open');
+    expect(el.querySelectorAll('.hm-lab')).toHaveLength(12);
+    expect(el.querySelectorAll('.hm-dh')).toHaveLength(31);
+    expect([...el.querySelectorAll('.hm-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
+    expect(el.querySelector('.hm-sum').textContent).toBe('34% done · 11% lost · 55% open');
+    // the old grid's states: done the accent, missed and to come empty, not due grey
+    const cell = (row, day) => el.querySelectorAll('.hm-c')[row * 31 + day - 1];
+    expect(cell(0, 1).className).toBe('hm-c on');           // School, the 1st: done
+    expect(cell(2, 1).className).toBe('hm-c skip');         // NSI, the 1st: missed
+    expect(cell(0, 16).className).toBe('hm-c skip');        // School, the 16th: to come
+    expect(cell(0, 3).className).toBe('hm-c off');          // School, a Saturday: not due
+    expect(cell(0, 8).className).toBe('hm-c off drop');     // School, the 8th: dropped
+    expect(cell(1, 15).className).toBe('hm-c skip today');  // Maths, today, open
     // one figure for the month, nothing repeating it; the heatmap is only to look at
     expect([...el.querySelectorAll('.pv-sum')].every((x) => !x.textContent)).toBe(true);
-    expect(el.querySelectorAll('.pv-heat button')).toHaveLength(0);
-    expect(el.querySelectorAll('.pv-heat .pv-c.is-off').length).toBeGreaterThan(0);
+    expect(el.querySelectorAll('.hm button')).toHaveLength(0);
     expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'NSI', 'Lecture', 'Off', 'Sleep']);
     expect(el.querySelector('.pv-late').textContent).toBe('late');
     expect(el.textContent).not.toMatch(/\b\d{2}h\d{2}\b/);

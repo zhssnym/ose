@@ -130,45 +130,34 @@ export function monthPage(ctx: Ctx, date: Date): string {
 const SAID = { done: 'done', missed: 'not done', open: 'open', planned: 'to come', skipped: 'dropped that day', idle: 'before the month began' };
 
 /**
- * The month's log as a heatmap: a row per item, a cell per day, and at the end of the row what
- * that item has lost (its due days gone by and not done). Under it, the month in three words.
- * It is to look at: nothing in it is clicked, the day's list is where a thing is ticked. Every
- * cell is drawn, as the old month grid did: the accent when done, an empty square when missed,
- * grey when nothing was due that day or the day has not come.
+ * The month's log as a heatmap, drawn as the old month grid was: one grid, the names, a square
+ * per day, and at the end of each row what that item has lost (its missed days over all its due
+ * days of the month); the month in three words is the last row. It is only to look at: a thing
+ * is ticked in the day's list. A square is the accent when done, empty when missed or still to
+ * come, grey when nothing was due that day or the month had not begun; today's is ringed.
  */
 function heatmap(ctx: Ctx, month: Month): string {
-  const tracks: string[] = [];
-  const cols: Array<Date | null> = [];
-  for (let day = 1; day <= daysIn(month.year, month.month); day++) {
-    const d = dateOf(month, day);
-    if (dayIndex(d) === 0 && day > 1) { tracks.push('var(--sp-1)'); cols.push(null); }
-    tracks.push('minmax(0, 1fr)');
-    cols.push(d);
-  }
-  const row = (label: string, cells: string[], cls = '', end = '<span></span>') => {
-    let i = 0;
-    return `<div class="pv-gr ${cls}">${label}${cols.map((c) => (c ? cells[i++] ?? '<span></span>' : '<span></span>')).join('')}${end}</div>`;
-  };
-  const days = cols.filter((c): c is Date => !!c);
-  const heads = row('<span></span>', days.map((d) => {
-    const isToday = +d === +ctx.today;
-    if (!(d.getDate() === 1 || dayIndex(d) === 0 || isToday)) return '<span></span>';
-    return `<span class="pv-gh${isToday ? ' is-today' : ''}">${d.getDate()}</span>`;
-  }), 'is-heads');
-  const body = allSystems(month).map((s) => {
+  const last = daysIn(month.year, month.month);
+  const days = Array.from({ length: last }, (_, i) => dateOf(month, i + 1));
+  const out = ['<div class="hm-corner"></div>'];
+  for (const d of days) out.push(`<div class="hm-dh${+d === +ctx.today ? ' today' : ''}"><span>${String(d.getDate()).padStart(2, '0')}</span></div>`);
+  out.push('<div class="hm-corner"></div>');
+  for (const s of allSystems(month)) {
     const name = nameOf(month, s);
+    out.push(`<div class="hm-lab" title="${esc(name)}"><span>${esc(name)}</span></div>`);
+    for (const d of days) {
+      const st = stateOf(month, d.getDate(), s, ctx.today);
+      const cls = st === 'done' ? 'on' : st === 'missed' || st === 'open' || st === 'planned' ? 'skip' : st === 'skipped' ? 'off drop' : 'off';
+      const tip = `${name} · ${DAY_SHORT[dayIndex(d)]} ${d.getDate()} · ${st ? SAID[st] : 'not due'}`;
+      out.push(`<div class="hm-c ${cls}${+d === +ctx.today ? ' today' : ''}" title="${esc(tip)}"></div>`);
+    }
     const o = outcome(month, ctx.today, [s]);
     const all = o.done + o.lost + o.open;
-    const loss = all && o.lost ? `<span class="pv-loss" title="${esc(name)} · ${o.done} done · ${o.lost} lost · ${o.open} open">−${Math.round((100 * o.lost) / all)}%</span>` : '<span></span>';
-    return row(`<span class="pv-gl" title="${esc(name)}">${esc(name)}</span>`, days.map((d) => {
-      const st = stateOf(month, d.getDate(), s, ctx.today);
-      const tip = `${name} · ${DAY_SHORT[dayIndex(d)]} ${d.getDate()} · ${st ? SAID[st] : 'not due'}`;
-      return `<span class="pv-c is-${st || 'off'}" title="${esc(tip)}"></span>`;
-    }), '', loss);
-  }).join('');
+    out.push(`<div class="hm-loss" title="${esc(name)} · ${o.done} done · ${o.lost} lost · ${o.open} open">${all && o.lost ? `−${Math.round((100 * o.lost) / all)}%` : ''}</div>`);
+  }
   const p = percentages(outcome(month, ctx.today));
-  const sum = `<div class="pv-hsum">${p.done}% done · ${p.lost}% lost · ${p.open}% open</div>`;
-  return `<div class="pv-grid pv-heat" style="--pv-cols: var(--pv-margin) ${tracks.join(' ')} var(--pv-end)">${heads}${body}</div>${sum}`;
+  out.push(`<div class="hm-sum">${p.done}% done · ${p.lost}% lost · ${p.open}% open</div>`);
+  return `<div class="hm-wrap"><div class="hm" style="--hm-days: ${last}">${out.join('')}</div></div>`;
 }
 
 /** The day's execution, in the order it is done, to tick. */
