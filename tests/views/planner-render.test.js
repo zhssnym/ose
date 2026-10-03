@@ -54,11 +54,11 @@ describe('the planner pages', () => {
     expect(el.querySelector('[data-act="start-month"]')).not.toBe(null);
   });
 
-  it('Year: the months, their rates and the grade', () => {
+  it('Year: the year file alone, its checklist and how much of it is met', () => {
     const el = page(R.yearPage(ctx, 2026));
     expect(el.querySelector('.page-title').textContent).toBe('2026');
-    expect(el.textContent).toContain('57%');
-    expect(el.textContent).toContain('6/10');
+    expect(el.querySelector('.pv-sum').textContent).toBe('27% · 3 of 11 met');
     expect(el.querySelectorAll('.pv-goal').length).toBe(11);
+    expect(el.querySelectorAll('.pv-month, .pv-grid')).toHaveLength(0);
   });
 });

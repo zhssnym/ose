@@ -7,7 +7,7 @@
 import { esc } from '../../ui/index.ts';
 import {
   addDays, allSystems, count, dateOf, dayIndex, dayShare, daysIn, hhmm, isOldMonth, linesFor, monthTally,
-  nameOf, plannedSystems, stateOf, streak, two, ymd, ymOf,
+  nameOf, plannedSystems, stateOf, ymd, ymOf,
   type Area, type Month, type Review, type Year,
 } from '../shared/plan.ts';
 
@@ -297,9 +297,14 @@ function goalsHtml(areas: Area[], path: string): string {
   </div>`).join('');
 }
 
-const goalsSum = (areas: Area[]) => {
+/** The goals with a box, and how many are ticked. */
+const goalsMet = (areas: Area[]) => {
   const boxed = areas.flatMap((a) => a.goals).filter((g) => g.box);
-  return boxed.length ? `${boxed.filter((g) => g.box === 'done').length} of ${boxed.length} met` : '';
+  return { met: boxed.filter((g) => g.box === 'done').length, of: boxed.length };
+};
+const goalsSum = (areas: Area[]) => {
+  const g = goalsMet(areas);
+  return g.of ? `<b>${pct(g.met, g.of)}%</b> · ${g.met} of ${g.of} met` : '';
 };
 
 /** The review, set like the goals: each area in the margin with its grade, its words beside it. */
@@ -357,46 +362,15 @@ export function monthPage(ctx: Ctx, date: Date): string {
 /* ------------------------------------------------------------------ year */
 
 export function yearPage(ctx: Ctx, y: number): string {
+  // the year is its own file: what it is for, its checklist and how much of it is met, its
+  // review. Nothing here is computed from the months.
   const here = y === ctx.today.getFullYear();
   const yf = ctx.year;
   const plan = yf ? yf.plan : null;
-  const byMonth = MONTH.map((_, i) => ctx.months.get(`${y}-${two(i + 1)}`) || null);
-  const ledgers = byMonth.filter((m) => m && m.days) as Month[];
-  const tallies = byMonth.map((m) => (m && m.days ? monthTally(m, ctx.today) : null));
-  const all = tallies.reduce((a, t) => (t ? { done: a.done + t.done, due: a.due + t.due } : a), { done: 0, due: 0 });
-  const cols: Col[] = MONTH_SHORT.map((name, i) => ({
-    head: name, today: here && i === ctx.today.getMonth(),
-    act: `data-act="open-month" data-ym="${y}-${two(i + 1)}" data-key="month:${y}-${two(i + 1)}"`, title: `Open ${MONTH[i]}`,
-  }));
-  const systems: string[] = [];
-  for (const m of ledgers) for (const s of allSystems(m)) if (!systems.includes(s)) systems.push(s);
-  const lastWith = (s: string) => [...ledgers].reverse().find((m) => allSystems(m).includes(s)) || null;
-  const anyGrade = byMonth.some((m) => m && m.review.overall !== null);
-  const rows: Row[] = [
-    { cls: 'is-all', label: 'All', cells: tallies.map((t, i) => (t && t.due
-      ? `<button type="button" class="pv-c is-tint" style="--p:${pct(t.done, t.due)}" data-act="open-month" data-ym="${y}-${two(i + 1)}" data-key="all:${i}" title="${MONTH[i]} · ${pct(t.done, t.due)}%"></button>`
-      : '<span class="pv-c"></span>')) },
-    { cls: 'is-figures', cells: tallies.map((t) => `<span class="pv-gh">${t && t.due ? `${pct(t.done, t.due)}%` : ''}</span>`) },
-    ...(anyGrade ? [{ cls: 'is-figures', label: 'Grade', title: 'The grade the month was given in its review', cells: byMonth.map((m) => `<span class="pv-gh">${m && m.review.overall !== null ? `${m.review.overall}/10` : ''}</span>`) }] : []),
-    ...systems.map((s) => {
-      const name = nameOf(lastWith(s), s);
-      const run = here ? streak(ctx.months, s, ctx.today) : 0;
-      return {
-        label: name,
-        cells: byMonth.map((m, i) => {
-          const c = m && m.days ? count(m, ctx.today, { systems: [s] }) : null;
-          return c && c.due ? `<span class="pv-c is-tint" style="--p:${pct(c.done, c.due)}" title="${esc(name)} · ${MONTH[i]} · ${pct(c.done, c.due)}%"></span>` : '<span class="pv-c"></span>';
-        }),
-        end: run >= 2 ? `<span title="${run} days in a row">${run} days</span>` : '',
-      };
-    }),
-  ];
-  const first = ledgers[0];
-  const goals = !yf ? '' : plan
-    ? `<div class="pv-sec">${head('Goals', goalsSum(plan.goals))}${goalsHtml(plan.goals, yf.path)}</div>`
+  const body = !yf ? '' : plan
+    ? `${intro(plan.intro)}
+      <div class="pv-sec">${head('Goals', goalsSum(plan.goals))}${goalsHtml(plan.goals, yf.path)}</div>
+      <div class="pv-sec">${head('Review', plan.review.overall !== null ? `${plan.review.overall}/10` : '')}${reviewHtml(plan.review)}</div>`
     : `<div class="pl-quiet">${y} has no file yet. <button type="button" class="v-link" data-act="start-year" data-key="start-year">Start it</button>.</div>`;
-  const body = `${plan ? intro(plan.intro) : ''}${goals}
-    <div class="pv-sec">${head('Months', all.due && first ? `<b>${pct(all.done, all.due)}%</b> since ${MONTH[first.month - 1]}` : '')}${grid(cols, rows)}</div>
-    ${plan ? `<div class="pv-sec">${head('Review', plan.review.overall !== null ? `${plan.review.overall}/10` : '')}${reviewHtml(plan.review)}</div>` : ''}`;
   return frame(ctx, { zoom: 'year', title: String(y), unit: 'year', meta: [yf && yf.exists ? fileLink(yf.path) : ''], body, here });
 }

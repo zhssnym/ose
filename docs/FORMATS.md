@@ -235,8 +235,9 @@ Educational
 _gap: written at the end of the year_
 ```
 
-Goals and Review read as a month's. Nothing about the months is written in the year file: the
-Year page reads the twelve month files.
+Goals and Review read as a month's. The Year page is this file alone: its goals, its review, and
+one figure, the goals ticked over the goals with a box (2 of 10 ticked is 20%). Nothing on it is
+computed from the months.
 
 ### How a day counts
 
@@ -249,7 +250,7 @@ Every figure on the pages comes from these five rules (`src/views/shared/plan.ts
 3. It is **done** when its cell is `x`, planned or not.
 4. A month counts from its first marked day. From there every past day counts in full, a day
    with no mark included. Today counts only what is done; days to come count nothing.
-5. The **rate** is done over due, for a day, a week, a month, a year or a system. A system's
+5. The **rate** is done over due, for a day, a week, a month or a system. A system's
    **run** is its due days done in a row, back from today, across months; a day it is not due,
    a `-` and today still open do not break it.
 

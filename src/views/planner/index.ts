@@ -41,7 +41,7 @@ function parseArg(arg: unknown): [Zoom | null, Date | null] {
 /** The months a page needs: the ones it shows and the ones it compares with. */
 function monthsFor(zoom: Zoom, d: Date): string[] {
   const at = (y: number, m: number) => ymOf(new Date(y, m, 1));
-  if (zoom === 'year') return Array.from({ length: 12 }, (_, i) => at(d.getFullYear(), i));
+  if (zoom === 'year') return [];
   if (zoom === 'week') {
     const monday = addDays(d, -dayIndex(d));
     return [...new Set([-7, 0, 6].map((k) => ymOf(addDays(monday, k))))];
