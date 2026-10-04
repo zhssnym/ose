@@ -171,10 +171,8 @@ Word: one serif face, compact, justified, square. It applies to page content and
 else: the editor's column, the page title, everything drawn through `render()` (a journal entry
 in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
 
-- **Face.** `--font-doc`, STIX Two Text, for body, headings and title, with `--font-math`, STIX
-  Two Math, for formulas: one design for words and maths, carried by the app (`src/ui/fonts`,
-  `fonts.css`) so a page is the same on every machine and on paper. Cambria or Iowan Old Style
-  if the files are missing. Code keeps `--font-mono`. Settings' Page face `Plain` sets `data-face="plain"` on
+- **Face.** `--font-doc` (Cambria on Windows, Iowan Old Style on a Mac) for body, headings and
+  title. Code keeps `--font-mono`. Settings' Page face `Plain` sets `data-face="plain"` on
   `<html>`, which makes `--font-doc` resolve to `--font-ui`; only the family moves.
 - **Space.** A run of N blank lines between two blocks is N minus 1 empty paragraphs, each a real
   block the caret goes into. Enter twice leaves one line of space, as in Word. An empty

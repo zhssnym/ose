@@ -3,6 +3,5 @@
    is the shared components those tokens are spent on. The shell imports this file (main.ts)
    and overrides tokens in its own `theme.css`; a built-in module (the views) imports its own
    stylesheet and writes no hex value anywhere. */
-@import './styles/fonts.css';
 @import './styles/tokens.css';
 @import './styles/base.css';
