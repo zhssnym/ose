@@ -25,9 +25,6 @@ export function installDom(ctx: PageCtx) {
     host.innerHTML = '';
     const col = document.createElement('div');
     col.className = 'page-col ed';
-    // The language the column's words are hyphenated in (editor.css): the system's, which is
-    // the one its owner writes in. The window's own `lang` is the interface's, English.
-    col.lang = navigator.language || 'en';
     p.el = col;
     p.host = col;
 

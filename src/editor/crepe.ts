@@ -84,9 +84,7 @@ export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolv
     },
     // The batch-12 modules (extensions.ts) merge their own feature options over these.
     featureConfigs: extensionFeatureConfigs(o, {
-      // An empty line is an empty line, as on paper: no "Type / for commands" on it. The slash
-      // menu is in Settings › Help with every other key.
-      [CrepeFeature.Placeholder]: { text: '', mode: 'block' },
+      [CrepeFeature.Placeholder]: { text: 'Type / for commands', mode: 'block' },
       // `virtual: false`: Crepe's drawn caret measures the text itself and ran ahead of it on
       // Windows fonts; the system's own caret is always where the text is.
       [CrepeFeature.Cursor]: { color: cssVar('--accent'), width: 2, virtual: false },

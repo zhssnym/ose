@@ -312,8 +312,7 @@ function guideHtml() {
       + `and ${kbd('escape')} returns to the page.`],
     ['Pages',
       'A markdown page opens in one of two modes. Rich is the page drawn as a document, written '
-      + 'like one: select text for the formatting bar, or type / on a line for the blocks that can '
-      + `go there. Source is the raw markdown, as in a code editor. ${kbd('mod+e')} switches between `
+      + `like one. Source is the raw markdown, as in a code editor. ${kbd('mod+e')} switches between `
       + 'them, and each file keeps the mode it was left in. The bar at the bottom of the window shows '
       + 'the mode, the counts and when the file was last saved, and says so when a save fails. '
       + `Ose saves as you type. ${kbd('shift')}-right-click a word for its spelling suggestions.`],

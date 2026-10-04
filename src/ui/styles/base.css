@@ -218,7 +218,7 @@ textarea.input { height: auto; padding: var(--sp-2); resize: vertical; line-heig
 
 /* Paper starts 2cm from the top, not 80px: a document that begins a third of the way down the
    window is a web page. The bottom air stays, it is scroll room and not design. */
-.page-col.ed { padding-top: var(--doc-pad-top); max-width: calc(var(--doc-measure) + var(--page-pad-x) * 2); }
+.page-col.ed { padding-top: var(--doc-pad-top); }
 
 /* The title box. It hugs its text (`width: fit-content`) so a short title is a small box and a
    long one wraps inside a box the width of the column, and it is centred either way. The rule

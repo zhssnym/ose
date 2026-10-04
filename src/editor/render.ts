@@ -54,7 +54,6 @@ export function render(markdown: string, opts: any = {}): HTMLElement {
   const basePath = String(opts.basePath || '');
   const box = document.createElement('div');
   box.className = 'md-render';
-  box.lang = navigator.language || 'en';   // the hyphenation dictionary, as in the editor's column
 
   let html = '';
   try {

@@ -115,21 +115,19 @@
   --fs-title: 2.125rem;         /* 34 — the chrome's page title: home, a view's heading */
   --lh-body: 1.35;              /* settings' `Line height`: 1.25 / 1.35 / 1.5 */
 
-  /* The document scale: an article's, the steps a typeset paper takes (1.2 a step). A page has
-     no 2x banner, but its sections have to be found at a glance, and at 1.2 and 1.1 they were
-     not: the page read as one grey column. Ratios, so the `Body text` setting moves the whole
-     hierarchy. At the default 16px: title 27.2, h1 22.4, h2 19.2, h3 and below 16. */
-  --fs-doc-title: calc(var(--fs-body) * 1.7);
-  --fs-doc-h1: calc(var(--fs-body) * 1.4);
-  --fs-doc-h2: calc(var(--fs-body) * 1.2);
+  /* The document scale. A typed handout has no 2x headings: the title is barely larger than
+     the body and a section heading is the body size made bold, so the page reads as one
+     column of text and not as a stack of banners. Ratios, so the `Body text` setting moves
+     the whole hierarchy. At the default 16px: title 22.4, h1 19.2, h2 17.6, h3 and below 16. */
+  --fs-doc-title: calc(var(--fs-body) * 1.4);
+  --fs-doc-h1: calc(var(--fs-body) * 1.2);
+  --fs-doc-h2: calc(var(--fs-body) * 1.1);
 
   /* The document rhythm, in em: a gap in a document is a fraction of a line, not a step of the
      chrome's pixel scale, so it follows the body size and the line height together. */
-  /* Paragraphs are told apart by the gap alone (no first-line indent), so the gap has to be
-     seen: about half a line. At 0.3em two paragraphs read as one. */
-  --doc-gap: 0.6em;             /* between paragraphs, and under a heading */
+  --doc-gap: 0.3em;             /* between paragraphs, and under a heading */
   --doc-gap-head: 1.1em;        /* above a heading */
-  --doc-gap-label: 0.9em;       /* above a paragraph that opens with a bold run-in label */
+  --doc-gap-label: 0.7em;       /* above a paragraph that opens with a bold run-in label */
   --doc-indent: 1.4em;          /* a list's hanging indent: marker in it, text after it */
   --doc-pad-frame: 0.4em 0.7em; /* inside a framed block */
   --doc-pad-cell: 0.3em 0.6em;  /* inside a table cell */
@@ -165,9 +163,6 @@
   --sidebar-min: 200px;
   --sidebar-max: 420px;
   --page-w: 45rem;          /* 720 */
-  /* A document's measure on screen is the paper's: 17cm of 11.5pt is 42 times the body size,
-     so a line holds about what it holds on the sheet (85 characters), not the 100 of --page-w. */
-  --doc-measure: calc(var(--fs-body) * 42);
   --page-pad-top: 5rem;     /* 80 — home and the views: the chrome's air above a title */
   --doc-pad-top: 3rem;      /* 48 — a document starts nearer the top: paper has a 2cm margin */
   --page-pad-x: 3rem;       /* 48 */

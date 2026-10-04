@@ -167,7 +167,7 @@ bar and the page fit without overflowing, in both themes.
 ## A page as a document
 
 A page the user wrote is a document, not a web page. The reference is a maths handout typed in
-Word: one serif face, compact, justified, square. It applies to page content and nothing
+Word: one serif face, compact, justified, rigid, square. It applies to page content and nothing
 else: the editor's column, the page title, everything drawn through `render()` (a journal entry
 in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
 
@@ -179,19 +179,13 @@ in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
   paragraph is one line tall and carries no marker, rule or padding.
 - **Size and leading.** The body is Settings' Text size (16px by default) at `--lh-body`;
   everything else is a ratio of the body.
-- **Scale.** Title `--fs-doc-title` (1.7 times the body), bold, centred, in a `--doc-title-rule`
-  double rule, square, `width: fit-content`, with `--doc-gap-label` of air under it. H1
-  `--fs-doc-h1` (1.4) bold, H2 `--fs-doc-h2` (1.2) bold, H3 bold at body size, H4 and below bold
-  italic: an article's steps, so a section is found at a glance. No second family, no grey heading.
-- **Measure.** On screen the column is `--doc-measure`, 42 times the body size, which is the
-  17cm of the printed sheet: about 85 characters a line.
-- **Rhythm.** `--doc-gap` (0.6em, about half a line) between paragraphs, which have no first-line
-  indent and are told apart by that gap; `--doc-gap-head` above a heading, `--doc-gap-label`
+- **Scale.** Title `--fs-doc-title`, bold, centred, in a `--doc-title-rule` double rule, square,
+  `width: fit-content`, with `--doc-gap-label` of air under it. H1 `--fs-doc-h1` bold, H2 `--fs-doc-h2` bold, H3 bold at body size, H4
+  and below bold italic. No second family, no grey heading.
+- **Rhythm.** `--doc-gap` between paragraphs, `--doc-gap-head` above a heading, `--doc-gap-label`
   above a paragraph that opens with a bold run-in label. No gap against the inside of a frame,
   a cell or a list item.
-- **Alignment.** Justified and hyphenated (`hyphens: auto`, in the system's language, set as
-  `lang` on the column), so a line is not stretched until its gaps show. List items and table
-  cells read left and break no word; a heading and code never do.
+- **Alignment.** Justified, `hyphens: none`. List items and table cells read left.
 - **Lists.** Items touch. The marker hangs in `--doc-indent`: a dot, a hollow ring one level
   down, `1.` right-aligned for ordered lists. A task row takes a little more indent. A numbered
   list that holds numbered lists is an outline and is drawn I. A. 1. a. (the file still says
