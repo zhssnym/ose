@@ -67,6 +67,11 @@
         "rank": "Alternate"
       }
     ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "12.0",
       "signingIdentity": "-"
