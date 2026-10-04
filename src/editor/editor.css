@@ -377,6 +377,14 @@
   justify-content: flex-end; padding-right: .35em;
   font-variant-numeric: lining-nums tabular-nums;
 }
+/* An outline (listmarks.ts): a numbered list that holds numbered lists is I. A. 1. a. The mark
+   is a property the item carries, drawn in place of the editor's own `1.`, which is still what
+   the file says. A roman numeral is wider than a digit, so the first level's marker box is. */
+.ed .milkdown .milkdown-list-item-block.ol-mark > li > .label-wrapper .label.ordered { font-size: 0; padding-right: 0; }
+.ed .milkdown .milkdown-list-item-block.ol-mark > li > .label-wrapper .label.ordered::before {
+  content: var(--ol-mark); font-size: var(--fs-body); padding-right: .35em; white-space: nowrap;
+}
+.ed .milkdown .milkdown-list-item-block.ol-roman > li > .label-wrapper { width: calc(var(--doc-indent) * 1.6); }
 
 /* task checkbox: a 16px square, DESIGN.md, on the one line the row is tall. A square is a
    wider mark than a dot, so a task row takes a little more indent than a bullet row: at the

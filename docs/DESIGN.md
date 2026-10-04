@@ -193,7 +193,9 @@ in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
   `lang` on the column), so a line is not stretched until its gaps show. List items and table
   cells read left and break no word; a heading and code never do.
 - **Lists.** Items touch. The marker hangs in `--doc-indent`: a dot, a hollow ring one level
-  down, `1.` right-aligned for ordered lists. A task row takes a little more indent.
+  down, `1.` right-aligned for ordered lists. A task row takes a little more indent. A numbered
+  list that holds numbered lists is an outline and is drawn I. A. 1. a. (the file still says
+  `1.`); a numbered list that holds none stays 1. 2. 3.
 - **Frames.** A quote, `>`, is a frame: a square `--doc-frame` box in `--fg`, upright, no tint;
   a quote in a quote is a box in a box, and a callout (`> [!note]`) is the same frame. `---` is a
   `--doc-rule` in the text colour. A table is a real grid of `--doc-rule` lines in

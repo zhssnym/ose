@@ -70,6 +70,13 @@
 .md-render ul { list-style: disc; }
 .md-render ul ul { list-style: circle; }
 .md-render ol { list-style: decimal; }
+/* An outline, as in the editor (listmarks.ts): a numbered list that holds numbered lists is
+   I. A. 1. a., and one that holds none stays 1. 2. 3. */
+.md-render ol:has(ol) { list-style: upper-roman; }
+.md-render ol ol { list-style: upper-alpha; }
+.md-render ol ol ol { list-style: decimal; }
+.md-render ol ol ol ol { list-style: lower-alpha; }
+.md-render ol ol ol ol ol { list-style: lower-roman; }
 .md-render li { margin: 0; text-align: left; hyphens: manual; }
 .md-render li::marker { color: var(--fg); font-family: var(--font-doc); }
 .md-render ul > li::marker { font-size: .8em; }
