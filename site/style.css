@@ -24,7 +24,7 @@
   --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
-  --font-doc: Cambria, "Times New Roman", Georgia, serif;
+  --font-doc: "STIX Two Text", Cambria, "Times New Roman", Georgia, serif;
 
   --fs-chrome: 0.75rem;
   --fs-chrome-sm: 0.6875rem;
@@ -57,7 +57,7 @@
   --font-ui: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --font-title: "New York", Georgia, "Times New Roman", serif;
-  --font-doc: "Iowan Old Style", Palatino, Georgia, serif;
+  --font-doc: "STIX Two Text", "Iowan Old Style", Palatino, Georgia, serif;
   -webkit-font-smoothing: antialiased;
 }
 

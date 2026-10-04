@@ -5,10 +5,8 @@
    engine's own rules. What is here is where a formula sits in a document, and what it looks
    like while it is being edited.
 
-   The face is the platform's maths face, which on Windows is Cambria Math: the face Word's
-   equation editor uses, so a formula and the Cambria text around it are one document and not
-   two. `--font-math` is not a token yet; when tokens.css grows one it wins without a change
-   here. */
+   The face is `--font-math`, STIX Two Math: the maths of the text face itself (fonts.css), so a
+   formula and the text around it are one document and not two. */
 
 .ose-math math {
   font-family: var(--font-math, "Cambria Math", "STIX Two Math", "Latin Modern Math", math);
