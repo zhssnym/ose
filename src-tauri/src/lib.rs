@@ -25,6 +25,7 @@ pub mod outside;
 pub mod platform;
 pub mod print;
 pub mod protocol;
+pub mod spell;
 pub mod state;
 pub mod trashbin;
 pub mod vault;

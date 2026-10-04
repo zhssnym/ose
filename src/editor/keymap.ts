@@ -24,8 +24,8 @@ export const BODY_KEYS = [
   { combo: 'mod+shift+x', cmd: 'format.strike', label: 'Ctrl+Shift+X' },
   { combo: 'mod+`', cmd: 'format.code', label: 'Ctrl+`' },
   { combo: 'mod+shift+m', cmd: 'format.clear', label: 'Ctrl+Shift+M' },
-  // hintOnly: the browser's own plain paste already answers this one, and Esc is blocks.ts's.
-  // They are here so the palette can print their chords, and bound by nobody.
+  // hintOnly: the browser's own plain paste already answers this one. It is here so the
+  // palette can print its chord, and bound by nobody.
   { combo: 'mod+shift+v', cmd: 'format.paste-plain', label: 'Ctrl+Shift+V', hintOnly: true },
   { combo: 'mod+0', cmd: 'block.paragraph', label: 'Ctrl+0' },
   { combo: 'mod+1', cmd: 'block.h1', label: 'Ctrl+1' },
@@ -44,7 +44,6 @@ export const BODY_KEYS = [
   { combo: 'alt+arrowdown', cmd: 'block.move-down', label: 'Alt+Down' },
   { combo: 'mod+d', cmd: 'block.duplicate', label: 'Ctrl+D' },
   { combo: 'mod+shift+k', cmd: 'block.delete', label: 'Ctrl+Shift+K' },
-  { combo: 'escape', cmd: 'block.select', label: 'Esc', hintOnly: true },
   // P2's proposal, taken: they fire only with the caret inside a table, so they cost nothing
   // anywhere else, and Alt+Shift+Arrow is bound by nothing today.
   { combo: 'shift+alt+arrowup', cmd: 'table.row-above', label: 'Alt+Shift+Up' },

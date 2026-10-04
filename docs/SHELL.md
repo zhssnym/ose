@@ -141,8 +141,9 @@ re-list only the folders they touch. A rescan, a lost watcher or Show hidden ite
 Keys: arrows, Home, End and type-ahead move; Enter opens; Ctrl+Enter opens in a new tab; F2
 renames; Delete trashes (Cmd+Backspace on a Mac); Ctrl+X, C, V; Ctrl+Z undoes the last file
 operation; Shift+F10 opens the menu; Esc clears the selection, then a cut, then returns to the
-page. Ctrl+Shift+E moves the keyboard in. A row's menu holds the file commands, Copy path, Copy
-link, Open with default app, Open containing folder, Search in folder and Focus folder; the empty
+page. Ctrl+Shift+E moves the keyboard in. A row's menu opens with New file and New folder, then on
+a folder Focus folder first under the line, then the other file commands, Copy path, Copy link, Open with default app,
+Open containing folder and Search in folder; the empty
 space below holds New file, New folder, Collapse all folders and Show hidden items.
 
 Rows dragged onto a folder row move, with Undo. Nothing is dragged in from Explorer or Finder

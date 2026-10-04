@@ -13,6 +13,5 @@ graphify-out/
 # copies of real notes for the serializer tests: kept local, never published
 tests/fixtures/corpus/
 
-
-# Sub-agents' working copies
-.claude/worktrees/
+# Claude Code's own folder (launch configurations, worktrees): this machine's, never shipped
+.claude/

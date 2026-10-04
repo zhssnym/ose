@@ -95,9 +95,14 @@ Use `npm run app:dev`, which keeps its own data folders. It opens the vault it r
 vault path after `-- --` opens that one. Point it at a throwaway copy of a vault, never a real
 one, before trying anything that writes.
 
-**`main` is sacred: every merge into it is a public release.** All work goes to the `dev`
-branch (small PRs into `dev` are fine, they release nothing), is tested locally in the app on a
-throwaway vault, and reaches `main` only as one PR from `dev` once Hassan has accepted the batch.
+**Every change stays local until Hassan says to push.** Work is committed on the local `dev`
+branch and tested in the app on a throwaway vault; nothing is pushed, not even to `dev`, and no
+PR is opened, until he says so in so many words. A push to `dev` runs CI and a push to `main` a
+full release: neither is spent on small changes.
+
+**`main` is sacred: every merge into it is a public release.** When Hassan asks, `dev` is pushed;
+after many refinements, and only once he has accepted the batch, it reaches `main` as one PR from
+`dev`, squashed into one commit, so `main` stays a short list of releases.
 
 Shipping is pushing: every push to `main` builds Windows and macOS in GitHub Actions
 (`.github/workflows/release.yml`) and publishes a release with `latest.json`; an installed Ose

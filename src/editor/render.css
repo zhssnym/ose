@@ -68,6 +68,13 @@
 .md-render ul { list-style: disc; }
 .md-render ul ul { list-style: circle; }
 .md-render ol { list-style: decimal; }
+/* An outline, as in the editor (listmarks.ts): a numbered list that holds numbered lists is
+   I. A. 1. a., and one that holds none stays 1. 2. 3. */
+.md-render ol:has(ol) { list-style: upper-roman; }
+.md-render ol ol { list-style: upper-alpha; }
+.md-render ol ol ol { list-style: decimal; }
+.md-render ol ol ol ol { list-style: lower-alpha; }
+.md-render ol ol ol ol ol { list-style: lower-roman; }
 .md-render li { margin: 0; text-align: left; }
 .md-render li::marker { color: var(--fg); font-family: var(--font-doc); }
 .md-render ul > li::marker { font-size: .8em; }
@@ -76,25 +83,14 @@
 .md-render li > p { margin: 0; }
 .md-render li > p + p { margin-top: var(--doc-gap); }
 
-/* `>` is a bar, `>>` a frame, and the outer quote of a `>>` draws nothing (DESIGN.md). */
+/* A quote, `>`, is a frame; a quote in a quote, a box in a box (DESIGN.md). */
 .md-render blockquote {
   margin: var(--doc-gap-label) 0;
-  padding: 0 0 0 var(--doc-gap-label);
-  border-left: var(--doc-bar) solid var(--fg);
-  color: var(--fg);
-  background: none;
-  font-style: italic;
-}
-.md-render blockquote:has(> blockquote:only-child) {
-  border-left: 0;
-  padding: 0;
-  font-style: normal;
-}
-.md-render blockquote > blockquote {
-  margin: 0;
   padding: var(--doc-pad-frame);
   border: var(--doc-frame) solid var(--fg);
   border-radius: 0;
+  color: var(--fg);
+  background: none;
   font-style: normal;
 }
 
