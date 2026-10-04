@@ -70,7 +70,7 @@ function nodesIn(doc, from, to) {
 
 /**
  * Dispatch a new block selection (or `null` to drop it) and keep the editor selection in step.
- * `scroll` false leaves the scroll position alone: a caller that moves it itself asks for that.
+ * `scroll` false leaves the scroll position alone: the marquee (marquee.ts) moves it itself.
  */
 function setRange(view, range, extra?, scroll = true) {
   const tr = (extra || view.state.tr).setMeta(BLOCK_KEY, range || null);
