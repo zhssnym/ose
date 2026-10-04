@@ -13,7 +13,7 @@ import { describe, indentFor, loadLanguage } from '../highlight.ts';
 import { parseDoc } from '../doc.ts';
 import * as P from '../paths.ts';
 import { attachSheets } from '../sheets.ts';
-import { attachMarquee } from '../marquee.ts';
+import { attachMargin } from '../margin.ts';
 import {
   afterLayout, blankPage, checkOpened, editorView, errCode, errText, hasEditor, INTERNAL,
   makeCrepe, nextRev, PlainDoc, recoveredModeOf, seenRev,
@@ -271,8 +271,8 @@ export function installOpen(ctx: PageCtx) {
       p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null), () => ctx.markDirty(p));
       // Page view: the rules where each A4 sheet ends (sheets.ts). Idle unless the layout is `pages`.
       p.cleanups.push(attachSheets(p.el, () => p.bodyEl.querySelector('.ProseMirror')));
-      // The rubber band from the air around the blocks to a block selection (marquee.ts).
-      p.cleanups.push(attachMarquee({
+      // A drag from the air around the text selects it line by line (margin.ts).
+      p.cleanups.push(attachMargin({
         col: p.el,
         view: () => (p.crepe ? editorView(p.crepe) : null),
         active: () => !ctx.parked && p === ctx.page,

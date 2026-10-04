@@ -1,7 +1,7 @@
 // Block keys: selecting, deleting and moving whole blocks with the keyboard.
 //
-//   Esc                     select the block the caret is in (the list item inside a list)
-//   Esc again, or a click   back to a text caret
+//   Select block (palette)  select the block the caret is in (the list item inside a list)
+//   Esc, or a click         back to a text caret; Esc also lets go of the page
 //   Backspace / Delete      remove the selected block(s), caret into the neighbour
 //   Shift+Up / Shift+Down   extend the selection to the previous / next block
 //   Ctrl+Shift+Backspace    delete the current block without selecting first
@@ -70,7 +70,7 @@ function nodesIn(doc, from, to) {
 
 /**
  * Dispatch a new block selection (or `null` to drop it) and keep the editor selection in step.
- * `scroll` false leaves the scroll position alone: the marquee (marquee.ts) moves it itself.
+ * `scroll` false leaves the scroll position alone: a caller that moves it itself asks for that.
  */
 function setRange(view, range, extra?, scroll = true) {
   const tr = (extra || view.state.tr).setMeta(BLOCK_KEY, range || null);

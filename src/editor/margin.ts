@@ -1,25 +1,24 @@
-// The marquee: a rubber band drawn from the empty space around the blocks, Notion's way of
-// selecting several blocks with the mouse.
+// The margin: a drag that starts in the empty space around the text selects the text beside it,
+// line by line, the way the margin of a word processor does.
 //
-// A press in the space that holds no text — the side air of the column, the gap between two
-// blocks, the room around the body — and a drag of more than a few pixels draws a rectangle
-// that follows the pointer. Every top-level block the rectangle meets, measured top to bottom
-// only, is selected while the pointer moves, and the selection that is left on release is the
-// block selection of blocks.ts (`selectRange`): Backspace deletes it, Ctrl+C copies it, the
-// Shift+arrows extend it from the end the drag went towards, Esc and the arrows collapse it.
+// A press in the space that holds no text (the side air of the column, the gap between two
+// blocks, the room around the body) and a drag of more than a few pixels selects whole lines:
+// from the line the press was beside to the line the pointer is beside now, in either
+// direction. It is an ordinary text selection, the same one a drag inside the text gives, so
+// everything that acts on a selection acts on it. This used to draw a rubber band and select
+// whole blocks, Notion's gesture; a page is a document, and its margin behaves like one.
 //
 // A press inside text is ProseMirror's, as is a press inside a node view that handles its own
-// mouse (a table cell, a code block's CodeMirror, Crepe's block handle): only a press whose
-// target is the editor's root or one of the elements around it starts here. Such a press is
-// taken from the browser at once, or its own drag would select text under the band; a press
-// that turns out to be a click (under `THRESHOLD` pixels) then does what the browser would
-// have done: a caret at the point between blocks, the focus given up in the air. The page's
-// own blank-click rule (page/dom.ts, the caret at the end) still runs as before.
+// mouse (a table cell, a code block's CodeMirror): only a press whose target is the editor's
+// root or one of the elements around it starts here. Such a press is taken from the browser at
+// once; a press that turns out to be a click (under `THRESHOLD` pixels) then does what the
+// browser would have done: a caret at the point between blocks, the focus given up in the air.
+// The page's own blank-click rule (page/dom.ts, the caret at the end) still runs as before.
 //
 // Nothing here edits the document: the only transactions are selection ones.
 
 import { TextSelection } from '@milkdown/kit/prose/state';
-import { BLOCK_KEY, selectRange } from './blocks.ts';
+import { BLOCK_KEY } from './blocks.ts';
 import { scrollerOf } from './reveal.ts';
 
 /** Pixels the pointer moves before a press in the air becomes a drag. */
@@ -29,27 +28,7 @@ const EDGE = 40;
 /** The fastest auto-scroll, in pixels a frame, reached at the edge itself and beyond it. */
 const SPEED = 24;
 
-/**
- * The run of blocks a band from `y1` to `y2` meets, as indexes into `rects` (top to bottom, in
- * the same coordinates as the band), or null when it meets none. A block meets the band when
- * the two overlap by more than nothing; one with no height is never met.
- */
-export function blocksInBand(rects: ReadonlyArray<{ top: number, bottom: number }>, y1: number, y2: number) {
-  const top = Math.min(y1, y2);
-  const bottom = Math.max(y1, y2);
-  let first = -1;
-  let last = -1;
-  rects.forEach((r, i) => {
-    if (!(r.bottom > r.top)) return;
-    if (r.bottom > top && r.top < bottom) {
-      if (first < 0) first = i;
-      last = i;
-    }
-  });
-  return first < 0 ? null : { first, last };
-}
-
-type MarqueeOpts = {
+type MarginOpts = {
   /** The page column (`.page-col.ed`). */
   col: HTMLElement,
   /** The editor view, or null while there is none (Source, a page being torn down). */
@@ -58,8 +37,8 @@ type MarqueeOpts = {
   active: () => boolean,
 };
 
-/** Wire the marquee for one page. Answers the function that unwires it. */
-export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
+/** Wire the margin for one page. Answers the function that unwires it. */
+export function attachMargin({ col, view: viewOf, active }: MarginOpts) {
   let drag: any = null;
 
   /** Whether a press on `target` is a press in the air around this page's blocks. */
@@ -82,14 +61,17 @@ export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
     const view = viewOf();
     if (!view || !(view.dom as HTMLElement).isConnected || !view.dom.getClientRects().length) return;
     if (!inAir(view, e.target, e)) return;
-    // Taken from the browser now, or its own drag would select text under the band.
+    // Taken from the browser now: the selection of this drag is made here.
     e.preventDefault();
     const scroller = scrollerOf(col);
     drag = {
       view, scroller, target: e.target,
-      x0: e.clientX, y0: e.clientY, top0: scrollTopOf(scroller),
+      x0: e.clientX, y0: e.clientY,
       x: e.clientX, y: e.clientY,
-      on: false, band: null as HTMLElement | null, frame: 0, last: '-',
+      on: false, frame: 0,
+      // The line the press was beside, as document positions: its first and its last. Read now,
+      // while it is on screen; the page may scroll it away before the drag ends.
+      lineStart: posBeside(view, e.clientY, 'start'), lineEnd: posBeside(view, e.clientY, 'end'),
     };
     window.addEventListener('mousemove', onMove, true);
     window.addEventListener('mouseup', onUp, true);
@@ -103,10 +85,7 @@ export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
     if (!drag.on) {
       if (Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < THRESHOLD) return;
       drag.on = true;
-      const band = document.createElement('div');
-      band.className = 'os-marquee';
-      document.body.append(band);
-      drag.band = band;
+      drag.view.focus();
       drag.frame = requestAnimationFrame(tick);
     }
     e.preventDefault();
@@ -157,7 +136,6 @@ export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
   function stop() {
     if (!drag) return;
     cancelAnimationFrame(drag.frame);
-    if (drag.band) drag.band.remove();
     drag = null;
     window.removeEventListener('mousemove', onMove, true);
     window.removeEventListener('mouseup', onUp, true);
@@ -180,53 +158,27 @@ export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
     drag.frame = requestAnimationFrame(tick);
   }
 
-  /** Draw the band where the pointer is now, and select what it meets. */
+  /** Select from the line the press was beside to the line the pointer is beside now. */
   function update() {
     const d = drag;
     if (!d || !d.on) return;
     const view = viewOf();
     if (!view || view !== d.view) { stop(); return; }
-    const s = d.scroller;
-    // The press is held in the page's own coordinates, so it scrolls with the page.
-    const y0 = d.y0 - (scrollTopOf(s) - d.top0);
-    const box = s ? s.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
-    const top = Math.max(Math.min(y0, d.y), box.top);
-    const bottom = Math.min(Math.max(y0, d.y), box.bottom);
-    const left = Math.max(Math.min(d.x0, d.x), box.left);
-    const right = Math.min(Math.max(d.x0, d.x), box.right);
-    if (d.band) {
-      const st = d.band.style;
-      st.left = `${left}px`;
-      st.top = `${top}px`;
-      st.width = `${Math.max(0, right - left)}px`;
-      st.height = `${Math.max(0, bottom - top)}px`;
-    }
-    select(view, y0, d.y, d.y < y0 ? 'start' : 'end');
-  }
-
-  /** The block selection over the top-level blocks between `y1` and `y2`, or none. */
-  function select(view, y1, y2, head) {
+    if (d.lineStart === null || d.lineEnd === null) return;
+    const up = posBeside(view, d.y, 'start');
+    if (up === null) return;
+    // Above the press: from the end of its line back to the start of this one. Otherwise from
+    // the start of its line to the end of this one.
+    const back = up < d.lineStart;
+    const anchor = back ? d.lineEnd : d.lineStart;
+    const head = back ? up : posBeside(view, d.y, 'end');
+    if (head === null) return;
     const doc = view.state.doc;
-    const spans: { from: number, to: number }[] = [];
-    const rects: { top: number, bottom: number }[] = [];
-    doc.forEach((node, pos) => {
-      spans.push({ from: pos, to: pos + node.nodeSize });
-      const dom = view.nodeDOM(pos);
-      const r = dom instanceof Element ? dom.getBoundingClientRect() : null;
-      rects.push(r ? { top: r.top, bottom: r.bottom } : { top: 0, bottom: 0 });
-    });
-    const hit = blocksInBand(rects, y1, y2);
-    const key = hit ? `${hit.first}:${hit.last}:${head}` : '';
-    if (key === drag.last) return;
-    drag.last = key;
-    if (!hit) {
-      if (BLOCK_KEY.getState(view.state)) view.dispatch(view.state.tr.setMeta(BLOCK_KEY, null));
-      return;
-    }
-    const from = spans[hit.first]?.from;
-    const to = spans[hit.last]?.to;
-    if (from === undefined || to === undefined) return;
-    selectRange(view, { from, to, head });
+    const size = doc.content.size;
+    if (anchor > size || head > size) return;
+    const sel = TextSelection.between(doc.resolve(anchor), doc.resolve(head));
+    if (sel.eq(view.state.selection) && !BLOCK_KEY.getState(view.state)) return;
+    view.dispatch(view.state.tr.setSelection(sel).setMeta(BLOCK_KEY, null));
   }
 
   document.addEventListener('mousedown', onDown, true);
@@ -234,6 +186,24 @@ export function attachMarquee({ col, view: viewOf, active }: MarqueeOpts) {
     stop();
     document.removeEventListener('mousedown', onDown, true);
   };
+}
+
+/**
+ * The document position at one end of the line of text beside `y`: its start or its end. The
+ * height is kept inside what is on screen, where the browser can answer for a point.
+ */
+function posBeside(view, y: number, end: 'start' | 'end'): number | null {
+  const root = view.dom as HTMLElement;
+  const box = root.getBoundingClientRect();
+  const s = scrollerOf(root);
+  const port = s ? s.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  const top = Math.min(Math.max(y, Math.max(box.top, port.top) + 1), Math.min(box.bottom, port.bottom) - 1);
+  const cs = getComputedStyle(root);
+  const left = end === 'start'
+    ? box.left + (parseFloat(cs.paddingLeft) || 0) + 1
+    : box.right - (parseFloat(cs.paddingRight) || 0) - 1;
+  const hit = view.posAtCoords({ left, top });
+  return hit ? hit.pos : null;
 }
 
 function scrollTopOf(scroller) {
