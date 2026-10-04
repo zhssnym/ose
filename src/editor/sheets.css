@@ -32,6 +32,12 @@
     line-height: var(--print-lh);
   }
 
+  /* The bar's row is laid on the sheet's measure, as it is on the column's in `scroll`. */
+  :root[data-layout="pages"] .ed-bar-row {
+    max-width: calc((var(--print-measure) + 2 * var(--print-margin)) * var(--zoom, 1));
+    padding: 0 calc(var(--print-margin) * var(--zoom, 1));
+  }
+
   /* The meta line is not on paper, so it leaves the flow and sits in the top margin: what is
      below it is placed exactly as it will be printed. */
   :root[data-layout="pages"] .page-col.ed > .page-meta {

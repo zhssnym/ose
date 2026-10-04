@@ -99,7 +99,7 @@
      document. The image block's own two controls, the round button over the top-right corner and
      the drag bar under the picture, are handles like the rest and were printing on the figure. */
   .titlebar, .sidebar, .rs, .tabs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading,
-  .os-slash, .ed-find, .ed-bl, .ed .page-meta, .ed-add-title, .ed-props-head svg,
+  .os-slash, .ed-find, .ed-bar, .ed-bl, .ed .page-meta, .ed-add-title, .ed-props-head svg,
   .ose-math-src, .sheet-breaks,
   .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview,
   .ed .milkdown .milkdown-link-edit, .ed .milkdown .milkdown-block-handle,

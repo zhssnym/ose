@@ -88,6 +88,43 @@
 .ed-banner .btn:hover { background-color: var(--bg-3); }
 .ed-banner .btn:focus-visible { outline: none; box-shadow: var(--focus); }
 
+/* ---------------------------------------------------------------- formatting bar (bar.ts)
+
+   One row of buttons over a Rich page, stuck to the top of the scroller: chrome, not page. It
+   is the column's elder sibling, as wide as the window, and its row is laid on the column's own
+   measure so the first button stands over the first letter of the text. Controls are --ctl-h in
+   a --panelhead-h bar with the hairline a bar is allowed at its foot. */
+.ed-bar {
+  position: sticky; top: 0; z-index: 26;
+  height: var(--panelhead-h);
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.ed-bar-row {
+  box-sizing: border-box; height: 100%;
+  max-width: calc(var(--doc-measure) + var(--page-pad-x) * 2);
+  margin: 0 auto; padding: 0 var(--page-pad-x);
+  display: flex; align-items: center; gap: var(--sp-half);
+}
+:root.full-width .ed-bar-row { max-width: none; }
+.ed-bar-gap { flex: none; width: 1px; height: var(--sp-4); margin: 0 var(--sp-2); background: var(--border); }
+.ed-bar-b {
+  flex: none; width: var(--ctl-h); height: var(--ctl-h); padding: 0;
+  display: grid; place-items: center;
+  background: none; border: 0; border-radius: var(--radius); color: var(--fg-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.ed-bar-b:hover { background: var(--bg-3); color: var(--fg); }
+.ed-bar-b.on { background: var(--bg-3); color: var(--accent-ink); }
+.ed-bar-b svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+/* B, I and S are letters in the document's face, as they are on every word processor. */
+.ed-bar-l { font-family: var(--font-doc); font-size: var(--fs-content); line-height: 1; }
+.ed-bar-l.b { font-weight: 700; }
+.ed-bar-l.i { font-style: italic; }
+.ed-bar-l.s { text-decoration: line-through; }
+/* What sticks inside the column sticks under the bar. */
+.ed-bar ~ .page-col.ed :is(.ed-banner, .ed-find) { top: var(--panelhead-h); }
+
 /* ---------------------------------------------------------------- frozen (H1)
 
    While a leave, a mode switch or a path change composes the page, every input is read-only;
