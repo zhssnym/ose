@@ -447,8 +447,9 @@ function handleKeyDown(ctx, v, event) {
 
 /**
  * Tab, and the whole of D2. `plugin-indent` is gone (crepe.ts removes it), so nothing types
- * spaces any more; this decides everything instead, and always claims the key so focus can
- * never walk out of the page.
+ * four spaces any more; this decides everything instead, and always claims the key so focus
+ * can never walk out of the page: the next cell in a table, a level deeper in a list, an
+ * indent in a paragraph.
  */
 function handleTab(ctx, v, event) {
   const { state } = v;
@@ -465,7 +466,32 @@ function handleTab(ctx, v, event) {
     call(ctx, event.shiftKey ? liftListItemCommand.key : sinkListItemCommand.key);
     return true;                                   // the first item: nothing, never a space
   }
-  return true;                                     // D2: Tab in prose does nothing at all
+  return indentProse(v, event.shiftKey);
+}
+
+/** What Tab types in prose: an em space, the width of a first-line indent. */
+export const INDENT = ' ';
+
+/**
+ * Tab in a paragraph or a heading: an indent the file can hold. A tab or four spaces at the
+ * start of a line is a code block to markdown (D2: that is how a paragraph once turned into
+ * code on reload), and the serializer writes either as `&#x9;`; an em space is a character
+ * like any other, so it is written as it is, read back as it is, and drawn one em wide by
+ * every renderer and on paper. Shift+Tab takes back the one before the caret. Always claims
+ * the key, so the focus never walks out of the page.
+ */
+function indentProse(v, back) {
+  const { state } = v;
+  const { $from, empty, from } = state.selection;
+  if (!empty || !$from.parent.isTextblock || $from.parent.type.spec.code) return true;
+  if (back) {
+    if ($from.parentOffset > 0 && state.doc.textBetween(from - 1, from) === INDENT) {
+      v.dispatch(state.tr.delete(from - 1, from).scrollIntoView());
+    }
+    return true;
+  }
+  v.dispatch(state.tr.insertText(INDENT).scrollIntoView());
+  return true;
 }
 
 /**
