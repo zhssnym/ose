@@ -32,8 +32,8 @@
   --fs-body: 1rem;
   --fs-title: 2.125rem;
   --lh-body: 1.35;
-  --fs-doc-h2: calc(var(--fs-body) * 1.1);
-  --doc-gap: 0.3em;
+  --fs-doc-h2: calc(var(--fs-body) * 1.2);
+  --doc-gap: 0.6em;
 
   --sp-1: 0.25rem;
   --sp-2: 0.5rem;

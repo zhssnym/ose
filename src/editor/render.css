@@ -10,14 +10,15 @@
   line-height: var(--lh-body);
   color: var(--fg);
   text-align: justify;
-  hyphens: none;
+  hyphens: auto;
+  hyphenate-limit-chars: 6 3 3;
   overflow-wrap: break-word;
 }
 
 .md-render > :first-child { margin-top: 0; }
 .md-render > :last-child { margin-bottom: 0; }
 
-/* Headings are the body face made bold: h1 1.2 times the body, h2 1.1, h3 the body size, h4
+/* Headings are the body face made bold: h1 1.4 times the body, h2 1.2, h3 the body size, h4
    and below bold italic. No second family, no 2x banner. */
 .md-render h1,
 .md-render h2,
@@ -31,6 +32,7 @@
   line-height: 1.25;
   letter-spacing: normal;
   text-align: left;
+  hyphens: none;
   margin: var(--doc-gap-head) 0 var(--doc-gap);
 }
 
@@ -68,7 +70,7 @@
 .md-render ul { list-style: disc; }
 .md-render ul ul { list-style: circle; }
 .md-render ol { list-style: decimal; }
-.md-render li { margin: 0; text-align: left; }
+.md-render li { margin: 0; text-align: left; hyphens: manual; }
 .md-render li::marker { color: var(--fg); font-family: var(--font-doc); }
 .md-render ul > li::marker { font-size: .8em; }
 .md-render li > ul,
@@ -88,6 +90,7 @@
 }
 
 .md-render code {
+  hyphens: none;
   font-family: var(--font-mono);
   font-size: var(--fs-ui);
   background: var(--bg-2);
@@ -97,6 +100,7 @@
 }
 
 .md-render pre {
+  hyphens: none;
   font-family: var(--font-mono);
   font-size: var(--fs-ui);
   background: var(--bg-2);
@@ -135,6 +139,7 @@
   border-radius: 0;
   padding: var(--doc-pad-cell);
   text-align: left;
+  hyphens: manual;
   vertical-align: top;
 }
 

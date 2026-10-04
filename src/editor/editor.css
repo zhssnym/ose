@@ -186,9 +186,12 @@
 
 .ed-body { margin: 0 calc(-1 * var(--sp-2)); }
 .ed .milkdown { background: transparent; }
-/* Justified with no hyphenation, which is what Word does by default and what the teacher's
-   page shows. Chrome justifies on the word spaces alone; `text-wrap: pretty` is left off on
-   purpose, because it is a last-line ragged-right rule and there is no ragged right here. */
+/* Justified, and hyphenated: Chrome justifies on the word spaces alone, so without a break
+   inside a long word a line is stretched until the gaps show, which is what makes a justified
+   page look typed rather than typeset. The dictionary is chosen by the column's `lang`
+   (page/dom.ts); a word breaks only if it is six letters long, three left on each side.
+   `text-wrap: pretty` is left off on purpose, because it is a last-line ragged-right rule and
+   there is no ragged right here. */
 .ed .milkdown .ProseMirror {
   padding: 0 var(--sp-2) var(--sp-7);
   font-family: var(--font-doc);
@@ -196,15 +199,18 @@
   line-height: var(--lh-body);
   color: var(--fg);
   text-align: justify;
-  hyphens: none;
+  hyphens: auto;
+  hyphenate-limit-chars: 6 3 3;
   outline: none;
   user-select: text;
   cursor: auto;
   min-height: 40vh;
 }
 /* A list item and a table cell are short measures: justifying them would open rivers in a
-   three-word line. They read left, as they do on the handout. */
-.ed .milkdown .ProseMirror :is(li, .content-dom, th, td) { text-align: left; }
+   three-word line. They read left, as they do on the handout, and a ragged line has no need
+   to break a word; neither has a heading, and code is never broken at all. */
+.ed .milkdown .ProseMirror :is(li, .content-dom, th, td) { text-align: left; hyphens: manual; }
+.ed .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6, code, pre, math, .milkdown-code-block) { hyphens: none; }
 
 /* Crepe pads every paragraph 4px top and bottom and every heading 2px, and sets a paragraph's
    leading to 1.5 whatever the body is set to: that is 8px of air per paragraph nobody asked
@@ -230,7 +236,7 @@
 /* Headings are the body face made bold, never a second family and never twice the size: the
    owner writes his sections as H1, and a section title on a handout is a bold line, not a
    banner. Ratios of --fs-body, so the `Body text` setting moves the whole hierarchy. At the
-   default 16px: h1 19.2, h2 17.6, h3 16, h4 and below 16 italic. */
+   default 16px: h1 22.4, h2 19.2, h3 16, h4 and below 16 italic. */
 .ed .milkdown h1, .ed .milkdown h2, .ed .milkdown h3,
 .ed .milkdown h4, .ed .milkdown h5, .ed .milkdown h6 {
   font-family: var(--font-doc); font-weight: 700; font-style: normal; line-height: 1.25;
