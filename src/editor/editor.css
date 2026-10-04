@@ -201,6 +201,10 @@
   text-align: justify;
   hyphens: auto;
   hyphenate-limit-chars: 6 3 3;
+  /* ProseMirror asks for `break-spaces`, under which the space after the last word of a full
+     line is carried to the start of the next one: a line that opens one space in, on screen and
+     on paper. Under `pre-wrap` that space hangs past the end of its line, as in Word. */
+  white-space: pre-wrap;
   outline: none;
   user-select: text;
   cursor: auto;
@@ -343,8 +347,10 @@
   margin: 0; padding: 0; line-height: var(--lh-body);
 }
 .ed .milkdown .milkdown-list-item-block .content-dom > p + p { margin-top: var(--doc-gap); }
-/* a nested list is inside the item, so it must not add the gap a list gets between paragraphs */
-.ed .milkdown .milkdown-list-item-block .children > :is(ul, ol) { margin: 0; padding-left: var(--doc-indent); }
+/* A nested list is inside the item, beside its paragraph in `.content-dom`, and its items follow
+   the item's own line as closely as two items of one list follow each other: none of the gap a
+   list gets between paragraphs. Its indent is the parent's marker box, so it adds none. */
+.ed .milkdown .milkdown-list-item-block .content-dom > :is(ul, ol) { margin: 0; }
 
 /* The marker. Crepe ships a 24px circle icon; a document wants a dot the size of a full stop,
    drawn in the text colour and centred in the hanging indent, which is where Word puts one.
@@ -593,13 +599,6 @@
 /* While blocks are selected the native text highlight underneath would double the colour. */
 .ed .milkdown .ProseMirror.os-blocksel ::selection,
 .ed .milkdown .ProseMirror.os-blocksel::selection { background: transparent; }
-/* The rubber band (marquee.ts), drawn over the page while a drag from the air selects blocks.
-   Fixed to the window, clipped to the scroller by the script, and never in the pointer's way. */
-.os-marquee {
-  position: fixed; z-index: 40; pointer-events: none;
-  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
-  border: 1px solid var(--accent); border-radius: var(--radius);
-}
 
 /* ---------------------------------------------------------------- page picker (fallback) */
 
