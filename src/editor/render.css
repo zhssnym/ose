@@ -76,25 +76,14 @@
 .md-render li > p { margin: 0; }
 .md-render li > p + p { margin-top: var(--doc-gap); }
 
-/* `>` is a bar, `>>` a frame, and the outer quote of a `>>` draws nothing (DESIGN.md). */
+/* A quote, `>`, is a frame; a quote in a quote, a box in a box (DESIGN.md). */
 .md-render blockquote {
   margin: var(--doc-gap-label) 0;
-  padding: 0 0 0 var(--doc-gap-label);
-  border-left: var(--doc-bar) solid var(--fg);
-  color: var(--fg);
-  background: none;
-  font-style: italic;
-}
-.md-render blockquote:has(> blockquote:only-child) {
-  border-left: 0;
-  padding: 0;
-  font-style: normal;
-}
-.md-render blockquote > blockquote {
-  margin: 0;
   padding: var(--doc-pad-frame);
   border: var(--doc-frame) solid var(--fg);
   border-radius: 0;
+  color: var(--fg);
+  background: none;
   font-style: normal;
 }
 

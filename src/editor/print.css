@@ -248,7 +248,7 @@
      label never end one, and a paragraph never leaves a single line behind. The same three
      rules for the editor's DOM and for marked's.
 
-     Only what is always short is kept whole: a bar, a frame, a display formula, a figure now
+     Only what is always short is kept whole: a frame, a display formula, a figure now
      that it is capped. A listing and a table are not: they are as long as the author made them,
      and Chromium answers `break-inside: avoid` on a block taller than the sheet by moving it to
      a fresh sheet and abandoning the one it was on, so a 150-line correction printed as two

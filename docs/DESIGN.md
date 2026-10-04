@@ -73,7 +73,7 @@ the computer. `:root[data-os="mac"]` swaps the font stacks for the Mac's own.
 --lh-body                    1.25, 1.35 (default) or 1.5, from Settings
 --fs-doc-title --fs-doc-h1 --fs-doc-h2       1.4x, 1.2x, 1.1x the body
 --doc-gap --doc-gap-head --doc-gap-label --doc-indent --doc-pad-*   the document rhythm, in em
---doc-bar --doc-frame --doc-rule --doc-title-rule                   the document's lines
+--doc-frame --doc-rule --doc-title-rule                             the document's lines
 --radius 2px  --titlebar-h 36  --statusbar-h 22  --panelhead-h 32  --barhead-h 44
 --row-h 28  --ctl-h 28  --sidebar-w 260px  --page-w 720  --page-pad-top 80  --doc-pad-top 48
 --print-margin --print-measure --print-fs --print-lh                paper
@@ -188,8 +188,8 @@ in a view), and paper. The chrome around it keeps `--font-ui` and `--font-mono`.
 - **Alignment.** Justified, `hyphens: none`. List items and table cells read left.
 - **Lists.** Items touch. The marker hangs in `--doc-indent`: a dot, a hollow ring one level
   down, `1.` right-aligned for ordered lists. A task row takes a little more indent.
-- **Frames and bars.** `>` is a bar: `--doc-bar` solid `--fg` down the left, italic, no tint.
-  `>>` (a blockquote in a blockquote) is a frame: a square `--doc-frame` box, upright. `---` is a
+- **Frames.** A quote, `>`, is a frame: a square `--doc-frame` box in `--fg`, upright, no tint;
+  a quote in a quote is a box in a box, and a callout (`> [!note]`) is the same frame. `---` is a
   `--doc-rule` in the text colour. A table is a real grid of `--doc-rule` lines in
   `--border-strong` (black on paper), its header cells bold on `--bg-2`, and each column as wide as
   what it holds (`table-layout: auto`), so a column of numbers stays narrow and nothing breaks

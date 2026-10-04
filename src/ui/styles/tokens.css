@@ -132,8 +132,7 @@
   --doc-pad-frame: 0.4em 0.7em; /* inside a framed block */
   --doc-pad-cell: 0.3em 0.6em;  /* inside a table cell */
   --doc-pad-title: 0.2em 0.8em; /* inside the title's double rule */
-  --doc-bar: 2px;               /* the solid bar down the left of a quoted block */
-  --doc-frame: 2px;             /* the square frame around a theorem; 1.5 snapped to 1 on paper */
+  --doc-frame: 2px;             /* the square frame around a quote; 1.5 snapped to 1 on paper */
   --doc-rule: 1px;              /* a horizontal rule, and a table's grid */
   --doc-title-rule: 3px;        /* the title's double rule: 1px, 1px gap, 1px */
   --print-figure: 22cm;         /* the tallest a picture prints, so its label keeps its sheet */

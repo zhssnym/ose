@@ -222,7 +222,7 @@
    which is the point: the break does not make a second block. */
 .ed .milkdown p:has(> strong:first-child) { margin-top: var(--doc-gap-label); }
 /* A gap between blocks belongs between them, never against the inside of what holds them: a
-   frame, a bar, a list item and a cell all start flush. Written with :is() so it outranks the
+   frame, a list item and a cell all start flush. Written with :is() so it outranks the
    run-in rule above, which a "Theoreme 1." paragraph inside a frame also matches. */
 .ed .milkdown :is(blockquote, .content-dom, th, td) > :first-child { margin-top: 0; }
 .ed .milkdown :is(blockquote, .content-dom, th, td) > :last-child { margin-bottom: 0; }
@@ -261,37 +261,19 @@
   padding: 0 var(--sp-1); color: var(--fg);
 }
 
-/* Two marks, two blocks, and the markdown says which (DESIGN.md, "Frames and bars").
-   `>` is a BAR: a solid rule in the text colour down the left, the text italic, no tint and no
-   box. It is the teacher's "Definition." paragraph.
-   `>>` is a FRAME: a square 1.5px box, upright text, the teacher's "Theoreme 1." Markdown has
-   no second quote mark, so a frame arrives as a blockquote nested in a blockquote; the outer
-   one is punctuation and draws nothing at all. */
+/* A quote, `>`, is a FRAME (DESIGN.md, "Frames"): a square box in the text colour, upright
+   text, no tint, the teacher's "Theoreme 1.". A quote in a quote is a box in a box. */
 .ed .milkdown blockquote {
-  margin: var(--doc-gap-label) 0; padding: 0 0 0 var(--doc-gap-label);
-  border-left: var(--doc-bar) solid var(--fg); color: var(--fg); background: none;
-  font-style: italic;
-}
-/* Crepe draws the bar itself, as a rounded 4px accent slab in `blockquote::before`. The bar is
-   a border here: one rule, square, in the ink, and it prints. */
-.ed .milkdown blockquote::before { display: none; }
-/* the outer quote of a `>>`: no bar, no indent, no italic, nothing */
-.ed .milkdown blockquote:has(> blockquote:only-child) {
-  border-left: 0; padding: 0; font-style: normal;
-}
-.ed .milkdown blockquote > blockquote {
-  margin: 0; padding: var(--doc-pad-frame);
+  margin: var(--doc-gap-label) 0; padding: var(--doc-pad-frame);
   border: var(--doc-frame) solid var(--fg); border-radius: 0;
-  font-style: normal; color: var(--fg);
+  color: var(--fg); background: none; font-style: normal;
 }
-/* Obsidian callouts, `> [!note] Title` (batch 9, C15). A class from plugins.ts, nothing in the
-   file changes. A callout carries a title of its own, so it is a frame rather than a bar, and
-   it is upright: the italic belongs to the bar. No colour per kind — colour means something
-   here, and a note is not a state. */
-.ed .milkdown blockquote.callout {
-  border: var(--doc-rule) solid var(--fg); border-radius: 0; background: none;
-  padding: var(--doc-pad-frame); color: var(--fg); font-style: normal;
-}
+/* Crepe draws a bar itself, as a rounded 4px accent slab in `blockquote::before`. The frame is
+   a border here: square, in the ink, and it prints. */
+.ed .milkdown blockquote::before { display: none; }
+/* Obsidian callouts, `> [!note] Title` (batch 9, C15): a frame like any quote, and its marker
+   in mono. A class from plugins.ts, nothing in the file changes. No colour per kind — colour
+   means something here, and a note is not a state. */
 .ed .milkdown .callout-marker {
   font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
   letter-spacing: .02em;
