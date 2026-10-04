@@ -247,14 +247,14 @@ export function registerTreeCommands() {
   }
 }
 
-// The menu's order: create, then focus (third on a folder, Hassan's ask), open, the row's own
-// verbs, the clipboard, then copy and Explorer, then the one destructive action.
+// The menu's order: create, then focus (first after the line on a folder, Hassan's ask), open,
+// the row's own verbs, the clipboard, then copy and Explorer, then the one destructive action.
 // `app.focus-exit` lives in src/core/focus.ts; its menu row shows only on the folder that is
 // the focus.
 const MENU = [
   'file.new', 'tree.new-folder',
-  'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
   null,
+  'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
   'tree.open-tab',
   'file.rename', 'file.move', 'file.duplicate',
   null,
