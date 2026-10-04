@@ -1,0 +1,245 @@
+/* Places: the toolbar and its address bar, the page column and its tab strip, Home and the
+   resizers (shell-places). Copied verbatim from shell.css at the start of wave 2
+   (docs/SHELL.md), then changed here only. Tokens only, as everywhere in the shell. */
+
+/* ------------------------------------------------------------------ toolbar */
+
+/* The window's title bar: the app's toolbar, with no system bar above it. Its empty parts
+   move the window (titlebar.js, `data-tauri-drag-region`). */
+.titlebar {
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+/* macOS: the system's traffic lights sit over the row's left end. */
+:root[data-os="mac"] .titlebar { padding-right: var(--sp-3); }
+.tb-space { flex: 1 1 0; align-self: stretch; min-width: var(--sp-3); }
+
+/* The window buttons (Windows, Linux): flat, the bar's full height, the close turning red. */
+.tb-win { display: flex; align-self: stretch; flex: none; }
+.tb-win-btn {
+  width: 2.875rem; display: grid; place-items: center;
+  color: var(--fg-2); background: transparent; border: 0; border-radius: 0;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-win-btn svg { width: 0.625rem; height: 0.625rem; stroke: currentColor; fill: none; stroke-width: 1; }
+.tb-win-btn:hover { background: var(--bg-3); color: var(--fg); }
+.tb-win-close:hover { background: var(--err); color: var(--bg); }
+.tb-win-btn:focus-visible { outline: none; box-shadow: inset var(--focus); }
+
+/* The mark: a triangle in the text colour (logo.ts), the same in both themes. */
+.tb-mark {
+  width: 1.125rem; height: 1.125rem; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--radius); overflow: hidden;
+}
+.tb-mark { color: var(--fg); }
+.tb-mark svg { display: block; }
+
+
+/* The sidebar's one control, in the title bar's left corner and in the same spot whether the
+   sidebar is open or folded. The bar's height and the rest of its row are untouched: this sits
+   inside the padding the bar already had, where the sidebar begins. Only the glyph turns —
+   pointing left at an open sidebar, right at a folded one. */
+/* The corner over the sidebar: as wide as the sidebar, its right border carried up, the vault's
+   name and the toggle. Folded, it is the toggle alone, before the tabs. */
+.tb-corner {
+  flex: none; align-self: stretch; box-sizing: border-box;
+  width: var(--sidebar-w);
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  border-right: 1px solid var(--border);
+}
+:root[data-os="mac"] .tb-corner { padding-left: 5rem; }
+.shell.no-sidebar .tb-corner { width: auto; padding: 0 var(--sp-1); }
+:root[data-os="mac"] .shell.no-sidebar .tb-corner { padding-left: 5rem; }
+.tb-corner .tb-space { min-width: 0; }
+.shell.no-sidebar .tb-corner .tb-mark, .shell.no-sidebar .tb-corner .tb-space { display: none; }
+.tb-fold {
+  width: 1.75rem; height: 1.75rem; flex: none;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-fold:hover { background: var(--bg-3); color: var(--fg); }
+.tb-fold svg { width: 0.875rem; height: 0.875rem; stroke: currentColor; fill: none; stroke-width: 1.25; }
+.tb-fold .tb-side-fill { fill: transparent; stroke: none; }
+.tb-fold.on .tb-side-fill { fill: currentColor; }
+
+
+/* ------------------------------------------------------------------ main */
+
+/* The main column is the tab strip and the page column under it. The router clears `.main`
+   on every navigation, so the strip lives outside it. */
+.maincol { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+/* `position: relative` is for the loading line below; nothing else in the column is absolute.
+   The gutter is held whether or not there is a scrollbar, so the page column does not step 6px
+   sideways between a short page and a long one, nor while a page grows past the window under
+   the caret (R4). */
+.main-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+/* it holds the keyboard when a page opens (router.ts focusMain), and needs no ring for it */
+.main-scroll:focus { outline: none; }
+.page-host { min-height: 100%; }
+/* The one "loading…" line the router prints while a page column takes longer than a blink
+   to mount (D9). It is the shared .empty, laid over the column where the title will be
+   rather than in the flow, so the page does not jump down and back when the editor lands. */
+.main-loading { position: absolute; left: 0; right: 0; top: var(--page-pad-top); padding: 0; pointer-events: none; }
+
+/* ------------------------------------------------------------------ tabs */
+
+/* One tab per open route (src/shell/tabs.ts). Text only: no borders between tabs, no surface on
+   the active one, a 2px accent line under it and nothing else. The strip is the one taller
+   bar, the line the sidebar's fold chevron sits on, and it scrolls sideways rather than
+   wrapping — a second row of tabs is a second thing to read before you have read the first. */
+/* One tab is no strip: `[hidden]` has to beat the `display: flex` below, and the page column
+   takes the 44px back (shell/tabs.js). */
+.tabs[hidden] { display: none; }
+.tabs {
+  height: var(--barhead-h); flex: none;
+  display: flex; align-items: stretch;
+  padding: 0 var(--sp-2);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
+  color: var(--fg-3);
+}
+/* The one scrollbar in the app that is not 12px: a 44px bar with a 12px scrollbar across it
+   has 32px left for the names. The wheel scrolls the strip and a tab scrolls itself into view
+   when it is opened, so nothing here needs to be dragged. */
+.tabs::-webkit-scrollbar { height: 0; }
+
+.tab {
+  flex: none; max-width: 14rem; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  color: var(--fg-3); white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tab:hover { background: var(--bg-3); color: var(--fg-2); }
+/* The 2px bar is drawn inside the tab so it sits over the strip's own hairline instead of
+   pushing the row up by a pixel; the sidebar's drop target is drawn the same way. */
+.tab.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+.tab:focus-visible { outline-offset: -2px; }
+.tab-name { overflow: hidden; text-overflow: ellipsis; }
+.tab-x {
+  width: 1rem; height: 1rem; flex: none;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius); opacity: 0;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.tab-x svg { width: 0.5rem; height: 0.5rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
+/* Kept out of the way until the tab is wanted; it holds its box either way, so no label moves
+   when it appears. Delete on a focused tab closes without it.  */
+.tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
+.tab-x:hover { background: var(--bg-4); color: var(--fg); }
+
+/* The strip in the title bar (layout.ts moves it there): the title bar's main thing, compact
+   chips after back and forward, the open one on a lighter ground, then the + for a new tab.
+   It takes what the row has and scrolls sideways past that. */
+.titlebar .tabs {
+  height: 100%; flex: 0 1 auto; min-width: 0;
+  align-items: center; gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: transparent; border-bottom: 0;
+}
+/* Each tab a small card; the open one on a lighter ground. */
+.titlebar .tab {
+  height: 1.5rem; max-width: 40rem;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  border-radius: var(--radius);
+}
+.titlebar .tab.on { background: var(--bg-3); box-shadow: none; }
+.titlebar .tab .tab-x { opacity: 1; }
+/* The + after the last tab. */
+.tb-tab-add {
+  flex: none; width: 1.5rem; height: 1.5rem;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tb-tab-add:hover { background: var(--bg-3); color: var(--fg); }
+.tb-tab-add svg { width: 0.75rem; height: 0.75rem; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; }
+/* A tab being dragged along the strip; the strip while a file from the sidebar is over it. */
+.tab.dragging { opacity: 0.4; }
+.tab-ghost {
+  flex: none; height: 1.5rem; max-width: 40rem;
+  display: flex; align-items: center; padding: 0 var(--sp-2);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  color: var(--fg-3); opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+/* The last, empty tab cannot be closed: a short shake says so. */
+.tab.nope { animation: tab-nope 0.32s ease; }
+@keyframes tab-nope {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+}
+@media (prefers-reduced-motion: reduce) { .tab.nope { animation: none; } }
+
+/* ------------------------------------------------------------------ resizers */
+
+/* A 7px grab zone centred on the 1px border it drags: 3px either side. Geometry, not spacing. */
+.rs { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 5; cursor: col-resize; }
+.rs-sidebar { left: calc(var(--sidebar-w) - 3px); }
+/* Folded, the sidebar's resizer is a 4px edge on the window's left: drag it out and the sidebar
+   comes back (layout.js `makeResizer`, its `fold`). Dragged under half its least width, it folds. */
+.shell.no-sidebar .rs-sidebar { left: 0; width: 4px; }
+.shell.no-sidebar .rs-sidebar::after { left: 0; }
+.rs::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px;
+  background: transparent; transition: background var(--t-fast);
+}
+.rs:hover::after, .rs.on::after, .rs:focus-visible::after { background: var(--accent); }
+/* The separator is a tab stop (D6); the lit line is its focus ring, not an outline box. */
+.rs:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; }
+body.resizing * { cursor: col-resize !important; }
+
+
+/* ------------------------------------------------------------------ tight windows */
+
+/* a short window gives up one --sp-5 of the page's top air */
+@media (max-height: 720px) {
+  .page-col { padding-top: calc(var(--page-pad-top) - var(--sp-5)); }
+}
+
+/* ------------------------------------------------------------------ side panel */
+
+/* The side panel (layout.ts `panel`, M25): a column to the right of the page column for a
+   surface that stays open while pages are opened from it. Chrome, like the sidebar: --bg-2,
+   one hairline on the edge it shares with the page, the panel head every bar with a label in
+   it wears. Its width is a variable the layout writes, as the sidebar's is. */
+.sidepanel {
+  flex: none; width: var(--panel-w); min-width: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-2); border-left: 1px solid var(--border);
+}
+.sidepanel[hidden], .rs-panel[hidden] { display: none; }
+.sp-head { color: var(--fg-2); }
+.sp-close {
+  width: 1.5rem; height: 1.5rem; flex: none;
+  display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sp-close:hover { background: var(--bg-3); color: var(--fg); }
+.sp-close svg { width: 0.625rem; height: 0.625rem; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; }
+.sp-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.sp-body:focus { outline: none; }
+/* The panel's resizer sits on its left edge: the same 7px grab zone as the sidebar's. */
+.rs-panel { left: auto; right: calc(var(--panel-w) - 4px); }
+
+/* ------------------------------------------------------------------ outside the vault */
+
+/* A tab whose file is outside the vault (X7): one quiet word after
+   the name, in the chrome's small mono face. Not a colour: it has to read the same in both
+   themes and to anyone who does not tell colours apart. */
+.tab-out { flex: none; color: var(--fg-3); font-size: var(--fs-chrome-sm); }

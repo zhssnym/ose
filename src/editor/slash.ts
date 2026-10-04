@@ -1,0 +1,525 @@
+// The slash menu.
+//
+// Crepe's own BlockEdit menu only opens on an empty block and only filters by substring, so it
+// is switched off in crepe.ts and this module replaces it: its own SlashProvider (positioning,
+// debounce, show/hide), its own DOM in the app's `.surface` / `.row` idiom, and its own fixed
+// item list (GROUPS, below).
+//
+// Trigger: `/` at the start of a text block, or right after a space anywhere in one. Never in a
+// code block, never inside inline code.
+//
+// Selecting an item first removes the `/` and the filter text, then acts:
+//   text items    convert the current block (setBlockType / wrapIn, lifting out of a list first)
+//   block items   insert after the current block, or replace it when it is empty
+//   Date          inserts YYYY-MM-DD at the caret
+//   page / os     run the registry command of the same name
+
+import { commands, icon, revealTitle } from './host.ts';
+import { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
+import { SlashProvider } from '@milkdown/kit/plugin/slash';
+import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
+import { canJoin } from '@milkdown/kit/prose/transform';
+import { findParent } from '@milkdown/kit/prose';
+import {
+  blockquoteSchema, bulletListSchema, codeBlockSchema, headingSchema, hrSchema,
+  liftListItemCommand, listItemSchema, orderedListSchema, paragraphSchema,
+  selectTextNearPosCommand, setBlockTypeCommand, wrapInBlockTypeCommand,
+} from '@milkdown/kit/preset/commonmark';
+import { createTable } from '@milkdown/kit/preset/gfm';
+import { imageBlockSchema } from '@milkdown/kit/component/image-block';
+import { today } from './paths.ts';
+import { insertPageLink } from './link.ts';
+
+const SLASH_KEY = new PluginKey('os-slash');
+const MAX_QUERY = 24;
+
+// Every menu that is currently on screen. The block keymap asks before it acts on a key, so
+// Esc and the arrows belong to the menu while it is open.
+const openMenus = new Set<any>();
+export const slashMenuOpen = () => openMenus.size > 0;
+
+// ---------------------------------------------------------------------------
+// icons. The app's 16-unit grid (src/ui/icons.ts), so a 16px slot draws the 1.5 stroke from
+// base.css `.row svg` at 1.5px — the same weight as every other glyph in the app. Square
+// corners throughout (DESIGN.md). What the shell already draws is taken from it; the rest is
+// drawn here on the same grid: an `H` with the level beside it, three lines for text, and so
+// on. Each value is a complete <svg>.
+
+const svg16 = (d) => `<svg viewBox="0 0 16 16" aria-hidden="true">${d}</svg>`;
+const H = '<path d="M3 4v8M8 4v8M3 8h5"/>';
+
+const I = {
+  text: svg16('<path d="M3 4.5h10M3 8h7M3 11.5h5"/>'),
+  h1: svg16(H + '<path d="m10.6 6.6 1.6-1.1V11"/>'),
+  h2: svg16(H + '<path d="M10.6 6.6a1.5 1.5 0 1 1 2.6 1.1L10.6 11h3.2"/>'),
+  h3: svg16(H + '<path d="M10.6 5.8h2.7l-1.5 2.3a1.5 1.5 0 1 1-1.4 2.5"/>'),
+  h4: svg16(H + '<path d="M13.2 11V5.8l-2.6 4.3h3.2"/>'),
+  h5: svg16(H + '<path d="M13.3 5.8h-2.4l-.2 2.6a1.6 1.6 0 1 1 .1 3.2"/>'),
+  h6: svg16(H + '<path d="m13.1 5.8-1.9 3"/><circle cx="12.1" cy="10.1" r="1.5"/>'),
+  duplicate: icon('copy'),
+  quote: svg16('<path d="M3.5 3.5v9"/><path d="M6.5 5.5h6M6.5 8h6M6.5 10.5h4"/>'),
+  hr: svg16('<path d="M2.5 8h11"/>'),
+  ul: svg16('<path d="M6.5 4.5h7M6.5 8h7M6.5 11.5h7"/><circle cx="3.25" cy="4.5" r=".75"/><circle cx="3.25" cy="8" r=".75"/><circle cx="3.25" cy="11.5" r=".75"/>'),
+  ol: svg16('<path d="M7 4.5h6.5M7 8h6.5M7 11.5h6.5"/><path d="m2.6 4 1.1-.75V6"/><path d="M2.5 9.4a1.1 1.1 0 1 1 1.9.8L2.5 12.2h2.2"/>'),
+  todo: svg16('<rect x="2.5" y="3" width="4" height="4"/><path d="m3.5 5 1 1 1.5-1.7"/><rect x="2.5" y="9" width="4" height="4"/><path d="M9 5h4.5M9 11h4.5"/>'),
+  image: svg16('<rect x="2.5" y="3.5" width="11" height="9"/><circle cx="6" cy="6.5" r=".9"/><path d="m2.75 11.4 3.1-2.7 2.6 2.3 2.5-2.2 2.55 2.3"/>'),
+  code: svg16('<path d="m6 5.5-3 2.5 3 2.5M10 5.5l3 2.5-3 2.5"/>'),
+  table: svg16('<rect x="2.5" y="3.5" width="11" height="9"/><path d="M2.5 6.5h11M6.5 6.5v6M10 6.5v6"/>'),
+  link: icon('link'),
+  date: svg16('<rect x="2.5" y="3.5" width="11" height="9.5"/><path d="M2.5 6.5h11M5.5 2.25v2.5M10.5 2.25v2.5"/>'),
+  rename: icon('rename'),
+  trash: icon('trash'),
+  reveal: icon('folder'),
+  month: icon('month'),
+  week: icon('week'),
+  day: icon('day'),
+  journal: icon('journal'),
+  journalNew: svg16('<path d="M3 4.5h6M3 8h4M3 11.5h4"/><path d="M11.5 8v5M9 10.5h5"/>'),
+  // A radical over its bar: the one sign that says maths without naming an operation.
+  math: svg16('<path d="m2.5 8.2 1.7-.3 1.9 4.6 2.6-9h4.8"/>'),
+};
+
+// ---------------------------------------------------------------------------
+// document edits
+
+const call = (ctx, key, payload?) => ctx.get(commandsCtx).call(key, payload);
+const inList = ($pos) => !!findParent((n) => n.type.name === 'list_item')($pos);
+
+/** Lift the current block out of every list it sits in, so `/h1` on a list item is a heading. */
+function liftOutOfList(ctx) {
+  const view = ctx.get(editorViewCtx);
+  for (let i = 0; i < 10 && inList(view.state.selection.$from); i++) {
+    if (!call(ctx, liftListItemCommand.key)) break;
+  }
+}
+
+/** Turn the current block into `nodeType`, out of any list first. */
+function turnInto(ctx, type, attrs?) {
+  liftOutOfList(ctx);
+  call(ctx, setBlockTypeCommand.key, { nodeType: type(ctx), attrs: attrs || null });
+}
+
+/** Wrap the current block in `nodeType`, out of any list first (so lists convert to lists). */
+function wrapInto(ctx, type, attrs?, join?) {
+  liftOutOfList(ctx);
+  call(ctx, wrapInBlockTypeCommand.key, { nodeType: type(ctx), attrs: attrs || null });
+  if (join) joinNeighbourLists(ctx);
+}
+
+/**
+ * Merge the list the caret is in with an identical list touching it.
+ *
+ * Two adjacent bullet lists cannot be written as markdown without alternating the bullet
+ * marker, so leaving them apart would rewrite `- one` as `* one` in a list the user never
+ * touched. One list is both the faithful reading of the markdown and the one that serialises
+ * back unchanged.
+ */
+function joinNeighbourLists(ctx) {
+  const view = ctx.get(editorViewCtx);
+  const { state } = view;
+  const $from = state.selection.$from;
+  let d = $from.depth;
+  while (d > 0 && !/_list$/.test($from.node(d).type.name)) d--;
+  if (d === 0) return;
+  let tr = state.tr;
+  let joined = false;
+  for (const pos of [$from.after(d), $from.before(d)]) {
+    const $pos = tr.doc.resolve(pos);
+    // Same type only: ProseMirror would happily join an ordered list into a bullet list,
+    // because their content matches, and the ordered list would silently lose its numbers.
+    if ($pos.nodeBefore && $pos.nodeAfter && $pos.nodeBefore.type === $pos.nodeAfter.type
+        && canJoin(tr.doc, pos)) {
+      tr = tr.join(pos);
+      joined = true;
+    }
+  }
+  if (joined) view.dispatch(tr);
+}
+
+/**
+ * A whole block, not a conversion: it goes after the current block, or in its place when the
+ * block is empty. `make` returns a ProseMirror node.
+ */
+function putBlock(ctx, make) {
+  const view = ctx.get(editorViewCtx);
+  const node = make(ctx);
+  if (!node) return;
+  const { state } = view;
+  const $from = state.selection.$from;
+  const d = $from.depth;
+  const empty = $from.parent.isTextblock && $from.parent.content.size === 0;
+  const at = empty ? $from.before(d) : $from.after(d);
+  const tr = empty
+    ? state.tr.replaceWith(at, $from.after(d), node)
+    : state.tr.insert(at, node);
+  // A container (code block, table) takes the caret; a rule or an image hands it to the block
+  // after it, and gets an empty paragraph to hand it to when it was inserted at the end.
+  const inside = node.isTextblock || node.type.name === 'table';
+  const end = at + node.nodeSize;
+  if (!inside) {
+    const next = tr.doc.resolve(end).nodeAfter;
+    if (!next || !next.isTextblock) tr.insert(end, paragraphSchema.type(ctx).createAndFill());
+  }
+  view.dispatch(tr);
+  call(ctx, selectTextNearPosCommand.key, { pos: at + (inside ? 1 : node.nodeSize) });
+}
+
+function insertText(ctx, text) {
+  const view = ctx.get(editorViewCtx);
+  view.dispatch(view.state.tr.insertText(text));
+}
+
+// ---------------------------------------------------------------------------
+// the menu, in the order it is offered in
+
+const GROUPS = [
+  {
+    key: 'blocks', label: 'blocks', items: [
+      { key: 'text', label: 'Text', icon: I.text, aliases: ['p', 'text', 'paragraph'], onRun: (c) => turnInto(c, paragraphSchema.type) },
+      { key: 'h1', label: 'Heading 1', icon: I.h1, aliases: ['h1', 'heading1', 'title'], onRun: (c) => turnInto(c, headingSchema.type, { level: 1 }) },
+      { key: 'h2', label: 'Heading 2', icon: I.h2, aliases: ['h2', 'heading2'], onRun: (c) => turnInto(c, headingSchema.type, { level: 2 }) },
+      // H3 to H6 came back in batch 9 (C3): a standard markdown editor reaches every level.
+      { key: 'h3', label: 'Heading 3', icon: I.h3, aliases: ['h3', 'heading3'], onRun: (c) => turnInto(c, headingSchema.type, { level: 3 }) },
+      { key: 'h4', label: 'Heading 4', icon: I.h4, aliases: ['h4', 'heading4'], onRun: (c) => turnInto(c, headingSchema.type, { level: 4 }) },
+      { key: 'h5', label: 'Heading 5', icon: I.h5, aliases: ['h5', 'heading5'], onRun: (c) => turnInto(c, headingSchema.type, { level: 5 }) },
+      { key: 'h6', label: 'Heading 6', icon: I.h6, aliases: ['h6', 'heading6'], onRun: (c) => turnInto(c, headingSchema.type, { level: 6 }) },
+      { key: 'quote', label: 'Quote', icon: I.quote, aliases: ['quote', 'blockquote'], onRun: (c) => wrapInto(c, blockquoteSchema.type) },
+      { key: 'hr', label: 'Divider', icon: I.hr, aliases: ['hr', 'divider', 'rule', 'line'], onRun: (c) => putBlock(c, (x) => hrSchema.type(x).createAndFill()) },
+      { key: 'ul', label: 'Bullet list', icon: I.ul, aliases: ['ul', 'bullet', 'list'], onRun: (c) => wrapInto(c, bulletListSchema.type, null, true) },
+      { key: 'ol', label: 'Ordered list', icon: I.ol, aliases: ['ol', 'numbered', 'ordered'], onRun: (c) => wrapInto(c, orderedListSchema.type, null, true) },
+      { key: 'todo', label: 'Task list', icon: I.todo, aliases: ['todo', 'task', 'check', 'checkbox'], onRun: (c) => wrapInto(c, listItemSchema.type, { checked: false }, true) },
+      { key: 'image', label: 'Image', icon: I.image, aliases: ['img', 'image', 'picture'], onRun: (c) => putBlock(c, (x) => imageBlockSchema.type(x).createAndFill()) },
+      { key: 'code', label: 'Code', icon: I.code, aliases: ['code', 'pre'], onRun: (c) => putBlock(c, (x) => codeBlockSchema.type(x).createAndFill()) },
+      { key: 'table', label: 'Table', icon: I.table, aliases: ['table'], onRun: (c) => putBlock(c, (x) => createTable(x, 3, 3)) },
+      // `inline`: the formula takes the caret's place in the sentence, and its source opens.
+      { key: 'math', label: 'Formula', icon: I.math, aliases: ['math', 'formula', 'latex', 'tex', 'equation'], inline: true, cmd: 'page.math' },
+      { key: 'date', label: 'Date', icon: I.date, aliases: ['date', 'today'], inline: true, onRun: (c) => insertText(c, today()) },
+      // No `inline`: the space in front of the `/` is removed with it and comes back only
+      // when a page is actually chosen, so cancelling the picker leaves no trailing space.
+      { key: 'link', label: 'Link', icon: I.link, aliases: ['link', 'page', 'ref'], onRun: (c, at) => void insertPageLink(c.get(editorViewCtx), at) },
+    ],
+  },
+  {
+    key: 'page', label: 'page', items: [
+      { key: 'rename', label: 'Rename', icon: I.rename, aliases: ['rename'], cmd: 'file.rename' },
+      { key: 'duplicate', label: 'Duplicate', icon: I.duplicate, aliases: ['duplicate', 'copy'], cmd: 'file.duplicate' },
+      { key: 'trash', label: 'Move to trash', icon: I.trash, aliases: ['trash', 'delete'], cmd: 'file.trash' },
+      // The label is read when the menu opens: the platform names the file manager.
+      { key: 'reveal', get label() { return revealTitle(); }, icon: I.reveal, aliases: ['reveal', 'show', 'explorer', 'finder'], cmd: 'page.reveal' },
+    ],
+  },
+  {
+    key: 'planner', label: 'views', items: [
+      { key: 'today', label: 'Today', icon: I.day, aliases: ['today', 'day'], cmd: 'view.today' },
+      { key: 'planner', label: 'Planner', icon: I.month, aliases: ['planner', 'month', 'week', 'year'], cmd: 'view.planner' },
+      { key: 'journal', label: 'Journal', icon: I.journal, aliases: ['journal'], cmd: 'view.journal' },
+      { key: 'journal-today', label: "Today's journal", icon: I.journalNew, aliases: ['journal', 'today', 'entry'], cmd: 'journal.today' },
+    ],
+  },
+];
+
+/** Items whose command is registered and currently allowed. Static items always show. */
+function available() {
+  return GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((it) => {
+      if (!it.cmd) return true;
+      const c = commands.get(it.cmd);
+      return !!c && (!c.when || c.when());
+    }),
+  })).filter((g) => g.items.length);
+}
+
+// ---------------------------------------------------------------------------
+// filtering: fuzzy subsequence over label and aliases, one skipped query character allowed
+
+const TYPO = -70;
+const boundary = (t, k) => k > 0 && !/[a-z0-9]/.test(t[k - 1]);
+
+/**
+ * Best subsequence score of `q` in `t`, or -Infinity. Higher is better. One query character
+ * may be dropped, which is what makes `haeding` find Heading 1 — but not below three
+ * characters, where a free skip would match `h1` against half the menu.
+ */
+function fuzzy(q, t) {
+  if (!q) return 0;
+  if (q.length > t.length + 1) return -Infinity;
+  const typos = q.length >= 3 ? 1 : 0;
+  const memo = new Map();
+  const go = (qi, ti, skipped, run) => {
+    if (qi === q.length) return 0;
+    const key = ((qi * 64 + ti) * 2 + skipped) * 2 + (run ? 1 : 0);
+    const seen = memo.get(key);
+    if (seen !== undefined) return seen;
+    let best = -Infinity;
+    if (!skipped && typos) {                          // one typo: drop this query character
+      const s = go(qi + 1, ti, 1, false);
+      if (s > -Infinity) best = Math.max(best, s + TYPO);
+    }
+    for (let k = ti; k < t.length; k++) {
+      if (t[k] !== q[qi]) continue;
+      let gain = 12;
+      if (k === 0) gain += 24;
+      else if (boundary(t, k)) gain += 12;
+      if (run && k === ti) gain += 16;                // contiguous with the previous match
+      gain -= Math.min(k - ti, 12);
+      const s = go(qi + 1, k + 1, skipped, true);
+      if (s > -Infinity) best = Math.max(best, gain + s);
+    }
+    memo.set(key, best);
+    return best;
+  };
+  return go(0, 0, 0, false);
+}
+
+/** Score one item against a lowercased query. -Infinity when it does not match at all. */
+function score(q, item) {
+  const label = item.label.toLowerCase();
+  for (const a of item.aliases) if (a === q) return 100000;   // exact alias first
+  if (label === q) return 90000;
+  let best = -Infinity;
+  for (const a of item.aliases) if (a.startsWith(q)) best = Math.max(best, 5000 + (32 - a.length));
+  if (label.startsWith(q)) best = Math.max(best, 4000 + (48 - label.length));
+  for (const t of [label, ...item.aliases]) {
+    const s = fuzzy(q, t);
+    if (s > -Infinity) best = Math.max(best, s);
+  }
+  return best;
+}
+
+/** Groups with their items filtered and sorted; groups ordered by their best item. */
+function filtered(query) {
+  const groups = available();
+  const q = query.trim().toLowerCase();
+  if (!q) return groups;
+  const out: any[] = [];
+  for (const g of groups) {
+    const scored = g.items
+      .map((it, i) => ({ it, s: score(q, it), i }))
+      .filter((r) => r.s > -Infinity)
+      .sort((a, b) => b.s - a.s || a.i - b.i);
+    const best = scored[0];
+    if (best) out.push({ ...g, items: scored.map((r) => r.it), top: best.s });
+  }
+  return out.sort((a, b) => b.top - a.top);
+}
+
+// ---------------------------------------------------------------------------
+// trigger
+
+/**
+ * The `/…` under the caret, or null. `/` counts at the start of a text block or right after a
+ * space; the query stops at the next space, so typing a space closes the menu.
+ */
+function matchAt(view) {
+  if (!view.editable || !view.hasFocus()) return null;
+  const { state } = view;
+  const sel = state.selection;
+  if (!(sel instanceof TextSelection) || !sel.empty) return null;
+  const $from = sel.$from;
+  const parent = $from.parent;
+  if (!parent.isTextblock || parent.type.spec.code) return null;
+  if (findParent((n) => n.type.name === 'code_block')($from)) return null;
+  for (const m of state.storedMarks || $from.marks()) {
+    if (m.type.name === 'inlineCode' || m.type.spec.code) return null;
+  }
+  const before = parent.textBetween(0, $from.parentOffset, undefined, '￼');
+  const i = before.lastIndexOf('/');
+  if (i < 0) return null;
+  if (i > 0 && !/\s/.test(before.charAt(i - 1))) return null;
+  const query = before.slice(i + 1);
+  if (query.length > MAX_QUERY || /[\s/]/.test(query)) return null;
+  return {
+    from: $from.pos - ($from.parentOffset - i),
+    to: $from.pos,
+    query,
+    // `foo /h1` must leave `foo`, not `foo ` — a trailing space is not written to the vault.
+    // Only when the `/…` ends the block, and never for Date, which inserts text in its place.
+    space: before[i - 1] === ' ' && $from.parentOffset === parent.content.size,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// the view
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] ?? c));
+
+class SlashView {
+  declare ctx: any;
+  declare dom: any;
+  declare items: any[];
+  declare index: number;
+  declare query: any;
+  declare shown: boolean;
+  declare dismissed: number | null;
+  declare el: HTMLDivElement;
+  declare onKey: (e: any) => void;
+  declare onBlur: () => NodeJS.Timeout;
+  declare provider: SlashProvider;
+  constructor(ctx, editorView) {
+    this.ctx = ctx;
+    this.dom = editorView.dom;
+    this.items = [];
+    this.index = 0;
+    this.query = null;
+    this.shown = false;
+    this.dismissed = null;
+
+    const el = document.createElement('div');
+    el.className = 'os-slash surface';
+    el.setAttribute('role', 'listbox');
+    el.dataset.show = 'false';
+    this.el = el;
+
+    // Keep the caret where it is: a pointerdown in the menu must not blur the editor.
+    el.addEventListener('pointerdown', (e) => e.preventDefault());
+    el.addEventListener('pointerup', (e) => {
+      const row = e.target instanceof Element ? (e.target.closest('.row') as HTMLElement|null) : null;
+      if (row) this.run(this.items[Number(row.dataset.i)]);
+    });
+    el.addEventListener('pointermove', (e) => {
+      const row = e.target instanceof Element ? (e.target.closest('.row') as HTMLElement|null) : null;
+      if (row) this.select(Number(row.dataset.i), false);
+    });
+
+    this.onKey = (e) => this.key(e);
+    window.addEventListener('keydown', this.onKey, true);
+    // A click outside the editor changes no state, so the provider would never be asked again
+    // and the menu would stay floating over the page. The delay lets focus land first, and it
+    // is a timer rather than a frame because a hidden window paints none.
+    this.onBlur = () => setTimeout(() => {
+      const v = this.view();
+      if (!v || !v.hasFocus()) this.hide();
+    }, 0);
+    this.dom.addEventListener('blur', this.onBlur);
+
+    this.provider = new SlashProvider({
+      content: el,
+      debounce: 20,
+      offset: 8,
+      shouldShow: (view) => this.shouldShow(view),
+    });
+    this.provider.onShow = () => { this.shown = true; openMenus.add(this); };
+    this.provider.onHide = () => { this.shown = false; this.query = null; openMenus.delete(this); };
+  }
+
+  update(view, prevState) { this.provider.update(view, prevState); }
+
+  hide() { this.provider.hide(); }
+
+  /** The live editor view, or null once the editor has been destroyed. */
+  view() {
+    try { return this.ctx.get(editorViewCtx); } catch { return null; }
+  }
+
+  destroy() {
+    openMenus.delete(this);
+    window.removeEventListener('keydown', this.onKey, true);
+    this.dom.removeEventListener('blur', this.onBlur);
+    this.provider.destroy();
+    this.el.remove();
+  }
+
+  shouldShow(view) {
+    const m = matchAt(view);
+    // Esc dismisses this `/`, and typing on does not bring it back; a new `/` does.
+    if (!m) { this.dismissed = null; return false; }
+    if (this.dismissed === m.from) return false;
+    const groups = filtered(m.query);
+    if (!groups.length) return false;
+    this.render(groups, m.query);
+    return true;
+  }
+
+  render(groups, query) {
+    const fresh = query !== this.query;
+    this.query = query;
+    const frag = document.createDocumentFragment();
+    this.items = [];
+    for (const g of groups) {
+      const label = document.createElement('div');
+      label.className = 'section-label';
+      label.textContent = g.label;
+      frag.append(label);
+      for (const it of g.items) {
+        const i = this.items.length;
+        this.items.push(it);
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.dataset.i = String(i);
+        row.setAttribute('role', 'option');
+        row.innerHTML = `${it.icon}<span class="grow">${esc(it.label)}</span>`;
+        frag.append(row);
+      }
+    }
+    this.el.replaceChildren(frag);
+    this.select(fresh ? 0 : this.index, false);
+  }
+
+  select(i, scroll = true) {
+    if (!this.items.length) return;
+    this.index = Math.max(0, Math.min(i, this.items.length - 1));
+    for (const row of (this.el.querySelectorAll('.row') as NodeListOf<HTMLElement>)) {
+      const on = Number(row.dataset.i) === this.index;
+      row.classList.toggle('current', on);
+      if (on && scroll) row.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  key(e) {
+    // An IME conversion is not a menu gesture: while a composition runs, Escape, Enter and the
+    // arrows belong to the candidate window (E44).
+    if (e.isComposing || e.keyCode === 229) return;
+    if (!this.shown || e.ctrlKey || e.metaKey || e.altKey) return;
+    const view = this.view();
+    // The menu never eats a key for anything else: if the editor is not the focus any more,
+    // it should not be open at all.
+    if (!view || !view.hasFocus()) { this.hide(); return; }
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (e.key === 'Escape') {
+      stop();
+      const m = matchAt(view);
+      this.dismissed = m ? m.from : null;
+      this.hide();
+      return;
+    }
+    if (e.key === 'ArrowDown') { stop(); this.select(this.index + 1); return; }
+    if (e.key === 'ArrowUp') { stop(); this.select(this.index - 1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { stop(); this.run(this.items[this.index]); }
+  }
+
+  /** Remove the `/query`, then act. The range is re-read: the menu is 20ms behind the caret. */
+  run(item) {
+    if (!item) return;
+    const view = this.view();
+    if (!view) return;
+    const m = matchAt(view);
+    this.hide();
+    if (m) {
+      const from = m.space && !item.inline ? m.from - 1 : m.from;
+      if (m.to > from) view.dispatch(view.state.tr.delete(from, m.to));
+    }
+    try {
+      if (item.cmd) setTimeout(() => commands.run(item.cmd), 0);   // let the menu close first
+      else item.onRun(this.ctx, { space: !!(m && m.space) });
+    } catch (err) {
+      console.error('[slash]', item.key, err);
+    }
+    view.focus();
+  }
+}
+
+/** The ProseMirror plugin. `crepe.ts` concatenates it onto `prosePluginsCtx`. */
+export function slashPlugin(ctx) {
+  let self: SlashView | null = null;
+  return new Plugin({
+    key: SLASH_KEY,
+    view: (editorView) => {
+      self = new SlashView(ctx, editorView);
+      return {
+        update: (view, prev) => self && self.update(view, prev),
+        destroy: () => { if (self) self.destroy(); self = null; },
+      };
+    },
+  });
+}

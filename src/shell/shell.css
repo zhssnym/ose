@@ -1,0 +1,421 @@
+/* Ose: the shell's frame, overlays, the vault chooser, the status bar, search, settings, Go to
+   file, and the empty and miss boxes. The tree is tree.css, the title bar, tabs and page column
+   places.css. Tokens only, no literal colours, and every
+   padding, margin and gap a step of the spacing scale (DESIGN.md "Space"); the few pixel
+   numbers left are geometry (icon sizes, hit zones, the tree grid) and say so.
+   Canonical components (.btn .input .row .chip .kbd .surface .section-label) come from base.css. */
+
+/* ------------------------------------------------------------------ frame */
+
+.shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  /* The one column, and it may be narrower than what is in it. An implicit `auto` column is
+     never smaller than its widest row's min-content, so a long row made the title bar and the
+     body wider than the window, and the page column
+     ran off the right edge (P's inbox 002). The rows clip their own overflow already; this is
+     what lets them. */
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ the empty and miss boxes */
+
+
+/* A page that is not there, a view that failed: a heading in the chrome voice, the path, the
+   reason, one button. The heading is its own thing (E3): a label would bring a section gap. */
+.miss {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
+  padding-top: calc(var(--page-pad-top) + var(--sp-4)); text-align: center;
+}
+.miss-title { font-size: var(--fs-ui); color: var(--fg-2); }
+.miss-path { color: var(--fg-2); max-width: 100%; word-break: break-all; }
+.miss-why {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
+  max-width: 26.25rem; word-break: break-word;
+}
+
+.fallback .fallback-md {
+  margin: 0; padding: var(--sp-4);
+  font-family: var(--font-mono); font-size: var(--fs-chrome); line-height: 1.7;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------------ choose a vault */
+
+/* No root yet (src/shell/vault.ts): the title bar and one centred column. The same empty-state
+   voice as `.empty`, with the sentence in the UI face because it is a sentence, not a label;
+   the suggestion and any error are mono because they are a path and a message from the host. */
+.vault {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  background: var(--bg);
+}
+.vault-body {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-4); padding: var(--sp-6); text-align: center;
+}
+.vault-text { margin: 0; max-width: 44ch; font-size: var(--fs-ui); line-height: 1.55; color: var(--fg-2); }
+.vault-err { max-width: 60ch; color: var(--err); word-break: break-word; }
+
+/* The vaults this machine has opened before (S46), in the first-run column and in the
+   `Change vault…` dialog. One list row component, as everywhere: name in the UI face, path in
+   the chrome voice, `current` and `missing` as the palette's hint. A folder that is no longer
+   there is dimmed rather than hidden — it is still the vault the user is looking for. */
+.vault-recent { width: 100%; max-width: 34rem; text-align: left; }
+.vault-recent .label { padding-left: 0; }
+.vault-list { display: flex; flex-direction: column; }
+.vault-row { width: 100%; text-align: left; cursor: default; }
+.vault-name { flex: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+.vault-path { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+/* A vault that is no longer there: the name and the path dim, the `missing` chip does not.
+   Dimming the whole row took --err under every threshold (~2.6:1) and defeated the one word
+   the row is there to say (QA F18). */
+.vault-row.gone .vault-name, .vault-row.gone .vault-path { opacity: .55; }
+.vault-row .pal-hint.gone { color: var(--err); }
+.vault-pick .dlg-body { padding-bottom: var(--sp-2); }
+.vault-pick .vault-list { margin: 0 calc(-1 * var(--sp-3)); }
+
+/* ------------------------------------------------------------------ search panel (M25) */
+
+/* Search lives in the side panel (layout.ts `panel`): a field at the top, one quiet line of
+   counts, and the hits grouped under their file the way palette rows group under a section
+   label. The panel's own frame and title are the layout's; this is what is inside it. */
+.sp { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sp-field {
+  flex: none; display: flex; align-items: center; gap: var(--sp-2);
+  height: var(--ctl-h); margin: var(--sp-2) var(--sp-3); padding: 0 var(--sp-2);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color var(--t-fast);
+}
+.sp-field:focus-within { border-color: var(--accent); }
+.sp-icon { display: grid; place-items: center; flex: none; color: var(--fg-3); }
+/* the 16-unit icon at 0.875rem: geometry, like every glyph in the chrome */
+.sp-icon svg {
+  width: 0.875rem; height: 0.875rem;
+  stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.sp-input {
+  flex: 1; min-width: 0; height: 100%; padding: 0;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  background: none; border: 0; outline: none;
+}
+.sp-input::placeholder { color: var(--fg-3); }
+.sp-meta { flex: none; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.sp-meta:empty { display: none; }
+.sp-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--sp-3); }
+.sp-list .empty { padding: var(--sp-6) var(--sp-3); font-family: var(--font-ui); font-size: var(--fs-ui); }
+.sp-file {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+  font-size: var(--fs-ui); overflow: hidden;
+}
+.sp-name { flex: none; max-width: 70%; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-dir { font-size: var(--fs-chrome-sm); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-row { cursor: default; padding-right: var(--sp-3); }
+.sp-row .grow {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sp-row b { color: var(--accent-ink); font-weight: 700; }
+.sp-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.sp-row.active .grow { color: var(--fg); }
+.sp-row.active .hint { color: var(--fg-2); }
+/* A hit with no line is a file or folder whose *name* matched (N35). */
+.sp-what { font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg-3); }
+/* "Showing 100 of 412 files" under the last row: the answer saying it is not the whole answer. */
+.sp-list .sp-note { padding: var(--sp-3) var(--sp-3); text-align: left; }
+
+/* ------------------------------------------------------------------ settings (M26) */
+
+/* Settings is a page (settings.ts): the section list on the left, one section's rows on the
+   right, in the page column's own air. The list is a vertical tab list; the current section
+   carries the same bar and ground as the current row in the tree. Under a narrow column the
+   list goes across the top. */
+.set-page { container-type: inline-size; }
+.set-wrap {
+  display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--sp-6);
+  max-width: calc(var(--page-w) + 11rem + var(--sp-6) + var(--page-pad-x) * 2);
+  margin: 0 auto;
+  padding: var(--page-pad-top) var(--page-pad-x) calc(2 * var(--page-pad-top));
+}
+.set-nav {
+  position: sticky; top: var(--sp-4); align-self: start;
+  display: flex; flex-direction: column; gap: var(--sp-half);
+  /* level with the section's title: its line box is the title face's */
+  padding-top: var(--sp-2);
+}
+.set-tab {
+  height: var(--row-h); padding: 0 var(--sp-3) 0 calc(var(--sp-3) - 2px);
+  display: flex; align-items: center;
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg-2); text-align: left;
+  background: none; border: 0; border-left: 2px solid transparent; border-radius: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.set-tab:hover { background: var(--bg-3); color: var(--fg); }
+.set-tab.on { background: var(--accent-soft); border-left-color: var(--accent); color: var(--fg); }
+.set-tab:focus-visible { outline-offset: -2px; }
+.set-pane { min-width: 0; }
+@container (max-width: 40rem) {
+  .set-wrap { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .set-nav { position: static; flex-direction: row; flex-wrap: wrap; padding-top: 0; }
+  .set-tab { border-left: 0; border-bottom: 2px solid transparent; padding: 0 var(--sp-3); }
+  .set-tab.on { border-bottom-color: var(--accent); }
+}
+
+/* Rows are grouped by whitespace, not by hairlines (E4): name and control on one line, one
+   sentence underneath, so a section is one list of the same thing. */
+.set-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start; gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-3) 0;
+}
+.set-row:first-child { padding-top: 0; }
+.set-name { grid-column: 1; grid-row: 1; font-size: var(--fs-ui); color: var(--fg); }
+.set-ctl { grid-column: 2; grid-row: 1; justify-self: end; }
+.set-note {
+  grid-column: 1; grid-row: 2; max-width: 64ch;
+  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3);
+}
+.set-note.err { color: var(--err); }
+.set-note code { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); }
+/* a third line under a row: the folder chosen for attachments, or what the trash really does */
+.set-extra {
+  grid-column: 1; grid-row: 3; margin-top: var(--sp-1); max-width: 64ch;
+  font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-2);
+}
+.set-attach-path { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-lead { margin: 0 0 var(--sp-4); max-width: 64ch; font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3); }
+/* A section another part of the app registered (the planner's): its own rows, in a box of
+   its own, with the same gutter every other section has. */
+.set-section { padding-bottom: var(--sp-3); }
+
+.seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg-b {
+  height: var(--ctl-h); padding: 0 var(--sp-3);
+  font-family: var(--font-ui); font-size: var(--fs-chrome-sm);
+  color: var(--fg-2); background: var(--bg);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.seg-b:last-child { border-right: 0; }
+.seg-b:hover { background: var(--bg-3); color: var(--fg); }
+.seg-b.on { background: var(--accent); color: var(--accent-fg); }
+/* The ring sits inside the button: `.seg` clips its own corners, so the base 2px offset put
+   the outline under the seg's border and left a 1px sliver of it (R2). */
+.seg-b:focus-visible { outline-offset: -2px; }
+
+/* Updates: the button and what the check found, on one line. */
+.set-update { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.set-update-note { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--fg-2); }
+
+/* Help: two labelled halves, the guide and the keys. The first label sits flush with the
+   title; a topic is its name, then a few sentences, spaced like a settings row. */
+.set-help-label { margin: 0; font-weight: normal; }
+.set-help-label:first-child { padding-top: 0; }
+.set-help-topic { padding: var(--sp-2) 0; max-width: 64ch; }
+.set-help-head { margin: 0; font-size: var(--fs-ui); font-weight: normal; color: var(--fg); }
+.set-help-text { margin: var(--sp-1) 0 0; font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3); }
+.set-help-text .kbd { white-space: nowrap; }
+.set-help-label + .set-lead { margin-top: var(--sp-1); }
+
+/* The keys, read only: the core's table component, the chord in its key cap. */
+.set-keys { max-width: 64ch; }
+.set-keys td { font-size: var(--fs-ui); }
+.set-keys .kbd { white-space: nowrap; }
+.set-keys-keys { white-space: nowrap; }
+.set-keys-where { color: var(--fg-3); white-space: nowrap; }
+
+
+.set-info {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--fg-2); line-height: 1.75;
+}
+.set-info > div { display: flex; gap: var(--sp-3); white-space: nowrap; overflow: hidden; }
+/* the key column: wide enough for `Version`, the longest key. rem, so it zooms with the text. */
+.set-info > div > span { width: 4.5rem; flex: none; color: var(--fg-3); }
+.set-info i { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+/* the vault line carries `Change vault…`: the one control in the read-only block, kept small */
+.set-info .btn { margin-left: auto; flex: none; align-self: center; }
+
+/* ------------------------------------------------------------ Go to file rows */
+
+/* A file row in Go to file carries the file's name and, under it, the folder it is in. The
+   row grows by exactly one mono line; the height token still sets the rhythm of the list. */
+.pal-row.pal-row-2 {
+  height: auto;
+  min-height: var(--row-h);
+  padding-top: var(--sp-1);
+  padding-bottom: var(--sp-1);
+}
+
+.pal-row-2 > .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.pal-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A long path is cut at its end with an ellipsis, plainly. Cutting it at the start reads
+   better in theory and is a bidi trap in practice: `direction: rtl` moves the leading `7-`
+   of `7-scratchpad/…` to the other end of the line. */
+.pal-sub {
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ the shell's views */
+
+/* Home, Settings and Trash are views: the root they mount into, and a path that navigates when
+   it is clicked. The planner keeps its own furniture (src/views/views.css). */
+
+/* The shell's .main-scroll is the scroller; a view must not open a second one. */
+.view-root { min-height: 100%; }
+.view-root:focus { outline: none; }
+/* A view's H1 carries `.page-title` but is not the editor's title strip: nothing is typed into
+   it, so it never wears a focus ring either, however focus reached it. */
+.page-title:not([contenteditable="true"]):focus-visible { outline: none; }
+
+/* any path that navigates when clicked: a button that reads as the text around it, so it is in
+   the tab order and lights up on focus like any control */
+.v-link {
+  display: inline; padding: 0; margin: 0; text-align: left;
+  font: inherit; color: inherit; cursor: default;
+  transition: color var(--t-fast);
+}
+.v-link:hover { color: var(--accent-ink); }
+.v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+
+/* ------------------------------------------------------------------ statusbar */
+
+.statusbar {
+  height: var(--statusbar-h);
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 0 var(--sp-3);
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+}
+/* left the switches, which keep their size; right the facts, which give way first */
+.st-left { display: flex; align-items: center; gap: var(--sp-2); flex: none; white-space: nowrap; }
+.st-right { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); flex: 1; min-width: 0; white-space: nowrap; }
+.st-facts { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-sep { width: 1px; height: 0.625rem; background: var(--border-strong); }
+/* the zoom, while it is not 100 %: a fact about the window, not an alarm, so it stays in the
+   bar's own colour and only warms up under the pointer (S4) */
+/* The file's path at the right, quiet; a click copies the absolute one, so it answers the
+   pointer as a link does: the hand, and the accent's ink. */
+.st-path {
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); color: var(--fg-3); direction: rtl; text-align: left;
+}
+.st-path { cursor: pointer; transition: color var(--t-fast); }
+.st-path:hover { color: var(--accent-ink); }
+.st-path:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+.st-zoom { color: var(--fg-2); }
+.st-zoom:hover { color: var(--fg); }
+/* Settings, the bar's first thing: a gear set in the text's own line, on its baseline, a little
+   taller than its capitals, so that the two read as one line. Quiet until pointed at. */
+.st-settings {
+  display: inline-block; padding: 0 var(--sp-1); margin-left: calc(-1 * var(--sp-1));
+  font-family: var(--font-mono); font-size: inherit; line-height: inherit;
+  color: var(--fg-3); background: transparent; border: 0; cursor: pointer;
+  transition: color var(--t-fast);
+}
+.st-settings svg { display: inline-block; width: 0.95em; height: 0.95em; vertical-align: -0.12em; }
+.st-settings:hover, .st-settings.on { color: var(--fg); }
+.st-settings:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+
+/* ------------------------------------------------------------------ statusbar fields */
+
+/* A status field that carries an `onClick` is a button; one that carries a `kind` says so in
+   the one colour that kind owns. The separator between fields is the same dot the start
+   surface uses for its chord list. */
+.st-facts .st-item { color: inherit; }
+.st-facts .st-click:hover { color: var(--fg); text-decoration: underline; }
+.st-facts .st-item.err { color: var(--err); }
+.st-facts .st-item.warn { color: var(--warn); }
+.st-facts .st-item.ok { color: var(--ok); }
+.st-facts .st-item.accent { color: var(--accent); }
+.st-dot { color: var(--fg-3); margin: 0 var(--sp-1); }
+/* The editing mode as a small two-way toggle: the current one lit, the other a click away. */
+.st-seg { display: inline-flex; align-items: baseline; vertical-align: baseline; }
+.st-seg-b { padding: 0; color: var(--fg-3); background: transparent; border: 0; font: inherit; cursor: pointer; }
+.st-seg-b + .st-seg-b::before { content: '·'; color: var(--fg-3); margin: 0 var(--sp-1); display: inline-block; }
+.st-seg-b:hover { color: var(--fg-2); }
+.st-seg-b.on { color: var(--fg); cursor: default; }
+
+/* ------------------------------------------------------------------ status field with choices */
+
+
+
+/* ------------------------------------------------------------------ save state (H8) */
+
+/* A page that could not be written, or changed on disk under unsaved text: the dot turns into
+   the error mark, a square in --err, in the same place in the reading order. A square and not
+   a red dot, so it does not depend on telling two colours apart. The tooltip carries the
+   editor's own sentence. */
+.tab-err {
+  width: 0.4375rem; height: 0.4375rem; flex: none;
+  border-radius: 0; background: var(--err);
+}
+.tab.err .tab-name { color: var(--err-ink); }
+.tab.err.on { box-shadow: inset 0 -2px 0 var(--err); }
+
+/* ------------------------------------------------------------------ recovered changes (C4) */
+
+/* The sheet of drafts: the vault chooser's row, name, folder and time. A draft whose file is
+   gone says so in the one colour that owns it, and offers Save as… instead of Open. */
+.rec .dlg-body { padding-bottom: var(--sp-2); }
+.rec-list { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--sp-3)); }
+.rec-row { width: 100%; text-align: left; cursor: default; }
+.rec-name { flex: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+.rec-path { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+.rec-row .pal-hint.gone { color: var(--err); }
+
+/* ------------------------------------------------------------------ boot error (M38) */
+
+/* The page a failed boot leaves instead of a blank window. The core's stylesheet may be the
+   very thing that did not arrive, so every token here has the system colour behind it and the
+   page still reads in both themes. */
+.boot-err {
+  max-width: 44rem; margin: 0 auto; padding: var(--sp-7, 3rem) var(--sp-5, 1.5rem);
+  display: flex; flex-direction: column; gap: var(--sp-3, 0.75rem);
+  font-family: var(--font-ui, system-ui, sans-serif); font-size: var(--fs-ui, 0.8125rem);
+  color: var(--fg, CanvasText); background: var(--bg, Canvas);
+}
+.boot-err-title { margin: 0; font-size: var(--fs-content, 0.9375rem); font-weight: 600; color: var(--err, CanvasText); }
+.boot-err-text { margin: 0; line-height: 1.55; color: var(--fg-2, CanvasText); }
+.boot-err-msg, .boot-err-stack {
+  margin: 0; padding: var(--sp-3, 0.75rem);
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+  background: var(--bg-2, Canvas); border: 1px solid var(--border, GrayText); border-radius: var(--radius, 2px);
+}
+.boot-err-msg { color: var(--err-ink, CanvasText); background: var(--err-soft, Canvas); }
+.boot-err-stack { max-height: 16rem; overflow: auto; color: var(--fg-2, CanvasText); }
+.boot-err-path { user-select: text; word-break: break-all; }
+.boot-err-summary { cursor: default; color: var(--fg-3, GrayText); }
+.boot-err-actions { display: flex; gap: var(--sp-2, 0.5rem); margin-top: var(--sp-2, 0.5rem); }
+.boot-err-copy { position: fixed; left: -100vw; top: 0; opacity: 0; }
+
+/* The first-run column's two buttons: choose a folder here, or open one in a window of its own. */
+.vault-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); }

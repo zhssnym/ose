@@ -1,0 +1,22 @@
+// The first frame, before the core is imported. Two attributes, nothing else.
+//
+// `index.html` used to do this in an inline script; the core's CSP allows no inline script
+// in the shell, so it is a file — the first script in the page, which runs before `main.ts` and
+// before anything is drawn. Both values are set again, from the host's own answer, once
+// `ose.ready` resolves (`main.ts`): this is only so the very first paint is the right theme
+// and the right font stack.
+//
+// The default with nothing saved is the system's own light or dark, which is what the core's
+// src/core/theme.ts does too (M26); the two must agree or the window flashes on every launch.
+
+try {
+  const ua = navigator.userAgent || '';
+  document.documentElement.dataset.os = /Mac|iPhone|iPad/.test(ua) ? 'mac'
+    : /Windows/.test(ua) ? 'win' : 'other';
+} catch { /* nothing to do: the tokens fall back to the default stack */ }
+
+try {
+  let t = localStorage.getItem('os.theme');
+  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+} catch { /* private mode: the core applies the theme a frame later */ }

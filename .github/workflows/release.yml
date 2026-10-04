@@ -1,0 +1,68 @@
+# Every push to main is a release: Ose for Windows (an NSIS installer) and macOS (Apple silicon),
+# signed for the updater with the key in the repository's secrets, published as a GitHub
+# release with `latest.json`. An installed Ose checks that file on launch, installs the update
+# and restarts. The version is 0.9.<run number> until v1, so every push is newer than the last.
+#
+# Secrets: TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD when the key has
+# one), from `npx tauri signer generate`. The public half is `plugins.updater.pubkey` in
+# src-tauri/tauri.conf.json.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ''
+          - os: macos-latest
+            args: '--target aarch64-apple-darwin'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # The build stamp `ose --version` and Settings show (src-tauri/src/platform.rs
+      # `build_info`): the commit, and the day it was committed (UTC).
+      - name: Build stamp
+        shell: bash
+        run: |
+          echo "OSE_BUILD_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "OSE_BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format=%cd)" >> "$GITHUB_ENV"
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v0.9.${{ github.run_number }}
+          releaseName: Ose 0.9.${{ github.run_number }}
+          releaseBody: Install once; Ose updates itself after that.
+          releaseDraft: false
+          prerelease: false
+          args: >-
+            ${{ matrix.args }}
+            --config {"version":"0.9.${{ github.run_number }}","bundle":{"createUpdaterArtifacts":true}}

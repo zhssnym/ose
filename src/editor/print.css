@@ -1,0 +1,281 @@
+/* Paper: the whole sheet, in one stylesheet.
+   Every `@page` and every `@media print` rule of the app is here and nowhere else, because a
+   printed page is one object and the rules that make it were spread over five files that each
+   saw a corner of it. What goes on paper is the page column and nothing else.
+
+   The sheet is A4 with a 2cm margin on every side, which is what the owner's teacher hands out
+   and what Word gives a new document in France; the text block is therefore 17cm wide, and
+   11.5pt of --font-doc at 1.2 fits about 52 lines on it. The margin is written here, in the
+   CSS, and nowhere else: one place decides the geometry, so `Export to PDF` and `Print` give
+   the same sheet (choose Margins: Default in the print dialog).
+
+   Why `!important` on the layout rules. The shell links `ui.css` and `editor.css` (which this
+   file is part of) before its own `shell.css`, so `.shell { display: grid }`,
+   `.body { overflow: hidden }` and `.main-scroll { overflow-y: auto }` beat anything here at
+   equal specificity, and `:root.full-width .page-col { max-width: none }` outranks it outright.
+   A scrolling ancestor prints one screenful and stops: before this file, a 1075px document
+   printed as 60px of title box and nothing else. Paper is a different medium, not a variant of
+   the screen, so these overrides are absolute on purpose. */
+
+/* The sheet number sits in the bottom margin, in the mono face at 9pt, because a seven-sheet
+   chapter dropped on a desk says nothing about which sheet is which. A margin box is drawn by
+   the printer, not by the document, so it costs no line of text and cannot move one. */
+@page {
+  size: A4;
+  margin: var(--print-margin);
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: var(--font-mono);
+    font-size: 9pt;
+  }
+}
+
+@media print {
+  /* --------------------------------------------------------------- the palette
+
+     Black ink on white paper whatever the window was showing. The palette is overridden once,
+     here, rather than in twenty rules downstream: every border, every tint and every ink
+     resolves to black or to nothing, and the surfaces go white. Syntax colour is a screen
+     affordance and does not survive the trip: a listing prints black, as a typed handout
+     would. Both themes are named, so a sheet taken from the dark theme is the same sheet and
+     nothing has to switch the theme before printing. */
+  :root, :root[data-theme="dark"] {
+    color-scheme: light;
+    --bg: #FFFFFF;
+    --bg-2: #FFFFFF;
+    --bg-3: #FFFFFF;
+    --bg-4: #FFFFFF;
+    --fg: #000000;
+    --fg-2: #000000;
+    --fg-3: #000000;
+    --border: #000000;
+    --border-strong: #000000;
+    --accent: #000000;
+    --accent-ink: #000000;
+    --accent-hover: #000000;
+    --accent-fg: #FFFFFF;
+    --accent-soft: transparent;
+    --sel: transparent;
+    --code-key: #000000;
+    --code-str: #000000;
+    --code-num: #000000;
+    --code-fn: #000000;
+    --code-type: #000000;
+    --code-var: #000000;
+    --code-punc: #000000;
+    --code-com: #000000;
+    --code-ins: #000000;
+    --code-del: #000000;
+    --shadow-menu: none;
+  }
+
+  /* The zoom is a screen setting: a sheet of paper does not zoom. */
+  :root { font-size: 100% !important; }
+  html, body { background: var(--bg) !important; color: var(--fg); }
+
+  /* ------------------------------------------------------------- the ancestry
+
+     Every box between <html> and the page column gives up its height, its scrolling and its
+     layout mode, so the document is as tall as its own content and the printer paginates it.
+     One `overflow` that is not `visible` anywhere in this chain clips the page to the window,
+     which is the fault the owner hit. The list is the whole chain, measured in the running app:
+     html > body > #app > .shell > .body > .maincol > .main > .main-scroll > .page-host. */
+  html, body, #app, .shell, .body, .maincol, .main, .main-scroll, .page-host {
+    display: block !important;
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  /* --------------------------------------------------------------- the chrome
+
+     None of it is on the page: the title bar, the sidebar and its resizer, the tab strip, the
+     status bar, the window edges, toasts, overlays, menus, the loading line; and, in the
+     editor, the meta line, the find bar, the slash menu, the backlinks panel, the handles, the
+     placeholders and the caret helpers. `.ed-props` itself stays: frontmatter is part of the
+     document. The image block's own two controls, the round button over the top-right corner and
+     the drag bar under the picture, are handles like the rest and were printing on the figure. */
+  .titlebar, .sidebar, .rs, .tabs, .statusbar, .edge, .toasts, .ov, .menu, .main-loading,
+  .os-slash, .ed-find, .ed-bl, .ed .page-meta, .ed-add-title, .ed-props-head svg,
+  .ose-math-src, .sheet-breaks,
+  .ed .milkdown .milkdown-toolbar, .ed .milkdown .milkdown-link-preview,
+  .ed .milkdown .milkdown-link-edit, .ed .milkdown .milkdown-block-handle,
+  .ed .milkdown .milkdown-table-block .handle, .ed .milkdown .milkdown-table-block .line-handle,
+  .ed .milkdown .milkdown-code-block .tools, .ed .milkdown .milkdown-code-block .language-picker,
+  .ed .milkdown .milkdown-image-block .operation,
+  .ed .milkdown .milkdown-image-block .image-resize-handle,
+  .ed .milkdown .prosemirror-virtual-cursor,
+  .ed .milkdown .crepe-placeholder::before { display: none !important; }
+
+  /* ---------------------------------------------------------------- the figure
+
+     An image block carries the height the screen column gave it as an inline style, in pixels,
+     and crops to it (`object-fit: cover`). The printed column is narrower than the screen's, so
+     that height cropped a tenth of the width away, and a tall capture ran past the foot of the
+     sheet and came back on the next one cut through the middle of a line. On paper the picture
+     takes the measure, keeps its own proportions, and is capped short of the printable height so
+     that its label can stay on the sheet with it. */
+  .ed .milkdown .milkdown-image-block img, .md-render img {
+    height: auto !important;
+    width: auto;
+    max-width: 100%;
+    /* 22cm of the 25.7cm a sheet prints: the cap that leaves a label and a gap under the
+       picture. The value belongs in tokens.css as --print-figure; the fallback is here until it
+       lands, because tokens.css is not this lens's file. */
+    max-height: var(--print-figure, 22cm);
+    object-fit: contain;
+  }
+
+  /* --------------------------------------------------------------- the column
+
+     The margin is the sheet's, so the column gives up its own padding and takes the full
+     measure. `max-width` is that measure written down: on an A4 sheet it is exactly the width
+     @page leaves and changes nothing, and in a browser's print emulation, where @page is not
+     applied, it is what makes the preview the width of the real thing. It is `!important`
+     because Settings' `Readable width`, off, writes `max-width: none` from a stronger
+     selector, and a sheet has a measure whatever the window does.
+
+     The body is pulled --sp-2 into the gutter on screen so a block handle has room; on paper
+     there are no handles and that pull would hang the text over the edge of the margin. */
+  .page-col, .ed.page-col {
+    max-width: var(--print-measure) !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    orphans: 2; widows: 2;
+  }
+  .ed-body { margin: 0 !important; }
+
+  /* The document's own size and leading, set here rather than on :root because the body size
+     is an inline style on <html> (settings-core) and an inline style beats a stylesheet. Every
+     size in the document is a ratio of these two, so overriding them moves all of it. */
+  .page-col.ed, .md-render {
+    --fs-body: var(--print-fs);
+    --lh-body: var(--print-lh);
+    font-size: var(--print-fs);
+    line-height: var(--print-lh);
+  }
+
+  /* ------------------------------------------------------- the editing machinery
+
+     What is left of the editor on paper is the text. No selection tint, no find hit, no active
+     line in a code block, and a link is ink rather than accent. */
+  .ed .milkdown .ProseMirror { min-height: 0; padding: 0; color: var(--fg); orphans: 2; widows: 2; }
+  .ed .milkdown .ProseMirror ::selection { background: transparent; }
+  .ed .milkdown .ProseMirror .os-block-sel, .ed .milkdown .ProseMirror .find-hit,
+  .ed .milkdown .ProseMirror > .ProseMirror-selectednode { background: transparent; box-shadow: none; outline: none; }
+  .ed .milkdown .milkdown-code-block .cm-activeLine,
+  .ed .milkdown .milkdown-code-block .cm-activeLineGutter { background: transparent; }
+  .ed .milkdown a, .md-render a { color: var(--fg); }
+
+  /* A done task. The web view prints without backgrounds unless asked, and with them a sheet taken
+     from the dark theme could come out grey. So the black fill of a done box is not there,
+     and a white check mark on white paper would read as an empty box: the box keeps its
+     outline and the check is drawn in ink. Struck-through text says the same thing again. */
+  .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::before {
+    background: none;
+    border-color: var(--fg);
+  }
+  .ed .milkdown .milkdown-list-item-block .label-wrapper .checked::after {
+    border-color: var(--fg);
+  }
+
+  /* ------------------------------------------------------------------- code
+
+     Inline code is a chip on screen: a tint, a hairline, a little padding. On paper the tint is
+     gone and the hairline is black, so every `cle` and `dico[cle]` in a sentence came out in its
+     own black box, a row of buttons in the line. A typed handout sets a code word in mono and
+     leaves it in the sentence, and an inline box, being a box, could not break across two lines
+     either. Inside a block the code keeps the body's leading and a size that is a ratio of the
+     body, rather than the chrome's 13px: one setting moves the whole page. */
+  .ed .milkdown code, .ed .milkdown .code-inline, .md-render code {
+    display: inline;
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--fg);
+  }
+  .ed .milkdown .milkdown-code-block :is(.cm-content, .cm-line, .cm-gutters),
+  .ed .milkdown .milkdown-code-block pre,
+  .md-render pre, .md-render pre code {
+    font-size: .92em;
+    line-height: var(--print-lh);
+  }
+  /* A line longer than the column is cut at the edge of the sheet, in a CodeMirror line as in
+     the placeholder <pre> of a block that has never been scrolled into view: there is no
+     sideways on paper, so a long line wraps and nothing of the listing is lost. */
+  .ed .milkdown .milkdown-code-block :is(pre, .cm-line), .md-render pre {
+    white-space: pre-wrap;
+    overflow: visible;
+    text-align: left;   /* the body is justified; a listing never is */
+  }
+  /* CodeMirror measures its longest line and writes that width on the scroller and the content,
+     so wrapping the line alone leaves it wrapping inside a box wider than the sheet. Inline
+     geometry, hence `!important`, as everywhere else the screen's layout has to give way. */
+  .ed .milkdown .milkdown-code-block :is(.cm-scroller, .cm-content) {
+    width: auto !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* ------------------------------------------------------------------ tables
+
+     `table-layout: fixed` gives every column the same width whatever it holds, and the editor's
+     `word-wrap: break-word` then cuts the words that do not fit at whatever letter lands on the
+     edge: a nine-column comparison printed "Arrivée au pouvoi r" and "Écono mie", one column
+     being as wide as the next whether it holds a date or a paragraph. On paper a column takes
+     the width its content asks for.
+
+     A word is still allowed to break, and `anywhere` rather than `break-word` because only
+     `anywhere` lets the column ask for less than its longest word: without it a table whose
+     columns cannot all fit the 17cm measure runs off the right edge of the sheet and the last
+     columns are simply not printed, which is worse than an ugly break. A table that fits now
+     breaks nothing at all; one that cannot fit breaks only where it must. */
+  .ed .milkdown .milkdown-table-block table, .md-render table { table-layout: auto; }
+  /* The header's tint is the screen's. On paper the cell's background, white, was painted over
+     the rules between the header cells, and the header row printed without its column lines. */
+  .ed .milkdown .milkdown-table-block th, .md-render th { background: none; }
+  .ed .milkdown .milkdown-table-block :is(th, td), .md-render :is(th, td) {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  /* ---------------------------------------------------------------- the breaks
+
+     Nothing drawn as one object is cut in half by the edge of a sheet, a heading and a run-in
+     label never end one, and a paragraph never leaves a single line behind. The same three
+     rules for the editor's DOM and for marked's.
+
+     Only what is always short is kept whole: a bar, a frame, a display formula, a figure now
+     that it is capped. A listing and a table are not: they are as long as the author made them,
+     and Chromium answers `break-inside: avoid` on a block taller than the sheet by moving it to
+     a fresh sheet and abandoning the one it was on, so a 150-line correction printed as two
+     nearly empty sheets and then the listing, and the paragraph that introduced it was broken
+     one line per sheet. Word keeps a listing's lines together only when asked; ours breaks
+     between lines and between rows, and each fragment closes its own box (the rule under this
+     one). */
+  .ed .milkdown :is(blockquote, .milkdown-image-block, .ose-math-display),
+  .ed .milkdown math[display="block"],
+  .md-render :is(blockquote, img, figure, .ose-math-display),
+  .md-render math[display="block"] { break-inside: avoid; }
+
+  /* A listing cut by the edge of a sheet is two boxes, not one box with two holes in it. */
+  .ed .milkdown .milkdown-code-block, .md-render pre {
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  /* Keep-with-next belongs to a label that introduces something, which is the run-in label of a
+     paragraph at the top level of the document. Inside a list every item is such a label, so
+     every item was glued to the next and an eleven-item list became one unbreakable block that
+     left a third of a sheet white. */
+  .page-col.ed > .page-title,
+  .ed .milkdown :is(h1, h2, h3, h4, h5, h6),
+  .ed .milkdown .ProseMirror > p:has(> strong:first-child),
+  .md-render :is(h1, h2, h3, h4, h5, h6),
+  .md-render > p:has(> strong:first-child) { break-after: avoid; }
+
+  .md-render { orphans: 2; widows: 2; }
+}

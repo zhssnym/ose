@@ -1,0 +1,18 @@
+node_modules/
+dist/
+state.json
+
+# The orchestration desk (agent briefs, inbox, reports, a throwaway test vault) and the code
+# graph graphify builds: session artefacts, never shipped.
+work/
+graphify-out/
+
+# The vault state folder Ose writes when the repo itself is opened as a vault.
+.ose/
+
+# copies of real notes for the serializer tests: kept local, never published
+tests/fixtures/corpus/
+
+
+# Sub-agents' working copies
+.claude/worktrees/

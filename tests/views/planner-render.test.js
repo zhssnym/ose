@@ -1,0 +1,70 @@
+// @vitest-environment happy-dom
+// The planner's pages (src/views/planner/render.ts), drawn from the example months. Year and
+// Month are goals and a review, with one figure from the checkboxes; Today is the month's log
+// as a heatmap, the day's execution and the tasks. No page shows a time of its own.
+
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const P = await import('../../src/views/shared/plan.ts');
+const R = await import('../../src/views/planner/render.ts');
+
+const fixture = (name) => readFileSync(`${process.cwd()}/tests/fixtures/planner/${name}`, 'utf8');   // happy-dom changes import.meta.url
+const months = new Map([['2026-09', P.parseMonth(fixture('2026-09.md'), '2026-09')], ['2026-10', P.parseMonth(fixture('2026-10.md'), '2026-10')]]);
+const files = new Map([['2026-09', { path: 'plannings/2026-09.md', exists: true }], ['2026-10', { path: 'plannings/2026-10.md', exists: true }], ['2026-11', { path: 'plannings/2026-11.md', exists: false }]]);
+const ctx = {
+  today: new Date(2026, 9, 15), folder: 'plannings', months, files, note: '',
+  year: { path: 'plannings/2026.md', exists: true, plan: P.parseYear(fixture('2026.md'), 2026) },
+  tasks: [{ id: 't:3', path: 'plannings/todo.md', line: 3, text: 'Renew the library card', due: '2026-10-12', done: false, depth: 0 }],
+  todoPath: 'plannings/todo.md',
+};
+const page = (html) => { const el = document.createElement('div'); el.innerHTML = html; return el; };
+
+describe('the planner pages', () => {
+  it('Today: the heatmap with what each item lost, the day in its order, the tasks', () => {
+    const el = page(R.todayPage(ctx, ctx.today));
+    expect(el.querySelector('.page-title').textContent).toBe('Thursday 15 October');
+    expect(el.querySelector('.pn-zoom')).toBe(null);
+    expect(el.querySelectorAll('.hm-lab')).toHaveLength(12);
+    expect(el.querySelectorAll('.hm-dh')).toHaveLength(0);
+    expect([...el.querySelectorAll('.hm-loss')].map((x) => x.textContent).slice(0, 3)).toEqual(['−5%', '−3%', '−15%']);
+    expect(el.querySelector('.hm-sum').textContent).toBe('34% done · 11% lost · 55% open');
+    // the old grid's states: done the accent, missed and to come empty, not due grey
+    const cell = (row, day) => el.querySelectorAll('.hm-c')[row * 31 + day - 1];
+    expect(cell(0, 1).className).toBe('hm-c on');           // School, the 1st: done
+    expect(cell(2, 1).className).toBe('hm-c skip');         // Coding, the 1st: missed
+    expect(cell(0, 16).className).toBe('hm-c skip');        // School, the 16th: to come
+    expect(cell(0, 3).className).toBe('hm-c off');          // School, a Saturday: not due
+    expect(cell(0, 8).className).toBe('hm-c off drop');     // School, the 8th: dropped
+    expect(cell(1, 15).className).toBe('hm-c skip today');  // Maths, today, open
+    // one figure for the month, nothing repeating it; the heatmap is only to look at
+    expect([...el.querySelectorAll('.pv-sum')].every((x) => !x.textContent)).toBe(true);
+    expect(el.querySelectorAll('.hm button')).toHaveLength(0);
+    expect([...el.querySelectorAll('.pv-item[data-act="tick"] .pv-what')].map((x) => x.textContent)).toEqual(['School', 'Maths', 'Coding', 'Reading', 'Rest', 'Sleep']);
+    expect(el.querySelector('.pv-late').textContent).toBe('late');
+    expect(el.textContent).not.toMatch(/\b\d{2}h\d{2}\b/);
+  });
+
+  it('Month: the goals with their figure, then the review, and nothing else', () => {
+    const el = page(R.monthPage(ctx, new Date(2026, 8, 1)));
+    expect(el.querySelector('.page-title').textContent).toBe('September 2026');
+    expect([...el.querySelectorAll('.pn-zoom-b')].map((b) => b.textContent)).toEqual(['Year', 'Month']);
+    expect([...el.querySelectorAll('.label')].map((x) => x.textContent)).toEqual(['Goals', 'Review']);
+    expect(el.querySelector('.pv-sum').textContent).toBe('36% · 4 of 11 met');
+    expect(el.querySelectorAll('.pv-goal')).toHaveLength(11);
+    expect(el.querySelector('.pv-review').dataset.prose).toMatch(/^The week held/);
+    expect(el.querySelector('.pv-grid')).toBe(null);
+  });
+
+  it('Month: a month with no file can be started', () => {
+    expect(page(R.monthPage(ctx, new Date(2026, 10, 1))).querySelector('[data-act="start-month"]')).not.toBe(null);
+  });
+
+  it('Year: the year file alone, its checklist and how much of it is met', () => {
+    const el = page(R.yearPage(ctx, 2026));
+    expect(el.querySelector('.page-title').textContent).toBe('2026');
+    expect(el.querySelector('.pv-sum').textContent).toBe('27% · 3 of 11 met');
+    expect(el.querySelectorAll('.pv-goal')).toHaveLength(11);
+    expect(el.querySelector('.pv-grid')).toBe(null);
+  });
+});

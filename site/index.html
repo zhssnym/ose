@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ose</title>
+<meta name="description" content="Ose is a markdown editor for your second-brain vault. You and your AI agent work on the same plain files, but you get a graphical interface over them. Windows and macOS.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+<meta property="og:title" content="Ose">
+<meta property="og:description" content="Ose is a markdown editor for your second-brain vault. You and your AI agent work on the same plain files, but you get a graphical interface over them.">
+<script>
+  // Before the first paint: the Mac gets its own font stacks, and the page its theme (the one
+  // chosen here before, else the device's). style.css reads both from <html>.
+  (function () {
+    var d = document.documentElement, t = null;
+    if (/Mac|iPhone|iPad/.test(navigator.userAgent)) d.dataset.os = 'mac';
+    try { t = localStorage.getItem('ose.site.theme'); } catch (e) {}
+    if (t !== 'dark' && t !== 'light') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    d.dataset.theme = t;
+  })();
+</script>
+<script type="module" src="main.js"></script>
+</head>
+<body>
+
+<header class="top wrap">
+  <span class="brand"><svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M512 96 968 900H56z"/></svg>Ose</span>
+  <span class="seg" role="group" aria-label="Theme">
+    <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+  </span>
+</header>
+
+<main>
+
+<section class="hero wrap">
+  <h1>Your files,<br><em>your</em> interface.</h1>
+  <p class="lead">Ose is a markdown editor for your second-brain vault. You and your AI agent work on the same plain files, but you get a graphical interface over them.</p>
+  <div class="get">
+    <a class="btn primary" data-dl="win" href="https://github.com/zhssnym/ose/releases/latest">Download for Windows</a>
+    <a class="btn" data-dl="mac" href="https://github.com/zhssnym/ose/releases/latest">Download for Mac</a>
+    <a class="btn" href="https://github.com/zhssnym/ose"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+    <p class="meta" data-dl-meta>Windows, 64-bit · macOS, Apple silicon</p>
+  </div>
+</section>
+
+<section class="plate wrap">
+  <div class="say">
+    <p class="label">The editor</p>
+    <h2>A markdown editor with two modes.</h2>
+    <p class="line"><b>Rich</b> is the page as a document. <b>Source</b> is the raw markdown. There is no live preview. Ose changes only the lines you edit and leaves the rest of the file as it was.</p>
+  </div>
+  <div class="pair">
+    <figure class="shot">
+      <a class="zoom light" href="shots/editor-light.png"><img src="shots/editor-light.png" width="1280" height="800" loading="lazy" alt="A page of linear algebra notes in Rich: the folder in the sidebar, formulas, a table and a checklist drawn as a document."></a>
+      <a class="zoom dark" href="shots/editor-dark.png"><img src="shots/editor-dark.png" width="1280" height="800" loading="lazy" alt="A page of linear algebra notes in Rich: the folder in the sidebar, formulas, a table and a checklist drawn as a document."></a>
+      <figcaption class="under">Rich</figcaption>
+    </figure>
+    <figure class="shot">
+      <a class="zoom light" href="shots/source-light.png"><img src="shots/source-light.png" width="1280" height="800" loading="lazy" alt="The same page in Source: the markdown as written, in a code editor."></a>
+      <a class="zoom dark" href="shots/source-dark.png"><img src="shots/source-dark.png" width="1280" height="800" loading="lazy" alt="The same page in Source: the markdown as written, in a code editor."></a>
+      <figcaption class="under">Source</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="plate wrap">
+  <div class="say">
+    <p class="label">Views</p>
+    <h2>A view draws plain files as an interface.</h2>
+    <p class="line">I built Ose for myself, so it ships with the three views I use: <b>Today</b>, <b>Planner</b> and <b>Journal</b>. You can use them or delete them.</p>
+  </div>
+  <figure class="shot">
+    <a class="zoom light" href="shots/today-light.png"><img src="shots/today-light.png" width="1280" height="800" loading="lazy" alt="Today: the month as a heatmap, one row per habit, the day&#39;s list with one line ticked, and the tasks due."></a>
+    <a class="zoom dark" href="shots/today-dark.png"><img src="shots/today-dark.png" width="1280" height="800" loading="lazy" alt="Today: the month as a heatmap, one row per habit, the day&#39;s list with one line ticked, and the tasks due."></a>
+    <figcaption class="under">Today</figcaption>
+  </figure>
+</section>
+
+<section class="plate wrap">
+  <div class="say">
+    <p class="label">Your own views</p>
+    <h2>Your own view takes minutes.</h2>
+    <p class="line">Your AI agent can build a view over your own markdown files. A checklist becomes a board, and a table of books becomes a shelf. <a href="https://github.com/zhssnym/ose/blob/main/docs/VIEWS.md">How a view is made</a>.</p>
+  </div>
+  <figure class="shot">
+    <a class="zoom light" href="shots/own-reading-light.png"><img src="shots/own-reading-light.png" width="1920" height="947" loading="lazy" alt="The file Books.md, a markdown table of eight books, beside the view drawn from it: a shelf of spines, four of them read, and the two books that are open."></a>
+    <a class="zoom dark" href="shots/own-reading-dark.png"><img src="shots/own-reading-dark.png" width="1920" height="947" loading="lazy" alt="The file Books.md, a markdown table of eight books, beside the view drawn from it: a shelf of spines, four of them read, and the two books that are open."></a>
+    <figcaption class="under">A table of books as a shelf</figcaption>
+  </figure>
+  <div class="pair">
+    <figure class="shot">
+      <a class="zoom light" href="shots/own-board-light.png"><img src="shots/own-board-light.png" width="1920" height="947" loading="lazy" alt="The file Website.md, a checklist, beside the view drawn from it: three columns of cards, to do, doing and done."></a>
+      <a class="zoom dark" href="shots/own-board-dark.png"><img src="shots/own-board-dark.png" width="1920" height="947" loading="lazy" alt="The file Website.md, a checklist, beside the view drawn from it: three columns of cards, to do, doing and done."></a>
+      <figcaption class="under">A checklist as a board</figcaption>
+    </figure>
+    <figure class="shot">
+      <a class="zoom light" href="shots/own-runs-light.png"><img src="shots/own-runs-light.png" width="1920" height="947" loading="lazy" alt="The file Runs.md, a table of runs, beside the view drawn from it: one bar per run and three figures."></a>
+      <a class="zoom dark" href="shots/own-runs-dark.png"><img src="shots/own-runs-dark.png" width="1920" height="947" loading="lazy" alt="The file Runs.md, a table of runs, beside the view drawn from it: one bar per run and three figures."></a>
+      <figcaption class="under">A table of runs as a chart</figcaption>
+    </figure>
+    <figure class="shot">
+      <a class="zoom light" href="shots/own-budget-light.png"><img src="shots/own-budget-light.png" width="1920" height="947" loading="lazy" alt="The file Budget.md, a table of expenses, beside the view drawn from it: what is spent, what is left, and a bar per category."></a>
+      <a class="zoom dark" href="shots/own-budget-dark.png"><img src="shots/own-budget-dark.png" width="1920" height="947" loading="lazy" alt="The file Budget.md, a table of expenses, beside the view drawn from it: what is spent, what is left, and a bar per category."></a>
+      <figcaption class="under">A table of expenses as a budget</figcaption>
+    </figure>
+    <figure class="shot">
+      <a class="zoom light" href="shots/own-cards-light.png"><img src="shots/own-cards-light.png" width="1920" height="947" loading="lazy" alt="The file Flashcards.md, one card per line, beside the view drawn from it: a flashcard showing its front."></a>
+      <a class="zoom dark" href="shots/own-cards-dark.png"><img src="shots/own-cards-dark.png" width="1920" height="947" loading="lazy" alt="The file Flashcards.md, one card per line, beside the view drawn from it: a flashcard showing its front."></a>
+      <figcaption class="under">Lines of notes as flashcards</figcaption>
+    </figure>
+  </div>
+  <p class="under aside">These five are samples. They do not ship with Ose.</p>
+</section>
+
+<section class="plate wrap">
+  <div class="say">
+    <p class="label">Reasons</p>
+    <h2>Why use Ose?</h2>
+    <p class="line">Humans work best with graphical interfaces. AI agents work best with text. Ose gives each what it needs: plain markdown files for the agent, and an interface built from those files for you.</p>
+  </div>
+  <div class="facts">
+    <div class="fact">
+      <h3>Plain files</h3>
+      <p>Most second-brain apps keep your notes in their own database. Ose keeps them as markdown files on your disk, so you can leave at any time.</p>
+    </div>
+    <div class="fact">
+      <h3>Private</h3>
+      <p>Ose has no account, no sync and no telemetry. It uses the network only to check for updates.</p>
+    </div>
+    <div class="fact">
+      <h3>Yours to change</h3>
+      <p>Ose is open source and lightweight. Custom views need no plugins: you and your agent edit the source code and get the behaviour you want in minutes.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="end">
+    <h2>Download Ose.</h2>
+    <p class="note">I do not code-sign the builds, so the first launch asks once: <b>More info › Run anyway</b> on Windows, <b>Privacy &amp; Security › Open Anyway</b> on a Mac. Ose then updates itself.</p>
+    <div class="get">
+      <a class="btn primary" data-dl="win" href="https://github.com/zhssnym/ose/releases/latest">Download for Windows</a>
+      <a class="btn" data-dl="mac" href="https://github.com/zhssnym/ose/releases/latest">Download for Mac</a>
+      <a class="btn" href="https://github.com/zhssnym/ose"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      <p class="meta" data-dl-meta>Windows, 64-bit · macOS, Apple silicon</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+</body>
+</html>

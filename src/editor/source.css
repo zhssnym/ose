@@ -1,0 +1,315 @@
+/* Batch 12, package P5. Four surfaces, one file because P5 owns one stylesheet:
+   the source-mode body (.ed-source), the Versions… dialog (.ed-versions), the comparison of
+   two texts (.ed-compare, wave 1) and the box a missing image draws in its place
+   (.ed-image-missing). Every value is a token. */
+
+/* ------------------------------------------------- the standalone code editor
+   `codeEditor(el, …)` (round four): the same CodeMirror, mounted anywhere rather than inside
+   a page column. It has two shapes, and `grow` in the opts picks between them:
+
+   - `fill` (the default, round four's only shape): it fills whatever box it is given and
+     scrolls inside it. Right for a pane whose height the caller owns.
+   - `grow` (round five): it takes the height of its content and never scrolls, so the column
+     it sits in does the scrolling — the same bargain source mode makes with the page column.
+     Right for a script beside its data, where a box with its own scrollbar inside a scrolling
+     page is two scrollbars and a guess at how tall the script is. */
+
+.ed-code {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+}
+
+.ed-code .cm-editor {
+  background: transparent;
+  width: 100%;
+  min-height: 0;
+}
+
+.ed-code .cm-scroller { overflow: auto; }
+.ed-code .cm-placeholder { color: var(--fg-3); }
+.ed-code .cm-gutters { padding-right: var(--sp-3); }
+
+/* `grow`: no inner scroller, height from the content, a few lines of floor so an empty file
+   is still a box you can aim at. The floor is stated on `.cm-content` rather than on the
+   editor, so the gutter grows with it and the placeholder sits on the first line. */
+.ed-code-grow {
+  display: block;
+  height: auto;
+  min-height: 0;
+}
+
+.ed-code-grow .cm-editor {
+  height: auto;
+  min-height: 0;
+}
+
+.ed-code-grow .cm-editor .cm-scroller { overflow: visible; }
+
+.ed-code-grow .cm-editor .cm-content {
+  min-height: calc(var(--fs-ui) * 1.7 * 5);   /* five lines at source mode's line height */
+}
+
+/* The gutter keeps up with that floor. CodeMirror writes `min-height` **inline** on
+   `.cm-gutters` from its own measured content height, so a CSS `min-height` here loses to it,
+   and one strong enough to win (`!important`) would also *cap* the gutter of a four-hundred
+   line file at five lines — the numbers would stop part of the way down. A zero-width flex
+   item inside the gutters row raises the row's height without touching what CodeMirror wrote,
+   because a min-height is a floor and not a ceiling: five lines when the file is one line,
+   and out of the way the moment the file is taller (A, finding 11 group, #L1g). */
+.ed-code-grow .cm-editor .cm-gutters::after {
+  content: '';
+  width: 0;
+  min-height: calc(var(--fs-ui) * 1.7 * 5);
+}
+
+/* The comforts `codeEditor` adds over source mode. CodeMirror's own base theme paints the
+   active line `#cceeff44` in light and `#99eeff33` in dark — two hex values from outside the
+   palette — under `.<baseLightID> .cm-activeLine`, which is 0-2-0, so
+   ours says `.cm-editor` in the middle to win at 0-3-0 rather than trust the order the
+   StyleModule was mounted in. `--bg-3` and not `--bg-2`: the step has to read as a stripe on
+   a `--bg` ground *and* on the `--bg-2` of a panel, and in dark `--bg-2` is one point
+   of luminance away from `--bg`. The same goes for the bracket under the caret, which
+   `bracketMatching` would otherwise paint `#328c8252`.
+
+   The stripe and the bracket box are the caret's, so they are drawn only while this editor
+   holds the caret. An editor
+   nothing has ever focused claimed line 1, and a read-only one marked a caret the user cannot
+   move (A, finding 13); CodeMirror paints the line unconditionally, so the unfocused case has
+   to be stated rather than merely left alone. */
+.ed-code .cm-editor .cm-activeLine { background-color: transparent; }
+.ed-code .cm-editor.cm-focused .cm-activeLine { background-color: var(--bg-3); }
+
+.ed-code .cm-editor .cm-matchingBracket { background-color: transparent; }
+.ed-code .cm-editor.cm-focused .cm-matchingBracket {
+  background-color: var(--bg-4);
+  color: inherit;
+}
+
+.ed-code .cm-editor .cm-nonmatchingBracket { background-color: transparent; }
+.ed-code .cm-editor.cm-focused .cm-nonmatchingBracket {
+  background-color: var(--err-soft);
+  color: inherit;
+}
+
+/* ------------------------------------------------- a code file open as a page
+
+   Source mode over a file that is not markdown is the same small editor as `.ed-code`, so it
+   is drawn the same way: the stripe under the caret's line, the bracket under the caret, and
+   the other occurrences of whatever is selected. A markdown page never shows any of them,
+   because `createSourceView` only installs them for `code: true` and a page is prose.
+
+   `.cm-selectionMatch` is `--bg-3` and not a colour: what it says is "the same word, there
+   too", and a ground is enough to say it without a second ink competing with the token's. */
+.ed-source .cm-editor .cm-activeLine { background-color: transparent; }
+.ed-source .cm-editor.cm-focused .cm-activeLine { background-color: var(--bg-3); }
+
+.ed-source .cm-editor .cm-matchingBracket { background-color: transparent; }
+.ed-source .cm-editor.cm-focused .cm-matchingBracket {
+  background-color: var(--bg-4);
+  color: inherit;
+}
+
+.ed-source .cm-editor .cm-nonmatchingBracket { background-color: transparent; }
+.ed-source .cm-editor.cm-focused .cm-nonmatchingBracket {
+  background-color: var(--err-soft);
+  color: inherit;
+}
+
+.ed-code .cm-editor .cm-selectionMatch,
+.ed-source .cm-editor .cm-selectionMatch {
+  background-color: var(--bg-3);
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- source mode */
+
+.ed-source {
+  margin: 0 calc(-1 * var(--sp-2));
+  padding: 0 var(--sp-2) var(--sp-7);
+}
+
+.ed-source .cm-editor {
+  background: transparent;
+  min-height: 40vh;
+}
+
+.ed-source .cm-content {
+  /* The block editor's body starts at the same x; source mode must not shift the column. */
+  padding: 0;
+  min-height: 40vh;
+}
+
+.ed-source .cm-scroller {
+  overflow: visible;              /* the page column scrolls, never a box inside it */
+}
+
+.ed-source .cm-placeholder { color: var(--fg-3); }
+
+.ed-source .cm-gutters { padding-right: var(--sp-3); }
+
+.ed-source .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.ed-source .cm-panel.cm-search .cm-button { background-image: none; }
+
+.ed-source .cm-panel.cm-search [name='close'] {
+  position: static;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-2);
+}
+
+/* The title is part of the text while source mode is on: the strip above stays as a label so
+   the page keeps its shape, but it cannot be edited from two places at once. */
+.ed-source-on .page-title { color: var(--fg-2); cursor: default; }
+
+/* Ctrl+A widened past the body: the title is in the selection too (L19). */
+.page-title.ed-all-selected { background: var(--sel); }
+
+/* ---------------------------------------------------------------- versions */
+
+.ed-versions-body {
+  max-height: 46vh;
+  padding: var(--sp-2) 0;
+}
+
+.ed-versions-body .row {
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ed-versions-body .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.ed-versions-size {
+  min-width: 56px;
+  text-align: right;
+}
+
+.ed-versions-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+}
+
+/* ---------------------------------------------------------------- compare (C4, H10)
+
+   Two read-only texts side by side (compare.ts, over @codemirror/merge). The merge view's own
+   stylesheet colours the changes with literals; these rules paint them again from the tokens,
+   one class deeper than its `&light` / `&dark` rules so they win in both themes. The left side
+   is the older text (removed lines), the right the newer (added lines). */
+
+.ed-compare-body { padding: var(--sp-2) 0; }
+.ed-compare-labels {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
+  padding: 0 var(--sp-3) var(--sp-2);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+.ed-compare-pane {
+  max-height: 62vh; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor { background: var(--bg); color: var(--fg); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-gutters { background: var(--bg-2); color: var(--fg-3); border-right: 1px solid var(--border); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedLine,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedChunk { background: var(--err-soft); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedLine { background: var(--ok-soft); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedText,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedChunk .cm-deletedText {
+  background: none; text-decoration: underline; text-decoration-color: var(--err); color: var(--err-ink);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedText {
+  background: none; text-decoration: underline; text-decoration-color: var(--ok); color: var(--ok-ink);
+}
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-a .cm-changedLineGutter,
+.ed-compare .ed-compare-pane .cm-mergeView .cm-deletedLineGutter { background: var(--err); }
+.ed-compare .ed-compare-pane .cm-mergeView .cm-editor.cm-merge-b .cm-changedLineGutter { background: var(--ok); }
+.ed-compare .ed-compare-pane .cm-collapsedLines {
+  background: var(--bg-2); color: var(--fg-3);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+
+/* ---------------------------------------------------------------- images */
+
+/* A width written as `![alt|300](src)`: the block keeps it and the height follows the picture.
+   `.ed .milkdown .milkdown-image-block img` (editor.css) and Crepe's own rule both say
+   `width: 100%`, and the component writes a pixel `height` straight onto the element, so this
+   one has to outrank a three-class selector and an inline style to say anything at all. */
+.ed .milkdown .milkdown-image-block[data-os-width] img {
+  width: var(--os-image-width) !important;
+  max-width: 100%;
+  height: auto !important;
+}
+
+.ed-image-missing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.ed-image-missing .ed-image-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* The chip sits on its own line rather than stretching across the box. */
+.ed-image-missing > .chip { align-self: flex-start; }
+
+/* Milkdown's reset (`.milkdown button { background: none }`, 0-1-1) outranks `.btn` (0-1-0),
+   so the two actions state the component's own surface again.
+
+   `background-color`, not the `background` shorthand, and no transition on it: Chromium keeps
+   the *resolved* value of a transitioning shorthand that holds a `var()`, so a button styled
+   `transition: background …; background: var(--bg)` inside the editor keeps painting the old
+   theme's colour after the theme is switched, while `getComputedStyle` reports the new
+   variable. The transition therefore lives on `:hover` only: hovering still fades in over
+   120ms, leaving is instant, and a theme change finds no transition to strand. */
+.ed-image-missing .btn {
+  background-color: var(--bg);
+  background-image: none;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  transition: none;
+}
+
+.ed-image-missing .btn:hover {
+  background-color: var(--bg-3);
+  transition: background-color 120ms ease-out;
+}
+
+.ed-image-missing .ed-image-alt {
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  color: var(--fg-2);
+}
+
+.ed-image-missing .ed-image-acts {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* The image itself is out of the way while the box explains why. */
+.milkdown-image-block.ed-missing img { display: none; }
+.milkdown-image-block.ed-missing .image-wrapper { display: block; }

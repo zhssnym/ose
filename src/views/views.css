@@ -1,0 +1,350 @@
+/* The views (src/views): Today, Planner, Journal and Settings › Views. Imported by
+   views/index.ts. Tokens only, both themes: every colour,
+   face and size is a token of `tokens.css`; every padding, margin and gap is a step of the
+   scale. The pixel numbers left are geometry (grid columns, the hour gutter, borders), never
+   spacing. Sentence case everywhere (M27): nothing here uppercases a label. */
+
+/* --------------------------------------- the page column's view chrome */
+
+/* Moved here from shell.css (wave 2, contract 2.1): the page column's furniture for a view —
+   the root a view mounts into, the title row with its period navigation, and a path that
+   navigates when it is clicked. The planner's views are the ones that use it. */
+
+/* The shell's .main-scroll is the scroller; a view must not open a second one. */
+.view-root { min-height: 100%; }
+.view-root:focus { outline: none; }
+/* A view's H1 carries `.page-title` but is not the editor's title strip: nothing is typed into
+   it, so it never wears a focus ring either, however focus reached it. */
+.page-title:not([contenteditable="true"]):focus-visible { outline: none; }
+
+/* title row with the previous / today / next group on the right, and the keys that drive it
+   said once, quietly, in front of the buttons (nav.ts navHtml) */
+.v-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+.v-nav { display: flex; align-items: center; flex: none; margin-top: var(--sp-2); }
+/* adjacent buttons share one border: the overlap is the border width, not spacing */
+.v-nav .btn + .btn { margin-left: -1px; }
+
+/* a source path in .page-meta, or any path that navigates when clicked: a button that reads
+   as the text around it, so it is in the tab order and lights up on focus like any control */
+.v-link {
+  display: inline; padding: 0; margin: 0; text-align: left;
+  font: inherit; color: inherit; cursor: default;
+  transition: color var(--t-fast);
+}
+.v-link:hover { color: var(--accent-ink); }
+.v-link:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius); }
+
+/* ------------------------------------------------------------------ the three voices */
+
+/* A view is the app talking over words the user wrote, so it has three voices and no fourth.
+   1. The title, `.view-title` on the view's <h1>: the document face, bold, 1.4 times the body.
+   2. Prose, `.view-prose`, on anything drawn out of the vault's own words: a journal entry, the
+      prose of a monthly plan. The document look, exactly as a page.
+   3. The chrome, everything else: `--font-ui` at `--fs-ui`, the body default, needs no rule. */
+
+/* Both classes are kept on the element, so this beats the chrome's `.page-title` on
+   specificity and not on the order the stylesheets happen to load in. */
+.page-title.view-title {
+  font-family: var(--font-doc);
+  font-size: var(--fs-doc-title);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+  text-align: left;
+  color: var(--fg);
+}
+
+.view-prose {
+  font-family: var(--font-doc);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+/* ------------------------------------------------------------------ quiet lines */
+
+/* A path not chosen, a path with nothing at it, the detected-paths notice, the todo file that
+   changed under a toggle: one quiet line in the chrome voice, never a red box (9.2). */
+.pl-quiet { padding: var(--sp-2) 0; font-size: var(--fs-ui); line-height: 1.5; color: var(--fg-3); }
+.pl-quiet .v-link { color: var(--accent-ink); text-decoration: underline; }
+.pl-detected { padding-top: 0; }
+/* the "N lines not understood" note in a meta line: a fact to look at, in the warn ink */
+.page-meta .pl-unknown { color: var(--warn-ink); }
+
+/* =============================================================== journal === */
+
+/* the layout answers to the width of the main column, not the window */
+.jr-root {
+  min-height: 100%; container-type: inline-size; container-name: jr;
+  /* where the text starts in each mode: compact is the row's 2px bar, its --sp-1 of padding,
+     the 52px date, a gap, the 26px weekday, a gap; full is the 96px date column and its gap */
+  --jr-c-inset: calc(2px + var(--sp-1) + 52px + var(--sp-3) + 26px + var(--sp-3));
+  --jr-d-inset: calc(96px + var(--sp-5));
+}
+.page-meta.jr-meta { gap: 0; }
+.jr-meta > span + span::before { content: "·"; margin: 0 var(--sp-2); color: var(--fg-3); }
+.jr-meta .jr-gap { color: var(--fg-2); }
+
+/* The writing box under the date: as tall as its text, Save under it on the right. */
+.jr-compose { margin: var(--sp-4) 0 var(--sp-5); }
+.jr-input { width: 100%; resize: none; display: block; }
+.jr-foot { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
+
+/* The record's mode on the right, one row above the record */
+.jr-bar { display: flex; align-items: center; justify-content: flex-end; height: 1.25rem; margin-bottom: var(--sp-half); }
+.jr-write { display: flex; align-items: center; gap: var(--sp-3); }
+.jr-hint { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.jr-mode {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm);
+}
+.jr-mode button { color: var(--fg-3); transition: color var(--t-fast); }
+.jr-mode button:hover { color: var(--fg-2); }
+.jr-mode button.on { color: var(--fg); }
+.jr-mode-sep { color: var(--border-strong); }
+
+.jr-day {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0 var(--sp-5);
+  padding: var(--sp-5) 0;
+}
+.jr-date {
+  grid-column: 1; align-self: start; padding-top: var(--sp-1);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: 1.55;
+}
+.jr-d1 { display: block; color: var(--fg-2); white-space: nowrap; }
+.jr-d2 { display: block; color: var(--fg-3); }
+.jr-open {
+  display: block; margin-top: var(--sp-2); text-align: left; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  opacity: 0; transition: opacity var(--t-fast), color var(--t-fast);
+}
+.jr-day:hover .jr-open, .jr-open:focus { opacity: 1; }
+.jr-open:hover { color: var(--accent-ink); text-decoration: underline; }
+.jr-body { grid-column: 2; min-width: 0; color: var(--fg); overflow-wrap: break-word; }
+.jr-body p { margin: 0 0 var(--sp-3); }
+.jr-body p:last-child { margin-bottom: 0; }
+.jr-body .jr-h { font-weight: 600; margin: 0 0 var(--sp-2); }
+.jr-body .jr-h:not(:first-child) { margin-top: var(--sp-4); }
+/* an entry drawn by the editor's renderer keeps the record's face and size */
+.jr-body .md-render { font: inherit; }
+.jr-sep { width: var(--sp-6); height: 0; border: 0; border-top: 1px solid var(--border); margin: var(--sp-4) 0; }
+
+.jr-c { position: relative; border-top: 1px solid var(--border); }
+.jr-c-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; height: var(--row-h); padding: 0 0 0 var(--sp-1); text-align: left;
+  border-left: 2px solid transparent;
+  transition: background var(--t-fast);
+}
+.jr-c-row:hover { background: var(--bg-3); }
+.jr-c.open > .jr-c-row { border-left-color: var(--accent); }
+.jr-c-d { flex: none; width: 52px; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-2); }
+.jr-c-w { flex: none; width: 26px; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.jr-c-t {
+  flex: 1; min-width: 0; padding-right: calc(var(--sp-7) * 2);
+  font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jr-c.open .jr-c-t { color: var(--fg-2); }
+.jr-c-open { position: absolute; right: 0; top: 0; height: var(--row-h); display: flex; align-items: center; margin: 0; }
+.jr-c:hover .jr-c-open, .jr-c-open:focus { opacity: 1; }
+.jr-c-body { padding: var(--sp-3) 0 var(--sp-5) var(--jr-c-inset); }
+
+.jr-year {
+  border-top: 1px solid var(--border);
+  padding: var(--sp-4) 0 0; margin: 0 0 var(--sp-4);
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+}
+.jr-year + .jr-day { padding-top: 0; }
+.jr-year + .jr-c { border-top: 0; }
+
+.jr-more { padding: var(--sp-4) 0 0; padding-left: var(--jr-d-inset); border-top: 1px solid var(--border); }
+.jr-record.is-compact + .jr-more { padding-left: var(--jr-c-inset); }
+.jr-more-btn { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); transition: color var(--t-fast); }
+.jr-more-btn:hover { color: var(--accent-ink); }
+
+@container jr (max-width: 560px) {
+  .jr-day { grid-template-columns: minmax(0, 1fr); gap: var(--sp-2) 0; }
+  .jr-date, .jr-body { grid-column: 1; }
+  .jr-date { padding-top: 0; }
+  .jr-d1, .jr-d2 { display: inline; }
+  .jr-d2::before { content: " "; }
+  .jr-open { display: inline-block; margin: 0 0 0 var(--sp-3); opacity: 1; }
+  .jr-more, .jr-record.is-compact + .jr-more { padding-left: 0; }
+  .jr-c-body { padding-left: var(--sp-1); }
+  .jr-bar { flex-wrap: wrap; }
+}
+
+/* ===================================================== settings › planner === */
+
+/* Rows grouped by whitespace, not hairlines: the name with its buttons on the right, the
+   chosen path under it, then one sentence saying what the file is for. One column, so a long
+   path wraps at its slashes rather than letter by letter in a narrow settings page. */
+.pl-set { display: flex; flex-direction: column; gap: var(--sp-4); }
+.pl-set-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name act" "value value" "note note";
+  gap: var(--sp-1) var(--sp-3); align-items: center;
+}
+.pl-set-name { grid-area: name; font-size: var(--fs-ui); font-weight: 600; color: var(--fg); }
+.pl-set-value { grid-area: value; min-width: 0; }
+.pl-set-act { grid-area: act; display: flex; gap: var(--sp-2); }
+.pl-set-note { grid-area: note; font-size: var(--fs-chrome-sm); line-height: 1.5; color: var(--fg-3); max-width: 64ch; }
+.pl-set-path { color: var(--fg-2); overflow-wrap: anywhere; }
+.pl-set-none { font-size: var(--fs-ui); color: var(--fg-3); font-style: italic; }
+.pl-set-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.pl-set-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.pl-set-foot { display: flex; gap: var(--sp-2); padding-top: var(--sp-2); }
+.pl-set > .pl-quiet { padding-top: 0; }
+.pl-set-value .seg { display: inline-flex; }
+
+/* --------------------------------------------------------------------------- Planner */
+
+/* The zoom, as plain words: the one in front bright, the others dim, the status bar's grammar. */
+.pn-zoom { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-2); font-size: var(--fs-ui); color: var(--fg-3); }
+.pn-zoom-b { padding: 0; border: 0; background: none; font: inherit; color: var(--fg-3); cursor: pointer; }
+.pn-zoom-b + .pn-zoom-b::before { content: '·'; display: inline-block; margin-right: var(--sp-1); color: var(--fg-3); }
+.pn-zoom-b:hover { color: var(--fg-2); }
+.pn-zoom-b.on { color: var(--fg); cursor: default; }
+
+/* ------------------------------------------------------------------- Today and Planner */
+
+/* The four pages of the planner (planner/render.ts). The big picture, not the minute. A
+   page says what was meant and how it went, in the app's own colours: paper, ink for the words, terracotta for what was done. No times, no hours, no
+   boxes, no counts beside every line. One figure per page says how far things are; the rest is
+   on hover.
+
+   One component carries every zoom: rows of cells across the page. A week has seven cells, a
+   month one per day, a year twelve. A cell is filled when the thing was done, pale when it was
+   not, outlined when it is still to come. The first row is everything together, and its cells
+   deepen with the share that was done. */
+
+.pv {
+  --pv-margin: 9rem;                                         /* the names' column, on every page */
+  --pv-end: 3.5rem;                                          /* the one figure a row may end with */
+  --pv-line: calc(var(--fs-body) * var(--lh-body));          /* one line of the document face */
+  container-type: inline-size;
+}
+.pv .page-meta { margin-bottom: var(--sp-2); }
+.pv-sec { margin-top: var(--sp-4); }
+
+/* A section opens with its label and, at the right edge, how far it is, in words. */
+.pv-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.pv-sum { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); white-space: nowrap; }
+.pv-sum b { font-weight: 400; color: var(--fg); }
+button.label { cursor: pointer; transition: color var(--t-fast); }
+button.label:hover { color: var(--accent-ink); }
+
+/* The user's own words, in the document face. */
+.pv-what {
+  min-width: 0; overflow-wrap: break-word;
+  font-family: var(--font-doc); font-size: var(--fs-body); line-height: var(--pv-line); color: var(--fg);
+}
+
+/* ======================================================================= the heatmap === */
+
+/* The old month grid (git 8b4d47e, `.mo-matrix`), as it was: a names column in rem (it zooms
+   with the names), one true square per day sharing the rest (no day numbers), a loss column at the end; the summary
+   line is the last row. Its states: on (done) the accent; skip (missed, or due and still to
+   come) a ring on the page ground; off (not due, before the month began) a solid square; today
+   the accent ring. The square's own tooltip names the day. */
+.hm-wrap { overflow-x: auto; padding-bottom: var(--sp-2); }
+.hm {
+  --hm-name: var(--pv-margin);
+  --hm-loss: 40px;
+  --hm-cell-min: 12px;
+  display: grid;
+  grid-template-columns: var(--hm-name) repeat(var(--hm-days, 31), minmax(0, 1fr)) var(--hm-loss);
+  gap: var(--sp-half); width: 100%;
+  min-width: calc(var(--hm-name) + var(--hm-loss) + var(--hm-days, 31) * (var(--hm-cell-min) + var(--sp-half)));
+}
+.hm-lab {
+  display: flex; align-items: center; min-width: 0; padding-right: var(--sp-3);
+  font-size: var(--fs-ui); line-height: 1.2; color: var(--fg-2);
+}
+.hm-lab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-c { position: relative; min-width: 0; aspect-ratio: 1; align-self: center; background: var(--bg-3); }
+.hm-c.skip { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.hm-c.on { background: var(--accent); }
+.hm-c.today { box-shadow: inset 0 0 0 1px var(--accent); }
+.hm-c.today.on { box-shadow: none; }
+/* dropped on purpose that day: the solid square with a short flat line, 6px by 1px */
+.hm-c.drop::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 0.375rem; height: 1px;
+  transform: translate(-50%, -50%); background: var(--fg-3);
+}
+.hm-loss {
+  display: flex; align-items: center; justify-content: flex-end; min-width: 0;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--err);
+}
+.hm-sum {
+  grid-column: 1 / -1; margin-top: var(--sp-2); text-align: right;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+}
+
+/* ============================================================================ day === */
+
+/* Two columns, like the two pages of a paper planner: the day, and the tasks beside it. */
+/* the two lists stand well apart from the heatmap above them */
+.pv-day.pv-sec { margin-top: var(--sp-7); }
+.pv-day { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); column-gap: var(--sp-6); align-items: start; }
+@container (max-width: 36rem) { .pv-day { grid-template-columns: minmax(0, 1fr); } }
+
+/* One thing of the day: its box and its words. The box is centred on the first line:
+   (line - 1rem) / 2. */
+.pv-item {
+  display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; column-gap: var(--sp-3);
+  align-items: start; width: 100%; padding: calc(var(--sp-1) + var(--sp-half)) 0; text-align: left;
+}
+.pv-item .check, .pv-goal .check { margin-top: calc((var(--pv-line) - 1rem) / 2); }
+button.pv-item, .pv-box { cursor: pointer; }
+button.pv-item:hover .check, button.pv-goal:hover .check, .pv-box:hover .check { border-color: var(--accent); }
+.pv-item.is-done .pv-what { color: var(--fg-2); }
+.pv-item.is-skipped .pv-what, .pv-item.is-plain .pv-what { color: var(--fg-3); }
+.pv-item.is-struck .pv-what { color: var(--fg-3); text-decoration: line-through; }
+/* a box that says "not today": the app's box with a flat line in it */
+.check.skip::after { content: ""; width: 0.5rem; height: 2px; background: var(--fg-3); }
+.pv-late { font-family: var(--font-mono); font-size: var(--fs-chrome-sm); line-height: var(--pv-line); color: var(--accent-ink); }
+
+/* The new task: a field with only its baseline, starting where the words above it start. */
+/* The line that adds a task: a row like the tasks above it, its box a ghost of theirs, dashed,
+   standing for the task not written yet. A click on the box puts the caret in the line. */
+.pv-new { cursor: text; }
+.pv-new .check.ghost {
+  margin-top: calc(var(--sp-1) + (var(--pv-line) - 1rem) / 2);
+  background: transparent; border-style: dashed; border-color: var(--border-strong);
+}
+.pv-new:focus-within .check.ghost { border-color: var(--accent); }
+.pv-new .check.ghost { transition: border-color var(--t-fast); }
+.pv-field {
+  display: block; width: 100%; margin: 0;
+  padding: var(--sp-1) 0; border: 0; border-radius: 0; background: none;
+  font-family: var(--font-doc); font-size: var(--fs-body); line-height: var(--pv-line); color: var(--fg);
+  user-select: text; cursor: text;
+}
+.pv-field::placeholder { color: var(--fg-3); }
+/* no underline: the ghost box says where a task goes, and lights while one is typed */
+.pv-field:focus, .pv-field:focus-visible { outline: none; }
+
+/* ================================================================ goals, notes, review === */
+
+/* A name in the margin, what belongs to it beside it: an area and its goals, a day and its
+   note, an area of the review and its paragraphs. */
+.pv-area { display: grid; grid-template-columns: var(--pv-margin) minmax(0, 1fr); align-items: start; }
+.pv-area + .pv-area { margin-top: var(--sp-3); }
+.pv-area-name { padding: calc(var(--sp-1) + var(--sp-half)) var(--sp-4) calc(var(--sp-1) + var(--sp-half)) 0; color: var(--fg-2); }
+.pv-area-grade { display: block; font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3); }
+.pv-goal {
+  display: grid; grid-template-columns: 1rem minmax(0, 1fr); column-gap: var(--sp-3);
+  align-items: start; width: 100%; padding: calc(var(--sp-1) + var(--sp-half)) 0; text-align: left;
+}
+button.pv-goal { cursor: pointer; }
+.pv-goal.is-done .pv-what { color: var(--fg-2); }
+/* a goal written as a plain bullet has no box: the document's own dot stands there */
+.pv-bullet { width: 1rem; height: var(--pv-line); display: grid; place-items: center; }
+.pv-bullet::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--fg-3); }
+.pv-review .md-render { padding: calc(var(--sp-1) + var(--sp-half)) 0; }
+/* the few words the file holds about the day, under its title */
+.pv-daynote { margin: 0; font-style: italic; color: var(--fg-2); }
+.pv-intro { margin-bottom: var(--sp-2); }
+.pv-empty { font-family: var(--font-mono); font-size: var(--fs-chrome); color: var(--fg-3); padding: var(--sp-2) 0; }
+.pv .pl-quiet { padding: var(--sp-1) 0; }

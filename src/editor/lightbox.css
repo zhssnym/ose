@@ -1,0 +1,40 @@
+/* The lightbox (lightbox.ts): the overlay's dimmed backdrop, the picture as large as fits,
+   its name small underneath. No surface around it: the scrim is the frame. */
+
+/* In the page, the picture says it can be enlarged. */
+.milkdown .milkdown-image-block:not(.ed-missing) .image-wrapper > img { cursor: zoom-in; }
+
+.ov-box.ed-lightbox {
+  position: relative;
+  max-width: 92vw; max-height: 92vh;
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  background: transparent; border: 0; box-shadow: none;
+  overflow: visible;
+  cursor: zoom-out;
+}
+
+.ed-lightbox-img {
+  display: block;
+  max-width: 92vw;
+  max-height: calc(92vh - var(--ctl-h) - var(--sp-2));
+  object-fit: contain;
+  min-height: 0;
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+.ed-lightbox-cap {
+  max-width: 92vw;
+  padding: var(--sp-half) var(--sp-2);
+  background: var(--bg); color: var(--fg-2);
+  border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: var(--fs-chrome);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.btn.ed-lightbox-close {
+  position: fixed; top: var(--sp-3); right: var(--sp-3);
+  background: var(--bg); color: var(--fg-2);
+}
+.ed-lightbox-close:focus-visible { outline: none; box-shadow: var(--focus); }

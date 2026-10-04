@@ -1,0 +1,4 @@
+# Fixtures are bytes, not text: a test that asks "are the untouched bytes the same" must get the
+# same bytes on every clone, whatever git's line-ending settings are. The repo-wide
+# `* text=auto eol=lf` would let git rewrite them.
+* -text

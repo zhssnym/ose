@@ -1,0 +1,497 @@
+/* The landing page. It stands alone (the Vercel project serves this folder as it is, with no
+   build), so the tokens it uses are copied from src/ui/styles/tokens.css, with the same names
+   and the same values: tests/site/tokens.test.js fails the moment one of them drifts. Change a
+   value there, then here. The theme is the visitor's device's until they choose one with
+   the switch at the top; index.html sets it on <html> before the first paint, as the app does. */
+
+:root {
+  color-scheme: light;
+
+  --bg: #FAF9F5;
+  --bg-2: #F3F1EA;
+  --bg-3: #E9E6DC;
+  --border: #DDD9CC;
+  --border-strong: #B9B4A4;
+  --fg: #1F1E1D;
+  --fg-2: #5C5952;
+  --fg-3: #6B6759;
+  --accent: #D97757;
+  --accent-hover: #C8664A;
+  --accent-fg: #FFFFFF;
+  --accent-ink: #A2492B;
+  --sel: rgba(217, 119, 87, .22);
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  --font-title: Georgia, "Times New Roman", "Noto Serif", serif;
+  --font-doc: Cambria, "Times New Roman", Georgia, serif;
+
+  --fs-chrome: 0.75rem;
+  --fs-chrome-sm: 0.6875rem;
+  --fs-content: 0.9375rem;
+  --fs-body: 1rem;
+  --fs-title: 2.125rem;
+  --lh-body: 1.35;
+  --fs-doc-h2: calc(var(--fs-body) * 1.1);
+  --doc-gap: 0.3em;
+
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  --radius: 2px;
+  --ctl-h: 1.75rem;
+  --page-w: 45rem;
+  --page-pad-top: 5rem;
+  --page-pad-x: 3rem;
+
+  --t-fast: 120ms ease-out;
+  --focus: 0 0 0 1px var(--accent);
+}
+
+:root[data-os="mac"] {
+  --font-ui: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-title: "New York", Georgia, "Times New Roman", serif;
+  --font-doc: "Iowan Old Style", Palatino, Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #191919;
+  --bg-2: #202020;
+  --bg-3: #2C2C2C;
+  --border: #2F2F2F;
+  --border-strong: #4A4A4A;
+  --fg: #D4D4D4;
+  --fg-2: #A8A8A8;
+  --fg-3: #969696;
+  --accent: #D97757;
+  --accent-hover: #E38A6C;
+  --accent-fg: #191919;
+  --accent-ink: #E38A6C;
+  --sel: rgba(217, 119, 87, .30);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; }
+}
+
+/* the page
+
+   Large and quiet, in the app's own voice: its title face for what is said, its document face
+   for the sentence under it, its mono for the names of things, one accent. Boxes, not rules;
+   whitespace does the grouping. Every size below is a multiple of a token, so the page grows
+   and shrinks with the app's scale. Pictures only: no film, nothing that moves. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  /* the page's own measures, all drawn from the tokens */
+  --wide: calc(var(--page-w) * 1.6);                 /* the pictures */
+  --measure: calc(var(--page-w) * 0.8);              /* a sentence */
+  --pad: var(--page-pad-x);
+  --gap: calc(var(--sp-7) * 2.25);                   /* between two parts of the page */
+  --fs-hero: clamp(calc(var(--fs-title) * 1.3), 6vw, calc(var(--fs-title) * 2.25));
+  --fs-say: clamp(calc(var(--fs-title) * 0.9), 3.4vw, calc(var(--fs-title) * 1.35));
+  --fs-lead: calc(var(--fs-body) * 1.3);
+  --fs-line: calc(var(--fs-body) * 1.15);
+
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-content);
+  line-height: var(--lh-body);
+}
+
+::selection { background: var(--sel); }
+
+a { color: var(--accent-ink); }
+
+a:focus-visible, button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--radius);
+}
+
+.wrap {
+  max-width: calc(var(--wide) + var(--pad) * 2);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+/* the top: the mark and the name, and the theme. Nothing else: the download is said once,
+   just below. */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--sp-5);
+  padding-bottom: var(--sp-5);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-title);
+  font-size: calc(var(--fs-body) * 1.5);
+  line-height: 1;
+  color: var(--fg);
+}
+
+.mark {
+  width: 0.8em;
+  height: 0.8em;
+  fill: var(--accent);
+}
+
+/* the theme, switched as the app's status bar switches Rich and Source */
+.seg {
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+}
+
+.seg button {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+
+.seg button:hover { color: var(--fg-2); }
+
+.seg button[aria-pressed="true"] { color: var(--fg); }
+
+.seg button + button::before {
+  content: "·";
+  margin: 0 var(--sp-2);
+  color: var(--fg-3);
+}
+
+/* what it is: the motto, two sentences, where to get it */
+.hero {
+  padding-top: calc(var(--sp-7) * 1.75);
+  padding-bottom: var(--sp-7);
+}
+
+.hero h1 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: var(--fs-hero);
+  font-weight: 400;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.hero h1 em { font-style: italic; }
+
+.lead {
+  max-width: var(--measure);
+  margin: var(--sp-5) 0 var(--sp-6);
+  font-family: var(--font-doc);
+  font-size: var(--fs-lead);
+  line-height: 1.4;
+  color: var(--fg-2);
+}
+
+.get {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: calc(var(--ctl-h) * 1.5);
+  padding: 0 var(--sp-5);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.btn:hover { background: var(--bg-3); }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn svg {
+  width: 1.25em;
+  height: 1.25em;
+  fill: currentColor;
+}
+
+.meta {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+}
+
+/* a part of the page: the name of the thing, what it is, a few sentences, its pictures */
+.plate { margin-top: var(--gap); }
+
+.hero + .plate { margin-top: var(--sp-7); }
+
+/* the statement may run wider than the sentences under it, so that it keeps to one line */
+.say { max-width: calc(var(--measure) * 1.5); }
+
+.label {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  color: var(--fg-3);
+}
+
+.plate h2, .end h2 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: var(--fs-say);
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.say .line {
+  max-width: var(--measure);
+  margin: var(--sp-4) 0 0;
+  font-family: var(--font-doc);
+  font-size: var(--fs-line);
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+
+.say b { font-weight: 700; color: var(--fg); }
+
+/* a picture: the app as it is, in the page's theme. A click opens it large (main.js); without
+   the script the link opens the picture itself. */
+.shot { margin: var(--sp-6) 0 0; }
+
+.zoom { display: block; cursor: zoom-in; }
+
+.zoom img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+:root[data-theme="dark"] .zoom.light,
+:root:not([data-theme="dark"]) .zoom.dark { display: none; }
+
+.under {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome-sm);
+  color: var(--fg-3);
+}
+
+.aside { margin-top: var(--sp-5); }
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-5);
+}
+
+.pair .shot { margin-top: var(--sp-5); }
+
+.shot + .pair .shot { margin-top: var(--sp-5); }
+
+/* a few things said in a line or two each, as file cards */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+
+.fact {
+  padding: var(--sp-5);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.fact h3 {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  font-weight: 400;
+  color: var(--fg-3);
+}
+
+.fact p {
+  margin: 0;
+  font-family: var(--font-doc);
+  font-size: var(--fs-line);
+  line-height: 1.4;
+}
+
+/* the way out: the download again, in the page's one large box, set as the top of the page is */
+.end {
+  margin-top: var(--gap);
+  margin-bottom: var(--gap);
+  padding: var(--sp-7);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.end .note {
+  max-width: var(--measure);
+  margin: var(--sp-4) 0 var(--sp-6);
+  font-family: var(--font-doc);
+  font-size: var(--fs-line);
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+
+.end .note b { font-weight: 700; color: var(--fg); }
+
+/* a picture opened large: the page gives way to a small gallery. A bar as the app's title bar
+   is (which picture of how many, its name, back and forth, Close), the picture, and a square
+   per picture to jump with. A click on the picture shows it at its full size, to look closely;
+   a click beside it puts the gallery away. */
+.lightbox {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: 0;
+}
+
+.lightbox[open] { display: flex; flex-direction: column; }
+
+/* the gallery holds the focus itself (main.js) and fills the window: it needs no ring */
+.lightbox:focus { outline: none; }
+
+.lightbox .bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: none;
+  padding: var(--sp-2) var(--sp-5);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  color: var(--fg-3);
+}
+
+.lightbox .what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.lightbox .nav { display: flex; flex: none; }
+
+.lightbox .btn {
+  height: var(--ctl-h);
+  padding: 0 var(--sp-3);
+  border-color: var(--border);
+}
+
+/* an arrow key pressed: the button it stands for answers */
+.lightbox .btn.is-pressed { background: var(--bg-3); }
+
+/* adjacent buttons share one border: the overlap is the border's width */
+.lightbox .btn + .btn { margin-left: -1px; }
+
+.lightbox .stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: var(--sp-5);
+  overflow: auto;
+}
+
+.lightbox img {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: zoom-in;
+}
+
+.lightbox.full img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.lightbox .dots {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-5) var(--sp-4);
+}
+
+.lightbox .dots button {
+  width: var(--sp-4);
+  height: var(--sp-4);
+  padding: 0;
+  background: var(--bg-3);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.lightbox .dots button:hover { background: var(--border-strong); }
+
+.lightbox .dots button[aria-current="true"] { background: var(--accent); }
+
+@media (max-width: 52rem) {
+  body { --pad: var(--sp-4); --gap: calc(var(--sp-7) * 1.5); }
+  .hero { padding-top: var(--sp-7); padding-bottom: var(--sp-6); }
+  .pair, .facts { grid-template-columns: minmax(0, 1fr); }
+  .end { padding: var(--sp-5); }
+  .get .meta { flex-basis: 100%; }
+  .lightbox .bar { padding: var(--sp-2) var(--sp-3); gap: var(--sp-3); }
+  .lightbox .stage { padding: var(--sp-3); }
+}

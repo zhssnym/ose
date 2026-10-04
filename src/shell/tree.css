@@ -1,0 +1,128 @@
+/* The sidebar (src/shell/sidebar.ts). Tokens only, both
+   themes. Copied from shell.css's `sidebar` block at the start of wave 2 and owned here since;
+   this sheet loads after shell.css, so where the two still overlap this one wins. */
+
+/* ------------------------------------------------------------------ sidebar */
+
+.sidebar {
+  width: var(--sidebar-w); flex: none;
+  display: flex; flex-direction: column;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+/* A folded sidebar leaves its resizer behind as a thin edge on the window's left (places.css):
+   dragging it out opens the sidebar again. */
+.shell.no-sidebar .sidebar { display: none; }
+
+.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
+.sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
+.sb-scroll > .sb-files:first-child { padding-top: var(--sp-2); }
+
+.sb-tool-collapse svg { transform: rotate(-90deg); }
+
+
+/* One grid for every sidebar row: a 1rem chevron slot, a 0.875rem glyph, the name, an
+   optional mono tail. A folder and a page at the same depth put their text at the same x.
+   The name of a depth-0 row starts at --tree-inset: 2px bar + --sp-2 + 1rem + --sp-1 +
+   0.875rem + --sp-1 = 3rem at 100 %, and each depth steps in by one glyph width. Those two
+   widths are geometry, not spacing, and stay as numbers — in rem, so the whole row follows
+   the zoom; change one and --tree-inset in tokens.css moves with it. */
+.sb-row {
+  width: 100%; text-align: left; cursor: default;
+  display: grid;
+  grid-template-columns: 1rem 0.875rem minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-1);
+  padding-left: calc(var(--sp-2) + var(--d, 0) * 0.875rem);
+  padding-right: var(--sp-2);
+}
+.sb-row .tw { width: 1rem; height: 1rem; display: grid; place-items: center; }
+.sb-row .tw svg { width: 0.6875rem; height: 0.6875rem; color: var(--fg-3); transition: transform var(--t-fast); }
+.sb-row .tw.open svg { transform: rotate(90deg); }
+.sb-row .gl { width: 0.875rem; height: 0.875rem; display: grid; place-items: center; }
+/* The glyphs are the 16-unit icon set drawn at 0.875rem, which would thin their 1.5 stroke
+   to 1.31px on screen; 1.5 x 16 / 14 = 1.71 in the viewBox puts it back at 1.5 (E7). */
+.sb-row svg { width: 0.875rem; height: 0.875rem; stroke-width: 1.71; }
+.sb-row .grow { overflow: hidden; text-overflow: ellipsis; }
+/* A symlink or a junction: shown, because it is there, and greyed, because the app does not
+   walk into it. The `title` says so in words (S31). */
+.sb-row.link .gl, .sb-row.link .grow { color: var(--fg-3); }
+/* The parent folder of an ambiguous pin: right-aligned, mono, capped. `width: max-content`
+   is what stops the auto track from collapsing next to the 1fr name column. */
+.sb-row .par {
+  justify-self: end; width: max-content; max-width: 7.5rem;
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-row.dir { color: var(--fg); }
+.sb-row.file { color: var(--fg-2); }
+.sb-row.file:hover { color: var(--fg); }
+.sb-row.current { color: var(--fg); }
+/* The vault's own row: its name, a shade stronger than a folder, and the tree under it. */
+.sb-root .grow { font-weight: 600; }
+.sb-view svg { color: var(--fg-3); }
+.sb-view.current svg { color: var(--accent); }
+.sb-row.current .gl svg { color: var(--accent); }
+/* Multi-select (C17): a selected row sits one surface up; the current page keeps its accent
+   over that, so the open page is never lost inside a selection. That one surface up is --bg-4,
+   the one ground --fg-3 does not clear 4.5:1 on (4.05 light / 4.00 dark — tokens.css says so),
+   so the dim spans on a selected row step up to --fg-2: 5.00 / 5.07 (QA F17). */
+.sb-row.selected { background: var(--bg-4); }
+.sb-row.selected.current { background: var(--accent-soft); }
+.sb-row.selected .par,
+.sb-row.selected .hint,
+.sb-row.selected.hidden-entry .gl,
+.sb-row.selected.hidden-entry .grow,
+.sb-row.selected.cut .gl,
+.sb-row.selected.cut .grow,
+.sb-row.selected.link .gl,
+.sb-row.selected.link .grow { color: var(--fg-2); }
+
+/* A hidden entry (a dotfile, or one the system marks hidden), shown because Show hidden items
+   is on: greyed, like Explorer draws it. A cut row waiting for Paste, the same. */
+.sb-row.hidden-entry .gl, .sb-row.hidden-entry .grow,
+.sb-row.cut .gl, .sb-row.cut .grow { color: var(--fg-3); }
+.sb-row.cut .grow { font-style: italic; }
+/* The link badge after the name: the tooltip names the kind (docs/HOST.md `Entry.link`). */
+.sb-link { display: grid; place-items: center; color: var(--fg-3); }
+.sb-link svg { width: 0.6875rem; height: 0.6875rem; }
+.sb-row .hint {
+  font-family: var(--font-mono); font-size: var(--fs-chrome-sm); color: var(--fg-3);
+  white-space: nowrap;
+}
+/* The last row, Trash, a little apart from the tree it ends. */
+.sb-tail { margin-top: var(--sp-3); }
+/* One row is the tab stop (D2); its focus ring sits inside the row because the scroller clips
+   anything drawn outside it, which is where the base 2px offset would put it. */
+.sb-row:focus-visible { outline-offset: -1px; }
+/* Empty lines start where the name of a depth-0 row does (E9). One size for both, from `.empty`. */
+.sb-empty {
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) calc(var(--tree-inset) + var(--d, 0) * 0.875rem);
+  text-align: left;
+}
+
+/* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
+.sb-row[draggable="true"] { -webkit-user-drag: element; }
+.sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
+.sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Focus mode: the Vault heading, replaced. One line, on the heading's own baseline. */
+.sb-focus-label {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding-right: var(--sp-2);
+}
+.sb-focus-key { flex: none; color: var(--accent); }
+.sb-focus-path {
+  flex: 1; min-width: 0; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-focus-exit {
+  flex: none; align-self: center;
+  width: 1rem; height: 1rem; display: grid; place-items: center;
+  color: var(--fg-3); border-radius: var(--radius);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sb-focus-exit svg { width: 0.6875rem; height: 0.6875rem; }
+.sb-focus-exit:hover { background: var(--bg-3); color: var(--fg); }
+
