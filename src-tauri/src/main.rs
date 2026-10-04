@@ -372,6 +372,11 @@ fn setup(app: &mut tauri::App, opts: &args::Args) -> Result<(), Box<dyn std::err
             // A vault's state and its file history live here too: nothing of the app in the vault.
             ose::state::set_home(dir.clone());
             ose::versions::set_home(dir.clone());
+            // Spellcheck as underlines only (spell.rs), said before the first web view exists.
+            match ose::spell::prepare(&handle.config().identifier) {
+                Ok(what) => log_line(host, &format!("spellcheck: {what}")),
+                Err(e) => log_line(host, &format!("spellcheck: {e}")),
+            }
             host.set_data_dir(dir);
         }
         Err(e) => log_line(host, &format!("drafts: no app data folder: {e}")),

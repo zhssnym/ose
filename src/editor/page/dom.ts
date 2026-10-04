@@ -275,6 +275,11 @@ export function installDom(ctx: PageCtx) {
       if (!dom) continue;
       dom.setAttribute('spellcheck', String(on_));
       dom.setAttribute('lang', lang);
+      // Underlines and nothing more: no word rewritten as it is typed, no capital added, no
+      // completion offered. The rest is the host's to say (src-tauri, spell.rs).
+      dom.setAttribute('autocorrect', 'off');
+      dom.setAttribute('autocapitalize', 'off');
+      dom.setAttribute('writingsuggestions', 'false');
     }
   }
 

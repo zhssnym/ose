@@ -26,6 +26,7 @@ src-tauri/
   src/trashbin.rs   the trash;  outside.rs  files outside every vault
   src/protocol.rs   the `vault` scheme;  print.rs  PDF and print (WebView2, Windows only)
   src/platform.rs   opening URLs, revealing files, the version line
+  src/spell.rs      spellcheck as underlines only: on macOS, underlines on and autocorrect off
 ```
 
 The page's side is `src/core/bridge/`: `bindings.ts` (generated), `tauri.ts` (the adapter over
