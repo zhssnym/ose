@@ -62,21 +62,18 @@ export async function makeCrepe(o: { root: HTMLElement; markdown: string; resolv
     defaultValue: o.markdown ?? '',
     features: {
       [CrepeFeature.ImageBlock]: true,
-      [CrepeFeature.Toolbar]: false,
+      [CrepeFeature.Toolbar]: true,
       [CrepeFeature.Placeholder]: true,
       [CrepeFeature.Table]: true,
       [CrepeFeature.CodeMirror]: true,
       [CrepeFeature.LinkTooltip]: true,
       [CrepeFeature.ListItem]: true,
       [CrepeFeature.Cursor]: true,
-      // off: Toolbar (the box that pops up over a selection; the formatting bar, bar.ts, is
-      //      always there and holds the same buttons, and a second set over the text hid the
-      //      line above the one being formatted),
-      //      Latex (KaTeX, its Computer Modern and its sixty font files, and a `$` rule read
+      // off: Latex (KaTeX, its Computer Modern and its sixty font files, and a `$` rule read
       //      like a code span, so a price in a journal entry becomes a formula; maths is
       //      math.ts and math-node.ts instead, on the pandoc rule and Temml),
-      //      TopBar (Crepe's fixed ribbon; ours is bar.ts, which runs the app's own commands
-      //      and sits over the column, not in it), AI (no AI surface in the app), BlockEdit (it is only the gutter
+      //      TopBar (a fixed formatting ribbon; the selection toolbar and the slash menu do
+      //      that job), AI (no AI surface in the app), BlockEdit (it is only the gutter
       //      handle, removed in batch 2, plus a slash menu that cannot be retriggered or
       //      refiltered through its config; slash.ts replaces the menu entirely).
       [CrepeFeature.Latex]: false,

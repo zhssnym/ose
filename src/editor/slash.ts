@@ -48,8 +48,7 @@ export const slashMenuOpen = () => openMenus.size > 0;
 const svg16 = (d) => `<svg viewBox="0 0 16 16" aria-hidden="true">${d}</svg>`;
 const H = '<path d="M3 4v8M8 4v8M3 8h5"/>';
 
-/** The block icons, by kind: the slash menu's, and the formatting bar's (bar.ts). */
-export const I = {
+const I = {
   text: svg16('<path d="M3 4.5h10M3 8h7M3 11.5h5"/>'),
   h1: svg16(H + '<path d="m10.6 6.6 1.6-1.1V11"/>'),
   h2: svg16(H + '<path d="M10.6 6.6a1.5 1.5 0 1 1 2.6 1.1L10.6 11h3.2"/>'),

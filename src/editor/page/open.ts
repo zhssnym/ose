@@ -14,7 +14,6 @@ import { parseDoc } from '../doc.ts';
 import * as P from '../paths.ts';
 import { attachSheets } from '../sheets.ts';
 import { attachMarquee } from '../marquee.ts';
-import { createBar } from '../bar.ts';
 import {
   afterLayout, blankPage, checkOpened, editorView, errCode, errText, hasEditor, INTERNAL,
   makeCrepe, nextRev, PlainDoc, recoveredModeOf, seenRev,
@@ -270,10 +269,6 @@ export function installOpen(ctx: PageCtx) {
       ctx.wireDrops(p);
       // The third argument is what a replacement calls: an edit like any other (M5).
       p.find = createFind(p.el, () => (p.crepe ? editorView(p.crepe) : null), () => ctx.markDirty(p));
-      // The formatting bar (bar.ts): over the column, in the page's host, so it parks with it.
-      const bar = createBar(() => (p.crepe ? editorView(p.crepe) : null));
-      p.el.before(bar.el);
-      p.cleanups.push(bar.destroy);
       // Page view: the rules where each A4 sheet ends (sheets.ts). Idle unless the layout is `pages`.
       p.cleanups.push(attachSheets(p.el, () => p.bodyEl.querySelector('.ProseMirror')));
       // The rubber band from the air around the blocks to a block selection (marquee.ts).

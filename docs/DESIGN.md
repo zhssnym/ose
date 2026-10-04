@@ -208,12 +208,6 @@ Task checkboxes are 16px squares, 1px `--border-strong`, filled `--accent` with 
 done, the text struck through in `--fg-3`. Images take the column width with a 1px border. The
 block handle and the slash menu sit in the left gutter, on hover only, in the chrome's face.
 
-Over a Rich page sits the formatting bar (`src/editor/bar.ts`): one `--panelhead-h` row stuck to
-the top of the scroller, `--bg` with a bottom hairline, its buttons `--ctl-h` squares laid on the
-column's measure, lit in `--accent-ink` on `--bg-3` when the caret is in what they give. It is
-chrome: not on the sheet, not on paper. Each button runs a command that is in the palette; the
-bar is for the mouse and is out of the Tab order. Nothing pops up over a selection.
-
 ## Print and PDF
 
 `page.export-pdf` (Ctrl+Alt+P) opens the print dialog with the page's title as the document's
