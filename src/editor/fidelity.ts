@@ -398,3 +398,22 @@ export function unmarkBreaks(doc: import('@milkdown/kit/prose/model').Node): imp
   for (const [pos, m] of at) tr.removeMark(pos, pos + 1, m);
   return tr.doc;
 }
+
+/**
+ * The document with no empty inline formula. Insert a formula opens one with nothing in it, and
+ * the page saves while its source is still being typed; `$$` is not an empty inline formula but
+ * the start of a display one, so it could never be written. Nothing in it means nothing to
+ * write: the save leaves it out, and the formula is in the next save once it holds TeX. Leaving
+ * its box empty takes it out of the page as well (math-node.ts `empty`).
+ */
+export function dropEmptyFormulas(doc: import('@milkdown/kit/prose/model').Node): import('@milkdown/kit/prose/model').Node {
+  const at: number[] = [];
+  doc.descendants((n, pos) => {
+    if (n.type.name === 'math_inline' && !String(n.attrs.value || '').trim()) at.push(pos);
+    return true;
+  });
+  if (!at.length) return doc;
+  const tr = new Transform(doc);
+  for (const pos of at.reverse()) tr.delete(pos, pos + 1);
+  return tr.doc;
+}

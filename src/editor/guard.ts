@@ -16,7 +16,7 @@
 // works on strings and ProseMirror nodes only.
 
 import { detectLineBreak, postProcess, reconcile, serializeContextKey, withSerializeContext } from './stringify.ts';
-import { htmlEndsBlock, unmarkBreaks } from './fidelity.ts';
+import { dropEmptyFormulas, htmlEndsBlock, unmarkBreaks } from './fidelity.ts';
 
 export interface MdEngine {
   parse: (md: string) => import('@milkdown/kit/prose/model').Node;
@@ -99,8 +99,9 @@ export function checkWrite(engine: MdEngine, doc: import('@milkdown/kit/prose/mo
     const lineBreak = detectLineBreak(original || '');
     // An html block always ends its paragraph (H2, fidelity.ts): text typed beside one is
     // written as the paragraph of its own the editor already shows it in. And a hard break
-    // carries no mark, which it could not show anyway (fidelity.ts `unmarkBreaks`).
-    const target = unmarkBreaks(htmlEndsBlock(doc));
+    // carries no mark, which it could not show anyway (fidelity.ts `unmarkBreaks`). A formula
+    // with nothing in it yet is not written (fidelity.ts `dropEmptyFormulas`).
+    const target = dropEmptyFormulas(unmarkBreaks(htmlEndsBlock(doc)));
     return withSerializeContext({ lineBreak, scope: target }, () => decide(engine, target, original));
   } catch (e) {
     return { status: 'unsafe', text: null, reason: `the guard failed: ${msg(e)}` };

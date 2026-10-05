@@ -451,3 +451,27 @@ describe('a text typed into an empty table cell keeps the column\'s padding', ()
     exact(await save('| a | b |\n|---|---|\n| 1 | |\n', (d) => intoEmptyCell(d, 'x')), '| a | b |\n|---|---|\n| 1 | x |\n');
   });
 });
+
+// Insert a formula opens an empty one and the page saves while its source is typed: `$$` is the
+// start of a display formula, so the save could not be written and the page fell back to text.
+describe('an empty formula, still being typed, is left out of the save', () => {
+  const md = '# Sheet\n\n## Expand\n\n(a+b)2 to a2\n';
+  const formula = (s, value) => s.nodes.math_inline.create({ value });
+  const cases = {
+    'alone on a new line': (d, s) => d.copy(d.content.addToEnd(s.nodes.paragraph.create(null, formula(s, '')))),
+    'at the start of a line of text': (d, s) => d.copy(d.content.replaceChild(2, s.nodes.paragraph.create(null, [formula(s, ''), ...d.child(2).content.content]))),
+    'spaces only': (d, s) => d.copy(d.content.addToEnd(s.nodes.paragraph.create(null, [s.text('x '), formula(s, '  ')]))),
+  };
+  for (const [name, edit] of Object.entries(cases)) {
+    it(name, async () => {
+      const r = await save(md, edit);
+      expect(r.w.status, `${r.w.reason}\n${JSON.stringify(r.w.text)}`).toBe('ok');
+      expect(r.w.text).not.toContain('$');
+    });
+  }
+
+  it('a formula with TeX in it is written as always', async () => {
+    const r = await save(md, (d, s) => d.copy(d.content.addToEnd(s.nodes.paragraph.create(null, formula(s, 'x^2')))));
+    exact(r, `${md}\n$x^2$\n`);
+  });
+});
