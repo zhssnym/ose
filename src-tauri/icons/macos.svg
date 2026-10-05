@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The Mac's icon: the tetrahedron of source.svg on a tile of Apple's grid (824 of 1024, the
+       rest for the shadow), because macOS puts any other shape on a grey tile of its own. The
+       tile is warm paper lit from the top; the solid casts a soft shadow onto it. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFDFA"/>
+      <stop offset="1" stop-color="#EEE7DE"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <filter id="solidShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#6E3018" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" filter="url(#tileShadow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#000000" stroke-opacity="0.07" stroke-width="2"/>
+  <g filter="url(#solidShadow)" transform="translate(215 266) scale(0.58)" stroke-width="9.6" stroke-linejoin="round">
+    <polygon points="512,57.6 44.8,870.4 512,599.68" fill="#ECA286" stroke="#ECA286"/>
+    <polygon points="512,57.6 512,599.68 979.2,870.4" fill="#D97757" stroke="#D97757"/>
+    <polygon points="44.8,870.4 979.2,870.4 512,599.68" fill="#B85A3C" stroke="#B85A3C"/>
+  </g>
+</svg>

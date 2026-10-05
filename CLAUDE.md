@@ -60,7 +60,9 @@ src/                TypeScript, built by Vite into one app (dist/); imports are 
 src-tauri/          the Rust host: every host command (commands.rs, typed for the page by
                     tauri-specta into src/core/bridge/bindings.ts), the vault's files, the
                     watcher, drafts, versions and state in the app's data folder, the window,
-                    the updater; tauri.conf.json, tauri.dev.json, icons/ (from icons/source.svg)
+                    the updater; tauri.conf.json, tauri.dev.json, icons/ (from icons/source.svg;
+                    icon.icns from icons/macos.svg, the same mark on the Mac's rounded tile:
+                    `npx tauri icon` on each, keeping only icon.icns from the second)
 site/               the landing page: static, no build (index.html, style.css, main.js, shots/:
                     pictures only, in both themes); a Vercel project serves this folder. Its
                     tokens are copies of the app's, held equal by tests/site/tokens.test.js
