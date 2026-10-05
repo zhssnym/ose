@@ -48,7 +48,8 @@ A vault that used the old day, week, month and journal plugins keeps its choices
 time, the paths saved under `plugins.<id>.paths` and the journal mode are copied into
 `planner`, and left where they were.
 
-The journal mode (full or compact) is kept in the same place.
+The journal mode (full or compact) is kept in the same place, and switched in the Journal itself:
+Settings › Views holds only where the views' files are.
 
 ## Todo lines
 

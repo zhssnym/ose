@@ -3,7 +3,7 @@
 
 import { ose } from '../core/core.ts';
 import { contextMenu, copyText, focusOrigin, icon, toast } from '../ui/index.ts';
-import { baseName, clean } from './paths.ts';
+import { baseName, clean, dirName } from './paths.ts';
 import { DRAG_TYPE, dragged, isInternal, setDragged } from './drag.ts';
 import { openSearch } from './search.ts';
 import { openInNewTab } from './tabs.ts';
@@ -18,7 +18,9 @@ import {
   showHidden, state,
 } from './sidebar-state.ts';
 import type { TreeNode } from './sidebar-state.ts';
-import { findNode, persistExpanded, render, scratchNode, vaultName } from './sidebar-tree.ts';
+import {
+  allPlannerViews, findNode, hiddenViews, persistExpanded, render, scratchNode, setViewHidden, vaultName,
+} from './sidebar-tree.ts';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
 } from './sidebar-select.ts';
@@ -32,7 +34,9 @@ import {
 // the window's guard (layout.ts) ignores it.
 
 let dragPaths: string[] | null = null;
-let dropEl: Element | null = null;
+// Where the drop in progress would land, and the dashed box drawn around all of it.
+let dropDir: string | null = null;
+let ghost: HTMLElement | null = null;
 
 /** The list an internal payload holds. A bare path (an older build's payload) is a list of one. */
 function parseDrag(data) {
@@ -41,27 +45,83 @@ function parseDrag(data) {
   return [clean(data)].filter(Boolean);
 }
 
-/** A folder row (tree, root or pin) or a label that stands for a folder. */
-function dropTargetOf(node) {
-  if (!node || !node.closest) return null;
-  const lab = node.closest('.section-label[data-drop]');
-  if (lab) return { el: lab, dir: lab.dataset.drop };
-  const row = node.closest('.sb-row.dir');
-  if (row && row.dataset.path !== undefined && !row.classList.contains('missing')) return { el: row, dir: row.dataset.path };
+type DropTarget = { dir: string, region: { from: Element, to: Element } };
+
+const depthOf = (el: Element) => Number((el as HTMLElement).style.getPropertyValue('--d')) || 0;
+
+/** A section's heading and its box, top to bottom: the region a drop on the section fills. */
+function sectionRegion(name: string): DropTarget['region'] | null {
+  const scroll = state.scrollEl;
+  const head = scroll && scroll.querySelector(`.section-label[data-section="${name}"]`);
+  const box = scroll && scroll.querySelector(`.sb-group[data-section="${name}"]`);
+  return box ? { from: head || box, to: box } : null;
+}
+
+/** A folder's row and every row drawn under it (its open contents), as one region. */
+function folderRegion(row: Element): DropTarget['region'] {
+  let last: Element = row;
+  const d = depthOf(row);
+  for (let n = row.nextElementSibling; n && depthOf(n) > d; n = n.nextElementSibling) last = n;
+  return { from: row, to: last };
+}
+
+/** The top of a section: the vault (or the focus folder) for Vault, the scratchpad folder for Scratchpad. */
+function sectionDir(name: string): string | null {
+  if (name === 'vault') return getFocus() || '';
+  if (name === 'scratch') { const s = scratchNode(); return s ? s.path : null; }
   return null;
+}
+
+/** The region that stands for folder `dir`: its section when it is one's top, else its row's block. */
+function regionOfDir(dir: string, section: string): DropTarget['region'] | null {
+  if (sectionDir(section) === dir) return sectionRegion(section);
+  const row = state.scrollEl && state.scrollEl.querySelector(`.sb-row.dir[data-path="${CSS.escape(dir)}"]`);
+  return row ? folderRegion(row) : sectionRegion(section);
+}
+
+/**
+ * Where a drop at `node` lands. A folder row: into it. A file row: beside it, in its folder. A
+ * section's heading or its empty space: its top (the vault, the focus folder or the
+ * scratchpad). The empty space under the last section belongs to that section. Views take nothing.
+ */
+function dropTargetOf(node): DropTarget | null {
+  if (!node || !node.closest || !state.scrollEl) return null;
+  const sectionEl = node.closest('[data-section]') || (node === state.scrollEl ? [...state.scrollEl.querySelectorAll('.sb-group[data-section]')].pop() : null);
+  const section = sectionEl ? sectionEl.dataset.section : null;
+  if (!section || section === 'views') return null;
+  const row = node.closest('.sb-row[data-path]');
+  if (row && row.classList.contains('dir') && !row.classList.contains('missing')) {
+    return { dir: row.dataset.path, region: folderRegion(row) };
+  }
+  const dir = row ? dirName(row.dataset.path) : sectionDir(section);
+  if (dir === null) return null;
+  const region = regionOfDir(dir, section);
+  return region ? { dir, region } : null;
 }
 
 // Into itself, under itself, or where it already is: no. The same rule Move to… uses.
 const canDropInto = (from, dir) => canMoveInto(from, dir);
 
-function setDropEl(node: Element | null) {
-  if (dropEl === node) return;
-  if (dropEl) dropEl.classList.remove('drop-on');
-  dropEl = node;
-  if (dropEl) dropEl.classList.add('drop-on');
+/** Draw the dashed box over `t`'s region, or take it away. */
+function showGhost(t: DropTarget | null) {
+  const scroll = state.scrollEl;
+  dropDir = t ? t.dir : null;
+  if (!t || !scroll) { if (ghost) ghost.hidden = true; return; }
+  if (!ghost || ghost.parentElement !== scroll) {
+    ghost = document.createElement('div');
+    ghost.className = 'sb-drop-ghost';
+    ghost.setAttribute('aria-hidden', 'true');
+    scroll.appendChild(ghost);
+  }
+  const base = scroll.getBoundingClientRect();
+  const a = t.region.from.getBoundingClientRect();
+  const b = t.region.to.getBoundingClientRect();
+  ghost.style.top = `${a.top - base.top + scroll.scrollTop}px`;
+  ghost.style.height = `${b.bottom - a.top}px`;
+  ghost.hidden = false;
 }
 
-function endDrag() { dragPaths = null; setDragged(null); setDropEl(null); }
+function endDrag() { dragPaths = null; setDragged(null); showGhost(null); }
 
 export function bindDnd(host) {
   host.addEventListener('dragstart', (e) => {
@@ -82,22 +142,23 @@ export function bindDnd(host) {
   host.addEventListener('dragover', (e) => {
     // A drag `dragPaths` missed is internal too when it carries drag.ts's paths.
     const moving = dragPaths || dragged();
-    if (!moving && !isInternal(e.dataTransfer)) { setDropEl(null); return; }
+    if (!moving && !isInternal(e.dataTransfer)) { showGhost(null); return; }
     const t = dropTargetOf(e.target);
-    // Every dragged item has to be able to land there, or the folder does not light up.
+    // Every dragged item has to be able to land there, or nothing is outlined.
     if (!t || !(moving || []).every((p) => canDropInto(p, t.dir))) {
-      setDropEl(null);
+      showGhost(null);
       e.preventDefault();                       // still ours: the web view never navigates to it
       e.dataTransfer.dropEffect = 'none';
       return;
     }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDropEl(t.el);
+    if (t.dir !== dropDir) showGhost(t);
   });
 
   host.addEventListener('dragleave', (e) => {
-    if (dropEl && !dropEl.contains(e.relatedTarget)) setDropEl(null);
+    // Out of the sidebar altogether: nothing would land.
+    if (!(e.relatedTarget instanceof Node) || !host.contains(e.relatedTarget)) showGhost(null);
   });
 
   host.addEventListener('drop', (e) => {
@@ -105,7 +166,7 @@ export function bindDnd(host) {
     const t = dropTargetOf(e.target);
     const from = dragPaths || dragged() || parseDrag(e.dataTransfer ? e.dataTransfer.getData(DRAG_TYPE) : '');
     endDrag();
-    if (!t || !(from && from.length)) return;
+    if (!t || !(from && from.length) || !from.every((p) => canDropInto(p, t.dir))) return;
     void movePaths(from.map((p) => ({ path: p, kind: findNode(p)?.kind === 'dir' ? 'dir' : 'file' })), t.dir);
   });
 }
@@ -245,6 +306,44 @@ export function registerTreeCommands() {
       run: (target) => { const t = target && typeof target === 'object' ? target : treeTarget(); if (t && c.applies(t)) c.run(t); },
     });
   }
+  // A view's row can leave the sidebar, and come back. The view itself still opens from the palette.
+  commands.register({
+    id: 'tree.hide-view', title: 'Hide view', group: 'tree', icon: 'eyeOff',
+    when: () => !!viewTarget(),
+    run: (name) => { const v = typeof name === 'string' ? name : viewTarget(); if (v) setViewHidden(v, true); },
+  });
+  commands.register({
+    id: 'tree.show-views', title: 'Show hidden views', group: 'tree', icon: 'eye',
+    when: () => hiddenNow().length > 0,
+    run: () => { for (const v of hiddenNow()) setViewHidden(v, false); },
+  });
+}
+
+/* ------------------------------------------------------------------ the views */
+
+/** The hidden views that still exist, by name. */
+const hiddenNow = () => { const off = hiddenViews(); return allPlannerViews().map((v) => v.name).filter((n) => off.has(n)); };
+
+/** The view a "Hide view" is about: the focused view row, else the view on screen, if it has a row. */
+function viewTarget(): string | null {
+  const o = focusOrigin();
+  const row = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-view[data-view]') : null;
+  if (row instanceof HTMLElement) return row.dataset.view || null;
+  const r = currentRoute();
+  const off = hiddenViews();
+  return r && r.type === 'view' && !off.has(r.name) && allPlannerViews().some((v) => v.name === r.name) ? r.name : null;
+}
+
+/** A view row's menu: hide it, and bring back the ones hidden before. */
+export function viewMenu(row: HTMLElement): MenuRow[] {
+  const name = row.dataset.view || '';
+  const hidden = hiddenNow();
+  const rows: (MenuRow | null)[] = [
+    { label: 'Hide view', iconSvg: icon(ic('eyeOff', 'dot')), shortcut: shortcutFor('tree.hide-view') || '', run: () => setViewHidden(name, true) },
+    hidden.length ? { sep: true } : null,
+    hidden.length ? { label: `Show hidden views (${hidden.length})`, iconSvg: icon(ic('eye', 'dot')), run: () => commands.run('tree.show-views') } : null,
+  ];
+  return tidy(rows.filter((it): it is MenuRow => !!it));
 }
 
 // The menu's order: create, then focus (first after the line on a folder, Hassan's ask), open,
@@ -346,9 +445,9 @@ export function menuItemsForRow(row) {
 
 /** The keyboard's context menu (S12): under the row, aligned with where its name starts. */
 export function openMenuAt(row) {
-  if (!row || row.dataset.path === undefined) return;
+  if (!row || (row.dataset.path === undefined && !row.dataset.view)) return;
   const r = row.getBoundingClientRect();
-  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), menuItemsForRow(row));
+  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), row.dataset.view ? viewMenu(row) : menuItemsForRow(row));
 }
 
 /** Right-click on the empty space under the tree: the vault root, or the focus folder. */
@@ -368,6 +467,7 @@ export function emptyMenu() {
     { sep: true },
     { label: 'Collapse all folders', iconSvg: icon(ic('chevron', 'dot')), run: () => commands.run('tree.collapse-all') },
     { label: showHidden() ? 'Hide hidden items' : 'Show hidden items', iconSvg: icon(ic(showHidden() ? 'eyeOff' : 'eye', 'dot')), run: () => commands.run('view.toggle-hidden') },
+    hiddenNow().length ? { label: `Show hidden views (${hiddenNow().length})`, iconSvg: icon(ic('eye', 'dot')), run: () => commands.run('tree.show-views') } : null,
   ].filter((it): it is MenuRow => !!it));
 }
 
