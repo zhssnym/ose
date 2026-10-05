@@ -41,10 +41,10 @@ export function scratchNode(): TreeNode | null {
 }
 
 function renderScratch(frag, node, cur, cuts) {
-  heading(frag, 'Scratchpad');
+  heading(frag, 'Scratchpad', 'scratch');
   const box = treeBox(frag, 'Scratchpad', true);
   box.classList.add('sb-scratch');
-  box.dataset.drop = node.path;
+  box.dataset.section = 'scratch';
   if (!node.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(node.path); return; }
   const kids = kidsOf(node);
   if (!kids.length) box.appendChild(emptyLine('Nothing here', 0));
@@ -173,7 +173,7 @@ function emptyLine(text, depth) {
 function focusLabel(focus) {
   const d = document.createElement('div');
   d.className = 'section-label sb-focus-label';
-  d.dataset.drop = focus;
+  d.dataset.section = 'vault';
   d.innerHTML = `<span class="sb-focus-key">Focus</span>`
     + `<span class="sb-focus-path" title="${esc(focus)}">${esc(baseName(focus))}</span>`;
   const b = document.createElement('button');
@@ -187,16 +187,32 @@ function focusLabel(focus) {
   return d;
 }
 
-/** A section's heading: "Views", "Vault". */
-function heading(frag, text) {
+/** A section's heading: "Views", "Vault", "Scratchpad"; `section` says which, for a drop. */
+function heading(frag, text, section) {
   const d = document.createElement('div');
   d.className = 'section-label';
+  d.dataset.section = section;
   d.textContent = text;
   frag.appendChild(d);
 }
 
-/** The planner's views, in their own order (order.ts). */
-const plannerViews = () => ose.views.list().filter((v) => v && v.section === 'planner').sort(byViewOrder);
+/** The views hidden from the sidebar (a view row's Hide view), by name, kept with the sidebar's state. */
+export const hiddenViews = (): Set<string> => new Set((slot('sidebar').get() || {}).hiddenViews || []);
+
+/** Hide a view's row, or show it again. It still opens from the palette either way. */
+export function setViewHidden(name: string, hide: boolean) {
+  const s = slot('sidebar');
+  const next = hiddenViews();
+  if (hide) next.add(name); else next.delete(name);
+  s.set({ ...(s.get() || {}), hiddenViews: [...next] });
+  render();
+}
+
+/** Every view of the planner section, hidden ones included, in their own order (order.ts). */
+export const allPlannerViews = () => ose.views.list().filter((v) => v && v.section === 'planner').sort(byViewOrder);
+
+/** The views the sidebar draws: the planner's, less the hidden ones. */
+const plannerViews = () => { const off = hiddenViews(); return allPlannerViews().filter((v) => !off.has(v.name)); };
 
 function treeBox(frag, name, multi = false) {
   const box = document.createElement('div');
@@ -262,9 +278,10 @@ function renderTree(scrollEl: HTMLElement) {
   // Views: the app's own pages over the vault's files (Journal, Month, …), one row each.
   const views = focus ? [] : plannerViews();
   if (views.length) {
-    heading(frag, 'Views');
+    heading(frag, 'Views', 'views');
     const vbox = treeBox(frag, 'Views');
     vbox.classList.add('sb-views');
+    vbox.dataset.section = 'views';
     for (const v of views) {
       vbox.appendChild(rowEl({
         cls: 'sb-view' + (cur.view === v.name ? ' current' : ''),
@@ -278,9 +295,10 @@ function renderTree(scrollEl: HTMLElement) {
   // the heading *is* the indicator: `Focus  <folder>` with the way out on the right, in place
   // of "Vault", so focus mode costs no extra line.
   if (focus) frag.appendChild(focusLabel(focus));
-  else heading(frag, 'Vault');
+  else heading(frag, 'Vault', 'vault');
   const box = treeBox(frag, 'Vault', true);
   box.classList.add('sb-files');
+  box.dataset.section = 'vault';
   if (!state.tree) {
     box.appendChild(emptyLine('Reading the vault…', 0));
   } else if (focus) {

@@ -165,12 +165,6 @@ const ROWS = [
   { key: 'journal', name: 'Journal folder', kind: 'folder', note: 'One file per day, named YYYY-MM-DD.md.' },
 ];
 
-function seg(name, options, value) {
-  return `<div class="seg" role="group" data-pl-seg="${name}">${options.map((o) =>
-    `<button type="button" class="seg-b${o.value === value ? ' on' : ''}" aria-pressed="${o.value === value}" data-v="${esc(String(o.value))}">${esc(o.label)}</button>`,
-  ).join('')}</div>`;
-}
-
 function pathValue(p, kind) {
   return p
     ? `<span class="pl-set-path mono-sm text-select">${esc(p)}</span>`
@@ -194,11 +188,6 @@ function html(s) {
     <div class="pl-set">
       ${s.confirmed ? '' : '<div class="pl-quiet">These were found automatically. Check them, then confirm.</div>'}
       ${rows.join('')}
-      <div class="pl-set-row">
-        <div class="pl-set-name">Journal</div>
-        <div class="pl-set-value">${seg('mode', [{ value: 'full', label: 'Full' }, { value: 'compact', label: 'Compact' }], s.journalMode)}</div>
-        <div class="pl-set-note">Every entry in full, or one line per day.</div>
-      </div>
       <div class="pl-set-foot">
         <button type="button" class="btn${s.confirmed ? '' : ' primary'} sm" data-act="confirm"${s.confirmed ? ' disabled' : ''}>${s.confirmed ? 'Confirmed' : 'These look right'}</button>
         <button type="button" class="btn sm" data-act="detect">Detect again</button>
@@ -233,12 +222,6 @@ export function renderSettings(el: HTMLElement, store: ReturnType<typeof createS
     const b = ev.target.closest('button');
     if (!b || !el.contains(b) || b.disabled) return;
     const s = store.get();
-    const segEl = b.closest('[data-pl-seg]');
-    if (segEl) {
-      const v = b.dataset.v;
-      if (segEl.dataset.plSeg === 'mode') store.set({ journalMode: v === 'compact' ? 'compact' : 'full' });
-      return;
-    }
     const key = b.dataset.key;
     switch (b.dataset.act) {
       case 'choose': {

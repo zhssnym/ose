@@ -16,7 +16,7 @@ import {
   refreshTree,
 } from './sidebar-load.ts';
 import {
-  bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget,
+  bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget, viewMenu,
 } from './sidebar-commands.ts';
 
 /* ------------------------------------------------------------------ init */
@@ -45,7 +45,7 @@ export function initSidebar(node: HTMLElement) {
   // selection and Shift+click selects the run from the anchor to it (C17).
   scrollEl.addEventListener('click', (e) => {
     if (!(e.target instanceof Element)) return;
-    const row = e.target.closest('.sb-row');
+    const row = e.target.closest<HTMLElement>('.sb-row');
     if (!(row instanceof HTMLElement)) return;
     // Enter and Space on a focused button also synthesise a click (detail 0); the keydown
     // handler has already acted on those, and acting twice would toggle a folder shut again.
@@ -87,7 +87,7 @@ export function initSidebar(node: HTMLElement) {
   scrollEl.addEventListener('auxclick', (e) => {
     if (e.button !== 1) return;
     if (!(e.target instanceof Element)) return;
-    const row = e.target.closest('.sb-row');
+    const row = e.target.closest<HTMLElement>('.sb-row');
     if (!row) return;
     e.preventDefault();
     openRowAside(row);
@@ -117,9 +117,11 @@ export function initSidebar(node: HTMLElement) {
   // the selection is dropped first.
   scrollEl.addEventListener('contextmenu', (e) => {
     if (!(e.target instanceof Element)) return;
-    const row = e.target.closest('.sb-row:not(.sb-view)');
+    const row = e.target.closest<HTMLElement>('.sb-row');
     e.preventDefault();
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
+    // A view's row has a menu of its own: hide it, show the hidden ones.
+    if (row.dataset.view) { focusRow(row); contextMenu(e.clientX, e.clientY, viewMenu(row)); return; }
     // The row under the pointer is the row the menu is about, and the row the keyboard comes
     // back to when the menu closes (H21).
     focusRow(row);

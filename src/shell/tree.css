@@ -15,7 +15,7 @@
    dragging it out opens the sidebar again. */
 .shell.no-sidebar .sidebar { display: none; }
 
-.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); }
+.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--sp-5); position: relative; isolation: isolate; }
 .sb-scroll > .section-label:first-child { padding-top: var(--sp-3); }
 .sb-scroll > .sb-files:first-child { padding-top: var(--sp-2); }
 
@@ -102,10 +102,15 @@
   text-align: left;
 }
 
-/* Drag and drop: the folder the drop would land in, and nothing else, is tinted. */
+/* Drag and drop: everything the drop would land in (a folder and its open contents, or a whole
+   section) sits in one dashed box, the ghost of where the rows will go, the task line's dashed
+   box in the accent. It is drawn behind the rows, so their names stay readable. */
 .sb-row[draggable="true"] { -webkit-user-drag: element; }
-.sb-row.drop-on, .section-label.drop-on { background: var(--accent-soft); }
-.sb-row.drop-on { box-shadow: inset 2px 0 0 var(--accent); }
+.sb-drop-ghost {
+  position: absolute; left: var(--sp-1); right: var(--sp-1); z-index: -1;
+  border: 1px dashed var(--accent); border-radius: var(--radius);
+  background: var(--accent-soft); pointer-events: none;
+}
 
 /* Focus mode: the Vault heading, replaced. One line, on the heading's own baseline. */
 .sb-focus-label {

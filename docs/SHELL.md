@@ -146,8 +146,18 @@ a folder Focus folder first under the line, then the other file commands, Copy p
 Open containing folder and Search in folder; the empty
 space below holds New file, New folder, Collapse all folders and Show hidden items.
 
-Rows dragged onto a folder row move, with Undo. Nothing is dragged in from Explorer or Finder
-onto the tree, and nothing drags a file out.
+Rows dragged in the tree move, with Undo, and the place a drop would land sits in a dashed box
+while the drag hovers: a folder row takes it into that folder (the box holds the folder and its
+open contents); a file row, beside that file in its folder; a section's heading or empty space,
+to the section's top (the vault or the focus folder, the scratchpad), the box around the whole
+section. So rows go into, out of and between folders, and between Vault and Scratchpad. Views
+take no drop. Nothing is dragged in from Explorer or Finder onto the tree, and nothing drags a
+file out.
+
+A view's row has its own menu: **Hide view** (`tree.hide-view`) takes it out of the sidebar,
+and **Show hidden views** (`tree.show-views`, also in that menu and on the empty space's) brings
+every hidden one back. Which are hidden is kept with the sidebar's state for the vault; a hidden
+view still opens from the palette.
 
 ## Pages
 
