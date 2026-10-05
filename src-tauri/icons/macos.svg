@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <!-- The Mac's icon (icon.icns): macOS puts any shape but its rounded square on a grey tile, so
        the mark sits in one of Apple's grid (824 of 1024, the rest for the shadow). A brushed
-       bezel lit from the upper left, a dark lip, and a screen of warm near-black glass with a
+       bezel lit from the upper left, a dark lip, and a screen of white glass with a
        faint dot grid and a gloss; on it the tetrahedron of source.svg. -->
   <defs>
     <linearGradient id="bevelLit" gradientUnits="userSpaceOnUse" x1="512" y1="57.6" x2="44.8" y2="870.4"><stop offset="0" stop-color="#FAD3C2"/><stop offset="1" stop-color="#F2B297"/></linearGradient>
@@ -9,18 +9,19 @@
     <linearGradient id="bevelShade" gradientUnits="userSpaceOnUse" x1="512" y1="824" x2="512" y2="870.4"><stop offset="0" stop-color="#A44E31"/><stop offset="1" stop-color="#8E4026"/></linearGradient>
     <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBFBFA"/><stop offset="0.45" stop-color="#D9D8D5"/><stop offset="1" stop-color="#8E8D89"/></linearGradient>
     <linearGradient id="bezelEdge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#6F6E6A"/></linearGradient>
-    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2E2826"/><stop offset="1" stop-color="#141110"/></linearGradient>
-    <linearGradient id="gloss" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/><stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.04"/><stop offset="0.56" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
-    <pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1.6" fill="#FFFFFF" fill-opacity="0.06"/></pattern>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#ECE7E1"/></linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.7"/><stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.15"/><stop offset="0.56" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1.6" fill="#3A2A22" fill-opacity="0.05"/></pattern>
     <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.32"/></filter>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.55"/></filter>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#6E3018" flood-opacity="0.32"/></filter>
     <clipPath id="screenClip"><rect x="148" y="148" width="728" height="728" rx="128"/></clipPath>
   </defs>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bezel)" filter="url(#tileShadow)"/>
   <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="url(#bezelEdge)" stroke-width="4"/>
-  <rect x="136" y="136" width="752" height="752" rx="140" fill="#1A1614"/>
+  <rect x="136" y="136" width="752" height="752" rx="140" fill="#B9B4AE"/>
   <rect x="148" y="148" width="728" height="728" rx="128" fill="url(#screen)"/>
   <rect x="148" y="148" width="728" height="728" rx="128" fill="url(#dots)"/>
+  <g clip-path="url(#screenClip)"><polygon points="148,148 876,148 148,700" fill="url(#gloss)"/></g>
   <g filter="url(#glow)" transform="translate(239 252) scale(0.533)">
     <g stroke-width="9.6" stroke-linejoin="round">
       <polygon points="512,57.6 44.8,870.4 512,599.68" fill="#ECA286" stroke="#ECA286"/>
@@ -32,5 +33,4 @@
     </g>
     <polygon points="512,149.91 124.3,824.4 899.7,824.4" fill="none" stroke="#5E2615" stroke-opacity="0.45" stroke-width="5" stroke-linejoin="round"/>
   </g>
-  <g clip-path="url(#screenClip)"><polygon points="148,148 876,148 148,700" fill="url(#gloss)"/></g>
 </svg>
