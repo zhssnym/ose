@@ -32,7 +32,7 @@
 .tb-win-close:hover { background: var(--err); color: var(--bg); }
 .tb-win-btn:focus-visible { outline: none; box-shadow: inset var(--focus); }
 
-/* The mark: a triangle in the text colour (logo.ts), the same in both themes. */
+/* The mark: the tetrahedron in the accent (logo.ts), lit the same in both themes. */
 .tb-mark {
   width: 1.125rem; height: 1.125rem; flex: none;
   display: grid; place-items: center;
@@ -40,6 +40,9 @@
 }
 .tb-mark { color: var(--fg); }
 .tb-mark svg { display: block; }
+/* On a Mac the traffic lights hold that corner and the Dock shows the icon: the mark would say
+   it a second time. */
+:root[data-os="mac"] .tb-mark { display: none; }
 
 
 /* The sidebar's one control, in the title bar's left corner and in the same spot whether the
