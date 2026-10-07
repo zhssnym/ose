@@ -475,3 +475,24 @@ describe('an empty formula, still being typed, is left out of the save', () => {
     exact(r, `${md}\n$x^2$\n`);
   });
 });
+
+describe('a <br> in a table cell is a line break', () => {
+  const md = '| a | b |\n|---|---|\n| one<br>two | x |\n';
+
+  it('reads as a hard break, not a literal tag', async () => {
+    const { doc } = await save(md);
+    const kinds = [];
+    doc.descendants((n) => { kinds.push(n.type.name); });
+    expect(kinds).toContain('hardbreak');
+    expect(kinds).not.toContain('html');
+  });
+
+  it('is written back as <br> when another cell is edited', async () => {
+    const r = await save(md, (d) => {
+      let at = null;
+      d.descendants((n, pos) => { if (at === null && n.isText && n.text === 'x') at = pos + 1; });
+      return new Transform(d).insert(at, d.type.schema.text('y')).doc;
+    });
+    exact(r, '| a | b |\n|---|---|\n| one<br>two | xy |\n');
+  });
+});

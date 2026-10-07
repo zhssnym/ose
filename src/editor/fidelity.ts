@@ -71,6 +71,19 @@ export function extendHardbreak(ctx) {
 }
 
 /**
+ * A `<br>` in a table cell is the cell's line break: one line of a table cannot hold a newline,
+ * so Obsidian and the serializer (`writeBreak`) spell it `<br>`. Read back it was an inline html
+ * node, shown as the literal tag. It becomes the hard break it stands for, and the write gives
+ * `<br>` again (`<br/>` and `<br />` come back as `<br>` once the table is edited).
+ */
+export const remarkCellBreaks = $remark('os-cell-breaks', () => () => (tree) => {
+  walk(tree, (n) => {
+    if (n.type !== 'tableCell') return;
+    n.children = n.children.map((c) => (c.type === 'html' && /^<br\s*\/?>$/i.test(c.value) ? { type: 'break', position: c.position } : c));
+  });
+});
+
+/**
  * A code mark on something that is not text (a hard break inside a range made code with the
  * toolbar, a formula, an image). Milkdown writes it as an empty code span in place of the node,
  * so the break was lost and two stray backticks were written. A code span can only hold text:
