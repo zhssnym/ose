@@ -265,6 +265,20 @@
   padding: 0 var(--sp-1); color: var(--fg);
 }
 
+/* Inline html (plugins.ts `htmlTagsPlugin`). A tag that draws something (`<u>`, `<sup>`,
+   `<mark>`, `<kbd>`…) draws it and steps aside; anything else, a comment or a tag alone, stays
+   in sight as markup, in the muted mono of the other markup on the page. */
+.ed .milkdown [data-type="html"] {
+  font-family: var(--font-mono); font-size: var(--fs-ui); color: var(--fg-3); white-space: pre-wrap;
+}
+.ed .milkdown [data-type="html"].os-html-tag { font-size: 0; }
+.ed .milkdown mark.os-html-run { background: var(--amber-soft); color: inherit; }
+.ed .milkdown kbd.os-html-run {
+  font-family: var(--font-mono); font-size: var(--fs-ui);
+  background: var(--bg-2); border: var(--doc-rule) solid var(--border-strong); padding: 0 var(--sp-1);
+}
+.ed .milkdown sup.os-html-run, .ed .milkdown sub.os-html-run { line-height: 0; }
+
 /* A quote, `>`, is a FRAME (DESIGN.md, "Frames"): a square box in the text colour, upright
    text, no tint, the teacher's "Theoreme 1.". A quote in a quote is a box in a box. */
 .ed .milkdown blockquote {

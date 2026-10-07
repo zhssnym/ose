@@ -4,6 +4,7 @@
 //   calloutPlugin       Obsidian's `> [!note] Title` gets a class; the text is left as typed
 //   strikethroughRule   `~~x~~` typed becomes strikethrough; a single `~` never does
 //   findPlugin          find in page (C1): every match decorated, the current one marked
+//   htmlTagsPlugin      `<u>x</u>`, `<sup>`, `<mark>`… draw what they say; the tags step aside
 //
 // None of these change what is written to disk. The paste handler only adds a mark the file
 // format already has; the callout is a decoration, so `[!note]` stays in the document byte
@@ -92,6 +93,94 @@ export function calloutPlugin() {
     },
     props: {
       decorations: (state) => CALLOUT_KEY.getState(state),
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// inline html
+
+const HTML_TAGS_KEY = new PluginKey('os-html-tags');
+
+/** The inline tags a note uses for what markdown has no spelling for, and the element each draws. */
+const HTML_INLINE = {
+  u: 'u', ins: 'u', s: 's', del: 's', strike: 's', sup: 'sup', sub: 'sub', mark: 'mark',
+  kbd: 'kbd', small: 'small', b: 'strong', strong: 'strong', i: 'em', em: 'em', code: 'code',
+  span: 'span', font: 'span',
+};
+const OPEN_TAG = /^<([A-Za-z][A-Za-z0-9]*)(\s[^<>]*)?>$/;
+const CLOSE_TAG = /^<\/([A-Za-z][A-Za-z0-9]*)\s*>$/;
+const BR_TAG = /^<br\s*\/?>$/i;
+/** A colour as a note writes one: a name, a hex, or rgb()/hsl() of plain numbers. Nothing that loads. */
+const COLOUR = /^(?:#[0-9a-f]{3,8}|[a-z]{3,20}|(?:rgb|hsl)a?\([\d\s.,%deg/]+\))$/i;
+
+/** The colours of a `<span style>` or a `<font color>`, as a style the page can apply, or ''. */
+function tagColours(attrs) {
+  const out: string[] = [];
+  const color = /\scolor\s*=\s*["']?([^"'\s>]+)/i.exec(attrs);
+  if (color?.[1] && COLOUR.test(color[1])) out.push(`color: ${color[1]}`);
+  const style = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+  for (const decl of (style ? style[1] ?? style[2] ?? '' : '').split(';')) {
+    const m = /^\s*(color|background-color|background)\s*:\s*(.+?)\s*$/i.exec(decl);
+    if (m?.[1] && m[2] && COLOUR.test(m[2])) out.push(`${m[1].toLowerCase() === 'color' ? 'color' : 'background-color'}: ${m[2]}`);
+  }
+  return out.join('; ');
+}
+
+/**
+ * Inline html in a line of text is one atom per tag: `x<sup>2</sup>` is the text `x`, an atom
+ * `<sup>`, the text `2` and an atom `</sup>`. Shown as they come they are the literal tags. Each
+ * opening tag of `HTML_INLINE` that is closed later in the same block draws the text between as
+ * that element (a decoration: the file keeps its bytes), and its two tags step aside
+ * (`os-html-tag`, no width). A `<br>` left as html (the one that ends a line or stands alone)
+ * draws nothing. Any other html, a comment or a tag with no partner, stays in sight as what it
+ * is, in the muted mono of the page's other markup (editor.css).
+ */
+function htmlTagDecorations(doc) {
+  const decos: any[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    if (node.type.spec.code) return false;
+    const open: Array<{ name: string; from: number; attrs: string; }> = [];
+    node.forEach((child, offset) => {
+      if (child.type.name !== 'html') return;
+      const at = pos + 1 + offset;
+      const value = String(child.attrs.value ?? '').trim();
+      if (BR_TAG.test(value)) { decos.push(Decoration.node(at, at + 1, { class: 'os-html-tag' })); return; }
+      const o = OPEN_TAG.exec(value);
+      if (o && !value.endsWith('/>') && Object.hasOwn(HTML_INLINE, (o[1] ?? '').toLowerCase())) {
+        open.push({ name: (o[1] ?? '').toLowerCase(), from: at, attrs: o[2] || '' });
+        return;
+      }
+      const c = CLOSE_TAG.exec(value);
+      if (!c) return;
+      const name = (c[1] ?? '').toLowerCase();
+      let k = open.length - 1;
+      while (k >= 0 && open[k]?.name !== name) k--;
+      const start = open[k];
+      if (!start) return;
+      open.length = k;
+      if (start.from + 1 < at) {
+        const style = tagColours(start.attrs);
+        decos.push(Decoration.inline(start.from + 1, at, { nodeName: HTML_INLINE[name], class: 'os-html-run', ...(style ? { style } : {}) }));
+      }
+      decos.push(Decoration.node(start.from, start.from + 1, { class: 'os-html-tag' }));
+      decos.push(Decoration.node(at, at + 1, { class: 'os-html-tag' }));
+    });
+    return false;
+  });
+  return decos.length ? DecorationSet.create(doc, decos) : DecorationSet.empty;
+}
+
+export function htmlTagsPlugin() {
+  return new Plugin({
+    key: HTML_TAGS_KEY,
+    state: {
+      init: (_, state) => htmlTagDecorations(state.doc),
+      apply: (tr, old) => (tr.docChanged ? htmlTagDecorations(tr.doc) : old),
+    },
+    props: {
+      decorations: (state) => HTML_TAGS_KEY.getState(state),
     },
   });
 }

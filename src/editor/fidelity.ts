@@ -10,7 +10,8 @@
 // which the page (crepe.ts) and the headless engine both run. Two more live here that are not
 // losses at parse time but at write time: the hard break (M6) and the dead reference (M8).
 
-import { codeBlockSchema, hardbreakSchema, inlineCodeSchema, linkAttr, linkSchema, sanitizeLinkHref } from '@milkdown/kit/preset/commonmark';
+import { codeBlockSchema, hardbreakSchema, headingSchema, inlineCodeSchema, linkAttr, linkSchema, paragraphSchema, sanitizeLinkHref } from '@milkdown/kit/preset/commonmark';
+import { Fragment } from '@milkdown/kit/prose/model';
 import { Transform } from '@milkdown/kit/prose/transform';
 import { $nodeSchema, $remark } from '@milkdown/kit/utils';
 import { definitionInScope } from './stringify.ts';
@@ -54,21 +55,86 @@ export function extendCodeBlock(ctx) {
  * that kind as a newline in a text node, where no handler sees it: two in a row were a blank
  * line and ended the paragraph, and one at the end of a paragraph was a blank line of space.
  * stringify.ts `writeBreak` spells both kinds, in the file's own style.
+ *
+ * `html` is the tag a break was read from (`remarkHtmlBreaks`), written back as it was.
  */
 export function extendHardbreak(ctx) {
   ctx.update(hardbreakSchema.key, (prev) => (c) => {
     const base = prev(c);
     return {
       ...base,
+      attrs: { ...base.attrs, html: { default: '', validate: 'string' } },
+      parseMarkdown: {
+        match: ({ type }) => type === 'break',
+        runner: (state, node, type) => {
+          const data = (node.data || {}) as { isInline?: boolean; html?: string };
+          state.addNode(type, { isInline: Boolean(data.isInline), html: data.html || '' });
+        },
+      },
       toMarkdown: {
         match: (node) => node.type.name === 'hardbreak',
         runner: (state, node) => {
-          state.addNode('break', undefined, undefined, node.attrs.isInline ? { data: { isInline: true } } : {});
+          const data = { ...(node.attrs.isInline ? { isInline: true } : {}), ...(node.attrs.html ? { html: node.attrs.html } : {}) };
+          state.addNode('break', undefined, undefined, Object.keys(data).length ? { data } : {});
         },
       },
     };
   });
+  // Milkdown's paragraph and heading drop a break that ends them, which is right for one typed
+  // there (markdown cannot hold it) and wrong for a `<br>` the file has: that one is the tag it
+  // was read from and stays. And a break anywhere in an H1 or H2 makes mdast write the heading
+  // as setext, underline and all: in a heading every break is written `<br>`, which keeps `#`.
+  for (const schema of [paragraphSchema, headingSchema]) {
+    ctx.update(schema.key, (prev) => (c) => {
+      const base = prev(c);
+      const heading = schema === headingSchema;
+      return {
+        ...base,
+        toMarkdown: {
+          match: base.toMarkdown.match,
+          runner: (state, node) => {
+            state.openNode(heading ? 'heading' : 'paragraph', undefined, heading ? { depth: node.attrs.level } : undefined);
+            state.next(lineContent(node, heading));
+            state.closeNode();
+          },
+        },
+      };
+    });
+  }
 }
+
+/** A paragraph's or a heading's content as it is written: see `extendHardbreak`. */
+function lineContent(node, heading: boolean) {
+  const html = node.type.schema.nodes.html;
+  const kids: any[] = [];
+  node.forEach((child, _offset, i) => {
+    if (child.type.name !== 'hardbreak') { kids.push(child); return; }
+    const last = i === node.childCount - 1;
+    if (last && !child.attrs.html) return;
+    if (heading || last) kids.push(html.create({ value: child.attrs.html || '<br>' }, null, child.marks));
+    else kids.push(child);
+  });
+  return Fragment.fromArray(kids);
+}
+
+/** mdast nodes that hold inline content, where a `<br>` is a tag inside a line of text. */
+const PHRASING = new Set(['paragraph', 'heading', 'tableCell', 'emphasis', 'strong', 'delete', 'link', 'linkReference']);
+
+/**
+ * A `<br>` inside a line of text (a paragraph, a heading, a table cell, where one line of a
+ * table cannot hold a newline and Obsidian writes `<br>`) is a line break. Read as it comes it
+ * is an inline html node, shown as the literal tag. It becomes the hard break it stands for,
+ * keeping its spelling (`<br>`, `<br/>`, `<BR />`) so a save writes the same bytes back. A
+ * `<br>` alone on its line is an html block, not a tag in a line: it is left as it is.
+ */
+export const remarkHtmlBreaks = $remark('os-html-breaks', () => () => (tree) => {
+  walk(tree, (n) => {
+    if (!PHRASING.has(n.type)) return;
+    n.children = n.children.map((c) => (c.type === 'html' && /^<br\s*\/?>$/i.test(c.value)
+      ? { type: 'break', data: { html: c.value }, position: c.position }
+      : c));
+  });
+});
 
 /**
  * A code mark on something that is not text (a hard break inside a range made code with the

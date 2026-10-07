@@ -24,7 +24,7 @@ import { imageBlockSchema, remarkImageBlockPlugin } from '@milkdown/kit/componen
 import { configureStringify, withSerializeContext } from './stringify.ts';
 import { remarkSpace } from './space.ts';
 import * as guard from './guard.ts';
-import { definitionSchema, extendCodeBlock, extendHardbreak, extendInlineCode, extendLink, remarkResolveReferences } from './fidelity.ts';
+import { definitionSchema, extendCodeBlock, extendHardbreak, extendInlineCode, extendLink, remarkHtmlBreaks, remarkResolveReferences } from './fidelity.ts';
 
 export interface MarkdownExtras {
   /**
@@ -67,6 +67,8 @@ export async function configureMarkdown(editor: import('@milkdown/kit/core').Edi
   await editor.remove(remarkInlineLinkPlugin);
   editor.use(definitionSchema);
   editor.use(remarkResolveReferences);
+  // A `<br>` in a line of text is a line break, not a tag to show (fidelity.ts).
+  editor.use(remarkHtmlBreaks);
   for (const plugin of extras.nodes || []) editor.use(plugin);
   // Space: the blank lines of the file, read back as the empty paragraphs they are (space.ts).
   // It runs on the parsed tree, so it is the last remark plugin.

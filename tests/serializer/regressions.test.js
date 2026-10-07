@@ -475,3 +475,69 @@ describe('an empty formula, still being typed, is left out of the save', () => {
     exact(r, `${md}\n$x^2$\n`);
   });
 });
+
+describe('a <br> in a line of text is a line break, written back as the file spells it', () => {
+  /** Type `t` at the end of the first text node that reads `at`. */
+  const typeAfter = (at, t) => (d) => {
+    let pos = null;
+    d.descendants((n, p) => { if (pos === null && n.isText && n.text === at) pos = p + n.nodeSize; });
+    return new Transform(d).insert(pos, d.type.schema.text(t)).doc;
+  };
+  const kinds = (doc) => { const k = []; doc.descendants((n) => { k.push(n.type.name); }); return k; };
+
+  const files = {
+    'a table cell': ['| a | b |\n|---|---|\n| one<br>two | x |\n', 'x', '| a | b |\n|---|---|\n| one<br>two | xy |\n'],
+    'a paragraph, self-closed': ['line one<br/>line two\n\nx\n', 'x', 'line one<br/>line two\n\nxy\n'],
+    'a heading, which stays ATX': ['# Title<br>sub\n', 'sub', '# Title<br>suby\n'],
+    'the end of a cell': ['| a |\n|---|\n| x<br> |\n', 'x', '| a |\n|---|\n| xy<br> |\n'],
+    'a list item, upper case': ['- item<BR>more\n', 'more', '- item<BR>morey\n'],
+  };
+  for (const [name, [md, at, want]] of Object.entries(files)) {
+    it(`${name}: opens in Rich as a hard break`, async () => {
+      const { P, doc } = await save(md);
+      expect(kinds(doc)).toContain('hardbreak');
+      expect(P.checkOpen(md, doc).ok).toBe(true);
+    });
+    it(`${name}: an edit keeps it`, async () => {
+      exact(await save(md, typeAfter(at, 'y')), want);
+    });
+  }
+
+  it('a <br> alone on its line is kept', async () => {
+    exact(await save('a\n\n<br>\n\nb\n', typeAfter('b', 'y')), 'a\n\n<br>\n\nby\n');
+  });
+
+  it('a break typed in an H1 is written <br>, not as a setext heading', async () => {
+    const r = await save('# Title\n', (d) => {
+      let pos = null;
+      d.descendants((n, p) => { if (pos === null && n.isText) pos = p + n.nodeSize; });
+      const s = d.type.schema;
+      return new Transform(d).insert(pos, [s.nodes.hardbreak.create(), s.text('sub')]).doc;
+    });
+    exact(r, '# Title<br>sub\n');
+  });
+});
+
+describe('the line the user edited keeps the spelling of the rest of the file', () => {
+  const typeFirst = (t) => (d) => {
+    let pos = null;
+    d.descendants((n, p) => { if (pos === null && n.isText) pos = p; });
+    return new Transform(d).insert(pos, d.type.schema.text(t)).doc;
+  };
+
+  it('character references stay references', async () => {
+    exact(await save('a&nbsp;b &amp; c &copy; &#8594;\n', typeFirst('Z')), 'Za&nbsp;b &amp; c &copy; &#8594;\n');
+  });
+
+  it('a reference the block also writes as the character itself is left as remark writes it', async () => {
+    exact(await save('a&amp;b & c\n', typeFirst('Z')), 'Za&b & c\n');
+  });
+
+  it('a bare url stays bare', async () => {
+    exact(await save('go https://y.fr and more\n', typeFirst('Z')), 'Zgo https://y.fr and more\n');
+  });
+
+  it('a CRLF file keeps CRLF on the edited line', async () => {
+    exact(await save('| a |\r\n|---|\r\n| 1 |\r\n\r\npara\r\n', typeFirst('Z')), '| Za |\r\n|---|\r\n| 1 |\r\n\r\npara\r\n');
+  });
+});

@@ -28,7 +28,7 @@ import { postProcess } from './stringify.ts';
 import { docWithoutPad } from './space.ts';
 import { slashPlugin } from './slash.ts';
 import { blockKeysPlugin, htmlBlockPlugin } from './blocks.ts';
-import { calloutPlugin, findPlugin, strikethroughRule, urlPastePlugin } from './plugins.ts';
+import { calloutPlugin, findPlugin, htmlTagsPlugin, strikethroughRule, urlPastePlugin } from './plugins.ts';
 import { dropPlugin } from './drop.ts';
 import { listMarksPlugin } from './listmarks.ts';
 import { extensionPlugins, extensionFeatureConfigs } from './extensions.ts';
@@ -157,7 +157,7 @@ async function installExtras(editor, o) {
     // The batch-12 module plugins (extensions.ts) come after ours and before Milkdown's keymap,
     // which is appended after this whole list, so a table keymap can answer Enter first. The
     // html rule (H2, blocks.ts) keeps an html block in a paragraph of its own after every edit.
-    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), listMarksPlugin(), findPlugin(), htmlBlockPlugin(), ...extensionPlugins(ctx, o)]);
+    ctx.update(prosePluginsCtx, (plugins) => [...first, ...plugins, calloutPlugin(), htmlTagsPlugin(), listMarksPlugin(), findPlugin(), htmlBlockPlugin(), ...extensionPlugins(ctx, o)]);
   });
   await editor.remove(strikethroughInputRule);
   editor.use(strikethroughRule);
