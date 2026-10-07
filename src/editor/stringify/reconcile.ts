@@ -86,5 +86,9 @@ export function align(a, b, window = 80) {
  */
 export function reconcile(out: string, original: string, opt: { canon: (md: string) => string; }): string {
   if (!original) return out;
-  return reconcileBlocks(out, original, opt.canon);
+  const text = reconcileBlocks(out, original, opt.canon);
+  // A file written with CRLF throughout (Notepad, Word's export) keeps its untouched lines'
+  // `\r` through the line pass, and the line the user edited came from remark with `\n` alone:
+  // one file, two endings. Every line ends the way the file's lines do.
+  return /\r\n/.test(original) && !/(?<!\r)\n/.test(original) ? text.replace(/\r?\n/g, '\r\n') : text;
 }

@@ -207,6 +207,8 @@ const isBlankInline = (n) => isBreak(n) || isBlankText(n);
 function writeBreak(node, parent, state) {
   const kids = (parent && parent.children) || [];
   const at = kids.indexOf(node);
+  // A break read from a `<br>` (fidelity.ts `remarkHtmlBreaks`) is that tag, wherever it stands.
+  if (node.data && node.data.html) return node.data.html;
   if (at >= 0 && kids.slice(at + 1).every(isBlankInline)) return '';
   if (state.stack.includes('tableCell') || state.stack.includes('headingAtx')) return '<br>';
   // What is on this line before the break: nothing, or only spaces, which the line loses.

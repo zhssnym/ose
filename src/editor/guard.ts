@@ -181,7 +181,7 @@ export function roundTrip(engine: MdEngine, md: string, original: string = md): 
  */
 const IGNORED_NODE_ATTRS = {
   heading: ['id'],
-  hardbreak: ['isInline'],
+  hardbreak: ['isInline', 'html'],
   bullet_list: ['spread'],
   ordered_list: ['spread'],
   list_item: ['label', 'listType', 'spread'],
@@ -443,7 +443,8 @@ function mdText(tree) {
   let s = '';
   const walk = (n) => {
     if (!n) return;
-    if (MD_TEXT.has(n.type) && typeof n.value === 'string') s += n.value;
+    // A `<br>` in a line of text is read as a hard break (fidelity.ts `remarkHtmlBreaks`).
+    if (MD_TEXT.has(n.type) && typeof n.value === 'string' && !(n.type === 'html' && /^<br\s*\/?>$/i.test(n.value))) s += n.value;
     if (n.type === 'image' || n.type === 'imageReference') s += '';   // an image's alt is an attribute
     for (const c of n.children || []) walk(c);
   };

@@ -555,6 +555,10 @@ function editedBlock(next, prev, canon, style, context = '') {
     for (const shaped of [dropBlanks(candidate, prev), candidate]) {
       let c = keepMailto(shaped, prev);
       c = dropEscapes(c, prev, canon, next, context);
+      for (const keep of [keepBareUrls, keepEntities]) {
+        const k = keep(c, prev);
+        if (k !== c && says(k, next, canon, context)) c = k;
+      }
       if (c !== next && says(c, next, canon, context)) return c;
     }
     return next;
@@ -689,6 +693,69 @@ function keepMailto(text, prev) {
   if (!forms.size) return text;
   return mapLines(text, (l) =>
     l.replace(/<(?:mailto:)?([^\s<>]+@[^\s<>]+)>/g, (m, addr) => forms.get(addr) || m));
+}
+
+/**
+ * A url the file writes bare (`see https://x.fr`) is a GFM autolink, and remark writes every
+ * autolink in brackets: `<https://x.fr>`. On the line the user was on, a url the block has bare
+ * and never in brackets loses the brackets again. Kept only when the block still says the same.
+ */
+function keepBareUrls(text, prev) {
+  if (!/<https?:\/\/[^\s<>]+>/.test(text)) return text;
+  const p = String(prev);
+  return mapLines(text, (l) => l.replace(/<(https?:\/\/[^\s<>]+)>/g, (m, url) =>
+    (p.includes(url) && !p.includes(m) ? url : m)));
+}
+
+/** The named character references a vault is likely to hold, and what they stand for. */
+const ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", copy: '©', reg: '®',
+  trade: '™', hellip: '…', mdash: '—', ndash: '–', laquo: '«', raquo: '»',
+  larr: '←', rarr: '→', uarr: '↑', darr: '↓', harr: '↔', euro: '€',
+  deg: '°', times: '×', divide: '÷', middot: '·', bull: '•', thinsp: ' ',
+  ensp: ' ', emsp: ' ', shy: '­', zwj: '‍', zwnj: '‌', lsquo: '‘',
+  rsquo: '’', ldquo: '“', rdquo: '”', para: '¶', sect: '§', plusmn: '±',
+  le: '≤', ge: '≥', ne: '≠', check: '✓',
+};
+
+/** A character reference, as CommonMark reads one. */
+const REF = /&(?:#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]*);/g;
+
+/** What `&name;`, `&#n;` or `&#xh;` stands for, or null for a name not in the table. */
+function decodeEntity(ref) {
+  const m = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]*));$/.exec(ref);
+  if (!m) return null;
+  const code = m[1] ? Number(m[1]) : m[2] ? parseInt(m[2], 16) : null;
+  if (code !== null) return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : null;
+  const name = m[3] ?? '';
+  return Object.hasOwn(ENTITIES, name) ? ENTITIES[name] : null;
+}
+
+/**
+ * A character the file writes as a reference (`&nbsp;`, `&amp;`, `&#8594;`) is read as the
+ * character itself and written that way: an invisible no-break space, a bare `&`. On the line the
+ * user was on, a character the block only ever wrote as one reference is written as it again.
+ * Not where the block also has the character itself: which of the two each one was is lost.
+ * Kept only when the block still says the same (a reference in code is not one).
+ */
+function keepEntities(text, prev) {
+  const p = String(prev);
+  const forms = new Map();
+  for (const m of p.matchAll(REF)) {
+    const ch = decodeEntity(m[0]);
+    if (ch === null) continue;
+    const seen = forms.get(ch);
+    forms.set(ch, seen === undefined || seen === m[0] ? m[0] : null);   // two spellings: neither
+  }
+  // The block with its references taken out: a character still in it the file has both ways.
+  const bare = p.replace(REF, '');
+  let out = text;
+  // `&` first, while the line holds no reference whose own `&` it would catch.
+  for (const [ch, ref] of [...forms].sort(([a], [b]) => Number(b === '&') - Number(a === '&'))) {
+    if (ref === null || !out.includes(ch) || bare.includes(ch)) continue;
+    out = mapLines(out, (l) => l.split(ch).join(ref));
+  }
+  return out;
 }
 
 // An escape mdast writes is always in front of ASCII punctuation, and a `\\` is a backslash the
