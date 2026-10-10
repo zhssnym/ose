@@ -42,6 +42,9 @@ export interface SidebarState {
   // Show hidden items as the tree was last read with, so a settings change that flips it reads
   // the tree again and one that does not leaves it be.
   readHidden: boolean | null;
+  // The pinned page that was opened from its row in Pinned: lit there, and the Vault tree left as
+  // it was. Opened any other way (its row in the tree, Go to file), it is a page of the tree.
+  pinOpen: string | null;
 }
 
 export const state: SidebarState = {
@@ -55,6 +58,7 @@ export const state: SidebarState = {
   selected: new Set(),
   anchor: null,
   readHidden: null,
+  pinOpen: null,
 };
 
 export const { bus, commands, debounce, files, links, route } = ose;

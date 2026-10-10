@@ -124,10 +124,13 @@ folder in the sidebar.
 
 ## The sidebar
 
-Up to three sections, each its own `role="tree"`: **Views** (the registered views of the
-`planner` section, ordered by `order.ts`), **Vault** (the vault folder's contents; the folder
+Up to four sections, each its own `role="tree"`: **Views** (the registered views of the
+`planner` section, ordered by `order.ts`), **Pinned** (when anything is), **Vault** (the vault folder's contents; the folder
 has no row of its own) and **Scratchpad** (a top-level `scratchpad` folder, when there is one,
-shown here instead of under Vault). Folders come first, then files, in natural order; a folder
+shown here instead of under Vault). They stand in the order the person puts them in: a
+section's heading has **Move up** and **Move down** in its menu, and **Move section up** and
+**Move section down** (`sidebar.section-up`, `sidebar.section-down`) move the section of the
+focused row from the palette. The order is kept with the sidebar's state for the vault. Folders come first, then files, in natural order; a folder
 opens and closes in place; every name is shown in full. Hidden items (dot names, the OS hidden
 attribute) appear only with Show hidden items on, greyed. What the host never lists (`.ose`,
 `.git`, temp files) never arrives (docs/HOST.md).
@@ -158,6 +161,15 @@ A view's row has its own menu: **Hide view** (`tree.hide-view`) takes it out of 
 and **Show hidden views** (`tree.show-views`, also in that menu and on the empty space's) brings
 every hidden one back. Which are hidden is kept with the sidebar's state for the vault; a hidden
 view still opens from the palette.
+
+**Pin** (`tree.pin`) and **Unpin** (`tree.unpin`), on a row's menu, a selection's and the
+palette (the focused row, else the page on screen), put a file or folder in **Pinned**, in the
+order pinned. A pinned file opens like a view, leaving the Vault tree as it was; a pinned folder is shown in
+the Vault tree. Pins follow a
+move or a rename; a pin whose file is gone stays greyed and struck until it is unpinned, and is
+whole again if the file comes back. A pinned row's menu: Unpin, Open in new tab, Copy path,
+Copy link, Search in folder or Open with default app, Open containing folder. Pins are kept with
+the sidebar's state for the vault, on this machine; focus mode hides them.
 
 ## Pages
 

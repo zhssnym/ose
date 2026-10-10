@@ -16,7 +16,7 @@ import {
   refreshTree,
 } from './sidebar-load.ts';
 import {
-  bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget, viewMenu,
+  bindDnd, emptyMenu, menuItemsForRow, pinMenu, registerTreeCommands, sectionMenu, toggleHidden, treeTarget, viewMenu,
 } from './sidebar-commands.ts';
 
 /* ------------------------------------------------------------------ init */
@@ -119,9 +119,13 @@ export function initSidebar(node: HTMLElement) {
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest<HTMLElement>('.sb-row');
     e.preventDefault();
+    // A section's heading: move the section up or down.
+    const head = e.target.closest<HTMLElement>('.section-label[data-section]');
+    if (!row && head) { const items = sectionMenu(head.dataset.section || ''); if (items.length) contextMenu(e.clientX, e.clientY, items); return; }
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
     // A view's row has a menu of its own: hide it, show the hidden ones.
     if (row.dataset.view) { focusRow(row); contextMenu(e.clientX, e.clientY, viewMenu(row)); return; }
+    if (row.dataset.pin) { focusRow(row); contextMenu(e.clientX, e.clientY, pinMenu(row)); return; }
     // The row under the pointer is the row the menu is about, and the row the keyboard comes
     // back to when the menu closes (H21).
     focusRow(row);
@@ -148,7 +152,10 @@ export function initSidebar(node: HTMLElement) {
   bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFsTree(payload); });
   bus.on('route', () => {
     const cur = currentOf();
-    if (cur.page) expandAncestors(cur.page);
+    // A page opened from Pinned is its own place, like a view: the Vault tree is left as it was.
+    // Any other page (another tab, Go to file) is a page of the tree again.
+    if (cur.page !== state.pinOpen) state.pinOpen = null;
+    if (cur.page && !cur.pinned) expandAncestors(cur.page);
     else if (cur.folder) expandAncestors(cur.folder);
     render();
     scrollToCurrent();

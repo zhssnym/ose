@@ -19,7 +19,8 @@ import {
 } from './sidebar-state.ts';
 import type { TreeNode } from './sidebar-state.ts';
 import {
-  allPlannerViews, findNode, hiddenViews, persistExpanded, render, scratchNode, setViewHidden, vaultName,
+  allPlannerViews, canMoveSection, findNode, hiddenViews, isPinned, moveSection, persistExpanded, render,
+  scratchNode, SECTION_TITLES, setPinned, setViewHidden, vaultName,
 } from './sidebar-tree.ts';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
@@ -207,6 +208,9 @@ export function treeTarget(): Target | null {
   const row = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-row[data-path]') : null;
   // A tree row carries its path and its kind, `file` or `dir`.
   if (row instanceof HTMLElement) return { path: row.dataset.path, kind: row.dataset.kind } as Target;
+  // A pinned row stands for its file or folder, so Unpin from the palette means that one.
+  const pin = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-row[data-pin]:not(.missing)') : null;
+  if (pin instanceof HTMLElement) return { path: pin.dataset.pin, kind: pin.dataset.kind } as Target;
   const r = currentRoute();
   if (r && r.type === 'page') return { path: r.path, kind: 'file' };
   if (r && r.type === 'folder') return { path: clean(r.path || ''), kind: 'dir' };
@@ -255,6 +259,10 @@ const TREE_COMMANDS = [
     applies: () => true, run: (t) => void newFile(t) },
   { id: 'tree.new-folder', title: 'New folder', icon: 'folderPlus', group: 'file', own: false,
     applies: () => true, run: (t) => void newFolder(folderOf(t)) },
+  { id: 'tree.pin', title: 'Pin', icon: 'pin', group: 'tree',
+    applies: (t) => !!t.path && !isPinned(t.path), run: (t) => setPinned(batchFor(t) || [t], true) },
+  { id: 'tree.unpin', title: 'Unpin', icon: 'pin', group: 'tree',
+    applies: (t) => !!t.path && isPinned(t.path), run: (t) => setPinned(batchFor(t) || [t], false) },
   { id: 'tree.open-tab', title: 'Open in new tab', icon: 'plus', group: 'tree',
     applies: (t) => t.path !== undefined, run: (t) => void openInNewTab(t.kind === 'dir' ? { type: 'folder', path: t.path } : { type: 'page', path: t.path }) },
   { id: 'app.focus-enter', title: 'Focus folder', icon: 'focus', group: 'app',
@@ -306,6 +314,14 @@ export function registerTreeCommands() {
       run: (target) => { const t = target && typeof target === 'object' ? target : treeTarget(); if (t && c.applies(t)) c.run(t); },
     });
   }
+  // The sections move up and down: the one the focused row is in, or the heading's from its menu.
+  for (const [id, title, step] of [['sidebar.section-up', 'Move section up', -1], ['sidebar.section-down', 'Move section down', 1]] as const) {
+    commands.register({
+      id, title, group: 'tree', icon: 'chevron',
+      when: () => { const n = sectionTarget(); return !!n && canMoveSection(n, step); },
+      run: (name) => { const n = typeof name === 'string' ? name : sectionTarget(); if (n) moveSection(n, step); },
+    });
+  }
   // A view's row can leave the sidebar, and come back. The view itself still opens from the palette.
   commands.register({
     id: 'tree.hide-view', title: 'Hide view', group: 'tree', icon: 'eyeOff',
@@ -317,6 +333,24 @@ export function registerTreeCommands() {
     when: () => hiddenNow().length > 0,
     run: () => { for (const v of hiddenNow()) setViewHidden(v, false); },
   });
+}
+
+/* ------------------------------------------------------------------ the sections */
+
+/** The section the focused row sits in, by name, or null. */
+function sectionTarget(): string | null {
+  const o = focusOrigin();
+  const box = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-group[data-section]') : null;
+  return box instanceof HTMLElement ? box.dataset.section || null : null;
+}
+
+/** A section heading's menu: move it up or down among the sections on screen. */
+export function sectionMenu(name: string): MenuRow[] {
+  const rows: MenuRow[] = [];
+  const title = SECTION_TITLES[name] || name;
+  if (canMoveSection(name, -1)) rows.push({ label: `Move ${title} up`, iconSvg: icon(ic('chevron', 'dot')), shortcut: shortcutFor('sidebar.section-up') || '', run: () => moveSection(name, -1) });
+  if (canMoveSection(name, 1)) rows.push({ label: `Move ${title} down`, iconSvg: icon(ic('chevron', 'dot')), shortcut: shortcutFor('sidebar.section-down') || '', run: () => moveSection(name, 1) });
+  return rows;
 }
 
 /* ------------------------------------------------------------------ the views */
@@ -346,6 +380,27 @@ export function viewMenu(row: HTMLElement): MenuRow[] {
   return tidy(rows.filter((it): it is MenuRow => !!it));
 }
 
+/**
+ * A pinned row's menu: unpin it, open it aside, find it on disk. A pin whose file is gone
+ * offers only Unpin.
+ */
+export function pinMenu(row: HTMLElement): MenuRow[] {
+  const target = { path: row.dataset.pin || '', kind: row.dataset.kind === 'dir' ? 'dir' : 'file' } as Target;
+  if (row.classList.contains('missing')) {
+    return [{ label: 'Unpin', iconSvg: icon('pin'), run: () => setPinned([target], false) }];
+  }
+  return tidy([
+    menuItem('tree.unpin', target),
+    menuItem('tree.open-tab', target),
+    { sep: true },
+    menuItem('tree.copy-path', target),
+    menuItem('tree.copy-link', target),
+    { sep: true },
+    target.kind === 'dir' ? menuItem('tree.search-here', target) : menuItem('tree.open-external', target),
+    menuItem('tree.reveal', target),
+  ].filter((it): it is MenuRow => !!it));
+}
+
 // The menu's order: create, then focus (first after the line on a folder, Hassan's ask), open,
 // the row's own verbs, the clipboard, then copy and Explorer, then the one destructive action.
 // `app.focus-exit` lives in src/core/focus.ts; its menu row shows only on the folder that is
@@ -354,7 +409,7 @@ const MENU = [
   'file.new', 'tree.new-folder',
   null,
   'app.focus-enter', { id: 'app.focus-exit', applies: (t) => !!t.path && t.kind === 'dir' && getFocus() === t.path },
-  'tree.open-tab',
+  'tree.open-tab', 'tree.pin', 'tree.unpin',
   'file.rename', 'file.move', 'file.duplicate',
   null,
   'file.cut', 'file.copy', 'file.paste',
@@ -414,7 +469,7 @@ function menuFor(path, kind) {
 
 // The menu for a row inside a selection of several (C17): only what makes sense for many.
 // Labels carry the count so the user knows the menu is for the selection.
-const MULTI_MENU = ['file.cut', 'file.copy', 'file.move', null, 'file.trash'];
+const MULTI_MENU = ['tree.pin', 'file.cut', 'file.copy', 'file.move', null, 'file.trash'];
 
 function multiMenu(batch) {
   const target = batch[0];
@@ -445,9 +500,9 @@ export function menuItemsForRow(row) {
 
 /** The keyboard's context menu (S12): under the row, aligned with where its name starts. */
 export function openMenuAt(row) {
-  if (!row || (row.dataset.path === undefined && !row.dataset.view)) return;
+  if (!row || (row.dataset.path === undefined && !row.dataset.view && !row.dataset.pin)) return;
   const r = row.getBoundingClientRect();
-  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), row.dataset.view ? viewMenu(row) : menuItemsForRow(row));
+  contextMenu(Math.round(r.left + 24), Math.round(r.bottom), row.dataset.view ? viewMenu(row) : row.dataset.pin ? pinMenu(row) : menuItemsForRow(row));
 }
 
 /** Right-click on the empty space under the tree: the vault root, or the focus folder. */

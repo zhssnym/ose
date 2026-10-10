@@ -10,8 +10,8 @@ import type { Target } from './fileops.ts';
 import { focusPage } from './layout.ts';
 import { files, navigate, state } from './sidebar-state.ts';
 import {
-  currentOf, focusRow, isOpen, persistExpanded, render, rovingRow, rowByKey, rowFor, rowKey,
-  setRoving, treeRows,
+  currentOf, expandAncestors, focusRow, isOpen, persistExpanded, render, rovingRow, rowByKey, rowFor,
+  rowKey, setRoving, treeRows,
 } from './sidebar-tree.ts';
 import { openMenuAt } from './sidebar-commands.ts';
 
@@ -92,6 +92,8 @@ export function toggleDir(row) {
 function routeForRow(row) {
   if (!row) return null;
   if (row.dataset.view) return { type: 'view', name: row.dataset.view };
+  // A pin: its file, or its folder, which the router shows in the Vault tree.
+  if (row.dataset.pin) return row.classList.contains('missing') ? null : { type: row.dataset.kind === 'dir' ? 'folder' : 'page', path: row.dataset.pin };
   const path = row.dataset.path;
   if (path === undefined) return null;
   return row.dataset.kind === 'dir' ? null : { type: 'page', path };
@@ -99,9 +101,18 @@ function routeForRow(row) {
 
 /** Enter, or a click: a folder folds or unfolds, anything else opens in the tab in front. */
 export function activateRow(row) {
-  if (row && row.dataset.kind === 'dir' && !row.dataset.view) { toggleDir(row); return; }
+  if (row && row.dataset.kind === 'dir' && !row.dataset.view && !row.dataset.pin) { toggleDir(row); return; }
   const r = routeForRow(row);
-  if (r) void navigate(r);
+  if (!r) return;
+  // Where the page was opened from is where it is lit: Pinned, or the tree. The same page clicked
+  // in the other place moves the light there at once, since the route does not change.
+  const from = r.type === 'page' && row.dataset.pin ? r.path : null;
+  if (from !== state.pinOpen) {
+    state.pinOpen = from;
+    if (r.type === 'page' && !from) expandAncestors(r.path);
+    render();
+  }
+  void navigate(r);
 }
 
 /** A row opened on purpose, in a tab of its own. Answers whether there was anything to open. */
@@ -258,6 +269,6 @@ export function onTreeKey(e) {
 
 export function scrollToCurrent() {
   const cur = currentOf();
-  const node = cur.page ? rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
+  const node = cur.page ? (cur.pinned && rowByKey('pin:' + cur.page)) || rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
   if (node) node.scrollIntoView({ block: 'nearest' });
 }

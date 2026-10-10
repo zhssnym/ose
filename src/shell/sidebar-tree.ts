@@ -214,6 +214,130 @@ export const allPlannerViews = () => ose.views.list().filter((v) => v && v.secti
 /** The views the sidebar draws: the planner's, less the hidden ones. */
 const plannerViews = () => { const off = hiddenViews(); return allPlannerViews().filter((v) => !off.has(v.name)); };
 
+/* ------------------------------------------------------------------ section order */
+
+/** The sidebar's sections, by the name each heading and box carries in `data-section`. */
+export const SECTIONS = ['views', 'pins', 'vault', 'scratch'] as const;
+export const SECTION_TITLES: Record<string, string> = { views: 'Views', pins: 'Pinned', vault: 'Vault', scratch: 'Scratchpad' };
+
+/** The order the person put the sections in, kept with the sidebar's state; any not in it go last. */
+export function sectionOrder(): string[] {
+  const saved = (slot('sidebar').get() || {}).sections;
+  const known = Array.isArray(saved) ? saved.filter((n, i) => SECTIONS.includes(n) && saved.indexOf(n) === i) : [];
+  return [...known, ...SECTIONS.filter((n) => !known.includes(n))];
+}
+
+/** The sections drawn right now, top to bottom. */
+export const drawnSections = (): string[] => (state.scrollEl
+  ? [...state.scrollEl.querySelectorAll<HTMLElement>('.sb-group[data-section]')].map((b) => b.dataset.section || '')
+  : []);
+
+/** Can `name` move one place up (-1) or down (+1) among the sections on screen? */
+export function canMoveSection(name: string, step: -1 | 1) {
+  const drawn = drawnSections();
+  const at = drawn.indexOf(name);
+  return at >= 0 && at + step >= 0 && at + step < drawn.length;
+}
+
+/** Swap `name` with the section drawn next to it, above or below. */
+export function moveSection(name: string, step: -1 | 1) {
+  if (!canMoveSection(name, step)) return;
+  const drawn = drawnSections();
+  const other = drawn[drawn.indexOf(name) + step] as string;
+  const order = sectionOrder();
+  const a = order.indexOf(name);
+  const b = order.indexOf(other);
+  order[a] = other;
+  order[b] = name;
+  const s = slot('sidebar');
+  s.set({ ...(s.get() || {}), sections: order });
+  render();
+}
+
+/* ------------------------------------------------------------------ pins */
+
+/** A pinned file or folder: its vault path and what it is, kept with the sidebar's state. */
+export interface Pin { path: string; kind: 'file' | 'dir'; }
+
+/** The pins, in the order they were pinned. */
+export function pins(): Pin[] {
+  const raw = (slot('sidebar').get() || {}).pins;
+  return Array.isArray(raw)
+    ? raw.filter((p) => p && typeof p.path === 'string' && p.path).map((p) => ({ path: clean(p.path), kind: p.kind === 'dir' ? 'dir' : 'file' }))
+    : [];
+}
+
+export const isPinned = (path: string) => pins().some((p) => p.path === clean(path));
+
+function savePins(next: Pin[]) {
+  const s = slot('sidebar');
+  s.set({ ...(s.get() || {}), pins: next });
+  render();
+}
+
+/** Pin these rows (a new pin goes to the end), or unpin them. */
+export function setPinned(targets: Pin[], on: boolean) {
+  const want = new Set(targets.map((t) => clean(t.path)));
+  const kept = pins().filter((p) => !want.has(p.path));
+  savePins(on ? [...kept, ...targets.map((t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' as const : 'file' as const }))] : kept);
+}
+
+/** A move or a rename: every pin at or under `from` follows it to `to`. */
+export function followPins(moves: Array<{ from: string; to: string; }>) {
+  let changed = false;
+  const next = pins().map((p) => {
+    for (const m of moves) {
+      if (p.path === m.from || p.path.startsWith(m.from + '/')) { changed = true; return { ...p, path: m.to + p.path.slice(m.from.length) }; }
+    }
+    return p;
+  });
+  if (changed) savePins(next);
+}
+
+/**
+ * Where a pin stands in the tree as it has been read: its node, or `missing` when the folder it
+ * sits in has been read and it is not there (trashed, or moved outside the app). A pin in a
+ * folder not read yet is neither, and is drawn from what it was pinned as.
+ */
+function pinNode(path: string): { node: TreeNode | null; missing: boolean; } {
+  let node: TreeNode | null = state.tree;
+  for (const s of segments(path)) {
+    if (!node || !node.children) return { node: null, missing: false };
+    node = node.children.find((c) => c.name === s) || null;
+    if (!node) return { node: null, missing: true };
+  }
+  return { node, missing: false };
+}
+
+/**
+ * Pinned: a shortcut row per pin, under Views. A file opens; a folder is not a page, so it is
+ * shown in the Vault tree (the router's `folder` route). Two pins with one name carry their
+ * folder on the right. A pin whose file is gone stays, greyed, until it is unpinned: a file
+ * that comes back (an undo, a restore) is pinned again.
+ */
+function renderPins(frag, cur) {
+  const list = pins();
+  if (!list.length) return;
+  heading(frag, 'Pinned', 'pins');
+  const box = treeBox(frag, 'Pinned');
+  box.classList.add('sb-pins');
+  box.dataset.section = 'pins';
+  const names: string[] = list.map((p) => (p.kind === 'dir' ? baseName(p.path) : titleOf(p.path)));
+  list.forEach((p, i) => {
+    const { node, missing } = pinNode(p.path);
+    const name = names[i] ?? p.path;
+    const twin = names.indexOf(name) !== i || names.lastIndexOf(name) !== i;
+    const current = p.kind === 'dir' ? cur.folder === p.path : cur.pinned && cur.page === p.path;
+    box.appendChild(rowEl({
+      cls: 'sb-pin ' + p.kind + (missing ? ' missing' : '') + (current ? ' current' : ''),
+      depth: 0, glyphHtml: p.kind === 'dir' ? icon('folder') : glyphFor(node || { name: baseName(p.path), path: p.path, kind: 'file' }),
+      text: name || p.path, tail: twin ? baseName(dirName(p.path)) || vaultName() : '',
+      title: missing ? `${p.path}: no longer there` : p.path,
+      data: { pin: p.path, kind: p.kind },
+    }));
+  });
+}
+
 function treeBox(frag, name, multi = false) {
   const box = document.createElement('div');
   box.className = 'sb-group';
@@ -248,7 +372,8 @@ function renderNode(node, depth, box, cur, cuts) {
     for (const c of kidsOf(node)) renderNode(c, depth + 1, box, cur, cuts);
   } else {
     box.appendChild(rowEl({
-      cls: 'file' + flags + (cur.page === node.path ? ' current' : ''),
+      // A pinned page is current in Pinned only: open, it is its own place, not a row of the tree.
+      cls: 'file' + flags + (cur.page === node.path && !cur.pinned ? ' current' : ''),
       depth, glyphHtml: glyphFor(node), text: titleOf(node.path), badge,
       data: { path: node.path, kind: 'file' },
     }));
@@ -257,8 +382,10 @@ function renderNode(node, depth, box, cur, cuts) {
 
 export function currentOf() {
   const r = currentRoute();
+  const page = r && r.type === 'page' ? clean(r.path) : null;
   return {
-    page: r && r.type === 'page' ? clean(r.path) : null,
+    page,
+    pinned: !!page && page === state.pinOpen && isPinned(page),
     folder: r && r.type === 'folder' ? clean(r.path || '') : null,
     view: r && r.type === 'view' ? r.name : null,
   };
@@ -275,11 +402,16 @@ function renderTree(scrollEl: HTMLElement) {
   const focus = getFocus();
   const cuts = cutPaths();
 
+  // Each section is drawn on its own, then laid out in the order the person chose.
+  const part = () => document.createDocumentFragment();
+  const parts: Record<string, DocumentFragment> = {};
+
   // Views: the app's own pages over the vault's files (Journal, Month, …), one row each.
   const views = focus ? [] : plannerViews();
   if (views.length) {
-    heading(frag, 'Views', 'views');
-    const vbox = treeBox(frag, 'Views');
+    const f = parts.views = part();
+    heading(f, 'Views', 'views');
+    const vbox = treeBox(f, 'Views');
     vbox.classList.add('sb-views');
     vbox.dataset.section = 'views';
     for (const v of views) {
@@ -291,12 +423,15 @@ function renderTree(scrollEl: HTMLElement) {
     }
   }
 
+  if (!focus) { const f = part(); renderPins(f, cur); if (f.childNodes.length) parts.pins = f; }
+
   // Vault: what is in the vault folder, directly; the folder itself has no row. In focus mode
   // the heading *is* the indicator: `Focus  <folder>` with the way out on the right, in place
   // of "Vault", so focus mode costs no extra line.
-  if (focus) frag.appendChild(focusLabel(focus));
-  else heading(frag, 'Vault', 'vault');
-  const box = treeBox(frag, 'Vault', true);
+  const vf = parts.vault = part();
+  if (focus) vf.appendChild(focusLabel(focus));
+  else heading(vf, 'Vault', 'vault');
+  const box = treeBox(vf, 'Vault', true);
   box.classList.add('sb-files');
   box.dataset.section = 'vault';
   if (!state.tree) {
@@ -307,13 +442,14 @@ function renderTree(scrollEl: HTMLElement) {
     else if (!root.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(root.path); }
     else for (const c of kidsOf(root)) renderNode(c, 0, box, cur, cuts);
   } else {
-    // The scratchpad has its own section below: it is never drawn twice.
+    // The scratchpad has its own section: it is never drawn twice.
     const scratch = scratchNode();
     const kids = kidsOf(state.tree).filter((c) => c !== scratch);
     if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 0));
     for (const c of kids) renderNode(c, 0, box, cur, cuts);
-    if (scratch) renderScratch(frag, scratch, cur, cuts);
+    if (scratch) renderScratch(parts.scratch = part(), scratch, cur, cuts);
   }
+  for (const name of sectionOrder()) if (parts[name]) frag.appendChild(parts[name]);
 
   // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,
   // put it back. A row that is gone (trashed) hands focus to whatever now sits at its index,
@@ -371,6 +507,7 @@ export function treeRows(): HTMLElement[] {
 export function rowKey(row) {
   if (!row || !row.dataset) return null;
   if (row.dataset.view) return 'view:' + row.dataset.view;
+  if (row.dataset.pin) return 'pin:' + row.dataset.pin;
   if (row.dataset.path !== undefined) return 'path:' + row.dataset.path;
   return null;
 }
@@ -386,7 +523,7 @@ export function rovingRow() {
   if (!list.length) return null;
   const cur = currentOf();
   return rowByKey(state.roving)
-    || (cur.page && rowFor(cur.page))
+    || (cur.page && ((cur.pinned && rowByKey('pin:' + cur.page)) || rowFor(cur.page)))
     || (cur.folder !== null && rowFor(cur.folder))
     || (cur.view && rowByKey('view:' + cur.view))
     || list[0];
