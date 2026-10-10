@@ -214,6 +214,90 @@ export const allPlannerViews = () => ose.views.list().filter((v) => v && v.secti
 /** The views the sidebar draws: the planner's, less the hidden ones. */
 const plannerViews = () => { const off = hiddenViews(); return allPlannerViews().filter((v) => !off.has(v.name)); };
 
+/* ------------------------------------------------------------------ pins */
+
+/** A pinned file or folder: its vault path and what it is, kept with the sidebar's state. */
+export interface Pin { path: string; kind: 'file' | 'dir'; }
+
+/** The pins, in the order they were pinned. */
+export function pins(): Pin[] {
+  const raw = (slot('sidebar').get() || {}).pins;
+  return Array.isArray(raw)
+    ? raw.filter((p) => p && typeof p.path === 'string' && p.path).map((p) => ({ path: clean(p.path), kind: p.kind === 'dir' ? 'dir' : 'file' }))
+    : [];
+}
+
+export const isPinned = (path: string) => pins().some((p) => p.path === clean(path));
+
+function savePins(next: Pin[]) {
+  const s = slot('sidebar');
+  s.set({ ...(s.get() || {}), pins: next });
+  render();
+}
+
+/** Pin these rows (a new pin goes to the end), or unpin them. */
+export function setPinned(targets: Pin[], on: boolean) {
+  const want = new Set(targets.map((t) => clean(t.path)));
+  const kept = pins().filter((p) => !want.has(p.path));
+  savePins(on ? [...kept, ...targets.map((t) => ({ path: clean(t.path), kind: t.kind === 'dir' ? 'dir' as const : 'file' as const }))] : kept);
+}
+
+/** A move or a rename: every pin at or under `from` follows it to `to`. */
+export function followPins(moves: Array<{ from: string; to: string; }>) {
+  let changed = false;
+  const next = pins().map((p) => {
+    for (const m of moves) {
+      if (p.path === m.from || p.path.startsWith(m.from + '/')) { changed = true; return { ...p, path: m.to + p.path.slice(m.from.length) }; }
+    }
+    return p;
+  });
+  if (changed) savePins(next);
+}
+
+/**
+ * Where a pin stands in the tree as it has been read: its node, or `missing` when the folder it
+ * sits in has been read and it is not there (trashed, or moved outside the app). A pin in a
+ * folder not read yet is neither, and is drawn from what it was pinned as.
+ */
+function pinNode(path: string): { node: TreeNode | null; missing: boolean; } {
+  let node: TreeNode | null = state.tree;
+  for (const s of segments(path)) {
+    if (!node || !node.children) return { node: null, missing: false };
+    node = node.children.find((c) => c.name === s) || null;
+    if (!node) return { node: null, missing: true };
+  }
+  return { node, missing: false };
+}
+
+/**
+ * Pinned: a shortcut row per pin, under Views. A file opens; a folder is not a page, so it is
+ * shown in the Vault tree (the router's `folder` route). Two pins with one name carry their
+ * folder on the right. A pin whose file is gone stays, greyed, until it is unpinned: a file
+ * that comes back (an undo, a restore) is pinned again.
+ */
+function renderPins(frag, cur) {
+  const list = pins();
+  if (!list.length) return;
+  heading(frag, 'Pinned', 'pins');
+  const box = treeBox(frag, 'Pinned');
+  box.classList.add('sb-pins');
+  box.dataset.section = 'pins';
+  const names: string[] = list.map((p) => (p.kind === 'dir' ? baseName(p.path) : titleOf(p.path)));
+  list.forEach((p, i) => {
+    const { node, missing } = pinNode(p.path);
+    const name = names[i] ?? p.path;
+    const twin = names.indexOf(name) !== i || names.lastIndexOf(name) !== i;
+    const current = p.kind === 'dir' ? cur.folder === p.path : cur.page === p.path;
+    box.appendChild(rowEl({
+      cls: 'sb-pin ' + p.kind + (missing ? ' missing' : '') + (current ? ' current' : ''),
+      depth: 0, glyphHtml: p.kind === 'dir' ? icon('folder') : glyphFor(node || { name: baseName(p.path), path: p.path, kind: 'file' }),
+      text: name || p.path, tail: twin ? baseName(dirName(p.path)) || vaultName() : '',
+      title: missing ? `${p.path}: no longer there` : p.path,
+      data: { pin: p.path, kind: p.kind },
+    }));
+  });
+}
+
 function treeBox(frag, name, multi = false) {
   const box = document.createElement('div');
   box.className = 'sb-group';
@@ -290,6 +374,8 @@ function renderTree(scrollEl: HTMLElement) {
       }));
     }
   }
+
+  if (!focus) renderPins(frag, cur);
 
   // Vault: what is in the vault folder, directly; the folder itself has no row. In focus mode
   // the heading *is* the indicator: `Focus  <folder>` with the way out on the right, in place
@@ -371,6 +457,7 @@ export function treeRows(): HTMLElement[] {
 export function rowKey(row) {
   if (!row || !row.dataset) return null;
   if (row.dataset.view) return 'view:' + row.dataset.view;
+  if (row.dataset.pin) return 'pin:' + row.dataset.pin;
   if (row.dataset.path !== undefined) return 'path:' + row.dataset.path;
   return null;
 }

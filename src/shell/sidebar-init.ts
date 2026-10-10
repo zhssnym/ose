@@ -16,7 +16,7 @@ import {
   refreshTree,
 } from './sidebar-load.ts';
 import {
-  bindDnd, emptyMenu, menuItemsForRow, registerTreeCommands, toggleHidden, treeTarget, viewMenu,
+  bindDnd, emptyMenu, menuItemsForRow, pinMenu, registerTreeCommands, toggleHidden, treeTarget, viewMenu,
 } from './sidebar-commands.ts';
 
 /* ------------------------------------------------------------------ init */
@@ -122,6 +122,7 @@ export function initSidebar(node: HTMLElement) {
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
     // A view's row has a menu of its own: hide it, show the hidden ones.
     if (row.dataset.view) { focusRow(row); contextMenu(e.clientX, e.clientY, viewMenu(row)); return; }
+    if (row.dataset.pin) { focusRow(row); contextMenu(e.clientX, e.clientY, pinMenu(row)); return; }
     // The row under the pointer is the row the menu is about, and the row the keyboard comes
     // back to when the menu closes (H21).
     focusRow(row);

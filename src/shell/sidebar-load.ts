@@ -9,7 +9,7 @@ import {
   debounce, files, findInbound, messageOf, rewriteInboundMany, showHidden, state,
 } from './sidebar-state.ts';
 import type { TreeNode } from './sidebar-state.ts';
-import { expandAncestors, findNode, persistExpanded, render, rowFor } from './sidebar-tree.ts';
+import { expandAncestors, findNode, followPins, persistExpanded, render, rowFor } from './sidebar-tree.ts';
 import { scrollToCurrent } from './sidebar-select.ts';
 
 /* ------------------------------------------------------------------ data load */
@@ -242,6 +242,7 @@ export function onMoved(d) {
     dirs.push(dirName(m.from), dirName(m.to));
   }
   persistExpanded();
+  followPins(moves);
   if (state.selected.size) {
     const next = new Set<string>();
     for (const p of state.selected) {

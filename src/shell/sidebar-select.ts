@@ -92,6 +92,8 @@ export function toggleDir(row) {
 function routeForRow(row) {
   if (!row) return null;
   if (row.dataset.view) return { type: 'view', name: row.dataset.view };
+  // A pin: its file, or its folder, which the router shows in the Vault tree.
+  if (row.dataset.pin) return row.classList.contains('missing') ? null : { type: row.dataset.kind === 'dir' ? 'folder' : 'page', path: row.dataset.pin };
   const path = row.dataset.path;
   if (path === undefined) return null;
   return row.dataset.kind === 'dir' ? null : { type: 'page', path };
@@ -99,7 +101,7 @@ function routeForRow(row) {
 
 /** Enter, or a click: a folder folds or unfolds, anything else opens in the tab in front. */
 export function activateRow(row) {
-  if (row && row.dataset.kind === 'dir' && !row.dataset.view) { toggleDir(row); return; }
+  if (row && row.dataset.kind === 'dir' && !row.dataset.view && !row.dataset.pin) { toggleDir(row); return; }
   const r = routeForRow(row);
   if (r) void navigate(r);
 }

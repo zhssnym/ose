@@ -79,6 +79,10 @@
 .sb-row.selected.link .gl,
 .sb-row.selected.link .grow { color: var(--fg-2); }
 
+/* A pin whose file or folder is gone: greyed and struck, until it comes back or is unpinned. */
+.sb-row.missing .gl, .sb-row.missing .grow { color: var(--fg-3); }
+.sb-row.missing .grow { text-decoration: line-through; }
+
 /* A hidden entry (a dotfile, or one the system marks hidden), shown because Show hidden items
    is on: greyed, like Explorer draws it. A cut row waiting for Paste, the same. */
 .sb-row.hidden-entry .gl, .sb-row.hidden-entry .grow,
