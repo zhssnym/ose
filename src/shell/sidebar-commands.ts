@@ -19,8 +19,8 @@ import {
 } from './sidebar-state.ts';
 import type { TreeNode } from './sidebar-state.ts';
 import {
-  allPlannerViews, findNode, hiddenViews, isPinned, persistExpanded, render, scratchNode, setPinned,
-  setViewHidden, vaultName,
+  allPlannerViews, canMoveSection, findNode, hiddenViews, isPinned, moveSection, persistExpanded, render,
+  scratchNode, SECTION_TITLES, setPinned, setViewHidden, vaultName,
 } from './sidebar-tree.ts';
 import {
   batchFor, clearSelection, folderOf, isSelectable, openWith, revealIn, targetOf,
@@ -314,6 +314,14 @@ export function registerTreeCommands() {
       run: (target) => { const t = target && typeof target === 'object' ? target : treeTarget(); if (t && c.applies(t)) c.run(t); },
     });
   }
+  // The sections move up and down: the one the focused row is in, or the heading's from its menu.
+  for (const [id, title, step] of [['sidebar.section-up', 'Move section up', -1], ['sidebar.section-down', 'Move section down', 1]] as const) {
+    commands.register({
+      id, title, group: 'tree', icon: 'chevron',
+      when: () => { const n = sectionTarget(); return !!n && canMoveSection(n, step); },
+      run: (name) => { const n = typeof name === 'string' ? name : sectionTarget(); if (n) moveSection(n, step); },
+    });
+  }
   // A view's row can leave the sidebar, and come back. The view itself still opens from the palette.
   commands.register({
     id: 'tree.hide-view', title: 'Hide view', group: 'tree', icon: 'eyeOff',
@@ -325,6 +333,24 @@ export function registerTreeCommands() {
     when: () => hiddenNow().length > 0,
     run: () => { for (const v of hiddenNow()) setViewHidden(v, false); },
   });
+}
+
+/* ------------------------------------------------------------------ the sections */
+
+/** The section the focused row sits in, by name, or null. */
+function sectionTarget(): string | null {
+  const o = focusOrigin();
+  const box = o && state.scrollEl && state.scrollEl.contains(o) && o.closest ? o.closest('.sb-group[data-section]') : null;
+  return box instanceof HTMLElement ? box.dataset.section || null : null;
+}
+
+/** A section heading's menu: move it up or down among the sections on screen. */
+export function sectionMenu(name: string): MenuRow[] {
+  const rows: MenuRow[] = [];
+  const title = SECTION_TITLES[name] || name;
+  if (canMoveSection(name, -1)) rows.push({ label: `Move ${title} up`, iconSvg: icon(ic('chevron', 'dot')), shortcut: shortcutFor('sidebar.section-up') || '', run: () => moveSection(name, -1) });
+  if (canMoveSection(name, 1)) rows.push({ label: `Move ${title} down`, iconSvg: icon(ic('chevron', 'dot')), shortcut: shortcutFor('sidebar.section-down') || '', run: () => moveSection(name, 1) });
+  return rows;
 }
 
 /* ------------------------------------------------------------------ the views */

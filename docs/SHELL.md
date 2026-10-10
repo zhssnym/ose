@@ -127,7 +127,10 @@ folder in the sidebar.
 Up to four sections, each its own `role="tree"`: **Views** (the registered views of the
 `planner` section, ordered by `order.ts`), **Pinned** (when anything is), **Vault** (the vault folder's contents; the folder
 has no row of its own) and **Scratchpad** (a top-level `scratchpad` folder, when there is one,
-shown here instead of under Vault). Folders come first, then files, in natural order; a folder
+shown here instead of under Vault). They stand in the order the person puts them in: a
+section's heading has **Move up** and **Move down** in its menu, and **Move section up** and
+**Move section down** (`sidebar.section-up`, `sidebar.section-down`) move the section of the
+focused row from the palette. The order is kept with the sidebar's state for the vault. Folders come first, then files, in natural order; a folder
 opens and closes in place; every name is shown in full. Hidden items (dot names, the OS hidden
 attribute) appear only with Show hidden items on, greyed. What the host never lists (`.ose`,
 `.git`, temp files) never arrives (docs/HOST.md).

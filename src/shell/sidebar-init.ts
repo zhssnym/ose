@@ -16,7 +16,7 @@ import {
   refreshTree,
 } from './sidebar-load.ts';
 import {
-  bindDnd, emptyMenu, menuItemsForRow, pinMenu, registerTreeCommands, toggleHidden, treeTarget, viewMenu,
+  bindDnd, emptyMenu, menuItemsForRow, pinMenu, registerTreeCommands, sectionMenu, toggleHidden, treeTarget, viewMenu,
 } from './sidebar-commands.ts';
 
 /* ------------------------------------------------------------------ init */
@@ -119,6 +119,9 @@ export function initSidebar(node: HTMLElement) {
     if (!(e.target instanceof Element)) return;
     const row = e.target.closest<HTMLElement>('.sb-row');
     e.preventDefault();
+    // A section's heading: move the section up or down.
+    const head = e.target.closest<HTMLElement>('.section-label[data-section]');
+    if (!row && head) { const items = sectionMenu(head.dataset.section || ''); if (items.length) contextMenu(e.clientX, e.clientY, items); return; }
     if (!row) { contextMenu(e.clientX, e.clientY, emptyMenu()); return; }
     // A view's row has a menu of its own: hide it, show the hidden ones.
     if (row.dataset.view) { focusRow(row); contextMenu(e.clientX, e.clientY, viewMenu(row)); return; }

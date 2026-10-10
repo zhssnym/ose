@@ -214,6 +214,46 @@ export const allPlannerViews = () => ose.views.list().filter((v) => v && v.secti
 /** The views the sidebar draws: the planner's, less the hidden ones. */
 const plannerViews = () => { const off = hiddenViews(); return allPlannerViews().filter((v) => !off.has(v.name)); };
 
+/* ------------------------------------------------------------------ section order */
+
+/** The sidebar's sections, by the name each heading and box carries in `data-section`. */
+export const SECTIONS = ['views', 'pins', 'vault', 'scratch'] as const;
+export const SECTION_TITLES: Record<string, string> = { views: 'Views', pins: 'Pinned', vault: 'Vault', scratch: 'Scratchpad' };
+
+/** The order the person put the sections in, kept with the sidebar's state; any not in it go last. */
+export function sectionOrder(): string[] {
+  const saved = (slot('sidebar').get() || {}).sections;
+  const known = Array.isArray(saved) ? saved.filter((n, i) => SECTIONS.includes(n) && saved.indexOf(n) === i) : [];
+  return [...known, ...SECTIONS.filter((n) => !known.includes(n))];
+}
+
+/** The sections drawn right now, top to bottom. */
+export const drawnSections = (): string[] => (state.scrollEl
+  ? [...state.scrollEl.querySelectorAll<HTMLElement>('.sb-group[data-section]')].map((b) => b.dataset.section || '')
+  : []);
+
+/** Can `name` move one place up (-1) or down (+1) among the sections on screen? */
+export function canMoveSection(name: string, step: -1 | 1) {
+  const drawn = drawnSections();
+  const at = drawn.indexOf(name);
+  return at >= 0 && at + step >= 0 && at + step < drawn.length;
+}
+
+/** Swap `name` with the section drawn next to it, above or below. */
+export function moveSection(name: string, step: -1 | 1) {
+  if (!canMoveSection(name, step)) return;
+  const drawn = drawnSections();
+  const other = drawn[drawn.indexOf(name) + step] as string;
+  const order = sectionOrder();
+  const a = order.indexOf(name);
+  const b = order.indexOf(other);
+  order[a] = other;
+  order[b] = name;
+  const s = slot('sidebar');
+  s.set({ ...(s.get() || {}), sections: order });
+  render();
+}
+
 /* ------------------------------------------------------------------ pins */
 
 /** A pinned file or folder: its vault path and what it is, kept with the sidebar's state. */
@@ -359,11 +399,16 @@ function renderTree(scrollEl: HTMLElement) {
   const focus = getFocus();
   const cuts = cutPaths();
 
+  // Each section is drawn on its own, then laid out in the order the person chose.
+  const part = () => document.createDocumentFragment();
+  const parts: Record<string, DocumentFragment> = {};
+
   // Views: the app's own pages over the vault's files (Journal, Month, …), one row each.
   const views = focus ? [] : plannerViews();
   if (views.length) {
-    heading(frag, 'Views', 'views');
-    const vbox = treeBox(frag, 'Views');
+    const f = parts.views = part();
+    heading(f, 'Views', 'views');
+    const vbox = treeBox(f, 'Views');
     vbox.classList.add('sb-views');
     vbox.dataset.section = 'views';
     for (const v of views) {
@@ -375,14 +420,15 @@ function renderTree(scrollEl: HTMLElement) {
     }
   }
 
-  if (!focus) renderPins(frag, cur);
+  if (!focus) { const f = part(); renderPins(f, cur); if (f.childNodes.length) parts.pins = f; }
 
   // Vault: what is in the vault folder, directly; the folder itself has no row. In focus mode
   // the heading *is* the indicator: `Focus  <folder>` with the way out on the right, in place
   // of "Vault", so focus mode costs no extra line.
-  if (focus) frag.appendChild(focusLabel(focus));
-  else heading(frag, 'Vault', 'vault');
-  const box = treeBox(frag, 'Vault', true);
+  const vf = parts.vault = part();
+  if (focus) vf.appendChild(focusLabel(focus));
+  else heading(vf, 'Vault', 'vault');
+  const box = treeBox(vf, 'Vault', true);
   box.classList.add('sb-files');
   box.dataset.section = 'vault';
   if (!state.tree) {
@@ -393,13 +439,14 @@ function renderTree(scrollEl: HTMLElement) {
     else if (!root.children) { box.appendChild(emptyLine('Reading…', 0)); void loadChildren(root.path); }
     else for (const c of kidsOf(root)) renderNode(c, 0, box, cur, cuts);
   } else {
-    // The scratchpad has its own section below: it is never drawn twice.
+    // The scratchpad has its own section: it is never drawn twice.
     const scratch = scratchNode();
     const kids = kidsOf(state.tree).filter((c) => c !== scratch);
     if (!kids.length) box.appendChild(emptyLine('Nothing here yet', 0));
     for (const c of kids) renderNode(c, 0, box, cur, cuts);
-    if (scratch) renderScratch(frag, scratch, cur, cuts);
+    if (scratch) renderScratch(parts.scratch = part(), scratch, cur, cuts);
   }
+  for (const name of sectionOrder()) if (parts[name]) frag.appendChild(parts[name]);
 
   // The rebuild would drop keyboard focus on the floor (B4): note which row had it, rebuild,
   // put it back. A row that is gone (trashed) hands focus to whatever now sits at its index,
