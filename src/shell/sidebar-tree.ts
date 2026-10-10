@@ -372,7 +372,8 @@ function renderNode(node, depth, box, cur, cuts) {
     for (const c of kidsOf(node)) renderNode(c, depth + 1, box, cur, cuts);
   } else {
     box.appendChild(rowEl({
-      cls: 'file' + flags + (cur.page === node.path ? ' current' : ''),
+      // A pinned page is current in Pinned only: open, it is its own place, not a row of the tree.
+      cls: 'file' + flags + (cur.page === node.path && !cur.pinned ? ' current' : ''),
       depth, glyphHtml: glyphFor(node), text: titleOf(node.path), badge,
       data: { path: node.path, kind: 'file' },
     }));
@@ -381,8 +382,10 @@ function renderNode(node, depth, box, cur, cuts) {
 
 export function currentOf() {
   const r = currentRoute();
+  const page = r && r.type === 'page' ? clean(r.path) : null;
   return {
-    page: r && r.type === 'page' ? clean(r.path) : null,
+    page,
+    pinned: !!page && isPinned(page),
     folder: r && r.type === 'folder' ? clean(r.path || '') : null,
     view: r && r.type === 'view' ? r.name : null,
   };
