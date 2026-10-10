@@ -5,7 +5,7 @@ import { onClipboard, setContext } from './fileops.ts';
 import { toggleSidebar } from './layout.ts';
 import { bus, commands, debounce, ic, showHidden, slot, state } from './sidebar-state.ts';
 import {
-  currentOf, expandAncestors, focusRow, focusTree, isPinned, render, rowByKey, rowKey, setRoving,
+  currentOf, expandAncestors, focusRow, focusTree, render, rowByKey, rowKey, setRoving,
 } from './sidebar-tree.ts';
 import {
   activateRow, batchFor, clearSelection, isSelectable, onTreeKey, openRowAside, scrollToCurrent,
@@ -152,8 +152,10 @@ export function initSidebar(node: HTMLElement) {
   bus.on('fs', (payload) => { onFsRenames(payload); askLater(); onFsTree(payload); });
   bus.on('route', () => {
     const cur = currentOf();
-    // A pinned page is reached from Pinned, like a view: the Vault tree is left as it was.
-    if (cur.page && !isPinned(cur.page)) expandAncestors(cur.page);
+    // A page opened from Pinned is its own place, like a view: the Vault tree is left as it was.
+    // Any other page (another tab, Go to file) is a page of the tree again.
+    if (cur.page !== state.pinOpen) state.pinOpen = null;
+    if (cur.page && !cur.pinned) expandAncestors(cur.page);
     else if (cur.folder) expandAncestors(cur.folder);
     render();
     scrollToCurrent();

@@ -10,8 +10,8 @@ import type { Target } from './fileops.ts';
 import { focusPage } from './layout.ts';
 import { files, navigate, state } from './sidebar-state.ts';
 import {
-  currentOf, focusRow, isOpen, persistExpanded, render, rovingRow, rowByKey, rowFor, rowKey,
-  setRoving, treeRows,
+  currentOf, expandAncestors, focusRow, isOpen, persistExpanded, render, rovingRow, rowByKey, rowFor,
+  rowKey, setRoving, treeRows,
 } from './sidebar-tree.ts';
 import { openMenuAt } from './sidebar-commands.ts';
 
@@ -103,7 +103,16 @@ function routeForRow(row) {
 export function activateRow(row) {
   if (row && row.dataset.kind === 'dir' && !row.dataset.view && !row.dataset.pin) { toggleDir(row); return; }
   const r = routeForRow(row);
-  if (r) void navigate(r);
+  if (!r) return;
+  // Where the page was opened from is where it is lit: Pinned, or the tree. The same page clicked
+  // in the other place moves the light there at once, since the route does not change.
+  const from = r.type === 'page' && row.dataset.pin ? r.path : null;
+  if (from !== state.pinOpen) {
+    state.pinOpen = from;
+    if (r.type === 'page' && !from) expandAncestors(r.path);
+    render();
+  }
+  void navigate(r);
 }
 
 /** A row opened on purpose, in a tab of its own. Answers whether there was anything to open. */
@@ -260,6 +269,6 @@ export function onTreeKey(e) {
 
 export function scrollToCurrent() {
   const cur = currentOf();
-  const node = cur.page ? rowByKey('pin:' + cur.page) || rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
+  const node = cur.page ? (cur.pinned && rowByKey('pin:' + cur.page)) || rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
   if (node) node.scrollIntoView({ block: 'nearest' });
 }

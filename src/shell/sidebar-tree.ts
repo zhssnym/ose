@@ -327,7 +327,7 @@ function renderPins(frag, cur) {
     const { node, missing } = pinNode(p.path);
     const name = names[i] ?? p.path;
     const twin = names.indexOf(name) !== i || names.lastIndexOf(name) !== i;
-    const current = p.kind === 'dir' ? cur.folder === p.path : cur.page === p.path;
+    const current = p.kind === 'dir' ? cur.folder === p.path : cur.pinned && cur.page === p.path;
     box.appendChild(rowEl({
       cls: 'sb-pin ' + p.kind + (missing ? ' missing' : '') + (current ? ' current' : ''),
       depth: 0, glyphHtml: p.kind === 'dir' ? icon('folder') : glyphFor(node || { name: baseName(p.path), path: p.path, kind: 'file' }),
@@ -385,7 +385,7 @@ export function currentOf() {
   const page = r && r.type === 'page' ? clean(r.path) : null;
   return {
     page,
-    pinned: !!page && isPinned(page),
+    pinned: !!page && page === state.pinOpen && isPinned(page),
     folder: r && r.type === 'folder' ? clean(r.path || '') : null,
     view: r && r.type === 'view' ? r.name : null,
   };
@@ -523,7 +523,7 @@ export function rovingRow() {
   if (!list.length) return null;
   const cur = currentOf();
   return rowByKey(state.roving)
-    || (cur.page && (rowByKey('pin:' + cur.page) || rowFor(cur.page)))
+    || (cur.page && ((cur.pinned && rowByKey('pin:' + cur.page)) || rowFor(cur.page)))
     || (cur.folder !== null && rowFor(cur.folder))
     || (cur.view && rowByKey('view:' + cur.view))
     || list[0];
