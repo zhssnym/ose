@@ -473,7 +473,7 @@ export function rovingRow() {
   if (!list.length) return null;
   const cur = currentOf();
   return rowByKey(state.roving)
-    || (cur.page && rowFor(cur.page))
+    || (cur.page && (rowByKey('pin:' + cur.page) || rowFor(cur.page)))
     || (cur.folder !== null && rowFor(cur.folder))
     || (cur.view && rowByKey('view:' + cur.view))
     || list[0];

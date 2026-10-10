@@ -161,7 +161,8 @@ view still opens from the palette.
 
 **Pin** (`tree.pin`) and **Unpin** (`tree.unpin`), on a row's menu, a selection's and the
 palette (the focused row, else the page on screen), put a file or folder in **Pinned**, in the
-order pinned. A pinned file opens; a pinned folder is shown in the Vault tree. Pins follow a
+order pinned. A pinned file opens like a view, leaving the Vault tree as it was; a pinned folder is shown in
+the Vault tree. Pins follow a
 move or a rename; a pin whose file is gone stays greyed and struck until it is unpinned, and is
 whole again if the file comes back. A pinned row's menu: Unpin, Open in new tab, Copy path,
 Copy link, Search in folder or Open with default app, Open containing folder. Pins are kept with

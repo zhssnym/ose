@@ -260,6 +260,6 @@ export function onTreeKey(e) {
 
 export function scrollToCurrent() {
   const cur = currentOf();
-  const node = cur.page ? rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
+  const node = cur.page ? rowByKey('pin:' + cur.page) || rowFor(cur.page) : cur.folder !== null ? rowFor(cur.folder) : null;
   if (node) node.scrollIntoView({ block: 'nearest' });
 }
